@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+build/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Private data (real SOP, franchise docs, real transcripts, staff/customer data)
+/private/
+
+# Audio — never committed, per CLAUDE.md hard rule #2 and #8
+*.wav
+*.mp3
+*.ogg
+*.opus
+*.webm
+*.m4a
+
+# Claude Code project-local settings (personal, never shared)
+.claude/settings.local.json
+
+# OS / editor
+.DS_Store
+*.log
+.vscode/
+.idea/
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
