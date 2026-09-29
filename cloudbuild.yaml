@@ -1,0 +1,62 @@
+# Cloud Build config for the single Cloud Run service `web` (asia-southeast2 /
+# Jakarta), per CLAUDE.md §3 and docs/specs/pipeline-and-agents.md T-003.
+#
+# Trigger: Cloud Build trigger on push to `main`, created by Rangga in the
+# GCP console (needs an authenticated `gcloud`/GitHub connection — see
+# docs/tasks/R-01.md "Rangga-only"). This file only describes what the
+# trigger runs once it exists.
+#
+# No secrets live here: the service account attached to the Cloud Run
+# revision picks up config at runtime from Secret Manager and
+# config/regions.yaml — never from build-time substitutions or baked-in
+# environment values.
+
+substitutions:
+  _SERVICE_NAME: web
+  _REGION: asia-southeast2
+  _REPOSITORY: bee6
+
+images:
+  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:${SHORT_SHA}"
+
+steps:
+  # Build the container image with Cloud Native Buildpacks so we don't
+  # need to maintain a hand-written Dockerfile for a standard Next.js app.
+  - id: build
+    name: gcr.io/k8s-skaffold/pack
+    entrypoint: pack
+    args:
+      - build
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:${SHORT_SHA}"
+      - --builder=gcr.io/buildpacks/builder:google-22
+      - --path=.
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:${SHORT_SHA}"
+
+  - id: deploy
+    name: gcr.io/google-cloud-sdk/slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - "${_SERVICE_NAME}"
+      - --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:${SHORT_SHA}
+      - --region=${_REGION}
+      - --platform=managed
+      # Public HTTP entrypoint: owners/supervisors sign in with Google,
+      # the shop device carries a pairing token, staff use a PIN, and
+      # judges use the demo outlet — all authenticated inside the app
+      # via Firebase Auth (CLAUDE.md hard rule #6), not at the Cloud Run
+      # IAM layer.
+      - --allow-unauthenticated
+      # Service account only — no API keys, per CLAUDE.md hard rule #4.
+      - --service-account=web-runtime@${PROJECT_ID}.iam.gserviceaccount.com
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: 1200s
