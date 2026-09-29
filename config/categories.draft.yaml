@@ -1,0 +1,86 @@
+# DRAFT: structure only. Tiffany fills `examples` (one real vs one hypothetical/retold pair per category)
+# before R-05. The label prompt and the JSON schema are generated from this file.
+version: 0.1
+parents: [Normal, Planned, Incidental]
+decision_order: [NON_WORK, SAFETY_INCIDENT, SECURITY_INCIDENT, DISRUPTION, COMPLAINT, EVENT,
+                 PHONE_CALL, CORRECTION, STAFF_CONSULT, TRAINING, CUSTOMER_SERVICE, ROUTINE_OPS]
+categories:
+  ROUTINE_OPS:
+    parent: Normal
+    definition: Everyday work (SOP steps, stock, handoffs, content work).
+    fields: [ops_type]
+    needs_supervisor_confirm: false
+    examples: {real: TODO, not_this: TODO}
+  CUSTOMER_SERVICE:
+    parent: Normal
+    definition: Serving a customer or visitor who is not expressing dissatisfaction.
+    fields: [unmet_request, sale]
+    needs_supervisor_confirm: false
+    examples: {real: TODO, not_this: TODO}
+  TRAINING:
+    parent: Normal
+    definition: Teaching by a supervisor/senior, or what-if discussion; nothing live being handled.
+    fields: [extracted_rules]
+    needs_supervisor_confirm: false
+    examples: {real: TODO, not_this: TODO}
+  STAFF_CONSULT:
+    parent: Normal
+    definition: Staff asking how to handle a situation happening right now.
+    fields: [extracted_rules]
+    needs_supervisor_confirm: false
+    examples: {real: TODO, not_this: TODO}
+  CORRECTION:
+    parent: Normal
+    definition: Supervisor correcting a mistake just made (record the step, not the person).
+    fields: [extracted_rules]
+    needs_supervisor_confirm: true
+    examples: {real: TODO, not_this: TODO}
+  PHONE_CALL:
+    parent: Normal
+    definition: Staff on a phone call, any topic. One side audible, so always a debrief question.
+    fields: []
+    needs_supervisor_confirm: false
+    always_question: true
+    examples: {real: TODO, not_this: TODO}
+  EVENT:
+    parent: Planned
+    definition: Work that exists only because of a planned event (prep or live).
+    fields: [event_id, phase]
+    needs_supervisor_confirm: false
+    examples: {real: TODO, not_this: TODO}
+  COMPLAINT:
+    parent: Incidental
+    definition: Customer expressing dissatisfaction, for any reason.
+    fields: [complaint_type, customer_request]
+    needs_supervisor_confirm: true
+    examples: {real: TODO, not_this: TODO}
+  SAFETY_INCIDENT:
+    parent: Incidental
+    definition: Someone hurt or at immediate risk, or staff find a product hazard.
+    fields: [hazard_type]
+    needs_supervisor_confirm: true
+    examples: {real: TODO, not_this: TODO}
+  SECURITY_INCIDENT:
+    parent: Incidental
+    definition: Possible theft, fraud or threat. Flag as possible only; never name a suspect.
+    fields: []
+    needs_supervisor_confirm: true
+    examples: {real: TODO, not_this: TODO}
+  DISRUPTION:
+    parent: Incidental
+    definition: Operations stopped by equipment, utility or an outside event.
+    fields: [cause]
+    needs_supervisor_confirm: true
+    examples: {real: TODO, not_this: TODO}
+  NON_WORK:
+    parent: null
+    definition: Private talk. Deleted after labelling; only counted.
+    fields: []
+field_values:
+  ops_type: [sop_step, stock, handoff, content]
+  unmet_request_reason: [sold_out, not_on_menu, wrong_time, wrong_size]
+  complaint_type: [missing_item, wrong_item, foreign_object, spoiled, taste_texture, wait_time, price, attitude, unavailable]
+  customer_request: [replacement, refund, apology, none]
+  hazard_type: [burn, cut, slip, gas_fire, product]
+  cause: [equipment, utility, natural, external]
+incident_keywords: [kebakaran, api, maling, copet, jatuh, luka, gas bocor]  # Tiffany to review
