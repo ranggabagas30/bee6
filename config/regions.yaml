@@ -1,37 +1,39 @@
 # Written by `npm run probe`. Do not hand-edit — see scripts/probe.ts.
 # Probe order per model: asia-southeast2 -> asia-southeast1 -> global.
 version: 0.1
-probed_at: 2026-09-29T19:13:26.796Z
+probed_at: 2026-09-29T20:24:41.690Z
 models:
   gemini-3.5-transcribe:
     location: UNPROBED
     latency_ms: null
     probed_at: null
     error:
-      code: NOT_CONFIGURED
-      message: No GCP project/service account wired up yet (R-01 agent-buildable
-        slice) — see docs/tasks/R-01.md.
+      code: HTTP_404
+      message: '{"error":{"code":404,"message":"Publisher model
+        `projects/project-a10437b4-b198-402e-97e/locations/global/publishers/google/models/gemini-3.5-transcribe`
+        was not found or your project does not have access to it. Ensure you are
+        using a valid model name and that the model is available in the
+        specified region. For more information, see:
+        https://docs.cloud.google.com/gemini-enterprise-agent-platform/r…'
   gemini-3.5-flash-lite:
-    location: UNPROBED
-    latency_ms: null
-    probed_at: null
-    error:
-      code: NOT_CONFIGURED
-      message: No GCP project/service account wired up yet (R-01 agent-buildable
-        slice) — see docs/tasks/R-01.md.
+    location: global
+    latency_ms: 1059
+    probed_at: 2026-09-29T20:24:44.039Z
+    error: null
   gemini-3.5-flash:
-    location: UNPROBED
-    latency_ms: null
-    probed_at: null
-    error:
-      code: NOT_CONFIGURED
-      message: No GCP project/service account wired up yet (R-01 agent-buildable
-        slice) — see docs/tasks/R-01.md.
+    location: asia-southeast1
+    latency_ms: 1760
+    probed_at: 2026-09-29T20:24:45.937Z
+    error: null
   gemini-live-debrief:
     location: UNPROBED
     latency_ms: null
     probed_at: null
     error:
-      code: NOT_CONFIGURED
-      message: No GCP project/service account wired up yet (R-01 agent-buildable
-        slice) — see docs/tasks/R-01.md.
+      code: HTTP_404
+      message: '{"error":{"code":404,"message":"Publisher model
+        `projects/project-a10437b4-b198-402e-97e/locations/global/publishers/google/models/gemini-live-debrief`
+        was not found or your project does not have access to it. Ensure you are
+        using a valid model name and that the model is available in the
+        specified region. For more information, see:
+        https://docs.cloud.google.com/gemini-enterprise-agent-platform/res…'
