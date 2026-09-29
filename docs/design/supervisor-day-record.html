@@ -1,0 +1,535 @@
+<style>
+  :root {
+    --bg: #F4F6F9;
+    --surface: #FFFFFF;
+    --surface-2: #EEF1F5;
+    --ink: #1A2430;
+    --ink-2: #56626F;
+    --ink-3: #8A94A1;
+    --border: #E1E6EC;
+    --accent: #215E86;
+    --accent-soft: #E7F0F6;
+    --accent-ink: #1B4E70;
+    --on-accent: #FFFFFF;
+    --good: #2F8F5B; --good-soft: #E4F1EA;
+    --warn: #A8760B; --warn-soft: #F7EED6;
+    --crit: #BB443B; --crit-soft: #F8E4E2;
+    --p-normal: #64748B;
+    --p-planned: #3E7CB1;
+    --p-incidental: #BB443B;
+    --radius: 14px;
+    --radius-sm: 9px;
+    --shadow: 0 1px 2px rgba(20,30,45,.06), 0 6px 20px rgba(20,30,45,.05);
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0E1319; --surface: #171F29; --surface-2: #1F2831;
+      --ink: #E7ECF2; --ink-2: #A2AEBC; --ink-3: #6F7C8B; --border: #28323D;
+      --accent: #5BA3D0; --accent-soft: #12303F; --accent-ink: #8FC6E4; --on-accent: #0B1017;
+      --good: #4FB07A; --good-soft: #12281C;
+      --warn: #E0A93C; --warn-soft: #2E2609;
+      --crit: #E0685C; --crit-soft: #301A18;
+      --p-normal: #7C8B9C; --p-planned: #6BA6D8; --p-incidental: #E0685C;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #F4F6F9; --surface: #FFFFFF; --surface-2: #EEF1F5;
+    --ink: #1A2430; --ink-2: #56626F; --ink-3: #8A94A1; --border: #E1E6EC;
+    --accent: #215E86; --accent-soft: #E7F0F6; --accent-ink: #1B4E70; --on-accent: #FFFFFF;
+    --good: #2F8F5B; --good-soft: #E4F1EA; --warn: #A8760B; --warn-soft: #F7EED6;
+    --crit: #BB443B; --crit-soft: #F8E4E2;
+    --p-normal: #64748B; --p-planned: #3E7CB1; --p-incidental: #BB443B;
+    --shadow: 0 1px 2px rgba(20,30,45,.06), 0 6px 20px rgba(20,30,45,.05);
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E1319; --surface: #171F29; --surface-2: #1F2831;
+    --ink: #E7ECF2; --ink-2: #A2AEBC; --ink-3: #6F7C8B; --border: #28323D;
+    --accent: #5BA3D0; --accent-soft: #12303F; --accent-ink: #8FC6E4; --on-accent: #0B1017;
+    --good: #4FB07A; --good-soft: #12281C; --warn: #E0A93C; --warn-soft: #2E2609;
+    --crit: #E0685C; --crit-soft: #301A18;
+    --p-normal: #7C8B9C; --p-planned: #6BA6D8; --p-incidental: #E0685C;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+    line-height: 1.5;
+  }
+
+  .wrap { max-width: 480px; margin: 0 auto; min-height: 100vh;
+    background: var(--bg); position: relative; }
+
+  .mocknote {
+    font: 500 11px/1.4 var(--mono); color: var(--ink-3);
+    text-align: center; padding: 10px 16px 4px; letter-spacing: .02em;
+  }
+
+  /* Header */
+  header.app {
+    position: sticky; top: 0; z-index: 20;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: saturate(1.4) blur(10px);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 16px 12px;
+  }
+  .hrow { display: flex; align-items: center; gap: 10px; }
+  .brand { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .brand .logo {
+    font: 800 17px/1 var(--sans); letter-spacing: -.02em; color: var(--ink);
+  }
+  .brand .logo b { color: var(--accent); }
+  .brand .ctx { font-size: 12px; color: var(--ink-2); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+  .spacer { flex: 1; }
+  .role {
+    font: 600 11px/1 var(--sans); letter-spacing: .04em; text-transform: uppercase;
+    color: var(--accent-ink); background: var(--accent-soft);
+    padding: 6px 9px; border-radius: 999px; white-space: nowrap;
+  }
+  .subhead { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+  .date { font: 600 13px/1 var(--sans); color: var(--ink); }
+  .date span { color: var(--ink-3); font-weight: 500; }
+
+  .toggle {
+    display: inline-flex; background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 999px; padding: 2px; gap: 2px;
+  }
+  .toggle button {
+    font: 600 12px/1 var(--sans); color: var(--ink-2); background: transparent;
+    border: 0; padding: 6px 11px; border-radius: 999px; cursor: pointer;
+    min-height: 30px;
+  }
+  .toggle button[aria-pressed="true"] { background: var(--surface); color: var(--ink);
+    box-shadow: var(--shadow); }
+  .iconbtn {
+    margin-left: auto; width: 34px; height: 34px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--ink-2);
+    cursor: pointer; font-size: 15px; display: grid; place-items: center;
+  }
+
+  /* Summary tiles */
+  .tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;
+    padding: 14px 16px 4px; }
+  .tile { background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 12px 13px; box-shadow: var(--shadow); }
+  .tile .n { font: 700 24px/1 var(--sans); letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums; }
+  .tile .l { font-size: 11.5px; color: var(--ink-2); margin-top: 4px; }
+  .tile.attn .n { color: var(--warn); }
+  .tile.crit .n { color: var(--crit); }
+  .tile .foot { font: 500 10.5px/1 var(--mono); color: var(--ink-3); margin-top: 6px; }
+
+  /* Filter chips */
+  .filters { display: flex; gap: 7px; overflow-x: auto; padding: 12px 16px 10px;
+    scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .filters::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: 0 0 auto; font: 600 12.5px/1 var(--sans); color: var(--ink-2);
+    background: var(--surface); border: 1px solid var(--border);
+    padding: 8px 13px; border-radius: 999px; cursor: pointer; min-height: 34px;
+    display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  }
+  .chip .c { font: 600 11px/1 var(--mono); color: var(--ink-3); }
+  .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent);
+    color: var(--on-accent); }
+  .chip[aria-pressed="true"] .c { color: var(--on-accent); opacity: .85; }
+
+  /* Timeline */
+  .list { padding: 4px 16px 40px; display: flex; flex-direction: column; gap: 10px; }
+  .empty { text-align: center; color: var(--ink-3); font-size: 13px; padding: 40px 0; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow);
+    overflow: hidden; position: relative;
+  }
+  .card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0;
+    width: 4px; background: var(--stripe, var(--p-normal)); }
+  .card.p-Normal { --stripe: var(--p-normal); }
+  .card.p-Planned { --stripe: var(--p-planned); }
+  .card.p-Incidental { --stripe: var(--p-incidental); }
+
+  .card-top { display: flex; align-items: center; gap: 9px; padding: 12px 14px 8px 16px; }
+  .time { font: 600 12px/1 var(--mono); color: var(--ink-2);
+    font-variant-numeric: tabular-nums; }
+  .badge {
+    font: 700 10.5px/1 var(--sans); letter-spacing: .03em; text-transform: uppercase;
+    padding: 5px 8px; border-radius: 6px; white-space: nowrap;
+    background: var(--surface-2); color: var(--ink-2);
+  }
+  .badge.p-Normal { background: color-mix(in srgb, var(--p-normal) 15%, transparent); color: var(--ink); }
+  .badge.p-Planned { background: color-mix(in srgb, var(--p-planned) 18%, transparent); color: var(--accent-ink); }
+  .badge.p-Incidental { background: var(--crit-soft); color: var(--crit); }
+
+  .pill {
+    margin-left: auto; font: 700 10.5px/1 var(--sans); letter-spacing: .02em;
+    padding: 5px 9px; border-radius: 999px; white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .pill::before { content: ""; width: 6px; height: 6px; border-radius: 999px;
+    background: currentColor; }
+  .pill.fact { background: var(--good-soft); color: var(--good); }
+  .pill.question { background: var(--warn-soft); color: var(--warn); }
+  .pill.needs { background: var(--crit-soft); color: var(--crit); }
+
+  .summary { padding: 2px 14px 10px 16px; font-size: 14.5px; color: var(--ink);
+    text-wrap: pretty; }
+
+  .meta { display: flex; align-items: center; gap: 12px; padding: 0 14px 10px 16px; }
+  .conf { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .conf .bar { width: 62px; height: 6px; border-radius: 999px; background: var(--surface-2);
+    overflow: hidden; }
+  .conf .bar i { display: block; height: 100%; border-radius: 999px; background: var(--good); }
+  .conf.low .bar i { background: var(--warn); }
+  .conf .v { font: 600 11.5px/1 var(--mono); color: var(--ink-2);
+    font-variant-numeric: tabular-nums; }
+  .conf .lbl { font-size: 10.5px; color: var(--ink-3); }
+
+  .ev-toggle {
+    margin-left: auto; font: 600 12px/1 var(--sans); color: var(--accent-ink);
+    background: transparent; border: 0; cursor: pointer; padding: 6px 4px;
+    display: inline-flex; align-items: center; gap: 5px; min-height: 32px;
+  }
+  .ev-toggle .caret { transition: transform .18s ease; font-size: 10px; }
+  .card.open .ev-toggle .caret { transform: rotate(90deg); }
+
+  .drawer { display: none; padding: 0 14px 12px 16px; flex-direction: column; gap: 8px; }
+  .card.open .drawer { display: flex; }
+  .ev {
+    background: var(--surface-2); border-radius: var(--radius-sm);
+    padding: 9px 11px; font-size: 13px; color: var(--ink);
+    border-left: 2px solid var(--border);
+  }
+  .ev .q { font-style: italic; }
+  .ev .rd { font: 600 11px/1 var(--mono); background: var(--accent-soft);
+    color: var(--accent-ink); padding: 1px 5px; border-radius: 4px; font-style: normal; }
+  .why {
+    font-size: 12px; color: var(--ink-2); background: transparent;
+    border: 1px dashed var(--border); border-radius: var(--radius-sm); padding: 8px 11px;
+  }
+  .why b { color: var(--ink); font-weight: 600; }
+  .why .tag { font: 700 10px/1 var(--sans); letter-spacing: .03em; text-transform: uppercase;
+    color: var(--ink-3); display: block; margin-bottom: 3px; }
+
+  .actions { display: flex; gap: 8px; padding: 0 14px 14px 16px; }
+  .btn {
+    flex: 1; min-height: 44px; border-radius: 10px; cursor: pointer;
+    font: 600 13.5px/1 var(--sans); display: inline-flex; align-items: center;
+    justify-content: center; gap: 6px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--ink); transition: transform .05s ease;
+  }
+  .btn:active { transform: scale(.98); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .btn.ghost { flex: 0 0 auto; padding: 0 14px; color: var(--ink-2); }
+  .btn.done { background: var(--good-soft); border-color: transparent; color: var(--good);
+    pointer-events: none; }
+
+  .foot-note { text-align: center; font-size: 11.5px; color: var(--ink-3);
+    padding: 0 24px 30px; line-height: 1.5; }
+
+  /* Toast */
+  .toast {
+    position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 20px);
+    background: var(--ink); color: var(--bg); font: 600 13px/1.3 var(--sans);
+    padding: 12px 16px; border-radius: 12px; box-shadow: var(--shadow);
+    opacity: 0; pointer-events: none; transition: opacity .2s ease, transform .2s ease;
+    max-width: 90%; z-index: 60; text-align: center;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  :focus-visible { outline: 2.5px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <div class="mocknote">design mockup · fictional demo data · not real shop data</div>
+
+  <header class="app">
+    <div class="hrow">
+      <div class="brand">
+        <span class="logo">bee<b>6</b></span>
+        <span class="ctx">Proofed · Demo outlet</span>
+      </div>
+      <span class="spacer"></span>
+      <span class="role">Supervisor</span>
+    </div>
+    <div class="subhead">
+      <span class="date">Mon 5 Oct <span>· 08:00–22:00</span></span>
+      <span class="spacer"></span>
+      <div class="toggle" role="group" aria-label="Label language">
+        <button data-lang="id" aria-pressed="true">ID</button>
+        <button data-lang="en" aria-pressed="false">EN</button>
+      </div>
+      <button class="iconbtn" id="theme" aria-label="Toggle light or dark theme" title="Theme">◐</button>
+    </div>
+  </header>
+
+  <section class="tiles" aria-label="Day summary">
+    <div class="tile"><div class="n">42</div><div class="l" data-t="threads">Utas hari ini</div><div class="foot">08:00–22:00</div></div>
+    <div class="tile"><div class="n">94<span style="font-size:14px">%</span></div><div class="l" data-t="coverage">Cakupan rekaman</div><div class="foot">heartbeat</div></div>
+    <div class="tile attn"><div class="n">5</div><div class="l" data-t="questions">Pertanyaan debrief</div><div class="foot" data-t="tonight">malam ini</div></div>
+    <div class="tile crit"><div class="n">3</div><div class="l" data-t="needs">Perlu konfirmasi Anda</div><div class="foot" data-t="await">menunggu</div></div>
+  </section>
+
+  <nav class="filters" id="filters" aria-label="Filter threads"></nav>
+
+  <div class="list" id="list"></div>
+
+  <p class="foot-note" data-t="privacy">Owner melihat ringkasan saja. Baris bukti hanya untuk supervisor. Nama tidak pernah disimpan — jawaban tercatat sebagai “seorang staf”.</p>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  var I18N = {
+    filters: {
+      all:   { id: "Semua",        en: "All" },
+      needs: { id: "Perlu Anda",   en: "Needs you" },
+      quest: { id: "Pertanyaan",   en: "Questions" },
+      Normal:{ id: "Normal",       en: "Normal" },
+      Planned:{ id: "Terencana",   en: "Planned" },
+      Incidental:{ id: "Insiden",  en: "Incidental" }
+    },
+    ui: {
+      threads:{id:"Utas hari ini",en:"Threads today"},
+      coverage:{id:"Cakupan rekaman",en:"Capture coverage"},
+      questions:{id:"Pertanyaan debrief",en:"Debrief questions"},
+      tonight:{id:"malam ini",en:"tonight"},
+      needs:{id:"Perlu konfirmasi Anda",en:"Needs your confirm"},
+      await:{id:"menunggu",en:"awaiting"},
+      evidence:{id:"bukti",en:"evidence"},
+      confirm:{id:"Konfirmasi",en:"Confirm"},
+      askwhy:{id:"Tanya alasan",en:"Ask why"},
+      override:{id:"Ubah label",en:"Override"},
+      confirmed:{id:"Dikonfirmasi — jadi fakta",en:"Confirmed — now a fact"},
+      asked:{id:"Ditambahkan ke debrief malam ini",en:"Added to tonight’s debrief"},
+      whynot:{id:"Kandidat kedua",en:"Runner-up"},
+      privacy:{id:"Owner melihat ringkasan saja. Baris bukti hanya untuk supervisor. Nama tidak pernah disimpan — jawaban tercatat sebagai “seorang staf”.",
+               en:"Owner sees summaries only. Evidence lines are supervisor-only. Names are never stored — answers are recorded as “a staff member”."}
+    },
+    pill: {
+      fact:{id:"Fakta",en:"Fact"},
+      question:{id:"Pertanyaan",en:"Question"},
+      needs:{id:"Perlu Anda",en:"Needs you"}
+    }
+  };
+
+  // Fictional demo day. Evidence quotes stay in the original Bahasa (you don't
+  // translate evidence); category + summary + runner-up toggle language.
+  var THREADS = [
+    { time:"08:12", cat:"ROUTINE_OPS", parent:"Normal", conf:0.94, status:"fact",
+      label:{id:"Operasi rutin",en:"Routine ops"},
+      sum:{id:"Cek stok pembukaan selesai; etalase pastry diisi sebelum buka.",
+           en:"Opening stock check done; pastry case filled before open."},
+      ev:[{q:"“…display udah diisi semua, tinggal yang croissant”"}],
+      runner:{cat:{id:"Pelatihan",en:"Training"}, why:{id:"tidak ada yang mengajar, hanya menjalankan langkah",en:"no one teaching, just doing the step"}} },
+
+    { time:"10:26", cat:"TRAINING", parent:"Normal", conf:0.91, status:"fact",
+      label:{id:"Pelatihan",en:"Training"},
+      sum:{id:"Senior menjelaskan aturan restock: pastry tidak boleh habis sebelum jam 17:00.",
+           en:"Senior explains the restock rule: pastry must not run out before 17:00."},
+      ev:[{q:"“kalau stok pastry tinggal tiga, langsung kabarin dapur ya”"},
+          {q:"“jangan tunggu sampai kosong”"}],
+      runner:{cat:{id:"Konsultasi staf",en:"Staff consult"}, why:{id:"senior yang mengajar, bukan staf yang bertanya",en:"a senior is teaching, not a staff member asking"}} },
+
+    { time:"15:41", cat:"CUSTOMER_SERVICE", parent:"Normal", conf:0.82, status:"question",
+      label:{id:"Layanan pelanggan",en:"Customer service"},
+      sum:{id:"Pelanggan menanyakan egg tart jam 15:41 — sudah habis. Permintaan tak terpenuhi.",
+           en:"Customer asked for egg tart at 15:41 — sold out. Unmet request."},
+      ev:[{q:"“egg tart-nya masih ada?” — “wah, habis dari tadi bu”"}],
+      runner:{cat:{id:"Keluhan",en:"Complaint"}, why:{id:"tidak ada ketidakpuasan yang diungkapkan",en:"no dissatisfaction expressed"}} },
+
+    { time:"16:03", cat:"COMPLAINT", parent:"Incidental", conf:0.77, status:"needs",
+      label:{id:"Keluhan",en:"Complaint"},
+      sum:{id:"Pelanggan mengeluh menunggu terlalu lama untuk pesanan minuman.",
+           en:"Customer complained about a long wait for a drink order."},
+      ev:[{q:"“udah 20 menit belum jadi juga kopinya”"},
+          {q:"nomor pelanggan diminta untuk kabar: ", rd:"[TELEPON]"}],
+      runner:{cat:{id:"Layanan pelanggan",en:"Customer service"}, why:{id:"ada ketidakpuasan yang jelas → keluhan",en:"clear dissatisfaction expressed → complaint"}} },
+
+    { time:"17:48", cat:"DISRUPTION", parent:"Incidental", conf:0.88, status:"needs",
+      label:{id:"Gangguan",en:"Disruption"},
+      sum:{id:"Oven mati ±25 menit; produksi roti sore tertunda. Penyebab: peralatan.",
+           en:"Oven down ~25 min; afternoon bake delayed. Cause: equipment."},
+      ev:[{q:"“ovennya mati, breakernya turun lagi”"}],
+      runner:{cat:{id:"Operasi rutin",en:"Routine ops"}, why:{id:"operasi berhenti karena peralatan, bukan langkah biasa",en:"operations stopped by equipment, not a normal step"}} },
+
+    { time:"18:20", cat:"PHONE_CALL", parent:"Normal", conf:0.66, status:"question",
+      label:{id:"Panggilan telepon",en:"Phone call"},
+      sum:{id:"Staf menerima telepon; hanya satu sisi terdengar — selalu jadi pertanyaan debrief.",
+           en:"Staff on a phone call; only one side audible — always a debrief question."},
+      ev:[{q:"“iya kak, bisa… nanti saya siapkan” (lawan bicara tidak terdengar)"}],
+      runner:{cat:{id:"Layanan pelanggan",en:"Customer service"}, why:{id:"tidak bisa dipastikan pelanggan; sisi lain tak terdengar",en:"can't confirm a customer; other side inaudible"}} },
+
+    { time:"19:05", cat:"CORRECTION", parent:"Normal", conf:0.79, status:"needs",
+      label:{id:"Koreksi",en:"Correction"},
+      sum:{id:"Supervisor mengoreksi langkah penyimpanan susu yang salah suhu (mencatat langkah, bukan orang).",
+           en:"Supervisor corrected a milk-storage step done at the wrong temperature (records the step, not the person)."},
+      ev:[{q:"“susu jangan ditaruh di rak bawah, harus di chiller atas”"}],
+      runner:{cat:{id:"Pelatihan",en:"Training"}, why:{id:"mengoreksi kesalahan yang baru terjadi, bukan sesi ajar",en:"correcting a just-made mistake, not a teaching session"}} }
+  ];
+
+  var PARENTS = ["Normal","Planned","Incidental"];
+  var state = { lang: "id", filter: "all" };
+
+  var listEl = document.getElementById("list");
+  var filtersEl = document.getElementById("filters");
+  var toastEl = document.getElementById("toast");
+
+  function t(node) { return typeof node === "object" ? node[state.lang] : node; }
+
+  function pct(n) { return Math.round(n * 100); }
+
+  function buildFilters() {
+    var keys = [
+      ["all", I18N.filters.all],
+      ["needs", I18N.filters.needs],
+      ["quest", I18N.filters.quest],
+      ["Normal", I18N.filters.Normal],
+      ["Planned", I18N.filters.Planned],
+      ["Incidental", I18N.filters.Incidental]
+    ];
+    filtersEl.innerHTML = "";
+    keys.forEach(function (k) {
+      var b = document.createElement("button");
+      b.className = "chip";
+      b.type = "button";
+      b.setAttribute("aria-pressed", state.filter === k[0] ? "true" : "false");
+      b.textContent = k[1][state.lang];
+      b.addEventListener("click", function () { state.filter = k[0]; buildFilters(); render(); });
+      filtersEl.appendChild(b);
+    });
+  }
+
+  function matches(th) {
+    if (state.filter === "all") return true;
+    if (state.filter === "needs") return th.status === "needs";
+    if (state.filter === "quest") return th.status === "question";
+    return th.parent === state.filter;
+  }
+
+  function render() {
+    // refresh static i18n bits
+    document.querySelectorAll("[data-t]").forEach(function (el) {
+      var key = el.getAttribute("data-t");
+      if (I18N.ui[key]) el.textContent = I18N.ui[key][state.lang];
+    });
+
+    var rows = THREADS.filter(matches);
+    listEl.innerHTML = "";
+    if (!rows.length) {
+      var e = document.createElement("div");
+      e.className = "empty";
+      e.textContent = state.lang === "id" ? "Tidak ada utas untuk filter ini." : "No threads for this filter.";
+      listEl.appendChild(e);
+      return;
+    }
+
+    rows.forEach(function (th) {
+      var card = document.createElement("article");
+      card.className = "card p-" + th.parent;
+
+      var low = th.conf < 0.9;
+      var pillTxt = I18N.pill[th.status][state.lang];
+      var evLabel = I18N.ui.evidence[state.lang];
+
+      var evHtml = th.ev.map(function (e) {
+        var q = e.q ? '<span class="q">' + e.q + '</span>' : "";
+        var rd = e.rd ? ' <span class="rd">' + e.rd + '</span>' : "";
+        return '<div class="ev">' + q + rd + '</div>';
+      }).join("");
+
+      card.innerHTML =
+        '<div class="card-top">' +
+          '<span class="time">' + th.time + '</span>' +
+          '<span class="badge p-' + th.parent + '">' + t(th.label) + '</span>' +
+          '<span class="pill ' + th.status + '">' + pillTxt + '</span>' +
+        '</div>' +
+        '<div class="summary">' + t(th.sum) + '</div>' +
+        '<div class="meta">' +
+          '<span class="conf ' + (low ? "low" : "") + '">' +
+            '<span class="bar"><i style="width:' + pct(th.conf) + '%"></i></span>' +
+            '<span class="v">' + pct(th.conf) + '%</span>' +
+          '</span>' +
+          '<button class="ev-toggle" type="button" aria-expanded="false">' +
+            '<span class="caret">▶</span>' + th.ev.length + ' ' + evLabel +
+          '</button>' +
+        '</div>' +
+        '<div class="drawer">' + evHtml +
+          '<div class="why"><span class="tag">' + I18N.ui.whynot[state.lang] + '</span>' +
+            '<b>' + t(th.runner.cat) + '</b> — ' + t(th.runner.why) + '</div>' +
+        '</div>' +
+        '<div class="actions">' +
+          '<button class="btn primary act-confirm" type="button">' + I18N.ui.confirm[state.lang] + '</button>' +
+          '<button class="btn act-ask" type="button">' + I18N.ui.askwhy[state.lang] + '</button>' +
+          '<button class="btn ghost act-override" type="button" aria-label="' + I18N.ui.override[state.lang] + '">⋯</button>' +
+        '</div>';
+
+      var toggle = card.querySelector(".ev-toggle");
+      toggle.addEventListener("click", function () {
+        var open = card.classList.toggle("open");
+        toggle.setAttribute("aria-expanded", open ? "true" : "false");
+      });
+      card.querySelector(".act-confirm").addEventListener("click", function () {
+        this.classList.add("done");
+        this.textContent = "✓ " + I18N.pill.fact[state.lang];
+        showToast(I18N.ui.confirmed[state.lang]);
+      });
+      card.querySelector(".act-ask").addEventListener("click", function () {
+        showToast(I18N.ui.asked[state.lang]);
+      });
+      card.querySelector(".act-override").addEventListener("click", function () {
+        showToast(state.lang === "id" ? "Pilih label lain…" : "Pick another label…");
+      });
+
+      listEl.appendChild(card);
+    });
+  }
+
+  var toastTimer;
+  function showToast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.classList.remove("show"); }, 1900);
+  }
+
+  // Language toggle
+  document.querySelectorAll(".toggle [data-lang]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      state.lang = b.getAttribute("data-lang");
+      document.querySelectorAll(".toggle [data-lang]").forEach(function (x) {
+        x.setAttribute("aria-pressed", x === b ? "true" : "false");
+      });
+      buildFilters();
+      render();
+    });
+  });
+
+  // Theme toggle (stamps data-theme, overriding the media query both ways)
+  document.getElementById("theme").addEventListener("click", function () {
+    var root = document.documentElement;
+    var cur = root.getAttribute("data-theme");
+    var next;
+    if (cur === "dark") next = "light";
+    else if (cur === "light") next = "dark";
+    else {
+      var sysDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      next = sysDark ? "light" : "dark";
+    }
+    root.setAttribute("data-theme", next);
+  });
+
+  buildFilters();
+  render();
+})();
+</script>
