@@ -10,6 +10,8 @@ import type {
   UserRecord,
   UserStore,
 } from "@/lib/auth/services";
+import type { HeartbeatWriter, OutletReader } from "@/lib/capture/services";
+import type { Heartbeat, Outlet } from "@/lib/firestore/schema";
 
 /**
  * Firestore-backed implementations of the auth service stores. These are the
@@ -71,6 +73,31 @@ export function firestoreStaffStore(): StaffStore {
         failed_attempts: state.failed_attempts,
         locked_until: state.locked_until,
       });
+    },
+  };
+}
+
+/**
+ * Capture store: reads the outlet doc (capture/config) and writes device
+ * heartbeats. Outlet doc id is the outlet_id; device doc id is
+ * `${outlet_id}:${device_id}` (see scripts/seed.ts), and heartbeats live in its
+ * `heartbeats` subcollection keyed by timestamp.
+ */
+export function firestoreCaptureStore(): OutletReader & HeartbeatWriter {
+  const db = adminDb();
+  return {
+    async getOutlet(outletId) {
+      const doc = await db.collection(COLLECTIONS.outlets).doc(outletId).get();
+      return doc.exists ? (doc.data() as Outlet) : null;
+    },
+    async saveHeartbeat(heartbeat: Heartbeat) {
+      const deviceDocId = `${heartbeat.outlet_id}:${heartbeat.device_id}`;
+      await db
+        .collection(COLLECTIONS.devices)
+        .doc(deviceDocId)
+        .collection(COLLECTIONS.heartbeats)
+        .doc(heartbeat.ts)
+        .set(heartbeat);
     },
   };
 }
