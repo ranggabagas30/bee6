@@ -251,7 +251,7 @@ describe("linkGoogleUser", () => {
     };
   }
 
-  it("links a seeded email, sets claims, and saves the uid", async () => {
+  it("links a seeded verified email, sets claims, and saves the uid", async () => {
     const store = makeUserStore([user()]);
     const setClaims: { uid: string; claims: CustomClaims }[] = [];
     const result = await linkGoogleUser(
@@ -261,7 +261,7 @@ describe("linkGoogleUser", () => {
           setClaims.push({ uid, claims });
         },
       },
-      { uid: "firebase-uid-1", email: "Owner@Example.com" },
+      { uid: "firebase-uid-1", email: "Owner@Example.com", email_verified: true },
     );
     expect(result).toEqual({ outlet_id: "proofed", role: "owner" });
     expect(setClaims[0]).toEqual({
@@ -271,12 +271,33 @@ describe("linkGoogleUser", () => {
     expect(store.savedUids).toEqual(["firebase-uid-1"]);
   });
 
-  it("rejects an email that is not seeded for any outlet", async () => {
+  it("rejects an unverified email before any lookup", async () => {
+    const store = makeUserStore([user()]);
+    let looked = false;
+    await expect(
+      linkGoogleUser(
+        {
+          users: {
+            ...store,
+            findByEmail: async (email) => {
+              looked = true;
+              return store.findByEmail(email);
+            },
+          },
+          setClaims: async () => {},
+        },
+        { uid: "firebase-uid-1", email: "owner@example.com", email_verified: false },
+      ),
+    ).rejects.toThrow(UnauthorizedError);
+    expect(looked).toBe(false);
+  });
+
+  it("rejects a verified email that is not seeded for any outlet", async () => {
     const store = makeUserStore([user()]);
     await expect(
       linkGoogleUser(
         { users: store, setClaims: async () => {} },
-        { uid: "x", email: "stranger@example.com" },
+        { uid: "x", email: "stranger@example.com", email_verified: true },
       ),
     ).rejects.toThrow(ForbiddenError);
   });

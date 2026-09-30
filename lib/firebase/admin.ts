@@ -40,12 +40,20 @@ export function adminDb(): Firestore {
 export interface VerifiedToken {
   uid: string;
   email: string | undefined;
+  /**
+   * Whether the provider has verified the email. The Google sign-in route
+   * requires this to be true before linking a role — an unverified email must
+   * never grant outlet access.
+   */
+  email_verified: boolean;
   claims: Partial<CustomClaims>;
 }
 
 /**
  * Verifies a Firebase ID token and extracts our custom claims (if the account
  * has been linked yet). The RBAC guard turns these into a full `CustomClaims`.
+ * `email_verified` is surfaced (defaulting to false) so the Google sign-in path
+ * can reject unverified emails.
  */
 export async function verifyIdToken(idToken: string): Promise<VerifiedToken> {
   const decoded = await adminAuth().verifyIdToken(idToken);
@@ -58,6 +66,7 @@ export async function verifyIdToken(idToken: string): Promise<VerifiedToken> {
   return {
     uid: decoded.uid,
     email: decoded.email,
+    email_verified: decoded.email_verified === true,
     claims: parsed.success ? parsed.data : {},
   };
 }

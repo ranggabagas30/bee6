@@ -238,13 +238,17 @@ export interface LinkGoogleUserResult {
 
 /**
  * After a verified Google sign-in, link the account's role by matching the
- * verified email to a seeded `users` doc, then set custom claims. An email that
- * isn't seeded for any outlet is rejected (no self-serve access).
+ * verified email to a seeded `users` doc, then set custom claims. Rejects an
+ * unverified email (never grant access on one) and an email that isn't seeded
+ * for any outlet (no self-serve access).
  */
 export async function linkGoogleUser(
   deps: LinkGoogleUserDeps,
-  input: { uid: string; email: string },
+  input: { uid: string; email: string; email_verified: boolean },
 ): Promise<LinkGoogleUserResult> {
+  if (!input.email_verified) {
+    throw new UnauthorizedError("Google account email is not verified");
+  }
   const email = input.email.toLowerCase();
   const user = await deps.users.findByEmail(email);
   if (!user) {

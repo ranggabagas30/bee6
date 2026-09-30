@@ -22,14 +22,15 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   try {
     const idToken = extractBearerToken(req);
-    const { uid, email } = await verifyIdToken(idToken);
+    const { uid, email, email_verified } = await verifyIdToken(idToken);
     if (!email) {
-      throw new UnauthorizedError("Google account has no verified email");
+      throw new UnauthorizedError("Google account has no email");
     }
-
+    // linkGoogleUser enforces email_verified before linking a role; the flag is
+    // surfaced by verifyIdToken and passed straight through.
     const result = await linkGoogleUser(
       { users: firestoreUserStore(), setClaims: setUserClaims },
-      { uid, email },
+      { uid, email, email_verified },
     );
 
     return jsonOk({ outlet_id: result.outlet_id, role: result.role });

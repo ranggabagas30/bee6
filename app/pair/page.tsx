@@ -9,6 +9,13 @@ import { useState, type FormEvent } from "react";
  * capture/staff screens arrive in R-03/R-07.
  */
 
+// ACCEPTED DESIGN (Tech Lead R-02 finding #2): the long-lived device token is
+// kept in localStorage on the dedicated, physically-controlled shop phone. This
+// is the spec's MVP ("stored in the browser", web spec §3); the token is opaque,
+// stored only hashed server-side, revocable (revoked:true), and grants only the
+// device permissions (segments/heartbeat upload) — never owner/supervisor/staff
+// access. The P1 encrypted-queue work (web spec §5) is where we revisit at-rest
+// hardening; a WebCrypto non-exportable key is the future upgrade.
 const DEVICE_TOKEN_KEY = "bee6.device_token";
 const DEVICE_ID_KEY = "bee6.device_id";
 const OUTLET_ID_KEY = "bee6.outlet_id";
