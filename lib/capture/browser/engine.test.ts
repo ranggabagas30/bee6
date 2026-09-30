@@ -78,8 +78,8 @@ describe("CaptureEngine", () => {
     expect(engine.status.state).toBe("listening");
   });
 
-  it("gives up after maxAttempts and counts the dropped segment", async () => {
-    const upload = vi.fn(async () => null); // never recovers
+  it("gives up after maxAttempts on a repeated SERVER error and counts it", async () => {
+    const upload = vi.fn(async () => 500 as number | null); // poison 5xx
     const { engine } = makeEngine({ upload, maxAttempts: 3 });
     engine.pushFrame(frame(0));
     engine.flush();
@@ -88,6 +88,89 @@ describe("CaptureEngine", () => {
     expect(upload).toHaveBeenCalledTimes(3);
     expect(engine.status.queuedCount).toBe(0);
     expect(engine.status.droppedCount).toBe(1);
+  });
+
+  it("survives a long offline outage without dropping any segment (finding #2)", async () => {
+    // Connectivity is down (null) for many attempts, then recovers. With small
+    // segments the 10-min capacity is never reached, so nothing is pruned and
+    // every segment is delivered exactly once — never dropped by attempt count.
+    let calls = 0;
+    const delivered = new Set<string>();
+    const upload = vi.fn(async (seg: { seg_id: string }) => {
+      calls += 1;
+      if (calls < 40) return null; // long outage
+      delivered.add(seg.seg_id);
+      return 200 as number | null;
+    });
+    const { engine } = makeEngine({
+      upload,
+      maxAttempts: 3, // would have dropped after 3 with the old bug
+      batcher: new SegmentBatcher({ maxSegmentMs: 1_000, prerollMs: 0 }),
+    });
+    // Three short segments queued during the outage.
+    for (let i = 0; i < 3; i++) {
+      engine.pushFrame(frame(i * 2_000));
+      engine.pushFrame(frame(i * 2_000 + 100));
+      engine.flush();
+    }
+    await engine.drain();
+
+    expect(engine.status.droppedCount).toBe(0);
+    expect(engine.status.queuedCount).toBe(0);
+    expect(delivered.size).toBe(3); // each segment delivered exactly once
+  });
+
+  it("stop()/abort() returns promptly while offline (finding #3)", async () => {
+    // Real (macrotask) backoff so the pump is genuinely mid-wait, offline.
+    const sleep = () => new Promise<void>((r) => setTimeout(r, 5));
+    const upload = vi.fn(async () => null); // never recovers
+    const { engine } = makeEngine({ upload, sleep });
+    engine.pushFrame(frame(0));
+    engine.flush();
+    // Let a couple of retries happen so we are truly stuck in the backoff loop.
+    await new Promise((r) => setTimeout(r, 12));
+    expect(upload.mock.calls.length).toBeGreaterThan(1);
+
+    const t0 = Date.now();
+    await engine.abort();
+    expect(Date.now() - t0).toBeLessThan(200); // did not hang
+  });
+
+  it("keeps segments aligned after a simulated mic restart (finding #1)", async () => {
+    const encoded: { len: number; first: number }[] = [];
+    const encode = vi.fn(async (samples: Float32Array) => {
+      encoded.push({ len: samples.length, first: samples[0] ?? 0 });
+      return { bytes: new Uint8Array([1]), contentType: "audio/webm;codecs=opus" };
+    });
+    const engine = new CaptureEngine({
+      encode,
+      upload: async () => 200,
+      sampleRate: SR,
+      genSegId: () => "seg",
+      sleep: async () => {},
+      batcher: new SegmentBatcher({ maxSegmentMs: 1_000, prerollMs: 0 }),
+    });
+
+    // Session 1: speech near epoch 1000, sample value 0.3.
+    engine.pushFrame({ ts: 1_000, speech: true, samples: new Float32Array(1_600).fill(0.3) });
+    engine.pushFrame({ ts: 1_100, speech: true, samples: new Float32Array(1_600).fill(0.3) });
+    // Restart: rebase the timeline (ships the buffered session-1 segment).
+    engine.resyncTimeline();
+    await engine.drain();
+
+    // Session 2: the VAD clock jumps forward; sample value 0.7.
+    engine.pushFrame({ ts: 9_000_000, speech: true, samples: new Float32Array(1_600).fill(0.7) });
+    engine.pushFrame({ ts: 9_000_100, speech: true, samples: new Float32Array(1_600).fill(0.7) });
+    engine.flush();
+    await engine.drain();
+
+    expect(encoded).toHaveLength(2);
+    // Session-1 audio is intact...
+    expect(encoded[0]?.first).toBeCloseTo(0.3);
+    expect(encoded[0]?.len).toBeGreaterThan(0);
+    // ...and session-2 audio is the real post-restart samples, not silence.
+    expect(encoded[1]?.first).toBeCloseTo(0.7);
+    expect(encoded[1]?.len).toBeGreaterThan(0);
   });
 
   it("reflects a mic error in status and clears it", () => {

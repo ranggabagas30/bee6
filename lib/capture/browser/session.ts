@@ -135,6 +135,9 @@ export async function startCaptureSession(
       }
       currentStream?.getTracks().forEach((t) => t.stop());
       currentStream = null;
+      // Rebase the engine timeline onto the new VAD clock so post-restart frames
+      // extract the right audio instead of silence (finding #1).
+      engine.resyncTimeline();
       await spinUp();
     }, delay);
   }
@@ -174,7 +177,9 @@ export async function startCaptureSession(
         /* ignore */
       }
       engine.flush();
-      await engine.drain();
+      // abort() stops the upload pump even mid-backoff, so stop() returns
+      // promptly even while offline (finding #3), instead of hanging on retries.
+      await engine.abort();
       currentStream?.getTracks().forEach((t) => t.stop());
       await wakeLock.release();
     },

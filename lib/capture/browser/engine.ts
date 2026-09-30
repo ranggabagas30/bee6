@@ -1,7 +1,7 @@
 import { SegmentBatcher } from "@/lib/capture/batcher";
 import { InMemoryQueue, type QueueItem } from "@/lib/capture/queue";
 import { PcmWindowBuffer } from "@/lib/capture/browser/pcm-buffer";
-import { nextUploadAction } from "@/lib/capture/retry";
+import { backoffDelayMs, classifyUploadResult } from "@/lib/capture/retry";
 import type { CaptureVadFrame } from "@/lib/capture/browser/vad";
 
 /**
@@ -11,9 +11,17 @@ import type { CaptureVadFrame } from "@/lib/capture/browser/vad";
  * (encode, upload, sleep, seg-id) is injected so this is fully unit-testable
  * without a browser; the `/capture` page just forwards frames and renders
  * `status`. Audio lives only in memory here and is never logged (hard rule #2).
+ *
+ * Offline behaviour (web spec §5 "10 min offline → every segment exactly once"):
+ * a connectivity loss (upload resolves `null`) retries indefinitely — only the
+ * 10-minute queue *capacity* prunes segments, never an attempt count. A repeated
+ * server error (5xx/429) still gives up after `maxAttempts` so one poison segment
+ * can't block the queue forever. `abort()` interrupts any wait so `stop()` returns
+ * promptly even while offline.
  */
 
 const DEFAULT_SAMPLE_RATE = 16_000;
+const MAX_BACKOFF_MS = 30_000;
 
 export interface QueuedSegment extends QueueItem {
   id: string;
@@ -84,7 +92,8 @@ export class CaptureEngine {
   private readonly upload: UploadFn;
 
   private buffer: PcmWindowBuffer | null = null;
-  private readonly attempts = new Map<string, number>();
+  /** Attempt counter for the current queue head only (O(1), no leak). */
+  private headAttempt: { id: string; count: number } | null = null;
   private pumping = false;
   private connectionOk = true;
   private micError: string | null = null;
@@ -93,6 +102,10 @@ export class CaptureEngine {
   private speechFrames = 0;
   /** Serialises segment handling so ordering holds and tests can `drain()`. */
   private pending: Promise<void> = Promise.resolve();
+  /** Set by `abort()`; makes the pump loop and its waits bail out promptly. */
+  private stopping = false;
+  /** Resolver used to interrupt the current backoff wait on abort. */
+  private wake: (() => void) | null = null;
 
   constructor(options: CaptureEngineOptions) {
     this.encode = options.encode;
@@ -114,13 +127,26 @@ export class CaptureEngine {
     if (frame.speech) this.speechFrames += 1;
 
     const segment = this.batcher.push({ ts: frame.ts, speech: frame.speech });
-    if (segment) this.chainSegment(segment);
+    if (segment) this.closeSegment(segment);
   }
 
   /** Closes any open segment (call on stop / closing time). */
   flush(): void {
     const segment = this.batcher.flush();
-    if (segment) this.chainSegment(segment);
+    if (segment) this.closeSegment(segment);
+  }
+
+  /**
+   * Rebases the timeline after a mic/VAD restart. Ships any segment buffered
+   * before the interruption (so its audio isn't lost), then drops the stale PCM
+   * buffer so the next frame re-bases `baseMs` onto the restarted VAD clock —
+   * otherwise the new frames' jumped timestamps would map to sample indices past
+   * the buffer and extract silence (finding #1).
+   */
+  resyncTimeline(): void {
+    const segment = this.batcher.flush();
+    if (segment) this.closeSegment(segment); // extracts from the old buffer now
+    this.buffer = null;
   }
 
   setMicError(message: string): void {
@@ -133,9 +159,16 @@ export class CaptureEngine {
     this.emitStatus();
   }
 
-  /** Awaits all in-flight segment handling + uploads (tests, and stop()). */
+  /** Awaits all in-flight segment handling + uploads. */
   async drain(): Promise<void> {
     await this.pending;
+  }
+
+  /** Stops the pump promptly (even mid-backoff while offline) and drains. */
+  async abort(): Promise<void> {
+    this.stopping = true;
+    this.wake?.();
+    await this.drain();
   }
 
   get status(): CaptureStatus {
@@ -167,29 +200,28 @@ export class CaptureEngine {
     };
   }
 
-  private chainSegment(segment: { start_ms: number; end_ms: number }): void {
-    this.pending = this.pending
-      .then(() => this.handleSegment(segment))
-      .catch(() => {
-        // Segment handling never rejects (encode failures drop the segment);
-        // this catch only guards against an unexpected throw so the chain lives.
-      });
-  }
-
-  private async handleSegment(segment: {
-    start_ms: number;
-    end_ms: number;
-  }): Promise<void> {
+  /** Extracts a closed segment's PCM synchronously, then chains encode+upload. */
+  private closeSegment(segment: { start_ms: number; end_ms: number }): void {
     if (!this.buffer) return;
     const samples = this.buffer.extractByMs(segment.start_ms, segment.end_ms);
     this.buffer.trimBeforeMs(segment.end_ms);
+    this.pending = this.pending
+      .then(() => this.handleSegment(segment, samples))
+      .catch(() => {
+        // handleSegment never rejects (encode failures drop the segment); this
+        // only guards an unexpected throw so the chain survives.
+      });
+  }
 
+  private async handleSegment(
+    segment: { start_ms: number; end_ms: number },
+    samples: Float32Array,
+  ): Promise<void> {
     let encoded: { bytes: Uint8Array; contentType: string };
     try {
       encoded = await this.encode(samples, this.sampleRate);
     } catch {
-      // Cannot encode (e.g. no WebCodecs): drop this segment rather than block.
-      return;
+      return; // Cannot encode (e.g. no WebCodecs): drop rather than block.
     }
 
     const id = this.genSegId();
@@ -212,34 +244,73 @@ export class CaptureEngine {
     this.pumping = true;
     try {
       for (;;) {
+        if (this.stopping) break;
         const item = this.queue.peek();
         if (!item) break;
-        const attempt = (this.attempts.get(item.id) ?? 0) + 1;
-        const status = await this.upload(item);
-        const action = nextUploadAction(status, attempt, {
-          maxAttempts: this.maxAttempts,
-          jitter: false,
-        });
 
-        if (action.action === "success") {
-          this.queue.confirmUploaded(item.id);
-          this.attempts.delete(item.id);
-          this.connectionOk = true;
-        } else if (action.action === "drop") {
-          this.queue.remove(item.id);
-          this.attempts.delete(item.id);
-          this.uploadDropped += 1;
-        } else {
-          this.attempts.set(item.id, attempt);
-          this.connectionOk = false;
-          this.emitStatus();
-          await this.sleep(action.delayMs ?? 0);
+        if (this.headAttempt?.id !== item.id) {
+          this.headAttempt = { id: item.id, count: 0 };
         }
+        this.headAttempt.count += 1;
+
+        const status = await this.upload(item);
+        const disposition = classifyUploadResult(status);
+
+        if (disposition === "success") {
+          this.queue.confirmUploaded(item.id);
+          this.headAttempt = null;
+          this.connectionOk = true;
+          this.emitStatus();
+          continue;
+        }
+        if (disposition === "drop") {
+          this.dropHead(item.id);
+          continue;
+        }
+
+        // Transient failure. A network loss (null) retries forever — only the
+        // 10-min queue capacity prunes it (finding #2). A repeated server error
+        // still gives up after maxAttempts so one poison segment can't stall the
+        // queue indefinitely.
+        if (status !== null && this.headAttempt.count >= this.maxAttempts) {
+          this.dropHead(item.id);
+          continue;
+        }
+        this.connectionOk = false;
         this.emitStatus();
+        await this.sleepOrAbort(
+          backoffDelayMs(this.headAttempt.count, {
+            jitter: false,
+            maxMs: MAX_BACKOFF_MS,
+          }),
+        );
       }
     } finally {
       this.pumping = false;
     }
+  }
+
+  private dropHead(id: string): void {
+    this.queue.remove(id);
+    this.headAttempt = null;
+    this.uploadDropped += 1;
+    this.emitStatus();
+  }
+
+  /** Waits `ms`, but resolves immediately if `abort()` is called meanwhile. */
+  private sleepOrAbort(ms: number): Promise<void> {
+    if (this.stopping) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        this.wake = null;
+        resolve();
+      };
+      this.wake = finish;
+      void this.sleep(ms).then(finish);
+    });
   }
 
   private emitStatus(): void {
