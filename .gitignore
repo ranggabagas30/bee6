@@ -22,6 +22,11 @@ build/
 *.webm
 *.m4a
 
+# Vendored capture assets (VAD worklet/weights + ONNX Runtime wasm) — generated
+# from node_modules by `npm run vendor:capture` (prebuild), served no-CDN. Not
+# committed: large binaries, regenerated on install/build.
+/public/vendor/
+
 # Claude Code project-local settings (personal, never shared)
 .claude/settings.local.json
 

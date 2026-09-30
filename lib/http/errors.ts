@@ -60,6 +60,13 @@ export class ConflictError extends AppError {
   }
 }
 
+/** 413 — request body is larger than the allowed ceiling. */
+export class PayloadTooLargeError extends AppError {
+  constructor(message = "Payload too large") {
+    super(message, "PAYLOAD_TOO_LARGE", 413);
+  }
+}
+
 /** 422 — semantically invalid input (valid JSON, bad data). */
 export class ValidationError extends AppError {
   constructor(message: string, details?: unknown) {

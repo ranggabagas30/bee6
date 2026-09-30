@@ -7,11 +7,32 @@ added as dependencies as of R-01 — this file is recorded now per T-003's
 acceptance criteria, ahead of the code landing, so the notice always ships
 with the licence.
 
-## Silero VAD
+## @ricky0123/vad-web
 - **Used for:** in-browser voice activity detection on the `/capture` page
-  (R-03), so speech is batched into segments before upload.
+  (R-03) — the AudioWorklet + frame processor that decides speech vs silence.
+  Bundles the Silero VAD ONNX weights (see below).
+- **License:** ISC
+- **Version:** 0.0.31
+- **Project:** https://github.com/ricky0123/vad
+- **Vendored under:** `public/vendor/capture/vad/` (worklet bundle +
+  `silero_vad_v5.onnx`), copied from node_modules by
+  `scripts/vendor-capture-assets.mjs` at build time — served from our own origin,
+  no CDN (hard rule #8).
+
+## Silero VAD (model weights)
+- **Used for:** the ONNX model file run by @ricky0123/vad-web for in-browser
+  voice activity detection (R-03). Local signal processing, not a hosted AI
+  provider — does not trip hard rule #1.
 - **License:** MIT
 - **Project:** https://github.com/snakers4/silero-vad
+
+## webm-muxer
+- **Used for:** muxing WebCodecs Opus chunks into a WebM/Opus container on the
+  `/capture` page (R-03) so each segment matches the `audio/webm;codecs=opus`
+  contract the segment PUT accepts.
+- **License:** MIT
+- **Version:** 5.x
+- **Project:** https://github.com/Vanilagy/webm-muxer
 
 ## Google Agent Development Kit (ADK) for TypeScript
 - **Used for:** DebriefAgent, ProposalAgent, CriticAgent, ReviewAgent
@@ -24,9 +45,11 @@ with the licence.
 ## ONNX Runtime Web
 - **Used for:** running the Silero VAD model in the browser (R-03).
 - **License:** MIT
+- **Version:** 1.23.0
 - **Project:** https://github.com/microsoft/onnxruntime
-- Note: check the licence of whatever JS wrapper library ships the ONNX
-  model file itself (per CLAUDE.md §3) before adding it as a dependency.
+- **Vendored under:** `public/vendor/capture/ort/` (wasm binaries + loader
+  modules), copied from node_modules by `scripts/vendor-capture-assets.mjs` at
+  build time — served from our own origin, no CDN.
 
 ## Claude Code skills (Everything Claude Code / ECC)
 - **Used for:** developer-workflow guidance loaded by our Claude Code agents
