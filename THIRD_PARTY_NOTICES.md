@@ -27,3 +27,14 @@ with the licence.
 - **Project:** https://github.com/microsoft/onnxruntime
 - Note: check the licence of whatever JS wrapper library ships the ONNX
   model file itself (per CLAUDE.md §3) before adding it as a dependency.
+
+## Claude Code skills (Everything Claude Code / ECC)
+- **Used for:** developer-workflow guidance loaded by our Claude Code agents
+  during the build (see `docs/skills-policy.md`). These are authoring aids for
+  the engineering process, **not** part of the shipped product runtime.
+- **Vendored under:** `.claude/skills/` — the DAILY subset only (21 skills),
+  so Claude Code Cloud/desktop checkouts can load them without a local install.
+- **License:** MIT (Everything Claude Code / `tonsofskills` ecosystem).
+- **Project:** https://github.com/jeremylongshore/claude-code-plugins
+- Note: `code-review`, `verify`, and `dataviz` are shipped by Claude Code
+  itself, not vendored here.
