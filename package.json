@@ -5,6 +5,9 @@
   "description": "SOP Improvement Agent for small F&B shops (GATI x Google Cloud AI Builder Cup 2026).",
   "scripts": {
     "dev": "next dev",
+    "vendor:capture": "node scripts/vendor-capture-assets.mjs",
+    "predev": "npm run vendor:capture",
+    "prebuild": "npm run vendor:capture",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
@@ -17,11 +20,14 @@
   },
   "dependencies": {
     "@google/genai": "^2.24.0",
+    "@ricky0123/vad-web": "^0.0.31",
     "bcryptjs": "^3.0.3",
     "firebase-admin": "^14.5.0",
     "next": "16.3.7",
+    "onnxruntime-web": "^1.23.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "webm-muxer": "^5.1.4",
     "yaml": "^2.8.1",
     "zod": "^4.1.12"
   },

@@ -21,6 +21,9 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
     "node_modules/**",
+    // Vendored, minified capture assets (VAD worklet + ORT loaders), copied from
+    // node_modules by scripts/vendor-capture-assets.mjs — not our source.
+    "public/vendor/**",
   ]),
 ]);
 
