@@ -84,6 +84,19 @@ export class LockedError extends AppError {
   }
 }
 
+/**
+ * 503 — an upstream dependency (transcription model, Sensitive Data Protection,
+ * a transient infra hiccup) failed. The `/capture` browser client treats 503 as
+ * retryable (bounded), so every dependency failure in the segment pipeline MUST
+ * surface as this — never a 4xx (which the client would drop). The message is
+ * always short and sanitised: no audio, base64, secrets or upstream bodies.
+ */
+export class ServiceUnavailableError extends AppError {
+  constructor(message = "Service temporarily unavailable") {
+    super(message, "SERVICE_UNAVAILABLE", 503);
+  }
+}
+
 function zodDetails(error: z.ZodError): { field: string; message: string }[] {
   return error.issues.map((issue) => ({
     field: issue.path.join("."),
