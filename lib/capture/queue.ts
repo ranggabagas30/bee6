@@ -1,36 +1,47 @@
 /**
  * In-memory upload queue (web spec §5 step 5). Holds encoded segments while the
- * network is unavailable; the oldest are dropped (and counted) once the queue is
- * full, and each is removed exactly once on a 200. FIFO order is preserved so
- * segments arrive in order. No persistence — the encrypted IndexedDB queue is P1.
+ * network is unavailable and uploads them in order. Capped by *queued audio
+ * duration* (~10 min), not item count: when a new segment would push the total
+ * over the cap, the oldest segments are dropped (and counted) until it fits.
+ * Each segment is removed exactly once, only after the caller confirms its
+ * upload succeeded. No persistence — the encrypted IndexedDB queue is P1.
  *
- * Pure/deterministic: the caller supplies the enqueue timestamp (no `Date.now`
- * inside), so ageing is fully testable.
+ * Pure/deterministic: no clock, no I/O. Duration accounting uses each segment's
+ * own `duration_ms`, so behaviour is fully testable.
  */
 
 export interface QueueItem {
   /** Stable id used for exactly-once removal (the segment's `seg_id`). */
   id: string;
+  /** Segment length in ms; the cap is measured against the sum of these. */
+  duration_ms: number;
 }
 
+export const DEFAULT_MAX_QUEUE_MS = 10 * 60_000; // ~10 minutes
+
 export interface InMemoryQueueOptions {
-  /** Hard cap on queued items; the oldest are dropped past this. */
-  maxItems: number;
-  /**
-   * Optional rolling-window cap: items older than `maxAgeMs` before the newest
-   * enqueue are dropped (the "~10 min of segments" window).
-   */
-  maxAgeMs?: number;
+  /** Cap on total queued audio duration in ms. */
+  maxDurationMs: number;
 }
 
 export class InMemoryQueue<T extends QueueItem> {
-  private entries: { item: T; at: number }[] = [];
+  private entries: T[] = [];
+  private queuedMs = 0;
   private dropped = 0;
 
-  constructor(private readonly opts: InMemoryQueueOptions) {}
+  constructor(
+    private readonly opts: InMemoryQueueOptions = {
+      maxDurationMs: DEFAULT_MAX_QUEUE_MS,
+    },
+  ) {}
 
   get size(): number {
     return this.entries.length;
+  }
+
+  /** Total queued audio duration in ms (heartbeat metric). */
+  get queuedDurationMs(): number {
+    return this.queuedMs;
   }
 
   /** Number of segments dropped because the queue was full (heartbeat metric). */
@@ -39,46 +50,50 @@ export class InMemoryQueue<T extends QueueItem> {
   }
 
   /**
-   * Adds an item at time `at`. A duplicate id is ignored (idempotent) so a retry
-   * can't double-queue. Prunes by age then by count, counting every drop.
+   * Adds a segment. A duplicate id is ignored (idempotent) so a retry can't
+   * double-queue. If the total queued duration would exceed the cap, the oldest
+   * segments are dropped first — but the just-added newest segment is always
+   * kept, even if it alone exceeds the cap.
    */
-  enqueue(item: T, at: number): void {
-    if (this.entries.some((e) => e.item.id === item.id)) return;
-    this.entries.push({ item, at });
+  enqueue(item: T): void {
+    if (this.entries.some((e) => e.id === item.id)) return;
+    this.entries.push(item);
+    this.queuedMs += item.duration_ms;
     this.prune();
   }
 
-  /** Removes an item by id exactly once; returns whether it was present. */
+  /**
+   * Confirms a segment uploaded successfully and removes it exactly once.
+   * Returns whether it was present (a repeat confirm is a safe no-op).
+   */
+  confirmUploaded(id: string): boolean {
+    return this.remove(id);
+  }
+
+  /** Removes a segment by id exactly once; returns whether it was present. */
   remove(id: string): boolean {
-    const idx = this.entries.findIndex((e) => e.item.id === id);
+    const idx = this.entries.findIndex((e) => e.id === id);
     if (idx === -1) return false;
-    this.entries.splice(idx, 1);
+    const [removed] = this.entries.splice(idx, 1);
+    if (removed) this.queuedMs -= removed.duration_ms;
     return true;
   }
 
-  /** The oldest queued item (next to upload), or undefined when empty. */
+  /** The oldest queued segment (next to upload), or undefined when empty. */
   peek(): T | undefined {
-    return this.entries[0]?.item;
+    return this.entries[0];
   }
 
-  /** All queued items in FIFO order. */
+  /** All queued segments in FIFO order. */
   items(): T[] {
-    return this.entries.map((e) => e.item);
+    return [...this.entries];
   }
 
   private prune(): void {
-    const newestEntry = this.entries[this.entries.length - 1];
-    if (this.opts.maxAgeMs !== undefined && newestEntry) {
-      const cutoff = newestEntry.at - this.opts.maxAgeMs;
-      let head = this.entries[0];
-      while (head && head.at < cutoff) {
-        this.entries.shift();
-        this.dropped++;
-        head = this.entries[0];
-      }
-    }
-    while (this.entries.length > this.opts.maxItems) {
-      this.entries.shift();
+    // Drop oldest while over the cap, always keeping the newest segment.
+    while (this.entries.length > 1 && this.queuedMs > this.opts.maxDurationMs) {
+      const [dropped] = this.entries.splice(0, 1);
+      if (dropped) this.queuedMs -= dropped.duration_ms;
       this.dropped++;
     }
   }
