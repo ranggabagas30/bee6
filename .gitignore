@@ -25,6 +25,9 @@ build/
 # Claude Code project-local settings (personal, never shared)
 .claude/settings.local.json
 
+# Transient git worktrees created by agent sessions (never committed)
+.claude/worktrees/
+
 # OS / editor
 .DS_Store
 *.log
