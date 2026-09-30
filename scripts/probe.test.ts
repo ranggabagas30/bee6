@@ -103,13 +103,13 @@ describe("probeAllModels", () => {
       region === "asia-southeast2" ? { ok: true, latencyMs: 5 } : { ok: false, code: "X", message: "x" };
 
     const outcomes = await probeAllModels(
-      ["gemini-3.5-transcribe", "gemini-3.5-flash"],
+      ["gemini-3.5-transcribe-preview", "gemini-3.5-flash"],
       callModel,
       REGION_ORDER,
       FIXED_NOW,
     );
 
-    expect(outcomes.map((o) => o.model)).toEqual(["gemini-3.5-transcribe", "gemini-3.5-flash"]);
+    expect(outcomes.map((o) => o.model)).toEqual(["gemini-3.5-transcribe-preview", "gemini-3.5-flash"]);
     expect(outcomes.every((o) => o.location === "asia-southeast2")).toBe(true);
   });
 });
@@ -124,14 +124,14 @@ describe("toRegionsYamlDoc", () => {
     };
 
     const outcomes = await probeAllModels(
-      ["gemini-3.5-transcribe", "gemini-3.5-flash"],
+      ["gemini-3.5-transcribe-preview", "gemini-3.5-flash"],
       callModel,
       REGION_ORDER,
       FIXED_NOW,
     );
     const doc = toRegionsYamlDoc(outcomes, FIXED_NOW());
 
-    expect(doc.models["gemini-3.5-transcribe"]).toEqual({
+    expect(doc.models["gemini-3.5-transcribe-preview"]).toEqual({
       location: "asia-southeast2",
       latency_ms: 7,
       probed_at: FIXED_NOW(),
