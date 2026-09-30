@@ -14,6 +14,11 @@ build/
 # Private data (real SOP, franchise docs, real transcripts, staff/customer data)
 /private/
 
+# Custom transcription vocabulary — real menu/staff names/slang are shop data
+# (hard rule #8). The committed config/vocabulary.example.yaml is the fictional
+# fallback; the real file below is never committed.
+/config/vocabulary.yaml
+
 # Audio — never committed, per CLAUDE.md hard rule #2 and #8
 *.wav
 *.mp3

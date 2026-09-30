@@ -1,0 +1,23 @@
+# Fictional custom-vocabulary example for the transcriber (R-04).
+#
+# The REAL vocabulary (staff first names, the shop's actual menu and local slang)
+# is shop data and MUST live in config/vocabulary.yaml, which is gitignored
+# (CLAUDE.md hard rule #8: no real shop/staff data in the repo). This example is
+# entirely made up and safe to commit; it is the fallback used in CI and fresh
+# clones. Keep the list to <= 100 terms (Transcribe's practical best-case limit).
+terms:
+  - flat white
+  - cortado
+  - piccolo
+  - long black
+  - sourdough
+  - focaccia
+  - pain au chocolat
+  - cold brew
+  - oat milk
+  - single origin
+  - Proofed
+  - barista
+  - portafilter
+  - service pass
+  - allergen
