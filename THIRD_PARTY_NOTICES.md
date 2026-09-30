@@ -7,6 +7,15 @@ added as dependencies as of R-01 — this file is recorded now per T-003's
 acceptance criteria, ahead of the code landing, so the notice always ships
 with the licence.
 
+## @google-cloud/dlp
+- **Used for:** Sensitive Data Protection (SDP) de-identification of transcript
+  lines before they are stored (R-04, hard rule #3) — phone numbers, emails,
+  person names and street addresses are replaced with bracketed labels via the
+  regional DLP endpoint.
+- **License:** Apache-2.0
+- **Version:** 7.1.1
+- **Project:** https://github.com/googleapis/google-cloud-node/tree/main/packages/google-privacy-dlp
+
 ## @ricky0123/vad-web
 - **Used for:** in-browser voice activity detection on the `/capture` page
   (R-03) — the AudioWorklet + frame processor that decides speech vs silence.
