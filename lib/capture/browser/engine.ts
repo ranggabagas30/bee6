@@ -244,7 +244,6 @@ export class CaptureEngine {
     this.pumping = true;
     try {
       for (;;) {
-        if (this.stopping) break;
         const item = this.queue.peek();
         if (!item) break;
 
@@ -278,6 +277,10 @@ export class CaptureEngine {
         }
         this.connectionOk = false;
         this.emitStatus();
+        // On a graceful stop, don't wait/retry a failed upload — leave remaining
+        // items in the in-memory queue (finding #3). Successful uploads above
+        // still drain first, so the final flushed segment ships while online.
+        if (this.stopping) break;
         await this.sleepOrAbort(
           backoffDelayMs(this.headAttempt.count, {
             jitter: false,

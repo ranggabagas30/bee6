@@ -173,6 +173,24 @@ describe("CaptureEngine", () => {
     expect(encoded[1]?.len).toBeGreaterThan(0);
   });
 
+  it("uploads the final flushed segment on a graceful online stop", async () => {
+    // Mirrors session.stop(): flush the open segment, then abort. The last
+    // segment (e.g. at closing time) must still be delivered while online.
+    const delivered: string[] = [];
+    const upload = vi.fn(async (seg: { seg_id: string }) => {
+      delivered.push(seg.seg_id);
+      return 200 as number | null;
+    });
+    const { engine } = makeEngine({ upload });
+    engine.pushFrame(frame(0));
+    engine.pushFrame(frame(100));
+    engine.flush();
+    await engine.abort();
+
+    expect(delivered).toContain("seg-1");
+    expect(engine.status.queuedCount).toBe(0);
+  });
+
   it("reflects a mic error in status and clears it", () => {
     const { engine } = makeEngine();
     engine.setMicError("NotReadableError");
