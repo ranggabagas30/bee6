@@ -1,5 +1,6 @@
 import { adminDb } from "@/lib/firebase/admin";
 import { COLLECTIONS } from "@/lib/firestore/collections";
+import { normalizeStaffName } from "@/lib/auth/staff-name";
 import type { LockoutState } from "@/lib/auth/pin";
 import type {
   DeviceRecord,
@@ -48,9 +49,11 @@ export function firestoreStaffStore(): StaffStore {
   const col = adminDb().collection(COLLECTIONS.staff);
   return {
     async findByName(outletId, name) {
+      // Match on the normalized key so casing/whitespace in the typed name
+      // still resolves to the seeded staff member.
       const snap = await col
         .where("outlet_id", "==", outletId)
-        .where("name", "==", name)
+        .where("name_key", "==", normalizeStaffName(name))
         .limit(1)
         .get();
       const doc = snap.docs[0];

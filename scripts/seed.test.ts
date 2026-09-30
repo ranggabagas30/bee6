@@ -50,6 +50,22 @@ describe("buildSeedDocuments", () => {
     expect(docs.users[0]?.email).toBe(docs.users[0]?.email.toLowerCase());
   });
 
+  it("stores a normalized name_key alongside the display name", async () => {
+    const config = {
+      ...DEMO_SEED,
+      staff: [
+        { staff_id: "s1", name: "  Ari   Demo ", role: "staff" as const, pin: "1234" },
+      ],
+    };
+    const docs = await buildSeedDocuments(config, "demo", {
+      pairingCode: "123456",
+      now: NOW,
+      hash: fakeHash,
+    });
+    expect(docs.staff[0]?.name).toBe("  Ari   Demo "); // display name kept as-is
+    expect(docs.staff[0]?.name_key).toBe("ari demo"); // matched on normalized key
+  });
+
   it("creates one owner user and one user per supervisor", async () => {
     const docs = await buildSeedDocuments(DEMO_SEED, "demo", {
       pairingCode: "123456",

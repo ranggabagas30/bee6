@@ -68,6 +68,7 @@ describe("StaffSchema", () => {
     outlet_id: "proofed",
     staff_id: "s1",
     name: "Fictional Barista",
+    name_key: "fictional barista",
     role: "staff",
     pin_hash: "$2a$10$abcdefghijklmnopqrstuv",
     failed_attempts: 0,

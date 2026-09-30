@@ -33,6 +33,7 @@ import {
 } from "@/lib/firestore/schema";
 import { hashPin } from "@/lib/auth/pin";
 import { generatePairingCode, pairingCodeExpiry } from "@/lib/auth/pairing";
+import { normalizeStaffName } from "@/lib/auth/staff-name";
 
 // ── seed config shape ────────────────────────────────────────────────────────
 export const SeedConfigSchema = z
@@ -152,6 +153,7 @@ export async function buildSeedDocuments(
         outlet_id: outlet.outlet_id,
         staff_id: member.staff_id,
         name: member.name,
+        name_key: normalizeStaffName(member.name),
         role: member.role,
         pin_hash: await hash(member.pin),
         failed_attempts: 0,

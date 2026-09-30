@@ -58,6 +58,12 @@ export const StaffSchema = z
     staff_id: z.string().min(1),
     /** A person's name — must never be copied into any other collection. */
     name: z.string().min(1),
+    /**
+     * Normalized name (trim + casefold + collapsed whitespace) used to match a
+     * typed PIN-login name to this staff member. Derived from `name` via
+     * normalizeStaffName; still lives only in the `staff` collection.
+     */
+    name_key: z.string().min(1),
     role: UserRoleSchema, // job role used to route debrief questions
     pin_hash: z.string().min(1),
     /** Consecutive wrong-PIN attempts; resets on a correct PIN. */
