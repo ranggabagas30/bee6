@@ -56,12 +56,12 @@ const DEFAULT_WINDOWING_CONFIG: WindowingConfig = {
 export function toTimedLines(
   segments: readonly SegmentForWindowing[]
 ): TimedLine[] {
-  // Sort by device_start, then seg_id
+  // Sort by device_start, then seg_id (lexicographic for determinism)
   const sorted = Array.from(segments).sort((a, b) => {
     const aTime = new Date(a.device_start).getTime();
     const bTime = new Date(b.device_start).getTime();
     if (aTime !== bTime) return aTime - bTime;
-    return a.seg_id.localeCompare(b.seg_id);
+    return a.seg_id < b.seg_id ? -1 : a.seg_id > b.seg_id ? 1 : 0;
   });
 
   // Dedupe by seg_id
@@ -162,18 +162,24 @@ export function buildWindows(
     // Check if adding this line would exceed cap
     if (windowDurationMs > config.cap) {
       // Need to close the current window at or before the cap
-      closeWindowAtCap(currentWindow, config);
+      const discardedLines = closeWindowAtCap(currentWindow, config);
       windows.push(currentWindow);
 
-      // Start new window with the current line
+      // Start new window with the discarded lines plus the current line
+      const newWindowLines = [...discardedLines, timedLine];
+      const firstNewLine = newWindowLines[0];
+      if (!firstNewLine) continue; // should never happen since newWindowLines has at least timedLine
+
+      const newWindowStart = firstNewLine.start_ms;
+      const newWindowEnd = timedLine.end_ms;
       currentWindow = {
-        window_id: `w_${timedLine.seg_id}`,
+        window_id: `w_${firstNewLine.seg_id}`,
         device_id: input.device_id,
-        start_ms: timedLine.start_ms,
-        end_ms: timedLine.end_ms,
-        lines: [timedLine],
-        content_ms: timedLine.end_ms - timedLine.start_ms,
-        has_text: timedLine.text.length > 0,
+        start_ms: newWindowStart,
+        end_ms: newWindowEnd,
+        lines: newWindowLines,
+        content_ms: newWindowEnd - newWindowStart,
+        has_text: newWindowLines.some((l) => l.text.length > 0),
         status: "closed",
         close_reason: null,
       };
@@ -214,11 +220,12 @@ function finalizeWindow(
 function closeWindowAtCap(
   window: PipelineWindow,
   config: WindowingConfig
-): void {
-  const lookbackStart = window.end_ms - config.capLookback;
+): TimedLine[] {
   const capThreshold = window.start_ms + config.cap;
+  const lookbackStart = capThreshold - config.capLookback;
 
   // Find the largest gap within [capThreshold - capLookback, capThreshold]
+  // On a tie, prefer the LATER gap
   let bestGapIndex = -1;
   let bestGapSize = 0;
 
@@ -229,32 +236,39 @@ function closeWindowAtCap(
 
     const currentLineEnd = currentLine.end_ms;
     const nextLineStart = nextLine.start_ms;
-    const gap = nextLineStart - currentLineEnd;
+    const gap = Math.max(0, nextLineStart - currentLineEnd); // clamp negative gaps to 0
 
     if (
       nextLineStart >= lookbackStart &&
       nextLineStart <= capThreshold &&
-      gap > bestGapSize
+      gap >= bestGapSize // >= instead of > to prefer later gap on tie
     ) {
       bestGapSize = gap;
       bestGapIndex = i;
     }
   }
 
+  let discardedLines: TimedLine[] = [];
+
   if (bestGapIndex >= 0) {
     // Cut at the best gap
-    const cutLines = window.lines.slice(0, bestGapIndex + 1);
-    window.lines = cutLines;
-    const lastLine = cutLines[cutLines.length - 1];
+    discardedLines = window.lines.slice(bestGapIndex + 1);
+    window.lines = window.lines.slice(0, bestGapIndex + 1);
+    const lastLine = window.lines[window.lines.length - 1];
     if (lastLine) {
       window.end_ms = lastLine.end_ms;
     }
   } else {
     // No gap found; cut at the last line boundary at or before cap
-    const cutIndex = window.lines.findIndex(
+    let cutIndex = window.lines.findIndex(
       (lineItem) => lineItem.end_ms > capThreshold
     );
+    if (cutIndex === -1) {
+      // All lines are at or before cap
+      cutIndex = window.lines.length;
+    }
     if (cutIndex > 0) {
+      discardedLines = window.lines.slice(cutIndex);
       window.lines = window.lines.slice(0, cutIndex);
       const lastLine = window.lines[window.lines.length - 1];
       if (lastLine) {
@@ -264,6 +278,7 @@ function closeWindowAtCap(
       // First line itself exceeds cap; still include it
       const firstLine = window.lines[0];
       if (firstLine) {
+        discardedLines = window.lines.slice(1);
         window.lines = [firstLine];
         window.end_ms = firstLine.end_ms;
       }
@@ -273,6 +288,8 @@ function closeWindowAtCap(
   window.content_ms = window.end_ms - window.start_ms;
   window.status = "closed";
   window.close_reason = "cap";
+
+  return discardedLines;
 }
 
 /**
