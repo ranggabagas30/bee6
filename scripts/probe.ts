@@ -25,6 +25,7 @@ import { pathToFileURL } from "node:url";
 import { GoogleGenAI } from "@google/genai";
 import { DlpServiceClient } from "@google-cloud/dlp";
 import { stringify } from "yaml";
+import { dlpApiEndpointFor, dlpParentFor } from "@/lib/redact/dlp-endpoint";
 
 /** Probe order: Jakarta first, then Singapore, then the global endpoint. */
 export const REGION_ORDER = ["asia-southeast2", "asia-southeast1", "global"] as const;
@@ -293,18 +294,16 @@ function normalizeDlpError(err: unknown): { code: string; message: string } {
  */
 export function makeDlpServiceCaller(project: string): ServiceCaller {
   return async (_service, region) => {
-    // "global" has no `<region>.rep.` endpoint of its own (see
-    // lib/redact/dlp.ts) — every real region gets the regional override,
-    // "global" uses the client's plain default host.
-    const client =
-      region === "global"
-        ? new DlpServiceClient()
-        : new DlpServiceClient({ apiEndpoint: `dlp.${region}.rep.googleapis.com` });
+    // Shared with lib/redact/dlp.ts (lib/redact/dlp-endpoint.ts) so the
+    // probe and the real redactor can never disagree about how a region
+    // is reached.
+    const apiEndpoint = dlpApiEndpointFor(region);
+    const client = apiEndpoint ? new DlpServiceClient({ apiEndpoint }) : new DlpServiceClient();
     const startedAt = Date.now();
     try {
       await client.deidentifyContent(
         {
-          parent: `projects/${project}/locations/${region}`,
+          parent: dlpParentFor(project, region),
           item: { value: "ping" },
           inspectConfig: { infoTypes: [{ name: "PHONE_NUMBER" }] },
           deidentifyConfig: {

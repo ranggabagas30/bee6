@@ -1,5 +1,6 @@
 import { DlpServiceClient, type protos } from "@google-cloud/dlp";
 import { getServiceLocation } from "@/config/regions";
+import { dlpApiEndpointFor, dlpParentFor } from "@/lib/redact/dlp-endpoint";
 import { ServiceUnavailableError } from "@/lib/http/errors";
 import { redactIndonesianPhones } from "@/lib/redact/indonesian-phone";
 import type { Redactor } from "@/lib/redact/types";
@@ -64,14 +65,11 @@ export interface DlpRedactorDeps {
 
 /** The default caller: a regional (or global) DLP client (ADC), one `deidentifyContent`. */
 function makeDlpDeidentify(region: string): Deidentify {
-  // Regional endpoint per the DLP docs (data stays in-region, hard rule #5).
-  // "global" has no `<region>.rep.` regional endpoint of its own — it is
-  // reached through the plain default host, so no apiEndpoint override is
-  // passed in that case (unlike every real region, which gets one).
-  const client =
-    region === "global"
-      ? new DlpServiceClient()
-      : new DlpServiceClient({ apiEndpoint: `dlp.${region}.rep.googleapis.com` });
+  // Shared with scripts/probe.ts (lib/redact/dlp-endpoint.ts) so the real
+  // redactor and the probe can never disagree about how a region is
+  // reached (hard rule #5).
+  const apiEndpoint = dlpApiEndpointFor(region);
+  const client = apiEndpoint ? new DlpServiceClient({ apiEndpoint }) : new DlpServiceClient();
   return async (request, options) => {
     const [response] = await client.deidentifyContent(request, options);
     return response;
@@ -84,7 +82,7 @@ function buildRequest(
   text: string,
 ): IDeidentifyContentRequest {
   return {
-    parent: `projects/${project}/locations/${region}`,
+    parent: dlpParentFor(project, region),
     item: { value: text },
     inspectConfig: {
       infoTypes: DLP_INFO_TYPES.map((name) => ({ name })),
