@@ -1,7 +1,6 @@
 import { z } from "zod";
 import type { NextRequest } from "next/server";
-import { handleApiError } from "@/lib/http/errors";
-import { BadRequestError } from "@/lib/http/errors";
+import { handleApiError, BadRequestError, ServiceUnavailableError } from "@/lib/http/errors";
 import { jsonOk } from "@/lib/http/respond";
 import { requireDevice } from "@/lib/http/guard";
 import {
@@ -42,8 +41,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // Whitelisted debug log on transcribe/redact failure (no message, no body)
-function logUnavailableError(code: string): void {
-  console.error("Model unavailable", { code });
+function logUnavailableError(stage: string | undefined, upstream: number | "timeout" | "unknown" | undefined, outlet_id: string, device_id: string): void {
+  console.error("segment.upstream_unavailable", { stage, upstream, outlet_id, device_id });
 }
 
 export async function PUT(
@@ -138,11 +137,9 @@ export async function PUT(
       lines: segment_doc.lines.length,
     });
   } catch (error) {
-    // Log whitelisted error code for transcribe/redact failures (no message/body)
-    if (error instanceof Error) {
-      if (error.message.includes("Transcription") || error.message.includes("Redaction")) {
-        logUnavailableError(error.constructor.name);
-      }
+    // Log whitelisted diagnostic fields for upstream failures (no message/body)
+    if (error instanceof ServiceUnavailableError) {
+      logUnavailableError(error.stage, error.upstream, claims.outlet_id, claims.device_id);
     }
 
     return handleApiError(error);
