@@ -69,15 +69,28 @@ export interface BuiltThread {
  * Uses union-find over reply_to + thread hints. Drops invalid edges.
  * Strips NON_WORK lines entirely (both explicit and by category).
  *
- * Cross-window join: a component continues an `open_threads` entry only if
- * (a) some member line's `thread` hint equals that open thread's `thread_id`,
- * (b) the component's resolved category equals the open thread's category
- *     (never checked when the component itself has a label_conflict), and
- * (c) the gap from the open thread's `last_line_end_ms` to the component's
- *     EARLIEST member line start is in [0, grace] inclusive (negative gaps
- *     are rejected, never clamped). Otherwise the component gets a fresh
- *     id namespaced to this unit — a bare model-assigned thread id is never
- *     used as the final thread_id, because those ids repeat across units.
+ * Cross-window join, in three phases:
+ *   1. Finish ALL unions (reply_to edges + same-hint unions) before any join
+ *      decision — no join logic runs inside a union loop, so a component's
+ *      root can never go stale mid-decision.
+ *   2. Build final components and resolve each one: a component "resolves"
+ *      if at least one member's `thread` hint has a label.threads[] entry;
+ *      category/confidence/evidence/summary come only from resolved
+ *      members, but once a component resolves, EVERY member line (resolved
+ *      or not — it's here via reply_to/hint union) is emitted in the built
+ *      thread. A component with zero resolved members emits nothing; all
+ *      its lines go to unassigned_line_ids.
+ *   3. Join: a component with no label_conflict and exactly ONE open thread
+ *      matching all of (a) some member's hint equals that open thread's
+ *      `thread_id`, (b) the open thread's category equals the component's
+ *      resolved category, (c) the gap from the open thread's
+ *      `last_line_end_ms` to the component's EARLIEST *resolved* member
+ *      line start is in [0, grace] inclusive (negative gaps rejected, never
+ *      clamped) — continues that open thread. Zero or more-than-one
+ *      matching candidate is ambiguous or absent: never guess, use a fresh
+ *      id. A fresh id is always `${unit_id}:${modelThreadId}` — a bare
+ *      model-assigned thread id is never used as the final thread_id,
+ *      because those ids repeat across units.
  */
 export function buildThreads(input: {
   unit: LabelUnit;
@@ -91,7 +104,6 @@ export function buildThreads(input: {
 } {
   const { unit, label, open_threads } = input;
   const numLines = unit.lines.length;
-  const openThreadsById = new Map(open_threads.map((ot) => [ot.thread_id, ot]));
 
   // Validate & index label lines by i; out-of-range i is dropped entirely
   // (it doesn't refer to a real line in this unit, so it can never be
@@ -182,89 +194,95 @@ export function buildThreads(input: {
     else components.set(root, [i]);
   }
 
+  // Phase 2 + 3: resolve each final component, then decide its join.
+  // All unions (reply_to edges + same-hint unions) are already complete by
+  // this point — no join logic runs inside a union loop, so a component's
+  // root can never go stale mid-decision.
   const threads: BuiltThread[] = [];
   const assignedLines = new Set<number>(); // lines actually emitted in a built thread
 
   for (const memberIdxs of components.values()) {
     memberIdxs.sort((a, b) => a - b);
+    const memberIdxSet = new Set(memberIdxs);
 
+    // A component "resolves" if at least one member's hint has a
+    // label.threads[] entry. Category/confidence/evidence/summary come only
+    // from resolved members; unresolved members still belong to the thread
+    // (they're here via reply_to/hint union) once the component resolves.
     const categories = new Set<WorkCategory>();
     let minConfidence = Infinity;
-    let anyInvalidConfidence = false;
+    let invalidConfidenceValue: number | undefined;
     let summary = "";
     const evidenceIdxSet = new Set<number>();
     let runnerUp: { category: Category; why_not: string } | undefined;
     let fields: Record<string, unknown> | undefined;
-    let modelThreadId: string | undefined;
-    const resolved: number[] = [];
+    let lowestResolvedModelId: string | undefined;
+    const hints = new Set<string>(); // every member's hint, resolved or not — used for join matching
+    const resolvedStartMss: number[] = [];
 
     for (const idx of memberIdxs) {
       const ll = labelLinesByI.get(idx);
       if (!ll) continue;
+      hints.add(ll.thread);
 
       const threadObj = label.threads.find((t) => t.id === ll.thread);
-      let cat: WorkCategory | undefined;
+      if (!threadObj) continue; // unresolved by itself; included via union if the component resolves
 
-      if (threadObj) {
-        cat = threadObj.category as WorkCategory; // NON_WORK already excluded above
-        if (!modelThreadId) modelThreadId = threadObj.id;
-        if (
-          Number.isFinite(threadObj.confidence) &&
-          threadObj.confidence >= 0 &&
-          threadObj.confidence <= 1
-        ) {
-          minConfidence = Math.min(minConfidence, threadObj.confidence);
-        } else {
-          anyInvalidConfidence = true;
-        }
-        if (!summary && threadObj.summary) summary = threadObj.summary;
-        for (const e of threadObj.evidence) {
-          if (e >= 0 && e < numLines) evidenceIdxSet.add(e);
-        }
-        if (!runnerUp && threadObj.runner_up) {
-          runnerUp = threadObj.runner_up as { category: Category; why_not: string };
-        }
-        if (!fields && threadObj.fields) fields = threadObj.fields;
-      } else {
-        // Hint doesn't resolve via this call's label.threads[] — fall back
-        // to an open thread's category if the hint matches one, so the line
-        // is never silently lost.
-        const ot = openThreadsById.get(ll.thread);
-        if (!ot) continue; // genuinely unresolved; handled by the unassigned pass below
-        cat = ot.category;
-      }
-
+      const cat = threadObj.category as WorkCategory; // NON_WORK already excluded above
       categories.add(cat);
-      resolved.push(idx);
+      if (lowestResolvedModelId === undefined) lowestResolvedModelId = threadObj.id;
+      const unitLine = unit.lines[idx];
+      if (unitLine) resolvedStartMss.push(unitLine.start_ms);
+
+      if (
+        Number.isFinite(threadObj.confidence) &&
+        threadObj.confidence >= 0 &&
+        threadObj.confidence <= 1
+      ) {
+        minConfidence = Math.min(minConfidence, threadObj.confidence);
+      } else if (invalidConfidenceValue === undefined) {
+        // Pass the offending value straight through — never coerced — so
+        // evaluateGate's invalid_label rule can catch it downstream.
+        invalidConfidenceValue = threadObj.confidence;
+      }
+      if (!summary && threadObj.summary) summary = threadObj.summary;
+      for (const e of threadObj.evidence) {
+        // Evidence must be both in range AND a member of THIS component —
+        // a thread can't borrow evidence from another component's line.
+        if (e >= 0 && e < numLines && memberIdxSet.has(e)) evidenceIdxSet.add(e);
+      }
+      if (!runnerUp && threadObj.runner_up) {
+        runnerUp = threadObj.runner_up as { category: Category; why_not: string };
+      }
+      if (!fields && threadObj.fields) fields = threadObj.fields;
     }
 
-    if (resolved.length === 0) continue; // nothing in this component could be resolved
+    if (categories.size === 0) continue; // nothing in this component resolved — all members go to unassigned
 
     const label_conflict = categories.size > 1;
-    let category: WorkCategory = Array.from(categories)[0] as WorkCategory;
+    const category: WorkCategory = Array.from(categories)[0] as WorkCategory;
 
     let continued_from_open = false;
-    let threadId = modelThreadId ? `${unit.unit_id}:${modelThreadId}` : `${unit.unit_id}:${resolved[0]}`;
+    let threadId = `${unit.unit_id}:${lowestResolvedModelId}`;
 
     if (!label_conflict) {
-      const earliestStartMs = Math.min(
-        ...resolved.map((i) => unit.lines[i]?.start_ms ?? Infinity)
-      );
-      for (const idx of resolved) {
-        const ll = labelLinesByI.get(idx);
-        if (!ll) continue;
-        const ot = openThreadsById.get(ll.thread);
-        if (!ot) continue;
-        if (ot.category !== category) continue;
+      const earliestStartMs = Math.min(...resolvedStartMss);
+      const grace = GRACE_MS[category];
+      const candidates = open_threads.filter((ot) => {
+        if (!hints.has(ot.thread_id)) return false;
+        if (ot.category !== category) return false;
         const gap = earliestStartMs - ot.last_line_end_ms;
-        const grace = GRACE_MS[ot.category];
-        if (gap >= 0 && gap <= grace) {
+        return gap >= 0 && gap <= grace; // negative gap rejected, never clamped
+      });
+      if (candidates.length === 1) {
+        const ot = candidates[0];
+        if (ot) {
           threadId = ot.thread_id;
-          category = ot.category;
           continued_from_open = true;
-          break;
+          // category is already equal to ot.category by construction — kept as-is.
         }
       }
+      // 0 or >=2 candidates: ambiguous or no match — keep the fresh id.
     }
 
     const line_ids: string[] = [];
@@ -273,7 +291,7 @@ export function buildThreads(input: {
     let firstStart = Infinity;
     let lastEnd = 0;
 
-    for (const idx of resolved) {
+    for (const idx of memberIdxs) {
       const unitLine = unit.lines[idx];
       if (!unitLine) continue;
 
@@ -296,7 +314,12 @@ export function buildThreads(input: {
 
     if (line_ids.length === 0) continue;
 
-    const confidence = anyInvalidConfidence ? NaN : isFinite(minConfidence) ? minConfidence : 0;
+    const confidence =
+      invalidConfidenceValue !== undefined
+        ? invalidConfidenceValue
+        : isFinite(minConfidence)
+          ? minConfidence
+          : 0;
 
     const thread: BuiltThread = {
       thread_id: threadId,
