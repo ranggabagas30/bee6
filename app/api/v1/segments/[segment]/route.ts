@@ -132,8 +132,11 @@ export async function PUT(
       },
     );
 
-    // Step 9: Return 200 with the stored segment
-    return jsonOk(segment_doc);
+    // Step 9: Return 200 with minimal response (no transcript text back to device)
+    return jsonOk({
+      seg_id: segment_doc.seg_id,
+      lines: segment_doc.lines.length,
+    });
   } catch (error) {
     // Log whitelisted error code for transcribe/redact failures (no message/body)
     if (error instanceof Error) {
