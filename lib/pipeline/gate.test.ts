@@ -5,6 +5,7 @@ import {
   expireQuestion,
   applyGateDecision,
 } from "./gate";
+import type { WorkCategory } from "./categories";
 
 describe("gate", () => {
   describe("GateDecisionSchema", () => {
@@ -222,7 +223,7 @@ describe("gate", () => {
 
     it("fires invalid_label when category is unknown/invalid", () => {
       const result = evaluateGate({
-        category: "UNKNOWN_CATEGORY" as any,
+        category: "UNKNOWN_CATEGORY" as unknown as WorkCategory,
         confidence: 0.9,
         evidence_line_ids: ["line_1"],
         label_conflict: false,

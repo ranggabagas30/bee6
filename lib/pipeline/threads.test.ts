@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   LabelOutputSchema,
+  LabelOutput,
   buildThreads,
   openThreadsAt,
   LabelUnit,
@@ -326,15 +327,15 @@ describe("threads", () => {
         ],
       };
 
-      const label = {
+      const label: LabelOutput = {
         lines: [
           { i: 0, reply_to: null, thread: "thread_1" },
           { i: 1, reply_to: null, thread: "thread_2" }, // NON_WORK thread
           { i: 2, reply_to: null, thread: "thread_1" },
         ],
         threads: [
-          { id: "thread_1", category: "ROUTINE_OPS", confidence: 0.9, evidence: [0, 2], summary: "work", fields: {} },
-          { id: "thread_2", category: "NON_WORK", confidence: 0.8, evidence: [1], summary: "chat", fields: {} },
+          { id: "thread_1", category: "ROUTINE_OPS", confidence: 0.9, evidence: [0, 2], summary: "work" },
+          { id: "thread_2", category: "NON_WORK", confidence: 0.8, evidence: [1], summary: "chat" },
         ],
         non_work_lines: [], // Note: thread_2's lines NOT in explicit non_work_lines
       };
@@ -343,7 +344,9 @@ describe("threads", () => {
 
       // NON_WORK thread should be completely stripped
       expect(result.threads).toHaveLength(1);
-      expect(result.threads[0].category).toBe("ROUTINE_OPS");
+      const thread = result.threads[0];
+      if (!thread) throw new Error("Expected thread not found");
+      expect(thread.category).toBe("ROUTINE_OPS");
 
       // Check that NON_WORK text never appears in output
       const output = JSON.stringify(result);
@@ -365,7 +368,7 @@ describe("threads", () => {
         ],
       };
 
-      const label = {
+      const label: LabelOutput = {
         lines: [
           { i: 0, reply_to: null, thread: "thread_1" }, // evidence index
           { i: 1, reply_to: 0, thread: "thread_1" }, // another evidence index
@@ -378,7 +381,6 @@ describe("threads", () => {
             confidence: 0.95,
             evidence: [0, 1], // evidence indices 0 and 1
             summary: "customer issue",
-            fields: {},
           },
         ],
         non_work_lines: [],
@@ -406,7 +408,7 @@ describe("threads", () => {
         ],
       };
 
-      const label = {
+      const label: LabelOutput = {
         lines: [
           { i: 0, reply_to: null, thread: "thread_1" },
           { i: 1, reply_to: 0, thread: "thread_1" },
@@ -418,7 +420,6 @@ describe("threads", () => {
             confidence: 0.75,
             evidence: [0, 1],
             summary: "training session",
-            fields: {},
           },
         ],
         non_work_lines: [],
