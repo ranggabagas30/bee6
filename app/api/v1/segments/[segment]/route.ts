@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { NextRequest } from "next/server";
 import { handleApiError } from "@/lib/http/errors";
 import { BadRequestError } from "@/lib/http/errors";
@@ -71,14 +72,22 @@ export async function PUT(
     }
 
     // Step 4: Parse metadata from headers
-    const metadata = SegmentMetadataSchema.parse({
-      device_id: pathDeviceId,
-      seg_id,
-      start_ms: req.headers.get("x-segment-start-ms"),
-      end_ms: req.headers.get("x-segment-end-ms"),
-      sample_rate: req.headers.get("x-segment-sample-rate"),
-      content_type: contentType,
-    });
+    let metadata;
+    try {
+      metadata = SegmentMetadataSchema.parse({
+        device_id: pathDeviceId,
+        seg_id,
+        start_ms: req.headers.get("x-segment-start-ms"),
+        end_ms: req.headers.get("x-segment-end-ms"),
+        sample_rate: req.headers.get("x-segment-sample-rate"),
+        content_type: contentType,
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        throw new BadRequestError("Invalid segment metadata");
+      }
+      throw error;
+    }
 
     // Step 5: Check size via Content-Length header first (413 if oversized)
     const contentLengthStr = req.headers.get("content-length");
