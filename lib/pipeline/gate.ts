@@ -72,17 +72,19 @@ export function evaluateGate(input: {
   const checks: Array<{ rule: GateRule; passed: boolean }> = [];
   let firedRule: GateRule = "passed";
 
-  // 1. Check invalid_label (category unknown, confidence NaN/out-of-[0,1])
-  // Validate category first — check if it's in CategorySchema
-  let categoryParseResult: Category;
+  // 1. Check invalid_label (category unknown, NON_WORK, confidence NaN/out-of-[0,1])
+  // Validate category first — check if it's in CategorySchema AND not NON_WORK
+  let categoryParseResult: Category | null = null;
   let validCategory = false;
   try {
-    categoryParseResult = CategorySchema.parse(category);
-    validCategory = true;
+    const parsed = CategorySchema.parse(category);
+    // Hard rule #10: NON_WORK must never reach the gate
+    if (parsed !== "NON_WORK") {
+      categoryParseResult = parsed;
+      validCategory = true;
+    }
   } catch {
     // Invalid category — treat as invalid_label
-    categoryParseResult = category as Category;
-    validCategory = false;
   }
 
   // Check confidence validity (must be a number in [0, 1])
@@ -99,8 +101,8 @@ export function evaluateGate(input: {
   }
 
   // Get threshold for this category (safely, in case invalid)
-  const threshold = validCategory
-    ? FACT_THRESHOLD[category as keyof typeof FACT_THRESHOLD] ?? 0.9
+  const threshold = validCategory && categoryParseResult
+    ? FACT_THRESHOLD[categoryParseResult as keyof typeof FACT_THRESHOLD] ?? 0.9
     : 0.9;
 
   // 2. Check label_conflict (independently)
@@ -111,14 +113,14 @@ export function evaluateGate(input: {
   }
 
   // 3. Check always_question (PHONE_CALL) — only if category is valid
-  const isAlwaysQuestion = validCategory && ALWAYS_QUESTION.has(category);
+  const isAlwaysQuestion = validCategory && categoryParseResult && ALWAYS_QUESTION.has(categoryParseResult);
   checks.push({ rule: "always_question", passed: !isAlwaysQuestion });
   if (isAlwaysQuestion && firedRule === "passed") {
     firedRule = "always_question";
   }
 
   // 4. Check needs_supervisor_confirm — only if category is valid
-  const needsConfirm = validCategory && NEEDS_SUPERVISOR_CONFIRM.has(category);
+  const needsConfirm = validCategory && categoryParseResult && NEEDS_SUPERVISOR_CONFIRM.has(categoryParseResult);
   checks.push({
     rule: "needs_supervisor_confirm",
     passed: !needsConfirm,
@@ -127,9 +129,13 @@ export function evaluateGate(input: {
     firedRule = "needs_supervisor_confirm";
   }
 
-  // 5. Check no_evidence — require non-empty, non-whitespace evidence IDs
-  const validEvidence = evidence_line_ids.filter(
-    (id) => typeof id === "string" && id.trim().length > 0
+  // 5. Check no_evidence — require non-empty, non-whitespace, unique evidence IDs
+  const validEvidence = Array.from(
+    new Set(
+      evidence_line_ids.filter(
+        (id) => typeof id === "string" && id.trim().length > 0
+      )
+    )
   );
   const hasEvidence = validEvidence.length >= 1;
   checks.push({ rule: "no_evidence", passed: hasEvidence });
@@ -158,12 +164,16 @@ export function evaluateGate(input: {
 
   const verdict = firedRule === "passed" ? "fact" : "question";
 
+  // Ensure we always return a valid category — use the parsed result, or fallback to a default work category
+  // This guarantees the schema parse never fails due to an invalid category
+  const finalCategory = categoryParseResult || "ROUTINE_OPS";
+
   return {
     verdict,
     fired_rule: firedRule,
     checks,
-    category: categoryParseResult || (category as Category),
-    confidence,
+    category: finalCategory,
+    confidence: isFinite(confidence) ? confidence : 0,
     threshold,
     evidence_count: validEvidence.length,
     gate_version: "1",

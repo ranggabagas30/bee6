@@ -276,6 +276,50 @@ describe("gate", () => {
       const noEvidenceCheck = result.checks.find((c) => c.rule === "no_evidence");
       expect(noEvidenceCheck?.passed).toBe(true); // has valid evidence
     });
+
+    it("fires invalid_label when category is NON_WORK (hard rule #10)", () => {
+      // NON_WORK should never reach the gate as a fact or even a question
+      const result = evaluateGate({
+        category: "NON_WORK" as unknown as WorkCategory,
+        confidence: 0.95,
+        evidence_line_ids: ["line_1"],
+        label_conflict: false,
+      });
+
+      expect(result.fired_rule).toBe("invalid_label");
+      expect(result.verdict).toBe("question");
+      const invalidLabelCheck = result.checks.find((c) => c.rule === "invalid_label");
+      expect(invalidLabelCheck?.passed).toBe(false);
+    });
+
+    it("ensures GateDecisionSchema.safeParse always succeeds for evaluateGate output", () => {
+      // Test with various edge cases to ensure schema is always satisfied
+      const testCases = [
+        { category: "ROUTINE_OPS" as WorkCategory, confidence: 0.9, evidence_line_ids: ["a"], label_conflict: false },
+        { category: "ROUTINE_OPS" as WorkCategory, confidence: NaN, evidence_line_ids: ["a"], label_conflict: false },
+        { category: "ROUTINE_OPS" as WorkCategory, confidence: Infinity, evidence_line_ids: ["a"], label_conflict: false },
+        { category: "ROUTINE_OPS" as WorkCategory, confidence: -5, evidence_line_ids: ["a"], label_conflict: false },
+        { category: "UNKNOWN_CATEGORY" as unknown as WorkCategory, confidence: 0.9, evidence_line_ids: ["a"], label_conflict: false },
+      ];
+
+      for (const testCase of testCases) {
+        const decision = evaluateGate(testCase);
+        const parseResult = GateDecisionSchema.safeParse(decision);
+        expect(parseResult.success, `Failed for case: ${JSON.stringify(testCase)}`).toBe(true);
+      }
+    });
+
+    it("deduplicates evidence IDs before counting", () => {
+      const result = evaluateGate({
+        category: "ROUTINE_OPS",
+        confidence: 0.9,
+        evidence_line_ids: ["line_1", "line_2", "line_1", "line_1"],
+        label_conflict: false,
+      });
+
+      // Should count only unique: line_1 and line_2
+      expect(result.evidence_count).toBe(2);
+    });
   });
 
   describe("expireQuestion", () => {
