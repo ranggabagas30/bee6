@@ -92,7 +92,11 @@ export class LockedError extends AppError {
  * always short and sanitised: no audio, base64, secrets or upstream bodies.
  */
 export class ServiceUnavailableError extends AppError {
-  constructor(message = "Service temporarily unavailable") {
+  constructor(
+    message = "Service temporarily unavailable",
+    public readonly stage?: "transcribe" | "redact",
+    public readonly upstream?: number | "timeout" | "unknown",
+  ) {
     super(message, "SERVICE_UNAVAILABLE", 503);
   }
 }
