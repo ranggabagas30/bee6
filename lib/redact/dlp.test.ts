@@ -136,4 +136,52 @@ describe("dlpRedactor.redact", () => {
     }
     expect((caught as Error).message).not.toContain(secret);
   });
+
+  it("sets stage='redact' on ServiceUnavailableError for DLP failure", async () => {
+    const deidentify: Deidentify = async () => {
+      throw new Error("DLP 500");
+    };
+    try {
+      await dlpRedactor({ ...baseDeps, deidentify }).redact("text");
+    } catch (e) {
+      expect(e).toBeInstanceOf(ServiceUnavailableError);
+      expect((e as ServiceUnavailableError).stage).toBe("redact");
+      expect((e as ServiceUnavailableError).upstream).toBeDefined();
+    }
+  });
+
+  it("extracts numeric code to upstream field from gRPC error", async () => {
+    const deidentify: Deidentify = async () => {
+      const err = new Error("DLP error");
+      (err as { code?: number }).code = 14; // UNAVAILABLE gRPC status
+      throw err;
+    };
+    try {
+      await dlpRedactor({ ...baseDeps, deidentify }).redact("text");
+    } catch (e) {
+      expect((e as ServiceUnavailableError).upstream).toBe(14);
+    }
+  });
+
+  it("sets upstream='timeout' for timeout/abort errors", async () => {
+    const deidentify: Deidentify = async () => {
+      throw new DOMException("The operation was aborted", "AbortError");
+    };
+    try {
+      await dlpRedactor({ ...baseDeps, deidentify }).redact("text");
+    } catch (e) {
+      expect((e as ServiceUnavailableError).upstream).toBe("timeout");
+    }
+  });
+
+  it("sets stage='redact' and upstream on no-content response", async () => {
+    const deidentify: Deidentify = async () => ({ item: {} } as Response);
+    try {
+      await dlpRedactor({ ...baseDeps, deidentify }).redact("text");
+    } catch (e) {
+      expect(e).toBeInstanceOf(ServiceUnavailableError);
+      expect((e as ServiceUnavailableError).stage).toBe("redact");
+      expect((e as ServiceUnavailableError).upstream).toBe("unknown");
+    }
+  });
 });
