@@ -113,7 +113,7 @@ export async function startCaptureSession(
     engine.pushFrame(frame);
   const onError = (message: string) => {
     engine.setMicError(message);
-    void scheduleRestart();
+    scheduleRestart();
   };
 
   async function spinUp(): Promise<void> {
@@ -123,26 +123,65 @@ export async function startCaptureSession(
       restart.reset();
     } catch {
       engine.setMicError("microphone-unavailable");
-      void scheduleRestart();
+      scheduleRestart();
     }
   }
 
-  async function scheduleRestart(): Promise<void> {
-    if (stopped) return;
+  /**
+   * Single in-flight-restart guard (finding B-2). The VAD's `getStream`
+   * wrapper rethrows a mic failure after already calling `onError`
+   * (`vad.ts`), so one mic error fires both `onError` (above) and this same
+   * `spinUp`/`runRestartAttempt` call's own catch below — without a guard,
+   * both call sites would each schedule and run their own restart, leaving
+   * two `MicVAD`s feeding one engine with different time bases and a
+   * corrupted PCM timeline. `restarting` stays true for the whole retry
+   * cycle (possibly several attempts) and is only ever cleared once the mic
+   * comes back healthy, or the session stops — so external triggers
+   * (another `onError`, a `devicechange` burst) during that time are
+   * no-ops, coalesced into the one cycle already running.
+   */
+  let restarting = false;
+
+  function scheduleRestart(): void {
+    if (stopped || restarting) return;
+    restarting = true;
+    runRestartAttempt();
+  }
+
+  /**
+   * Runs one restart attempt after backoff. On failure it chains directly
+   * into the next attempt instead of going through `scheduleRestart` — that
+   * guard must stay closed for the whole cycle, not reopen between its own
+   * attempts.
+   */
+  function runRestartAttempt(): void {
     const delay = restart.nextDelayMs();
-    setTimeout(async () => {
-      if (stopped) return;
-      try {
-        await vadHandle?.destroy();
-      } catch {
-        /* ignore */
-      }
-      currentStream?.getTracks().forEach((t) => t.stop());
-      currentStream = null;
-      // Rebase the engine timeline onto the new VAD clock so post-restart frames
-      // extract the right audio instead of silence (finding #1).
-      engine.resyncTimeline();
-      await spinUp();
+    setTimeout(() => {
+      void (async () => {
+        if (stopped) {
+          restarting = false;
+          return;
+        }
+        try {
+          await vadHandle?.destroy();
+        } catch {
+          /* ignore */
+        }
+        currentStream?.getTracks().forEach((t) => t.stop());
+        currentStream = null;
+        // Rebase the engine timeline onto the new VAD clock so post-restart
+        // frames extract the right audio instead of silence (finding #1).
+        engine.resyncTimeline();
+        try {
+          vadHandle = await startCaptureVad({ getStream, onFrame, onError });
+          engine.clearMicError();
+          restart.reset();
+          restarting = false;
+        } catch {
+          engine.setMicError("microphone-unavailable");
+          runRestartAttempt();
+        }
+      })();
     }, delay);
   }
 
@@ -165,7 +204,7 @@ export async function startCaptureSession(
   }, HEARTBEAT_INTERVAL_MS);
 
   const onVisibility = () => void wakeLock.reacquireIfNeeded();
-  const onDeviceChange = () => void scheduleRestart();
+  const onDeviceChange = () => scheduleRestart();
   document.addEventListener("visibilitychange", onVisibility);
   navigator.mediaDevices.addEventListener?.("devicechange", onDeviceChange);
 
