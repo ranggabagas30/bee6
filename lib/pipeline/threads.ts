@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CategorySchema } from "@/lib/pipeline/categories";
+import { CategorySchema, type Category, type WorkCategory } from "@/lib/pipeline/categories";
 import { GRACE_MS } from "@/lib/pipeline/categories";
 import type { TimedLine } from "@/lib/pipeline/windowing";
 
@@ -43,13 +43,13 @@ export interface LabelUnit {
 
 export interface OpenThread {
   thread_id: string;
-  category: string;
+  category: WorkCategory;
   last_line_end_ms: number;
 }
 
 export interface BuiltThread {
   thread_id: string;
-  category: string;
+  category: WorkCategory;
   confidence: number;
   line_ids: string[];
   evidence_line_ids: string[];
@@ -58,7 +58,7 @@ export interface BuiltThread {
   last_line_end_ms: number;
   summary: string;
   fields?: Record<string, unknown>;
-  runner_up?: { category: string; why_not: string };
+  runner_up?: { category: Category; why_not: string };
   label_conflict: boolean;
   continued_from_open: boolean;
 }
