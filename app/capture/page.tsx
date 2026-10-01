@@ -73,6 +73,14 @@ export default function CapturePage() {
       if (cancelled || starting || unsupported || !loadedConfig) return;
       const phase = resolveCapturePhase(loadedConfig, new Date());
 
+      if (devControlsEnabled) {
+        // Dev mode bypasses the opening_hours/consent auto-gate entirely for
+        // this session — manual Start/Pause/Stop below owns the session.
+        // Still reflect the real computed phase so it's visible underneath.
+        if (!cancelled) setView(phase);
+        return;
+      }
+
       if (phase !== "active") {
         if (sessionRef.current) {
           await sessionRef.current.stop();
@@ -128,13 +136,43 @@ export default function CapturePage() {
       sessionRef.current = null;
       void session?.stop();
     };
-  }, [router]);
+  }, [router, devControlsEnabled]);
+
+  // Dev-only manual controls (DEV-01): call the exact same
+  // startCaptureSession()/session.stop() the real auto-gate effect above
+  // uses, just triggered by a button instead of the phase check — no new
+  // session-internal state. Only reachable when the dev panel is mounted.
+  const handleDevStart = () => {
+    const auth = readDeviceAuth();
+    if (!auth || !config || sessionRef.current) return;
+    void (async () => {
+      const session = await startCaptureSession(auth, config, {
+        onStatus: (s) => setStatus(s),
+        onMicSource: (label) => setMicSource(label),
+        onUnsupported: () => setView("unsupported"),
+        onSampleRateRejected: (msg) => setSampleRateMsg(msg),
+      });
+      if (session) {
+        sessionRef.current = session;
+        setView("active");
+      }
+    })();
+  };
+
+  const handleDevStop = () => {
+    const session = sessionRef.current;
+    if (!session) return;
+    sessionRef.current = null;
+    void session.stop();
+  };
 
   return (
     <main style={PAGE_STYLE}>
       <h1 style={{ fontSize: 22 }}>Shop listening</h1>
 
-      {devControlsEnabled ? <DevPanel /> : null}
+      {devControlsEnabled ? (
+        <DevPanel onStart={handleDevStart} onPause={handleDevStop} onStop={handleDevStop} />
+      ) : null}
 
       {view === "loading" ? <p>Loading capture settings…</p> : null}
 

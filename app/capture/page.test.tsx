@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const replace = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -27,11 +27,29 @@ vi.mock("@/lib/capture/browser/client", () => ({
 }));
 
 // The real auto-gate effect never reaches startCaptureSession in these tests
-// (phase is forced to a blocking value), but import it eagerly so a future
-// wiring mistake that *does* reach it fails loudly via this mock instead of
-// touching real getUserMedia/WebCodecs.
+// (phase is forced to a blocking value, or dev mode bypasses the auto-gate
+// entirely), but import it eagerly so a future wiring mistake that *does*
+// reach it unexpectedly fails loudly via this mock instead of touching real
+// getUserMedia/WebCodecs. Each call returns a distinct fake session with its
+// own `stop` spy, so a test can assert the exact session a button acted on.
+interface FakeSession {
+  stop: ReturnType<typeof vi.fn>;
+}
+const fakeSessions: FakeSession[] = [];
+const startCaptureSession = vi.fn(
+  async (
+    _auth: unknown,
+    _config: unknown,
+    _cb: unknown,
+  ): Promise<FakeSession> => {
+    const session: FakeSession = { stop: vi.fn(async () => {}) };
+    fakeSessions.push(session);
+    return session;
+  },
+);
 vi.mock("@/lib/capture/browser/session", () => ({
-  startCaptureSession: vi.fn(() => Promise.resolve(null)),
+  startCaptureSession: (auth: unknown, config: unknown, cb: unknown) =>
+    startCaptureSession(auth, config, cb),
 }));
 
 afterEach(() => {
@@ -39,6 +57,7 @@ afterEach(() => {
   vi.clearAllMocks();
   readDeviceAuth.mockReturnValue(null);
   resolveCapturePhase.mockReturnValue("no_consent");
+  fakeSessions.length = 0;
 });
 
 async function importCapturePage() {
@@ -91,5 +110,64 @@ describe("CapturePage dev panel gating", () => {
     expect(container.textContent).toMatch(/capture is off/i);
     // ...and the active capture view is no longer blocked by it.
     expect(container.textContent).toMatch(/keep this page open/i);
+  });
+});
+
+describe("CapturePage dev panel manual controls", () => {
+  async function renderInDevMode() {
+    isDevControlsEnabled.mockReturnValue(true);
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    fetchCaptureConfig.mockResolvedValue({
+      consent_complete: false,
+      opening_time: "08:00",
+      closing_time: "20:00",
+      timezone: "Asia/Jakarta",
+    });
+    // A blocking phase: proves the manual buttons act independently of the
+    // real auto-gate (which would otherwise never call startCaptureSession
+    // here at all) rather than coincidentally riding its own auto-start.
+    resolveCapturePhase.mockReturnValue("no_consent");
+    const CapturePage = await importCapturePage();
+    const result = render(<CapturePage />);
+    // Give the auto-gate's fetch effect a tick to settle so its own
+    // (non-)behavior doesn't race with the assertions below.
+    await waitFor(() => expect(fetchCaptureConfig).toHaveBeenCalled());
+    return result;
+  }
+
+  it('clicking "Start" calls startCaptureSession exactly once', async () => {
+    await renderInDevMode();
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
+  });
+
+  it('clicking "Pause" calls session.stop() and leaves the session cleared', async () => {
+    await renderInDevMode();
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
+    const [session1] = fakeSessions;
+
+    fireEvent.click(screen.getByRole("button", { name: /^pause$/i }));
+    await waitFor(() => expect(session1?.stop).toHaveBeenCalledTimes(1));
+
+    // Pausing again (no running session) must not call stop() a second time
+    // on the already-stopped session — sessionRef.current was cleared.
+    fireEvent.click(screen.getByRole("button", { name: /^pause$/i }));
+    expect(session1?.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('clicking "Start" again after a pause starts a fresh session, not the stale one', async () => {
+    await renderInDevMode();
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
+    const [session1] = fakeSessions;
+
+    fireEvent.click(screen.getByRole("button", { name: /^pause$/i }));
+    await waitFor(() => expect(session1?.stop).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(2));
+    const [, session2] = fakeSessions;
+    expect(session2).not.toBe(session1);
   });
 });
