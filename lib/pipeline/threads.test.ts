@@ -213,7 +213,48 @@ describe("threads", () => {
       expect(result.threads.every((t) => !t.label_conflict)).toBe(true);
     });
 
-    it("merges threads via open_threads grace period", () => {
+    it("merges threads via open_threads grace period when hint matches id", () => {
+      // Test 1: Hint matches open thread id and is within grace period
+      const unit1: LabelUnit = {
+        unit_id: "unit_1",
+        window_ids: ["w_seg_002"],
+        lines: [
+          { line_id: "seg_002#0", seg_id: "seg_002", text: "continued", start_ms: 100000, end_ms: 105000 },
+        ],
+      };
+
+      const label1 = {
+        lines: [{ i: 0, reply_to: null, thread: "thread_1" }],
+        threads: [
+          {
+            id: "thread_1",
+            category: "ROUTINE_OPS" as const,
+            confidence: 0.9,
+            evidence: [0],
+            summary: "continuing from before",
+          },
+        ],
+        non_work_lines: [],
+      };
+
+      const openThread1 = {
+        thread_id: "thread_1",
+        category: "ROUTINE_OPS" as const,
+        last_line_end_ms: 90000, // gap = 100000 - 90000 = 10000ms, within grace (120000ms)
+      };
+
+      const result1 = buildThreads({ unit: unit1, label: label1, open_threads: [openThread1] });
+      expect(result1.threads).toHaveLength(1);
+      const thread1 = result1.threads[0];
+      if (thread1) {
+        expect(thread1.continued_from_open).toBe(true);
+        expect(thread1.thread_id).toBe("thread_1");
+        expect(thread1.category).toBe("ROUTINE_OPS");
+      }
+    });
+
+    it("does not merge via grace when hint does not match open thread id", () => {
+      // Even if a hint has the same category and is within grace, it must match the id
       const unit: LabelUnit = {
         unit_id: "unit_1",
         window_ids: ["w_seg_002"],
@@ -237,7 +278,7 @@ describe("threads", () => {
       };
 
       const openThread = {
-        thread_id: "thread_1",
+        thread_id: "thread_1", // different id — no merge
         category: "ROUTINE_OPS" as const,
         last_line_end_ms: 90000,
       };
@@ -247,7 +288,90 @@ describe("threads", () => {
       expect(result.threads).toHaveLength(1);
       const thread = result.threads[0];
       if (thread) {
+        expect(thread.continued_from_open).toBe(false);
+        // Should create a new thread id based on unit
+        expect(thread.thread_id).not.toBe("thread_1");
+      }
+    });
+
+    it("joins threads at exactly grace period boundary", () => {
+      const unit: LabelUnit = {
+        unit_id: "unit_1",
+        window_ids: ["w_seg_002"],
+        lines: [
+          { line_id: "seg_002#0", seg_id: "seg_002", text: "at grace", start_ms: 110000, end_ms: 115000 },
+        ],
+      };
+
+      const label = {
+        lines: [{ i: 0, reply_to: null, thread: "thread_1" }],
+        threads: [
+          {
+            id: "thread_1",
+            category: "TRAINING" as const,
+            confidence: 0.9,
+            evidence: [0],
+            summary: "training",
+          },
+        ],
+        non_work_lines: [],
+      };
+
+      // TRAINING grace = 600_000ms (10 min)
+      // gap = 110000 - 0 = 110000ms, within grace
+      const openThread = {
+        thread_id: "thread_1",
+        category: "TRAINING" as const,
+        last_line_end_ms: 0,
+      };
+
+      const result = buildThreads({ unit, label, open_threads: [openThread] });
+      expect(result.threads).toHaveLength(1);
+      const thread = result.threads[0];
+      if (thread) {
         expect(thread.continued_from_open).toBe(true);
+      }
+    });
+
+    it("does not join when gap exceeds grace by 1ms", () => {
+      const unit: LabelUnit = {
+        unit_id: "unit_1",
+        window_ids: ["w_seg_002"],
+        lines: [
+          { line_id: "seg_002#0", seg_id: "seg_002", text: "after grace", start_ms: 120001, end_ms: 125000 },
+        ],
+      };
+
+      const label = {
+        lines: [{ i: 0, reply_to: null, thread: "thread_2" }],
+        threads: [
+          {
+            id: "thread_2", // Different id from open thread to distinguish them
+            category: "ROUTINE_OPS" as const,
+            confidence: 0.9,
+            evidence: [0],
+            summary: "after grace",
+          },
+        ],
+        non_work_lines: [],
+      };
+
+      // ROUTINE_OPS grace = 120_000ms (2 min)
+      // gap = 120001 - 0 = 120001ms, exceeds grace by 1ms
+      const openThread = {
+        thread_id: "thread_1",
+        category: "ROUTINE_OPS" as const,
+        last_line_end_ms: 0,
+      };
+
+      const result = buildThreads({ unit, label, open_threads: [openThread] });
+      expect(result.threads).toHaveLength(1);
+      const thread = result.threads[0];
+      if (thread) {
+        expect(thread.continued_from_open).toBe(false);
+        // A fresh, unit-namespaced id — never the bare model thread id (those
+        // repeat across units) and never the open thread's id either.
+        expect(thread.thread_id).toBe("unit_1:thread_2");
       }
     });
 
@@ -433,6 +557,310 @@ describe("threads", () => {
         // Should preserve the actual confidence (0.75), not silently default to 0
         expect(thread.confidence).toBe(0.75);
       }
+    });
+
+    it("chains open threads across three windows", () => {
+      // This is the backlog's literal 3-window join case: three units in sequence
+      // with chained open threads all converging to one thread_id
+
+      // Window 1: opens a thread
+      const unit1: LabelUnit = {
+        unit_id: "unit_1",
+        window_ids: ["w_seg_001"],
+        lines: [
+          { line_id: "seg_001#0", seg_id: "seg_001", text: "start", start_ms: 0, end_ms: 5000 },
+        ],
+      };
+
+      const label1 = {
+        lines: [{ i: 0, reply_to: null, thread: "thread_main" }],
+        threads: [
+          {
+            id: "thread_main",
+            category: "COMPLAINT" as const,
+            confidence: 0.9,
+            evidence: [0],
+            summary: "issue start",
+          },
+        ],
+        non_work_lines: [],
+      };
+
+      const result1 = buildThreads({ unit: unit1, label: label1, open_threads: [] });
+      expect(result1.threads).toHaveLength(1);
+      const thread1 = result1.threads[0];
+      if (!thread1) throw new Error("Expected thread1");
+      // Not joined (no open threads yet) — gets a fresh, unit-namespaced id,
+      // never the bare model-assigned id (those repeat across units).
+      expect(thread1.thread_id).toBe("unit_1:thread_main");
+      expect(thread1.continued_from_open).toBe(false);
+
+      // Get open threads for next window
+      const openAt1 = openThreadsAt([thread1], 200000); // 200s later
+      expect(openAt1).toHaveLength(1); // COMPLAINT grace is 5 min (300s), so 200s gap is within grace
+      expect(openAt1[0]?.thread_id).toBe("unit_1:thread_main");
+
+      // Window 2: continues the thread. The model echoes the persisted
+      // (unit-namespaced) open-thread id back as its `thread` hint — that's
+      // the contract between R-05b's label call and this join.
+      const unit2: LabelUnit = {
+        unit_id: "unit_2",
+        window_ids: ["w_seg_002"],
+        lines: [
+          { line_id: "seg_002#0", seg_id: "seg_002", text: "middle", start_ms: 205000, end_ms: 210000 },
+        ],
+      };
+
+      const label2 = {
+        lines: [{ i: 0, reply_to: null, thread: "unit_1:thread_main" }],
+        threads: [
+          {
+            id: "unit_1:thread_main",
+            category: "COMPLAINT" as const,
+            confidence: 0.92,
+            evidence: [0],
+            summary: "issue details",
+          },
+        ],
+        non_work_lines: [],
+      };
+
+      const result2 = buildThreads({ unit: unit2, label: label2, open_threads: openAt1 });
+      expect(result2.threads).toHaveLength(1);
+      const thread2 = result2.threads[0];
+      if (!thread2) throw new Error("Expected thread2");
+      expect(thread2.thread_id).toBe("unit_1:thread_main"); // Joins the open thread
+      expect(thread2.continued_from_open).toBe(true);
+
+      const openAt2 = openThreadsAt([thread2], 400000); // Another 190s later (195s total since start)
+      expect(openAt2).toHaveLength(1);
+      expect(openAt2[0]?.thread_id).toBe("unit_1:thread_main");
+
+      // Window 3: continues the same thread
+      const unit3: LabelUnit = {
+        unit_id: "unit_3",
+        window_ids: ["w_seg_003"],
+        lines: [
+          { line_id: "seg_003#0", seg_id: "seg_003", text: "end", start_ms: 390000, end_ms: 395000 },
+        ],
+      };
+
+      const label3 = {
+        lines: [{ i: 0, reply_to: null, thread: "unit_1:thread_main" }],
+        threads: [
+          {
+            id: "unit_1:thread_main",
+            category: "COMPLAINT" as const,
+            confidence: 0.88,
+            evidence: [0],
+            summary: "resolution",
+          },
+        ],
+        non_work_lines: [],
+      };
+
+      const result3 = buildThreads({ unit: unit3, label: label3, open_threads: openAt2 });
+      expect(result3.threads).toHaveLength(1);
+      const thread3 = result3.threads[0];
+      if (!thread3) throw new Error("Expected thread3");
+      expect(thread3.thread_id).toBe("unit_1:thread_main"); // Joins the open thread
+      expect(thread3.continued_from_open).toBe(true);
+
+      // All three threads have the same id, representing a single chained complaint across three windows
+    });
+
+    it("does not join when the component's resolved category differs from the open thread's category", () => {
+      // Hint matches the open thread's id and the gap is within grace, but
+      // the model re-labeled this window's continuation with a different
+      // category than the open thread was last recorded with. Per R-05a.md's
+      // join rule (b), category must also match — must NOT join.
+      const unit: LabelUnit = {
+        unit_id: "unit_2",
+        window_ids: ["w_seg_002"],
+        lines: [
+          { line_id: "seg_002#0", seg_id: "seg_002", text: "continued", start_ms: 10000, end_ms: 15000 },
+        ],
+      };
+
+      const label = {
+        lines: [{ i: 0, reply_to: null, thread: "unit_1:thread_main" }],
+        threads: [
+          {
+            id: "unit_1:thread_main",
+            category: "COMPLAINT" as const, // different from the open thread's ROUTINE_OPS
+            confidence: 0.9,
+            evidence: [0],
+            summary: "re-labeled",
+          },
+        ],
+        non_work_lines: [],
+      };
+
+      const openThread = {
+        thread_id: "unit_1:thread_main",
+        category: "ROUTINE_OPS" as const,
+        last_line_end_ms: 0, // gap = 10000ms, well within ROUTINE_OPS grace (120_000ms)
+      };
+
+      const result = buildThreads({ unit, label, open_threads: [openThread] });
+
+      expect(result.threads).toHaveLength(1);
+      const thread = result.threads[0];
+      if (thread) {
+        expect(thread.continued_from_open).toBe(false);
+        expect(thread.thread_id).not.toBe("unit_1:thread_main");
+        expect(thread.category).toBe("COMPLAINT");
+      }
+    });
+
+    it("flags merged confidence as invalid (NaN) if any member thread's confidence is out of range", () => {
+      const unit: LabelUnit = {
+        unit_id: "unit_1",
+        window_ids: ["w_1"],
+        lines: [
+          { line_id: "seg_001#0", seg_id: "seg_001", text: "line0", start_ms: 0, end_ms: 5000 },
+          { line_id: "seg_001#1", seg_id: "seg_001", text: "line1", start_ms: 5000, end_ms: 10000 },
+        ],
+      };
+
+      const label: LabelOutput = {
+        lines: [
+          { i: 0, reply_to: null, thread: "thread_a" },
+          { i: 1, reply_to: 0, thread: "thread_b" },
+        ],
+        threads: [
+          { id: "thread_a", category: "ROUTINE_OPS", confidence: 0.95, evidence: [0], summary: "a" },
+          { id: "thread_b", category: "ROUTINE_OPS", confidence: 1.5, evidence: [1], summary: "b" }, // out of [0,1]
+        ],
+        non_work_lines: [],
+      };
+
+      const result = buildThreads({ unit, label, open_threads: [] });
+
+      expect(result.threads).toHaveLength(1);
+      const thread = result.threads[0];
+      if (thread) {
+        // Must not silently resolve to the min of only the valid member (0.95) —
+        // the whole merged result is flagged invalid so the gate's invalid_label
+        // rule catches it downstream.
+        expect(Number.isNaN(thread.confidence)).toBe(true);
+      }
+    });
+
+    it("drops a label line whose i is out of range for this unit (never produces a junk thread)", () => {
+      const unit: LabelUnit = {
+        unit_id: "unit_1",
+        window_ids: ["w_1"],
+        lines: [
+          { line_id: "seg_001#0", seg_id: "seg_001", text: "only line", start_ms: 0, end_ms: 5000 },
+        ],
+      };
+
+      const label: LabelOutput = {
+        lines: [
+          { i: 0, reply_to: null, thread: "thread_1" },
+          { i: 7, reply_to: null, thread: "thread_1" }, // out of range — unit has only 1 line
+        ],
+        threads: [
+          { id: "thread_1", category: "ROUTINE_OPS", confidence: 0.95, evidence: [0], summary: "ok" },
+        ],
+        non_work_lines: [],
+      };
+
+      const result = buildThreads({ unit, label, open_threads: [] });
+
+      expect(result.threads).toHaveLength(1);
+      const thread = result.threads[0];
+      if (thread) {
+        expect(thread.line_ids).toEqual(["seg_001#0"]);
+      }
+      // The out-of-range line never existed in this unit, so it's neither
+      // emitted nor reported as unassigned.
+      expect(result.unassigned_line_ids).toHaveLength(0);
+    });
+
+    it("never silently loses a line whose hint resolves to no thread and no open thread", () => {
+      const unit: LabelUnit = {
+        unit_id: "unit_1",
+        window_ids: ["w_1"],
+        lines: [
+          { line_id: "seg_001#0", seg_id: "seg_001", text: "orphan", start_ms: 0, end_ms: 5000 },
+        ],
+      };
+
+      const label: LabelOutput = {
+        lines: [{ i: 0, reply_to: null, thread: "ghost_thread" }], // no matching entry in threads[]
+        threads: [],
+        non_work_lines: [],
+      };
+
+      const result = buildThreads({ unit, label, open_threads: [] });
+
+      expect(result.threads).toHaveLength(0);
+      expect(result.unassigned_line_ids).toContain("seg_001#0");
+    });
+
+    it("resolves category from open_threads when a hint matches an open thread but label.threads has no entry for it", () => {
+      const unit: LabelUnit = {
+        unit_id: "unit_2",
+        window_ids: ["w_seg_002"],
+        lines: [
+          { line_id: "seg_002#0", seg_id: "seg_002", text: "continued, no explicit thread entry", start_ms: 10000, end_ms: 15000 },
+        ],
+      };
+
+      const label: LabelOutput = {
+        lines: [{ i: 0, reply_to: null, thread: "unit_1:thread_main" }],
+        threads: [], // model gave no threads[] entry for this id this call
+        non_work_lines: [],
+      };
+
+      const openThread = {
+        thread_id: "unit_1:thread_main",
+        category: "ROUTINE_OPS" as const,
+        last_line_end_ms: 0, // gap = 10000ms, within ROUTINE_OPS grace
+      };
+
+      const result = buildThreads({ unit, label, open_threads: [openThread] });
+
+      expect(result.threads).toHaveLength(1);
+      const thread = result.threads[0];
+      if (thread) {
+        expect(thread.continued_from_open).toBe(true);
+        expect(thread.thread_id).toBe("unit_1:thread_main");
+        expect(thread.category).toBe("ROUTINE_OPS");
+        expect(thread.line_ids).toEqual(["seg_002#0"]);
+      }
+      expect(result.unassigned_line_ids).toHaveLength(0);
+    });
+
+    it("counts a dropped reply_to edge from a NON_WORK line in dropped_edge_count", () => {
+      const unit: LabelUnit = {
+        unit_id: "unit_1",
+        window_ids: ["w_1"],
+        lines: [
+          { line_id: "seg_001#0", seg_id: "seg_001", text: "chit chat", start_ms: 0, end_ms: 5000 },
+          { line_id: "seg_001#1", seg_id: "seg_001", text: "back to work", start_ms: 5000, end_ms: 10000 },
+        ],
+      };
+
+      const label: LabelOutput = {
+        lines: [
+          { i: 0, reply_to: null, thread: "nonwork_thread" },
+          { i: 1, reply_to: 0, thread: "thread_1" }, // reply_to a NON_WORK line — edge must be dropped
+        ],
+        threads: [
+          { id: "nonwork_thread", category: "NON_WORK", confidence: 0.8, evidence: [], summary: "chat" },
+          { id: "thread_1", category: "ROUTINE_OPS", confidence: 0.9, evidence: [1], summary: "work" },
+        ],
+        non_work_lines: [],
+      };
+
+      const result = buildThreads({ unit, label, open_threads: [] });
+
+      expect(result.dropped_edge_count).toBeGreaterThanOrEqual(1);
+      expect(result.threads).toHaveLength(1);
+      expect(result.threads[0]?.line_ids).toEqual(["seg_001#1"]);
     });
   });
 

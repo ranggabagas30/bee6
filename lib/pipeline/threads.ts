@@ -34,6 +34,7 @@ export const LabelOutputSchema = z.object({
 });
 
 export type LabelOutput = z.infer<typeof LabelOutputSchema>;
+type LabelLine = LabelOutput["lines"][number];
 
 export interface LabelUnit {
   unit_id: string;
@@ -65,8 +66,18 @@ export interface BuiltThread {
 
 /**
  * Builds threads from a label unit and label output.
- * Uses union-find over reply_to + thread hints.
- * Drops invalid edges. Strips NON_WORK lines entirely (both explicit and by category).
+ * Uses union-find over reply_to + thread hints. Drops invalid edges.
+ * Strips NON_WORK lines entirely (both explicit and by category).
+ *
+ * Cross-window join: a component continues an `open_threads` entry only if
+ * (a) some member line's `thread` hint equals that open thread's `thread_id`,
+ * (b) the component's resolved category equals the open thread's category
+ *     (never checked when the component itself has a label_conflict), and
+ * (c) the gap from the open thread's `last_line_end_ms` to the component's
+ *     EARLIEST member line start is in [0, grace] inclusive (negative gaps
+ *     are rejected, never clamped). Otherwise the component gets a fresh
+ *     id namespaced to this unit — a bare model-assigned thread id is never
+ *     used as the final thread_id, because those ids repeat across units.
  */
 export function buildThreads(input: {
   unit: LabelUnit;
@@ -79,185 +90,202 @@ export function buildThreads(input: {
   unassigned_line_ids: string[];
 } {
   const { unit, label, open_threads } = input;
+  const numLines = unit.lines.length;
+  const openThreadsById = new Map(open_threads.map((ot) => [ot.thread_id, ot]));
 
-  // Build a map of label lines by index
-  const labelLinesByI = new Map<number, (typeof label.lines)[number]>();
-  const nonWorkSet = new Set<number>(label.non_work_lines);
-  let droppedEdges = 0;
-
-  for (const labelLine of label.lines) {
-    labelLinesByI.set(labelLine.i, labelLine);
-  }
-
-  // Find all NON_WORK thread IDs and add their lines to nonWorkSet
-  const nonWorkThreadIds = new Set<string>();
-  for (const thread of label.threads) {
-    if (thread.category === "NON_WORK") {
-      nonWorkThreadIds.add(thread.id);
+  // Validate & index label lines by i; out-of-range i is dropped entirely
+  // (it doesn't refer to a real line in this unit, so it can never be
+  // "unassigned" either — it simply never existed as far as this unit goes).
+  const labelLinesByI = new Map<number, LabelLine>();
+  for (const ll of label.lines) {
+    if (ll.i < 0 || ll.i >= numLines) continue;
+    if (!labelLinesByI.has(ll.i)) {
+      labelLinesByI.set(ll.i, ll);
     }
   }
 
-  for (const labelLine of label.lines) {
-    if (nonWorkThreadIds.has(labelLine.thread)) {
-      nonWorkSet.add(labelLine.i);
-    }
+  // NON_WORK set: explicit non_work_lines (range-validated) plus any line
+  // whose thread hint points at a thread the model itself labeled NON_WORK.
+  const nonWorkSet = new Set<number>();
+  for (const idx of label.non_work_lines) {
+    if (idx >= 0 && idx < numLines) nonWorkSet.add(idx);
+  }
+  const nonWorkThreadIds = new Set(
+    label.threads.filter((t) => t.category === "NON_WORK").map((t) => t.id)
+  );
+  for (const [i, ll] of labelLinesByI) {
+    if (nonWorkThreadIds.has(ll.thread)) nonWorkSet.add(i);
   }
 
-  // Union-find for thread membership
+  // Union-find over valid, non-NON_WORK line indices only.
   const parent = new Map<number, number>();
-  for (const labelLine of label.lines) {
-    if (!nonWorkSet.has(labelLine.i)) {
-      parent.set(labelLine.i, labelLine.i);
-    }
+  for (const i of labelLinesByI.keys()) {
+    if (!nonWorkSet.has(i)) parent.set(i, i);
   }
 
-  // Process reply_to edges
-  for (const labelLine of label.lines) {
-    if (nonWorkSet.has(labelLine.i) || labelLine.reply_to === null) continue;
+  const find = (x: number): number => {
+    const p = parent.get(x);
+    if (p === undefined) return x;
+    if (p !== x) {
+      const root = find(p);
+      parent.set(x, root);
+      return root;
+    }
+    return x;
+  };
 
-    // Validate reply_to: 0 <= reply_to < i (not >= label.lines.length, not self, not NON_WORK)
-    if (
-      labelLine.reply_to < 0 ||
-      labelLine.reply_to >= labelLine.i ||
-      nonWorkSet.has(labelLine.reply_to)
-    ) {
+  const union = (a: number, b: number): void => {
+    if (!parent.has(a) || !parent.has(b)) return;
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+
+  // reply_to edges: 0 <= reply_to < i, target must be a known valid line,
+  // and neither endpoint may be NON_WORK. Every skip is counted.
+  let droppedEdges = 0;
+  for (const [i, ll] of labelLinesByI) {
+    if (ll.reply_to === null) continue;
+    const target = ll.reply_to;
+    const targetKnownValid = target >= 0 && target < i && labelLinesByI.has(target);
+    const sourceIsNonWork = nonWorkSet.has(i);
+    const targetIsNonWork = targetKnownValid && nonWorkSet.has(target);
+    if (!targetKnownValid || sourceIsNonWork || targetIsNonWork) {
       droppedEdges += 1;
       continue;
     }
+    union(i, target);
+  }
 
-    // Union
-    const root1 = find(parent, labelLine.i);
-    const root2 = find(parent, labelLine.reply_to);
-    if (root1 !== root2 && parent.has(root1) && parent.has(root2)) {
-      parent.set(root2, root1);
+  // Shared thread-hint union, within this unit only (non-NON_WORK lines).
+  const byHint = new Map<string, number[]>();
+  for (const [i, ll] of labelLinesByI) {
+    if (nonWorkSet.has(i)) continue;
+    const arr = byHint.get(ll.thread);
+    if (arr) arr.push(i);
+    else byHint.set(ll.thread, [i]);
+  }
+  for (const idxs of byHint.values()) {
+    for (let k = 1; k < idxs.length; k += 1) {
+      const a = idxs[0];
+      const b = idxs[k];
+      if (a !== undefined && b !== undefined) union(a, b);
     }
   }
 
-  // Process thread hints for cross-window continuation and union
-  for (const labelLine of label.lines) {
-    if (nonWorkSet.has(labelLine.i)) continue;
+  // Build connected components.
+  const components = new Map<number, number[]>();
+  for (const i of parent.keys()) {
+    const root = find(i);
+    const arr = components.get(root);
+    if (arr) arr.push(i);
+    else components.set(root, [i]);
+  }
 
-    // Find all other lines with the same thread hint
-    for (const otherLine of label.lines) {
-      if (nonWorkSet.has(otherLine.i) || otherLine.i === labelLine.i) continue;
+  const threads: BuiltThread[] = [];
+  const assignedLines = new Set<number>(); // lines actually emitted in a built thread
 
-      if (otherLine.thread === labelLine.thread) {
-        // Union these lines
-        const root1 = find(parent, labelLine.i);
-        const root2 = find(parent, otherLine.i);
-        if (root1 !== root2 && parent.has(root1) && parent.has(root2)) {
-          parent.set(root2, root1);
+  for (const memberIdxs of components.values()) {
+    memberIdxs.sort((a, b) => a - b);
+
+    const categories = new Set<WorkCategory>();
+    let minConfidence = Infinity;
+    let anyInvalidConfidence = false;
+    let summary = "";
+    const evidenceIdxSet = new Set<number>();
+    let runnerUp: { category: Category; why_not: string } | undefined;
+    let fields: Record<string, unknown> | undefined;
+    let modelThreadId: string | undefined;
+    const resolved: number[] = [];
+
+    for (const idx of memberIdxs) {
+      const ll = labelLinesByI.get(idx);
+      if (!ll) continue;
+
+      const threadObj = label.threads.find((t) => t.id === ll.thread);
+      let cat: WorkCategory | undefined;
+
+      if (threadObj) {
+        cat = threadObj.category as WorkCategory; // NON_WORK already excluded above
+        if (!modelThreadId) modelThreadId = threadObj.id;
+        if (
+          Number.isFinite(threadObj.confidence) &&
+          threadObj.confidence >= 0 &&
+          threadObj.confidence <= 1
+        ) {
+          minConfidence = Math.min(minConfidence, threadObj.confidence);
+        } else {
+          anyInvalidConfidence = true;
+        }
+        if (!summary && threadObj.summary) summary = threadObj.summary;
+        for (const e of threadObj.evidence) {
+          if (e >= 0 && e < numLines) evidenceIdxSet.add(e);
+        }
+        if (!runnerUp && threadObj.runner_up) {
+          runnerUp = threadObj.runner_up as { category: Category; why_not: string };
+        }
+        if (!fields && threadObj.fields) fields = threadObj.fields;
+      } else {
+        // Hint doesn't resolve via this call's label.threads[] — fall back
+        // to an open thread's category if the hint matches one, so the line
+        // is never silently lost.
+        const ot = openThreadsById.get(ll.thread);
+        if (!ot) continue; // genuinely unresolved; handled by the unassigned pass below
+        cat = ot.category;
+      }
+
+      categories.add(cat);
+      resolved.push(idx);
+    }
+
+    if (resolved.length === 0) continue; // nothing in this component could be resolved
+
+    const label_conflict = categories.size > 1;
+    let category: WorkCategory = Array.from(categories)[0] as WorkCategory;
+
+    let continued_from_open = false;
+    let threadId = modelThreadId ? `${unit.unit_id}:${modelThreadId}` : `${unit.unit_id}:${resolved[0]}`;
+
+    if (!label_conflict) {
+      const earliestStartMs = Math.min(
+        ...resolved.map((i) => unit.lines[i]?.start_ms ?? Infinity)
+      );
+      for (const idx of resolved) {
+        const ll = labelLinesByI.get(idx);
+        if (!ll) continue;
+        const ot = openThreadsById.get(ll.thread);
+        if (!ot) continue;
+        if (ot.category !== category) continue;
+        const gap = earliestStartMs - ot.last_line_end_ms;
+        const grace = GRACE_MS[ot.category];
+        if (gap >= 0 && gap <= grace) {
+          threadId = ot.thread_id;
+          category = ot.category;
+          continued_from_open = true;
+          break;
         }
       }
     }
 
-    // Check for cross-window join via open threads
-    const unitLine = unit.lines[labelLine.i];
-    if (!unitLine) continue;
-
-    for (const openThread of open_threads) {
-      if (labelLine.thread === openThread.thread_id &&
-          canMergeViaGrace(unitLine.start_ms, openThread, openThread.category)) {
-        // This line can merge with an open thread
-        // Mark it for continuation (the caller knows to check continued_from_open)
-      }
-    }
-  }
-
-  // Build thread components
-  const components = new Map<number, number[]>();
-  for (const i of parent.keys()) {
-    const root = find(parent, i);
-    if (!components.has(root)) {
-      components.set(root, []);
-    }
-    components.get(root)!.push(i);
-  }
-
-  // Map threads
-  const threads: BuiltThread[] = [];
-  const assignedLines = new Set<number>();
-
-  for (const lineIndices of components.values()) {
-    if (lineIndices.length === 0) continue;
-
-    // Determine category and properties for this component
-    const categories = new Set<Category>();
-    let threadId = "";
-    let minConfidence = Infinity;
-    let summary = "";
-    const allEvidenceIndices = new Set<number>();
-    let runnerUp: { category: Category; why_not: string } | undefined;
-    let fields: Record<string, unknown> | undefined;
-    let lowestI = Infinity;
-
-    for (const idx of lineIndices) {
-      assignedLines.add(idx);
-      const labelLine = labelLinesByI.get(idx);
-      if (!labelLine) continue;
-
-      const threadObj = label.threads.find((t) => t.id === labelLine.thread);
-      if (!threadObj) continue;
-
-      categories.add(threadObj.category as Category);
-      lowestI = Math.min(lowestI, idx);
-
-      // Union confidence (take minimum)
-      if (!isNaN(threadObj.confidence)) {
-        minConfidence = Math.min(minConfidence, threadObj.confidence);
-      }
-
-      // Keep first summary
-      if (!summary && threadObj.summary) {
-        summary = threadObj.summary;
-      }
-
-      // Union evidence indices
-      for (const evidenceIdx of threadObj.evidence) {
-        allEvidenceIndices.add(evidenceIdx);
-      }
-
-      // Keep first runner_up and fields found
-      if (!runnerUp && threadObj.runner_up) {
-        runnerUp = threadObj.runner_up as { category: Category; why_not: string };
-      }
-      if (!fields && threadObj.fields) {
-        fields = threadObj.fields;
-      }
-
-      // Use the first thread ID found, or fallback to first line's thread ID
-      if (!threadId && threadObj.id) {
-        threadId = threadObj.id;
-      }
-    }
-
-    // Validate category (no NON_WORK should reach here, but be defensive)
-    const workCategories = Array.from(categories).filter((c) => c !== "NON_WORK") as WorkCategory[];
-    if (workCategories.length === 0) continue; // Skip if all NON_WORK
-
-    const label_conflict = workCategories.length > 1 || categories.size > workCategories.length;
-    const category = workCategories[0] || "ROUTINE_OPS";
-
-    // Build line lists
     const line_ids: string[] = [];
     const evidence_line_ids: string[] = [];
     const lines: Pick<TimedLine, "line_id" | "start_ms" | "end_ms" | "text">[] = [];
     let firstStart = Infinity;
     let lastEnd = 0;
 
-    for (const idx of lineIndices) {
+    for (const idx of resolved) {
       const unitLine = unit.lines[idx];
       if (!unitLine) continue;
 
+      assignedLines.add(idx);
       line_ids.push(unitLine.line_id);
       firstStart = Math.min(firstStart, unitLine.start_ms);
       lastEnd = Math.max(lastEnd, unitLine.end_ms);
 
-      if (allEvidenceIndices.has(idx)) {
+      if (evidenceIdxSet.has(idx)) {
         evidence_line_ids.push(unitLine.line_id);
       }
 
-      // Include line text (already redacted per R-04)
       lines.push({
         line_id: unitLine.line_id,
         start_ms: unitLine.start_ms,
@@ -266,19 +294,12 @@ export function buildThreads(input: {
       });
     }
 
-    // Check if this thread merges with an open thread via grace period
-    let continued_from_open = false;
-    for (const openThread of open_threads) {
-      if (canMergeViaGrace(firstStart, openThread, category)) {
-        continued_from_open = true;
-        break;
-      }
-    }
+    if (line_ids.length === 0) continue;
 
-    const confidence = isFinite(minConfidence) ? minConfidence : 0;
+    const confidence = anyInvalidConfidence ? NaN : isFinite(minConfidence) ? minConfidence : 0;
 
     const thread: BuiltThread = {
-      thread_id: threadId || `thread_${lowestI === Infinity ? 0 : lowestI}`,
+      thread_id: threadId,
       category,
       confidence,
       line_ids,
@@ -297,15 +318,15 @@ export function buildThreads(input: {
     threads.push(thread);
   }
 
-  // Find unassigned lines (not in any component, not NON_WORK)
+  // Unassigned: any non-NON_WORK line never actually emitted in a built
+  // thread — whether the model never mentioned it at all, or its hint never
+  // resolved to a category. Never computed from labelLinesByI membership
+  // alone, so a resolved-but-unemitted line can't silently vanish.
   const unassigned_line_ids: string[] = [];
-  for (let i = 0; i < unit.lines.length; i += 1) {
-    if (!assignedLines.has(i) && !nonWorkSet.has(i) && !labelLinesByI.has(i)) {
-      const unitLine = unit.lines[i];
-      if (unitLine) {
-        unassigned_line_ids.push(unitLine.line_id);
-      }
-    }
+  for (let i = 0; i < numLines; i += 1) {
+    if (nonWorkSet.has(i) || assignedLines.has(i)) continue;
+    const unitLine = unit.lines[i];
+    if (unitLine) unassigned_line_ids.push(unitLine.line_id);
   }
 
   return {
@@ -321,17 +342,14 @@ export function buildThreads(input: {
  * Gap from last_line_end to as_of_ms must be <= GRACE_MS[category].
  */
 export function openThreadsAt(
-  threads: readonly Pick<
-    BuiltThread,
-    "thread_id" | "category" | "last_line_end_ms"
-  >[],
+  threads: readonly Pick<BuiltThread, "thread_id" | "category" | "last_line_end_ms">[],
   as_of_ms: number
 ): OpenThread[] {
   const result: OpenThread[] = [];
 
   for (const thread of threads) {
     const gap = as_of_ms - thread.last_line_end_ms;
-    const graceMs = GRACE_MS[thread.category as keyof typeof GRACE_MS] ?? 120_000;
+    const graceMs = GRACE_MS[thread.category];
 
     if (gap <= graceMs) {
       result.push({
@@ -343,25 +361,4 @@ export function openThreadsAt(
   }
 
   return result;
-}
-
-// --- helpers ---
-
-function find(parent: Map<number, number>, x: number): number {
-  const p = parent.get(x);
-  if (p !== undefined && p !== x) {
-    parent.set(x, find(parent, p));
-  }
-  return parent.get(x) ?? x;
-}
-
-function canMergeViaGrace(
-  lineStartMs: number,
-  openThread: OpenThread,
-  currentCategory: WorkCategory
-): boolean {
-  if (openThread.category !== currentCategory) return false;
-  const gap = lineStartMs - openThread.last_line_end_ms;
-  const graceMs = GRACE_MS[currentCategory];
-  return gap <= graceMs;
 }
