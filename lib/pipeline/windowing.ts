@@ -162,7 +162,7 @@ export function buildWindows(
     // Check if adding this line would exceed cap
     if (windowDurationMs > config.cap) {
       // Need to close the current window at or before the cap
-      const discardedLines = closeWindowAtCap(currentWindow, config);
+      const discardedLines = closeWindowAtCap(currentWindow, config, timedLine);
       windows.push(currentWindow);
 
       // Start new window with the discarded lines plus the current line
@@ -219,16 +219,20 @@ function finalizeWindow(
 
 function closeWindowAtCap(
   window: PipelineWindow,
-  config: WindowingConfig
+  config: WindowingConfig,
+  incomingLine?: TimedLine
 ): TimedLine[] {
   const capThreshold = window.start_ms + config.cap;
   const lookbackStart = capThreshold - config.capLookback;
 
   // Find the largest gap within [capThreshold - capLookback, capThreshold]
   // On a tie, prefer the LATER gap
+  // Also consider the gap from the last window line to the incoming line (if provided)
   let bestGapIndex = -1;
   let bestGapSize = 0;
+  let cutAtIncoming = false;
 
+  // Check gaps within existing window lines
   for (let i = 0; i < window.lines.length - 1; i += 1) {
     const currentLine = window.lines[i];
     const nextLine = window.lines[i + 1];
@@ -245,6 +249,25 @@ function closeWindowAtCap(
     ) {
       bestGapSize = gap;
       bestGapIndex = i;
+      cutAtIncoming = false;
+    }
+  }
+
+  // Also check gap from last window line to incoming line
+  if (incomingLine && window.lines.length > 0) {
+    const lastLine = window.lines[window.lines.length - 1];
+    if (lastLine) {
+      const gapToIncoming = Math.max(0, incomingLine.start_ms - lastLine.end_ms);
+      const incomingStart = incomingLine.start_ms;
+      if (
+        incomingStart >= lookbackStart &&
+        incomingStart <= capThreshold &&
+        gapToIncoming >= bestGapSize
+      ) {
+        bestGapSize = gapToIncoming;
+        bestGapIndex = window.lines.length - 1;
+        cutAtIncoming = true;
+      }
     }
   }
 
@@ -257,6 +280,10 @@ function closeWindowAtCap(
     const lastLine = window.lines[window.lines.length - 1];
     if (lastLine) {
       window.end_ms = lastLine.end_ms;
+    }
+    // If cutting at incoming line, add it to discarded
+    if (cutAtIncoming && incomingLine) {
+      discardedLines.unshift(incomingLine);
     }
   } else {
     // No gap found; cut at the last line boundary at or before cap
@@ -283,6 +310,10 @@ function closeWindowAtCap(
         window.end_ms = firstLine.end_ms;
       }
     }
+    // Add incoming line to discarded if provided
+    if (incomingLine) {
+      discardedLines.push(incomingLine);
+    }
   }
 
   window.content_ms = window.end_ms - window.start_ms;
@@ -298,6 +329,7 @@ function closeWindowAtCap(
  * - Tiny windows (content_ms < tinyMs) are batched by floor(start_ms/batchMs)
  * - Large windows get their own unit immediately
  * - Returns units that are ready for labelling (as_of_ms >= unit end time, all windows in batch closed)
+ * - Checks for open siblings before emitting a batch (don't emit while a sibling in the bucket is open)
  */
 export function planLabelUnits(
   windows: readonly PipelineWindow[],
@@ -350,9 +382,26 @@ export function planLabelUnits(
       i += 1;
     }
 
-    // Only include the batch if it's ready (as_of_ms >= batchEnd and all windows closed)
-    if (as_of_ms >= batchEnd && batchWindows.every((w) => w.status === "closed")) {
-      const unitId = `unit_${device_id}_${batchFloor}`;
+    // Only include the batch if it's ready:
+    // 1. as_of_ms >= batchEnd (batch time window has closed)
+    // 2. All windows in batch are closed
+    // 3. No open siblings in this bucket (check full windows list, not just eligible)
+    const hasOpenSibling = windows.some(
+      (w) =>
+        w.device_id === device_id &&
+        Math.floor(w.start_ms / config.batchMs) === batchFloor &&
+        w.status === "open"
+    );
+
+    if (
+      as_of_ms >= batchEnd &&
+      batchWindows.every((w) => w.status === "closed") &&
+      !hasOpenSibling
+    ) {
+      // Build unit_id from actual window contents, not just the batch bucket
+      // Use the first window_id in the batch to ensure uniqueness across different batches
+      const firstWindowId = batchWindows[0]?.window_id ?? `batch_${batchFloor}`;
+      const unitId = `unit_${device_id}_${firstWindowId}`;
       units.push({
         unit_id: unitId,
         window_ids: batchWindows.map((w) => w.window_id),
