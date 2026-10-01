@@ -114,7 +114,7 @@ export async function recordSegment(
   };
 
   // Store (may return already_exists, which is treated as success)
-  const result = await deps.store.create(segment);
+  await deps.store.create(segment);
 
   // Log usage (only on success)
   deps.recordUsage?.({
