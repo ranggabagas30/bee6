@@ -109,11 +109,23 @@ export function geminiTranscriber(deps: GeminiTranscriberDeps = {}): Transcriber
       let response: GenerateContentResponse;
       try {
         response = await generate(params, { project, location });
-      } catch {
+      } catch (error) {
         // Sanitised: do NOT interpolate the upstream error — it could be large and
         // we never risk the audio/base64 reaching an Error (hard rule #2). Every
         // failure (5xx/429/timeout/400/network) becomes a retryable 503.
-        throw new ServiceUnavailableError("Transcription upstream unavailable");
+        // Extract upstream status code or timeout signal without message text.
+        let upstream: number | "timeout" | "unknown" = "unknown";
+        if (error instanceof Error) {
+          if (error.name === "AbortError" || error.message.includes("timeout")) {
+            upstream = "timeout";
+          }
+        }
+        // Try to extract numeric status from SDK error if available
+        if (error && typeof error === "object" && "status" in error) {
+          const status = (error as { status?: unknown }).status;
+          if (typeof status === "number") upstream = status;
+        }
+        throw new ServiceUnavailableError("Transcription upstream unavailable", "transcribe", upstream);
       }
 
       // Empty/missing text is a valid result (silence / non-speech), not an error.
