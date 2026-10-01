@@ -207,8 +207,11 @@ export async function startCaptureSession(
             // handle become the live one — destroy it and the stream it
             // opened, or the mic stays on and frames keep reaching an
             // aborted engine (finding #2).
-            await handle.destroy();
-            stopCurrentStream();
+            try {
+              await handle.destroy();
+            } finally {
+              stopCurrentStream();
+            }
             restarting = false;
             return;
           }
