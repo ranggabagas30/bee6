@@ -1,7 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { CustomClaims } from "@/lib/auth/roles";
-import { BadRequestError, ForbiddenError, PayloadTooLargeError, ServiceUnavailableError, UnauthorizedError } from "@/lib/http/errors";
-import { SegmentMetadataSchema } from "@/lib/capture/contract";
+import { BadRequestError, ForbiddenError, PayloadTooLargeError, ServiceUnavailableError } from "@/lib/http/errors";
 import { recordSegment } from "@/lib/capture/segment-service";
 import type { Transcriber, TranscribeInput, TranscribeResult } from "@/lib/transcribe/types";
 import type { Redactor } from "@/lib/redact/types";
@@ -412,7 +410,7 @@ describe("recordSegment", () => {
         async get() {
           return null;
         },
-        async create(segment) {
+        async create() {
           return { status: "already_exists" };
         },
       };

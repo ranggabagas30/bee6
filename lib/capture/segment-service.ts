@@ -1,14 +1,12 @@
 import { z } from "zod";
-import type { CustomClaims } from "@/lib/auth/roles";
 import { BadRequestError } from "@/lib/http/errors";
 import {
   assertDeviceMatch,
   assertSegmentSize,
-  parseSegmentPath,
   SegmentMetadataSchema,
   type SegmentMetadata,
 } from "@/lib/capture/contract";
-import { segmentDocId, type SegmentCreateResult, type SegmentStore } from "@/lib/capture/segment-types";
+import type { SegmentStore } from "@/lib/capture/segment-types";
 import type { Segment } from "@/lib/firestore/schema";
 import type { Redactor } from "@/lib/redact/types";
 import type { Transcriber } from "@/lib/transcribe/types";
