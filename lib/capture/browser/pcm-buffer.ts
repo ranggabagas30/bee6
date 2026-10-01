@@ -9,6 +9,10 @@
  */
 export class PcmWindowBuffer {
   private chunks: { startSample: number; samples: Float32Array }[] = [];
+  /** Monotonic next-sample-index counter for new chunks; NOT reduced by
+   * `trimBeforeMs` (it only drops old chunks) — `msToSample` needs it to keep
+   * placing future samples at the right absolute position. Use `bufferedMs`
+   * for how much audio is actually retained. */
   private totalSamples = 0;
 
   constructor(
@@ -52,8 +56,17 @@ export class PcmWindowBuffer {
     );
   }
 
-  /** Total buffered duration in ms. */
+  /**
+   * Total buffered duration in ms, counting only chunks still retained after
+   * any `trimBeforeMs` (not the lifetime total appended — that's what
+   * `totalSamples` is for). This is what bounds memory during idle trimming
+   * (finding B-3): a caller checking this value sees the real buffer size.
+   */
   get bufferedMs(): number {
-    return (this.totalSamples / this.sampleRate) * 1000;
+    const retainedSamples = this.chunks.reduce(
+      (sum, c) => sum + c.samples.length,
+      0,
+    );
+    return (retainedSamples / this.sampleRate) * 1000;
   }
 }

@@ -62,4 +62,16 @@ describe("PcmWindowBuffer", () => {
     const kept = buf.extractByMs(100, 200);
     expect(kept[0]).toBeCloseTo(0.2);
   });
+
+  it("reports bufferedMs as what's actually retained after a trim, not the lifetime total", () => {
+    // bufferedMs must reflect real memory use after trimming, otherwise a
+    // caller (CaptureEngine's idle-trim, finding B-3) can't verify the trim
+    // actually bounded anything.
+    const buf = new PcmWindowBuffer(SR);
+    buf.append(frame(16_000, 0)); // 1 s
+    buf.append(frame(16_000, 0)); // 1 s
+    expect(buf.bufferedMs).toBe(2_000);
+    buf.trimBeforeMs(1_000); // drop the first second
+    expect(buf.bufferedMs).toBe(1_000);
+  });
 });
