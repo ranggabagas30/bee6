@@ -306,22 +306,29 @@ describe("windowing", () => {
       expect(result1).toEqual(result2);
     });
 
-    it("segment boundary gap is not a real pause for cap cut", () => {
+    it("a 0ms segment-boundary gap is never chosen as the cap cut when a real pause exists within the lookback window", () => {
+      // 27 back-to-back 15s segments (0ms gaps throughout, total 405s) plus
+      // one real 10s pause placed inside the 60s cap-lookback window (cap is
+      // 360s, lookback starts at 300s — the pause sits at segment 21, whose
+      // 0ms-gap start would otherwise be ~300s, pushed to 310s by the pause).
+      // The cut must land at that real pause, never at one of the many 0ms
+      // segment boundaries also inside the lookback window.
       const startMs = new Date("2026-10-01T10:00:00Z").getTime();
-      const segments: SegmentForWindowing[] = [
-        {
-          seg_id: "seg_001",
-          device_start: "2026-10-01T10:00:00Z",
-          device_end: "2026-10-01T10:00:15Z",
-          lines: [{ text: "speech", start: 0, end: 15 }],
-        },
-        {
-          seg_id: "seg_002",
-          device_start: "2026-10-01T10:00:15Z",
-          device_end: "2026-10-01T10:06:45Z",
-          lines: [{ text: "more_speech", start: 0, end: 390 }],
-        },
-      ];
+      const segments: SegmentForWindowing[] = [];
+      const pauseBeforeSeg = 21; // 1-indexed; this segment starts 10s late
+      let cursorS = 0;
+      for (let i = 1; i <= 27; i += 1) {
+        if (i === pauseBeforeSeg) cursorS += 10; // the one real pause
+        const segStartS = cursorS;
+        const segEndS = cursorS + 15;
+        segments.push({
+          seg_id: `seg_${String(i).padStart(3, "0")}`,
+          device_start: new Date(startMs + segStartS * 1000).toISOString(),
+          device_end: new Date(startMs + segEndS * 1000).toISOString(),
+          lines: [{ text: `segment_${i}`, start: 0, end: 15 }],
+        });
+        cursorS = segEndS;
+      }
 
       const result = buildWindows({
         device_id: "device_001",
@@ -329,13 +336,42 @@ describe("windowing", () => {
         as_of_ms: startMs + 500000,
       });
 
-      expect(result.length).toBeGreaterThanOrEqual(1);
-      const w = result[0];
-      if (w) {
-        expect(w.close_reason).toBe("cap");
-        const duration = w.end_ms - w.start_ms;
-        expect(duration).toBeLessThanOrEqual(360000 + 15000);
+      expect(result.length).toBeGreaterThanOrEqual(2);
+      const firstWindow = result[0];
+      expect(firstWindow?.close_reason).toBe("cap");
+      // The cut must land exactly after segment 20 (the last line before the
+      // real pause) — not at any of the 0ms boundaries among segments 22-26
+      // which also fall inside the lookback window.
+      const lastLineText = firstWindow?.lines[firstWindow.lines.length - 1]?.text;
+      expect(lastLineText).toBe("segment_20");
+    });
+
+    it("N back-to-back zero-gap segments spanning a cap boundary never duplicate a line_id across the resulting windows", () => {
+      const startMs = new Date("2026-10-01T10:00:00Z").getTime();
+      const segments: SegmentForWindowing[] = [];
+      for (let i = 1; i <= 30; i += 1) {
+        const segStartS = (i - 1) * 15;
+        const segEndS = i * 15;
+        segments.push({
+          seg_id: `seg_${String(i).padStart(3, "0")}`,
+          device_start: new Date(startMs + segStartS * 1000).toISOString(),
+          device_end: new Date(startMs + segEndS * 1000).toISOString(),
+          lines: [{ text: `segment_${i}`, start: 0, end: 15 }],
+        });
       }
+
+      const result = buildWindows({
+        device_id: "device_001",
+        segments,
+        as_of_ms: startMs + 500000,
+      });
+
+      expect(result.length).toBeGreaterThan(1);
+
+      const allLineIds = result.flatMap((w) => w.lines.map((l) => l.line_id));
+      const uniqueLineIds = new Set(allLineIds);
+      expect(allLineIds.length).toBe(uniqueLineIds.size);
+      expect(allLineIds.length).toBe(30); // all 30 segments' single line, each exactly once
     });
 
     it("preserves lines after cap cut in new window (26 segments with pause)", () => {

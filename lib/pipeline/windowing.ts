@@ -230,7 +230,6 @@ function closeWindowAtCap(
   // Also consider the gap from the last window line to the incoming line (if provided)
   let bestGapIndex = -1;
   let bestGapSize = 0;
-  let cutAtIncoming = false;
 
   // Check gaps within existing window lines
   for (let i = 0; i < window.lines.length - 1; i += 1) {
@@ -249,7 +248,6 @@ function closeWindowAtCap(
     ) {
       bestGapSize = gap;
       bestGapIndex = i;
-      cutAtIncoming = false;
     }
   }
 
@@ -265,8 +263,11 @@ function closeWindowAtCap(
         gapToIncoming >= bestGapSize
       ) {
         bestGapSize = gapToIncoming;
+        // bestGapIndex === window.lines.length - 1 means "cut right before
+        // the incoming line" — window.lines.slice(bestGapIndex + 1) is then
+        // empty, so no existing line moves to the new window; the caller
+        // appends the incoming line itself.
         bestGapIndex = window.lines.length - 1;
-        cutAtIncoming = true;
       }
     }
   }
@@ -281,10 +282,13 @@ function closeWindowAtCap(
     if (lastLine) {
       window.end_ms = lastLine.end_ms;
     }
-    // If cutting at incoming line, add it to discarded
-    if (cutAtIncoming && incomingLine) {
-      discardedLines.unshift(incomingLine);
-    }
+    // NOTE: incomingLine is never added to discardedLines here — the caller
+    // (buildWindows) always appends timedLine itself via
+    // `[...discardedLines, timedLine]`. Including it here too would
+    // duplicate its line_id into the new window. When the gap-to-incoming
+    // branch above wins, bestGapIndex === window.lines.length - 1, so
+    // discardedLines is already empty — the incoming line alone starts the
+    // new window, added by the caller.
   } else {
     // No gap found; cut at the last line boundary at or before cap
     let cutIndex = window.lines.findIndex(
@@ -310,10 +314,9 @@ function closeWindowAtCap(
         window.end_ms = firstLine.end_ms;
       }
     }
-    // Add incoming line to discarded if provided
-    if (incomingLine) {
-      discardedLines.push(incomingLine);
-    }
+    // NOTE: incomingLine is never pushed into discardedLines here either —
+    // same reasoning as the gap-found branch above. The caller always
+    // appends timedLine itself.
   }
 
   window.content_ms = window.end_ms - window.start_ms;
