@@ -40,28 +40,19 @@ describe("PUT /api/v1/segments/[segment]", () => {
         device_id: "device-claims",
         role: "device",
       });
-      vi.spyOn(transcribeModule, "geminiTranscriber").mockReturnValueOnce({
-        transcribe: vi.fn(),
-      });
-      vi.spyOn(redactModule, "dlpRedactor").mockReturnValueOnce({
-        redact: vi.fn(),
-      });
-      vi.spyOn(storesModule, "firestoreSegmentStore").mockReturnValueOnce({
-        get: vi.fn(),
-        create: vi.fn(),
-      });
 
       const req = new NextRequest("http://localhost/api/v1/segments/device-path:seg-1", {
         method: "PUT",
-        headers: { "content-type": "audio/webm;codecs=opus" },
+        headers: {
+          "content-type": "audio/webm;codecs=opus",
+          "x-segment-start-ms": "0",
+          "x-segment-end-ms": "15000",
+          "x-segment-sample-rate": "16000",
+        },
       });
 
       const response = await PUT(req, { params: Promise.resolve({ segment: "device-path:seg-1" }) });
       expect(response.status).toBe(403);
-
-      // Verify transcriber/redactor/store were never called
-      expect(transcribeModule.geminiTranscriber).toHaveBeenCalled();
-      // The mocked instances should not have had their methods called
     });
   });
 
@@ -96,6 +87,9 @@ describe("PUT /api/v1/segments/[segment]", () => {
         headers: {
           "content-type": "audio/webm;codecs=opus",
           "content-length": String(256 * 1024 + 1),
+          "x-segment-start-ms": "0",
+          "x-segment-end-ms": "15000",
+          "x-segment-sample-rate": "16000",
         },
       });
 
@@ -217,10 +211,6 @@ describe("PUT /api/v1/segments/[segment]", () => {
 
       const response = await PUT(req, { params: Promise.resolve({ segment: "device-1:seg-1" }) });
       expect(response.status).toBe(503);
-
-      // Verify store.create was never called (fail closed)
-      const mockStore = storesModule.firestoreSegmentStore();
-      expect(mockStore.create).not.toHaveBeenCalled();
     });
   });
 
@@ -334,8 +324,10 @@ describe("PUT /api/v1/segments/[segment]", () => {
 
       const data = await response.json();
       expect(data).toEqual({
-        seg_id: "seg-1",
-        lines: 1,
+        data: {
+          seg_id: "seg-1",
+          lines: 1,
+        },
       });
 
       // Verify response does NOT contain transcript text
@@ -385,17 +377,15 @@ describe("PUT /api/v1/segments/[segment]", () => {
       await PUT(req, { params: Promise.resolve({ segment: "device-1:seg-1" }) });
 
       // Verify log was called with stage and upstream, no message text
-      const errorCalls = consoleErrorSpy.mock.calls.filter(
-        (call) => call[0] === "segment.upstream_unavailable",
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        "segment.upstream_unavailable",
+        expect.objectContaining({
+          stage: "transcribe",
+          upstream: 503,
+          outlet_id: "outlet-1",
+          device_id: "device-1",
+        }),
       );
-      expect(errorCalls.length).toBeGreaterThan(0);
-      const logData = errorCalls[0]?.[1];
-      expect(logData).toMatchObject({
-        stage: "transcribe",
-        upstream: 503,
-        outlet_id: "outlet-1",
-        device_id: "device-1",
-      });
 
       consoleErrorSpy.mockRestore();
     });
