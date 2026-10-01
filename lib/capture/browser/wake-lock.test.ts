@@ -165,14 +165,15 @@ describe("WakeLockManager", () => {
 
     const manager = new WakeLockManager();
     await manager.acquire(); // call 1 -> S1
-    const s1 = created[0];
+    expect(created).toHaveLength(1);
+    const s1 = created[0]!;
 
     // Browser marks S1 released synchronously; its `release` event hasn't
     // fired yet. The queued `visibilitychange` -> visible handler runs first.
     s1.released = true;
     await manager.reacquireIfNeeded(); // call 2 -> S2
     expect(created).toHaveLength(2);
-    const s2 = created[1];
+    const s2 = created[1]!;
     expect(manager.held).toBe(true);
 
     // S1's queued `release` event now fires late, after S2 is already the

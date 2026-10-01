@@ -27,20 +27,18 @@ export function isWakeLockSupported(): boolean {
 export class WakeLockManager {
   private sentinel: WakeLockSentinel | null = null;
   /**
-   * Set around our own `release()` call so the sentinel's `release` event
-   * handler (which also fires for a deliberate release, not just a browser-
-   * initiated one, per spec) knows not to immediately re-acquire what we just
-   * gave up on purpose (e.g. the capture session stopping while the tab is
-   * still visible).
-   */
-  private releasingDeliberately = false;
-  /**
    * The in-flight `acquire()` attempt, if any. Dedupes a browser-initiated
    * re-acquire (fired from inside the `release` handler below) racing with an
    * explicit `reacquireIfNeeded()` call reacting to the very same drop, so one
    * logical re-acquire never issues two `navigator.wakeLock.request()` calls.
    */
   private acquiring: Promise<boolean> | null = null;
+  /**
+   * Set once `release()` has been called, so an `acquire()` still in flight
+   * at that point doesn't resurrect a live sentinel after the session has
+   * already stopped.
+   */
+  private disposed = false;
 
   /** Requests the screen wake lock; returns whether it was acquired. */
   async acquire(): Promise<boolean> {
@@ -58,15 +56,29 @@ export class WakeLockManager {
   private async doAcquire(): Promise<boolean> {
     try {
       const sentinel = await navigator.wakeLock.request("screen");
+      if (this.disposed) {
+        // release() ran while this request was in flight — don't resurrect a
+        // live sentinel for a session that has already stopped.
+        void sentinel.release();
+        return false;
+      }
       this.sentinel = sentinel;
       // The browser can release this sentinel on its own (tab hidden, battery
       // saver, …) without us calling release(). Listen so `held` stays honest
       // instead of assuming the lock is still in effect.
       sentinel.addEventListener("release", () => {
-        // Only clear if this is still the current sentinel — a later acquire()
-        // may already have replaced it with a fresh one.
-        if (this.sentinel === sentinel) this.sentinel = null;
-        if (this.releasingDeliberately) return; // our own release() call
+        // Round 3 fix: gate the WHOLE handler on identity, not just the
+        // clear. A later acquire() may already have replaced this sentinel
+        // with a fresh one (e.g. a `visibilitychange` -> visible reacquire
+        // that raced ahead of this sentinel's own queued `release` event).
+        // Falling through past that point used to re-acquire unconditionally,
+        // overwriting `this.sentinel` with yet another sentinel and orphaning
+        // the current live one forever. Our own deliberate release() also
+        // clears `this.sentinel` before calling the browser's `release()`
+        // (see below), so this same check covers that case too — no separate
+        // "deliberate" flag needed.
+        if (this.sentinel !== sentinel) return;
+        this.sentinel = null;
         // A release while the page stays visible (e.g. battery saver) is never
         // followed by a `visibilitychange` -> visible, so `reacquireIfNeeded`
         // would never run for it. Try again here instead.
@@ -93,13 +105,14 @@ export class WakeLockManager {
   }
 
   async release(): Promise<void> {
-    this.releasingDeliberately = true;
-    try {
-      await this.sentinel?.release();
-    } finally {
-      this.sentinel = null;
-      this.releasingDeliberately = false;
-    }
+    this.disposed = true;
+    // Clear `this.sentinel` BEFORE calling the browser's `release()`, so the
+    // sentinel's own `release` event handler sees it as already-stale (the
+    // identity check above) and does nothing — no separate "deliberate" flag
+    // needed to suppress its self-reacquire.
+    const sentinel = this.sentinel;
+    this.sentinel = null;
+    await sentinel?.release();
   }
 
   /**
