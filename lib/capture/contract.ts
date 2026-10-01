@@ -92,11 +92,20 @@ export const SegmentMetadataSchema = z
   .object({
     device_id: z.string().min(1),
     seg_id: z.string().min(1),
-    /** Device epoch ms at segment start. */
-    start_ms: z.coerce.number().int().nonnegative(),
-    /** Device epoch ms at segment end. */
-    end_ms: z.coerce.number().int().nonnegative(),
-    sample_rate: z.coerce.number().int().positive(),
+    /** Device epoch ms at segment start. Bounded to Date safe integer max. */
+    start_ms: z.preprocess(
+      (v) => (v === null || v === undefined) ? undefined : v,
+      z.coerce.number().int().nonnegative().max(8.64e15),
+    ),
+    /** Device epoch ms at segment end. Bounded to Date safe integer max. */
+    end_ms: z.preprocess(
+      (v) => (v === null || v === undefined) ? undefined : v,
+      z.coerce.number().int().nonnegative().max(8.64e15),
+    ),
+    sample_rate: z.preprocess(
+      (v) => (v === null || v === undefined) ? undefined : v,
+      z.coerce.number().int().positive(),
+    ),
     content_type: z.literal(SEGMENT_CONTENT_TYPE),
   })
   .strict()
