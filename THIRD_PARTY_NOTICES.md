@@ -7,6 +7,15 @@ added as dependencies as of R-01 — this file is recorded now per T-003's
 acceptance criteria, ahead of the code landing, so the notice always ships
 with the licence.
 
+## @google-cloud/dlp
+- **Used for:** Sensitive Data Protection (SDP) de-identification of transcript
+  lines before they are stored (R-04, hard rule #3) — phone numbers, emails,
+  person names and street addresses are replaced with bracketed labels via the
+  regional DLP endpoint.
+- **License:** Apache-2.0
+- **Version:** 7.1.1
+- **Project:** https://github.com/googleapis/google-cloud-node/tree/main/packages/google-privacy-dlp
+
 ## @ricky0123/vad-web
 - **Used for:** in-browser voice activity detection on the `/capture` page
   (R-03) — the AudioWorklet + frame processor that decides speech vs silence.
@@ -50,14 +59,3 @@ with the licence.
 - **Vendored under:** `public/vendor/capture/ort/` (wasm binaries + loader
   modules), copied from node_modules by `scripts/vendor-capture-assets.mjs` at
   build time — served from our own origin, no CDN.
-
-## Claude Code skills (Everything Claude Code / ECC)
-- **Used for:** developer-workflow guidance loaded by our Claude Code agents
-  during the build (see `docs/skills-policy.md`). These are authoring aids for
-  the engineering process, **not** part of the shipped product runtime.
-- **Vendored under:** `.claude/skills/` — the DAILY subset only (21 skills),
-  so Claude Code Cloud/desktop checkouts can load them without a local install.
-- **License:** MIT (Everything Claude Code / `tonsofskills` ecosystem).
-- **Project:** https://github.com/jeremylongshore/claude-code-plugins
-- Note: `code-review`, `verify`, and `dataviz` are shipped by Claude Code
-  itself, not vendored here.

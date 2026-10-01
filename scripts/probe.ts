@@ -30,7 +30,7 @@ export const REGION_ORDER = ["asia-southeast2", "asia-southeast1", "global"] as 
 export type Region = (typeof REGION_ORDER)[number];
 
 export const MODEL_KEYS = [
-  "gemini-3.5-transcribe",
+  "gemini-3.5-transcribe-preview",
   "gemini-3.5-flash-lite",
   "gemini-3.5-flash",
   // Exact Live API model id is still to be confirmed; this key is a
@@ -177,17 +177,17 @@ export function toRegionsYamlDoc(outcomes: readonly ProbeOutcome[], probedAt: st
  * whether the model is reachable in the region, so we send a tiny
  * synthetic silent clip instead (never real shop audio — hard rule #2).
  */
-const AUDIO_MODELS = new Set<ModelKey>(["gemini-3.5-transcribe"]);
+const AUDIO_MODELS = new Set<ModelKey>(["gemini-3.5-transcribe-preview"]);
 
 /**
- * A ~1 ms, 8 kHz mono, 16-bit PCM WAV of pure silence, base64-encoded.
- * Fully synthetic and generated in code — this is the lightest valid
- * audio payload we can hand an audio model to check reachability. It is
- * never logged (hard rule #2: no audio/base64 in logs).
+ * A 1 s, 16 kHz mono, 16-bit PCM WAV of pure silence, base64-encoded.
+ * Fully synthetic and generated in code — a light but valid audio payload
+ * (long enough not to trip a minimum-duration check) to test reachability.
+ * It is never logged (hard rule #2: no audio/base64 in logs).
  */
 function tinySyntheticSilentWavBase64(): string {
-  const sampleRate = 8000;
-  const numSamples = 8; // ~1 ms of silence
+  const sampleRate = 16000;
+  const numSamples = sampleRate; // 1 s of silence
   const dataBytes = numSamples * 2; // 16-bit mono
   const buf = Buffer.alloc(44 + dataBytes); // 44-byte WAV header + samples
   buf.write("RIFF", 0, "ascii");
@@ -210,10 +210,8 @@ function tinySyntheticSilentWavBase64(): string {
 /** The minimal request body used to probe a given model. */
 function probeContents(model: ModelKey) {
   if (AUDIO_MODELS.has(model)) {
-    return [
-      { inlineData: { data: tinySyntheticSilentWavBase64(), mimeType: "audio/wav" } },
-      { text: "Transcribe this audio." },
-    ];
+    // Transcribe takes audio only: no prompt, no system instruction.
+    return [{ inlineData: { data: tinySyntheticSilentWavBase64(), mimeType: "audio/wav" } }];
   }
   return "ping";
 }
