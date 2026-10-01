@@ -314,6 +314,125 @@ describe("threads", () => {
       expect(result.unassigned_line_ids).toContain("seg_001#1");
       expect(result.unassigned_line_ids).toContain("seg_001#2");
     });
+
+    it("strips NON_WORK-labeled threads entirely (not just explicit line indices)", () => {
+      const unit: LabelUnit = {
+        unit_id: "unit_1",
+        window_ids: ["w_1"],
+        lines: [
+          { line_id: "seg_001#0", seg_id: "seg_001", text: "routine work", start_ms: 0, end_ms: 5000 },
+          { line_id: "seg_001#1", seg_id: "seg_001", text: "off-topic chat", start_ms: 5000, end_ms: 10000 },
+          { line_id: "seg_001#2", seg_id: "seg_001", text: "more routine", start_ms: 10000, end_ms: 15000 },
+        ],
+      };
+
+      const label = {
+        lines: [
+          { i: 0, reply_to: null, thread: "thread_1" },
+          { i: 1, reply_to: null, thread: "thread_2" }, // NON_WORK thread
+          { i: 2, reply_to: null, thread: "thread_1" },
+        ],
+        threads: [
+          { id: "thread_1", category: "ROUTINE_OPS", confidence: 0.9, evidence: [0, 2], summary: "work", fields: {} },
+          { id: "thread_2", category: "NON_WORK", confidence: 0.8, evidence: [1], summary: "chat", fields: {} },
+        ],
+        non_work_lines: [], // Note: thread_2's lines NOT in explicit non_work_lines
+      };
+
+      const result = buildThreads({ unit, label, open_threads: [] });
+
+      // NON_WORK thread should be completely stripped
+      expect(result.threads).toHaveLength(1);
+      expect(result.threads[0].category).toBe("ROUTINE_OPS");
+
+      // Check that NON_WORK text never appears in output
+      const output = JSON.stringify(result);
+      expect(output).not.toContain("off-topic chat");
+      expect(output).not.toContain("thread_2");
+
+      // Non-work count should include the NON_WORK thread's lines
+      expect(result.non_work_line_count).toBeGreaterThanOrEqual(1);
+    });
+
+    it("unions evidence line IDs across all lines in a multi-line thread", () => {
+      const unit: LabelUnit = {
+        unit_id: "unit_1",
+        window_ids: ["w_1"],
+        lines: [
+          { line_id: "seg_001#0", seg_id: "seg_001", text: "problem observed", start_ms: 0, end_ms: 5000 },
+          { line_id: "seg_001#1", seg_id: "seg_001", text: "context info", start_ms: 5000, end_ms: 10000 },
+          { line_id: "seg_001#2", seg_id: "seg_001", text: "root cause", start_ms: 10000, end_ms: 15000 },
+        ],
+      };
+
+      const label = {
+        lines: [
+          { i: 0, reply_to: null, thread: "thread_1" }, // evidence index
+          { i: 1, reply_to: 0, thread: "thread_1" }, // another evidence index
+          { i: 2, reply_to: 1, thread: "thread_1" },
+        ],
+        threads: [
+          {
+            id: "thread_1",
+            category: "COMPLAINT",
+            confidence: 0.95,
+            evidence: [0, 1], // evidence indices 0 and 1
+            summary: "customer issue",
+            fields: {},
+          },
+        ],
+        non_work_lines: [],
+      };
+
+      const result = buildThreads({ unit, label, open_threads: [] });
+
+      expect(result.threads).toHaveLength(1);
+      const thread = result.threads[0];
+      expect(thread).toBeDefined();
+      if (thread) {
+        // Should have evidence from both indices 0 and 1
+        expect(thread.evidence_line_ids).toContain("seg_001#0");
+        expect(thread.evidence_line_ids).toContain("seg_001#1");
+      }
+    });
+
+    it("preserves non-zero confidence (not silently defaulting to 0)", () => {
+      const unit: LabelUnit = {
+        unit_id: "unit_1",
+        window_ids: ["w_1"],
+        lines: [
+          { line_id: "seg_001#0", seg_id: "seg_001", text: "text1", start_ms: 0, end_ms: 5000 },
+          { line_id: "seg_001#1", seg_id: "seg_001", text: "text2", start_ms: 5000, end_ms: 10000 },
+        ],
+      };
+
+      const label = {
+        lines: [
+          { i: 0, reply_to: null, thread: "thread_1" },
+          { i: 1, reply_to: 0, thread: "thread_1" },
+        ],
+        threads: [
+          {
+            id: "thread_1",
+            category: "TRAINING",
+            confidence: 0.75,
+            evidence: [0, 1],
+            summary: "training session",
+            fields: {},
+          },
+        ],
+        non_work_lines: [],
+      };
+
+      const result = buildThreads({ unit, label, open_threads: [] });
+
+      expect(result.threads).toHaveLength(1);
+      const thread = result.threads[0];
+      if (thread) {
+        // Should preserve the actual confidence (0.75), not silently default to 0
+        expect(thread.confidence).toBe(0.75);
+      }
+    });
   });
 
   describe("openThreadsAt", () => {

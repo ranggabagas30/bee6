@@ -183,6 +183,98 @@ describe("gate", () => {
       expect(result.checks.length).toBeGreaterThan(0);
       expect(result.checks.every((c) => typeof c.passed === "boolean")).toBe(true);
     });
+
+    it("fires invalid_label when confidence is NaN", () => {
+      const result = evaluateGate({
+        category: "ROUTINE_OPS",
+        confidence: NaN,
+        evidence_line_ids: ["line_1"],
+        label_conflict: false,
+      });
+
+      expect(result.fired_rule).toBe("invalid_label");
+      expect(result.verdict).toBe("question");
+      const invalidLabelCheck = result.checks.find((c) => c.rule === "invalid_label");
+      expect(invalidLabelCheck?.passed).toBe(false);
+    });
+
+    it("fires invalid_label when confidence is out of range", () => {
+      const resultAbove = evaluateGate({
+        category: "ROUTINE_OPS",
+        confidence: 1.5,
+        evidence_line_ids: ["line_1"],
+        label_conflict: false,
+      });
+
+      expect(resultAbove.fired_rule).toBe("invalid_label");
+      expect(resultAbove.verdict).toBe("question");
+
+      const resultBelow = evaluateGate({
+        category: "ROUTINE_OPS",
+        confidence: -0.1,
+        evidence_line_ids: ["line_1"],
+        label_conflict: false,
+      });
+
+      expect(resultBelow.fired_rule).toBe("invalid_label");
+      expect(resultBelow.verdict).toBe("question");
+    });
+
+    it("fires invalid_label when category is unknown/invalid", () => {
+      const result = evaluateGate({
+        category: "UNKNOWN_CATEGORY" as any,
+        confidence: 0.9,
+        evidence_line_ids: ["line_1"],
+        label_conflict: false,
+      });
+
+      expect(result.fired_rule).toBe("invalid_label");
+      expect(result.verdict).toBe("question");
+      const invalidLabelCheck = result.checks.find((c) => c.rule === "invalid_label");
+      expect(invalidLabelCheck?.passed).toBe(false);
+    });
+
+    it("evaluates all checks independently (complaint with evidence shows correct results)", () => {
+      // A COMPLAINT at 0.95 confidence with evidence should show:
+      // invalid_label: true, label_conflict: true, needs_supervisor_confirm: false
+      // (not: short-circuit and skip no_evidence/below_threshold)
+      const result = evaluateGate({
+        category: "COMPLAINT",
+        confidence: 0.95,
+        evidence_line_ids: ["line_1"],
+        label_conflict: false,
+      });
+
+      // Should fire needs_supervisor_confirm (COMPLAINT)
+      expect(result.fired_rule).toBe("needs_supervisor_confirm");
+
+      // But all checks should be evaluated and logged
+      expect(result.checks.length).toBe(7); // all 7 rules
+
+      const invalidLabelCheck = result.checks.find((c) => c.rule === "invalid_label");
+      expect(invalidLabelCheck?.passed).toBe(true); // confidence and category valid
+
+      const noEvidenceCheck = result.checks.find((c) => c.rule === "no_evidence");
+      expect(noEvidenceCheck?.passed).toBe(true); // has evidence
+
+      const belowThresholdCheck = result.checks.find((c) => c.rule === "below_threshold");
+      expect(belowThresholdCheck?.passed).toBe(true); // 0.95 >= 0.9
+    });
+
+    it("ignores empty and whitespace evidence IDs when counting", () => {
+      const result = evaluateGate({
+        category: "ROUTINE_OPS",
+        confidence: 0.9,
+        evidence_line_ids: ["", "  ", "line_1", "\n"],
+        label_conflict: false,
+      });
+
+      // Only "line_1" is valid evidence
+      expect(result.evidence_count).toBe(1);
+
+      const noEvidenceCheck = result.checks.find((c) => c.rule === "no_evidence");
+      expect(noEvidenceCheck?.passed).toBe(true); // has valid evidence
+    });
   });
 
   describe("expireQuestion", () => {

@@ -337,6 +337,51 @@ describe("windowing", () => {
         expect(duration).toBeLessThanOrEqual(360000 + 15000);
       }
     });
+
+    it("preserves lines after cap cut in new window (26 segments with pause)", () => {
+      const startMs = new Date("2026-10-01T10:00:00Z").getTime();
+      const segments: SegmentForWindowing[] = [];
+
+      // Create 26 back-to-back 15s segments (total 390s)
+      // Then a 20s pause at segment ~21-22 (around 315-335s total)
+      for (let i = 1; i <= 26; i++) {
+        const segStartS = (i - 1) * 15;
+        const segEndS = i * 15;
+        const isGapSegment = i === 21; // This segment will have a gap before it
+
+        segments.push({
+          seg_id: `seg_${String(i).padStart(3, "0")}`,
+          device_start: new Date(startMs + (isGapSegment ? 335000 : segStartS * 1000)).toISOString(),
+          device_end: new Date(startMs + (isGapSegment ? 350000 : segEndS * 1000)).toISOString(),
+          lines: [
+            {
+              text: `segment_${i}`,
+              start: 0,
+              end: isGapSegment ? 15 : 15,
+            },
+          ],
+        });
+      }
+
+      const result = buildWindows({
+        device_id: "device_001",
+        segments,
+        as_of_ms: startMs + 400000, // Well after all segments
+      });
+
+      // Should have multiple windows (cap cut creates windows)
+      expect(result.length).toBeGreaterThan(1);
+
+      // Sum all lines across all windows — should equal 26 (no lines lost)
+      const totalLines = result.reduce((sum, w) => sum + w.lines.length, 0);
+      expect(totalLines).toBe(26);
+
+      // Verify no window exceeds cap (360s)
+      for (const w of result) {
+        const duration = w.end_ms - w.start_ms;
+        expect(duration).toBeLessThanOrEqual(360000);
+      }
+    });
   });
 
   describe("planLabelUnits", () => {
