@@ -90,6 +90,42 @@ describe("CaptureEngine", () => {
     expect(engine.status.droppedCount).toBe(1);
   });
 
+  it("does not drop a segment on the first 5xx right after reconnecting (B-4)", async () => {
+    // A long offline stretch (network-unreachable, status null) must not
+    // consume the server-error attempt budget. Before the fix, `count`
+    // counted every attempt including network failures, so a single 5xx
+    // arriving right after reconnect could push an already-high count past
+    // maxAttempts and drop the segment immediately.
+    let calls = 0;
+    const upload = vi.fn(async () => {
+      calls += 1;
+      if (calls <= 5) return null; // offline outage: 5 network failures
+      if (calls === 6) return 500; // one real server error after reconnecting
+      return 200; // then it recovers
+    });
+    const { engine } = makeEngine({ upload, maxAttempts: 3 });
+    engine.pushFrame(frame(0));
+    engine.flush();
+    await engine.drain();
+
+    expect(upload).toHaveBeenCalledTimes(7);
+    expect(engine.status.droppedCount).toBe(0);
+    expect(engine.status.queuedCount).toBe(0);
+  });
+
+  it("still drops a segment after maxAttempts worth of REAL server errors (B-4 regression guard)", async () => {
+    // The fix must not loosen the ceiling for genuine repeated 5xx/429s —
+    // only network failures should be excluded from the budget.
+    const upload = vi.fn(async () => 503 as number | null);
+    const { engine } = makeEngine({ upload, maxAttempts: 3 });
+    engine.pushFrame(frame(0));
+    engine.flush();
+    await engine.drain();
+
+    expect(upload).toHaveBeenCalledTimes(3);
+    expect(engine.status.droppedCount).toBe(1);
+  });
+
   it("survives a long offline outage without dropping any segment (finding #2)", async () => {
     // Connectivity is down (null) for many attempts, then recovers. With small
     // segments the 10-min capacity is never reached, so nothing is pruned and

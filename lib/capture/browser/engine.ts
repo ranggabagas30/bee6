@@ -100,8 +100,16 @@ export class CaptureEngine {
   private readonly upload: UploadFn;
 
   private buffer: PcmWindowBuffer | null = null;
-  /** Attempt counter for the current queue head only (O(1), no leak). */
-  private headAttempt: { id: string; count: number } | null = null;
+  /**
+   * Attempt counters for the current queue head only (O(1), no leak).
+   * `serverErrorCount` is what `maxAttempts` is checked against — it counts
+   * only real 429/5xx responses. Plain network-unreachable attempts (`status
+   * === null`) bump `count` for observability but never `serverErrorCount`,
+   * so a long offline stretch can't consume the server-error budget and get
+   * a segment dropped on its first 5xx right after reconnecting (B-4).
+   */
+  private headAttempt: { id: string; count: number; serverErrorCount: number } | null =
+    null;
   private pumping = false;
   private connectionOk = true;
   private micError: string | null = null;
@@ -270,7 +278,7 @@ export class CaptureEngine {
         if (!item) break;
 
         if (this.headAttempt?.id !== item.id) {
-          this.headAttempt = { id: item.id, count: 0 };
+          this.headAttempt = { id: item.id, count: 0, serverErrorCount: 0 };
         }
         this.headAttempt.count += 1;
 
@@ -292,8 +300,12 @@ export class CaptureEngine {
         // Transient failure. A network loss (null) retries forever — only the
         // 10-min queue capacity prunes it (finding #2). A repeated server error
         // still gives up after maxAttempts so one poison segment can't stall the
-        // queue indefinitely.
-        if (status !== null && this.headAttempt.count >= this.maxAttempts) {
+        // queue indefinitely. Only real 429/5xx responses count toward that
+        // budget (`serverErrorCount`) — a network-unreachable stretch (status
+        // null) must not consume it, or a segment can get dropped on its very
+        // first 5xx right after reconnecting (B-4).
+        if (status !== null) this.headAttempt.serverErrorCount += 1;
+        if (status !== null && this.headAttempt.serverErrorCount >= this.maxAttempts) {
           this.dropHead(item.id);
           continue;
         }
