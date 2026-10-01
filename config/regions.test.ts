@@ -14,8 +14,8 @@ import {
  * hard-code a location) but reads the `services` map in regions.yaml —
  * the section used by non-model Google Cloud APIs such as Sensitive Data
  * Protection (DLP), which is probed with its own Jakarta -> Singapore ->
- * global fallback (scripts/probe.ts) because DLP does not offer a Jakarta
- * regional endpoint.
+ * global fallback (scripts/probe.ts), the same pattern used for model
+ * locations.
  */
 
 function writeTempRegionsFile(doc: unknown): string {
