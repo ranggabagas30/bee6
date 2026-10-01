@@ -30,6 +30,12 @@ const RegionsFileSchema = z.object({
   version: z.number(),
   probed_at: z.string().nullable(),
   models: z.record(z.string(), RegionEntrySchema),
+  // Non-model Google Cloud APIs probed the same way as models (hard rule
+  // #5): Jakarta -> Singapore -> global. Today this is Sensitive Data
+  // Protection (DLP), which has no Jakarta regional endpoint. Optional +
+  // defaulted so a regions.yaml written before this section existed still
+  // parses (back-compat).
+  services: z.record(z.string(), RegionEntrySchema).optional().default({}),
 });
 
 export type RegionEntry = z.infer<typeof RegionEntrySchema>;
@@ -76,6 +82,35 @@ export function getModelLocation(modelKey: string, filePath?: string): RegionEnt
       `Model "${modelKey}" has not been probed yet (config/regions.yaml ` +
         `still says UNPROBED). Run \`npm run probe\` against a real GCP ` +
         `project before making this call.`,
+    );
+  }
+  return entry;
+}
+
+/**
+ * Returns the probed region entry for a non-model Google Cloud service
+ * (e.g. "dlp" for Sensitive Data Protection). Same contract as
+ * `getModelLocation`: throws if the service has no entry, or if it has
+ * never been successfully probed (location is "UNPROBED").
+ *
+ * Callers (e.g. `lib/redact/dlp.ts`) must use this function rather than a
+ * literal region string or a raw `APP_REGION` env read, so the service's
+ * actual regional endpoint always comes from the probe's fallback result.
+ */
+export function getServiceLocation(serviceKey: string, filePath?: string): RegionEntry {
+  const file = loadRegionsFile(filePath);
+  const entry = file.services[serviceKey];
+  if (!entry) {
+    throw new Error(
+      `config/regions.yaml has no entry for service "${serviceKey}". ` +
+        `Add it to the services map and run \`npm run probe\` before calling this service.`,
+    );
+  }
+  if (entry.location === "UNPROBED") {
+    throw new Error(
+      `Service "${serviceKey}" has not been probed yet (config/regions.yaml ` +
+        `still says UNPROBED). Run \`npm run probe\` against a real GCP ` +
+        `project before using this service's regional endpoint.`,
     );
   }
   return entry;
