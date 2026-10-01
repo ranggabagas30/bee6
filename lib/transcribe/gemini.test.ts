@@ -147,6 +147,58 @@ describe("geminiTranscriber.transcribe", () => {
     expect(message).toBe("Transcription upstream unavailable");
   });
 
+  it("sets stage='transcribe' on ServiceUnavailableError", async () => {
+    const generate: TranscribeGenerate = async () => {
+      throw new Error("upstream failure");
+    };
+    const transcriber = geminiTranscriber({
+      generate,
+      resolveLocation: () => "global",
+      vocabulary: [],
+    });
+    try {
+      await transcriber.transcribe(input);
+    } catch (e) {
+      expect(e).toBeInstanceOf(ServiceUnavailableError);
+      expect((e as ServiceUnavailableError).stage).toBe("transcribe");
+      expect((e as ServiceUnavailableError).upstream).toBeDefined();
+    }
+  });
+
+  it("extracts numeric status code to upstream field", async () => {
+    const generate: TranscribeGenerate = async () => {
+      const err = new Error("upstream 503");
+      (err as { status?: number }).status = 503;
+      throw err;
+    };
+    const transcriber = geminiTranscriber({
+      generate,
+      resolveLocation: () => "global",
+      vocabulary: [],
+    });
+    try {
+      await transcriber.transcribe(input);
+    } catch (e) {
+      expect((e as ServiceUnavailableError).upstream).toBe(503);
+    }
+  });
+
+  it("sets upstream='timeout' for AbortError", async () => {
+    const generate: TranscribeGenerate = async () => {
+      throw new DOMException("The operation was aborted", "AbortError");
+    };
+    const transcriber = geminiTranscriber({
+      generate,
+      resolveLocation: () => "global",
+      vocabulary: [],
+    });
+    try {
+      await transcriber.transcribe(input);
+    } catch (e) {
+      expect((e as ServiceUnavailableError).upstream).toBe("timeout");
+    }
+  });
+
   it("maps an aborted/timeout rejection to ServiceUnavailableError", async () => {
     const generate: TranscribeGenerate = async () => {
       throw new DOMException("The operation was aborted", "AbortError");
