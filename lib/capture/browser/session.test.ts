@@ -163,4 +163,44 @@ describe("startCaptureSession restart guard (B-2)", () => {
 
     await session?.stop();
   });
+
+  it("reopens the guard after recovery: a later devicechange still triggers a restart (round 2)", async () => {
+    // Distinguishes the guard from a one-shot latch: once a restart cycle
+    // completes and the mic is healthy again, a brand-new failure must be
+    // able to trigger its own restart — `restarting` must not still be stuck
+    // `true` from the earlier cycle.
+    let deviceChangeHandler: (() => void) | undefined;
+    const mediaDevices = {
+      getUserMedia: vi.fn(),
+      addEventListener: vi.fn((type: string, handler: () => void) => {
+        if (type === "devicechange") deviceChangeHandler = handler;
+      }),
+      removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal("navigator", { mediaDevices });
+
+    // The initial spinUp and every restart attempt succeed cleanly (no
+    // onError double-fire here — that's covered by the tests above).
+    startCaptureVadMock.mockImplementation(async () => ({
+      pause: vi.fn(),
+      destroy: vi.fn(),
+    }));
+
+    const session = await startCaptureSession(auth, config, cb);
+    expect(startCaptureVadMock).toHaveBeenCalledTimes(1);
+
+    // First devicechange: guard opens, one restart cycle runs to completion.
+    deviceChangeHandler?.();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(startCaptureVadMock).toHaveBeenCalledTimes(2);
+
+    // A second, later devicechange — after the first cycle fully finished —
+    // must still trigger a new restart, proving the guard reopened instead
+    // of staying latched closed.
+    deviceChangeHandler?.();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(startCaptureVadMock).toHaveBeenCalledTimes(3);
+
+    await session?.stop();
+  });
 });

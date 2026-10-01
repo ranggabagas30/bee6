@@ -303,6 +303,47 @@ describe("CaptureEngine", () => {
     expect(seen[0]?.length).toBe(39 * 1_600);
   });
 
+  it("preserves the full default 400 ms pre-roll across a long-silence -> speech transition (B-3 boundary, round 2)", async () => {
+    // Both B-3 tests above use `prerollMs: 0`, so neither ever exercises the
+    // boundary where the idle-trim headroom (1 s, IDLE_TRIM_KEEP_MS) must
+    // still cover the batcher's DEFAULT 400 ms pre-roll once speech resumes.
+    // Use the real default batcher config here instead of overriding it.
+    const seen: Float32Array[] = [];
+    const encode = vi.fn(async (samples: Float32Array) => {
+      seen.push(samples);
+      return { bytes: new Uint8Array([1]), contentType: "audio/webm;codecs=opus" };
+    });
+    const { engine } = makeEngine({
+      encode,
+      batcher: new SegmentBatcher(), // DEFAULT_BATCHER_CONFIG: prerollMs 400
+    });
+
+    const frameMs = 100;
+    // 10 s of continuous silence — long enough for the idle trim to run many
+    // times before speech starts.
+    const silenceFrames = 10_000 / frameMs;
+    for (let i = 0; i < silenceFrames; i++) {
+      engine.pushFrame(frame(i * frameMs, 1_600, /* speech */ false));
+    }
+    // 400 ms of speech (5 frames) right after the silence.
+    for (let i = 0; i < 5; i++) {
+      engine.pushFrame(frame(silenceFrames * frameMs + i * frameMs, 1_600, true));
+    }
+    engine.flush();
+    await engine.drain();
+
+    expect(encode).toHaveBeenCalledTimes(1);
+    // 400 ms pre-roll + 400 ms of speech (4 inter-frame gaps) = 800 ms @ 16 kHz.
+    expect(seen[0]?.length).toBe(12_800);
+    // No sample in the extracted window — including the 400 ms pre-roll
+    // portion — is a default-initialized zero (`extractByMs` zero-fills any
+    // stretch no retained chunk covers), which is what idle-trim having eaten
+    // into the pre-roll window would otherwise leave behind. (Not compared
+    // against the literal `0.1` fill value itself: Float32Array storage
+    // can't represent 0.1 exactly, so that equality would never hold.)
+    expect(Array.from(seen[0] ?? []).every((s) => s !== 0)).toBe(true);
+  });
+
   it("computes speech percentage and resets it on snapshot", () => {
     const { engine } = makeEngine();
     engine.pushFrame(frame(0, 1_600, true));
