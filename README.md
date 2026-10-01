@@ -46,6 +46,12 @@ npm run probe        # region probe -> config/regions.yaml (needs a real GCP pro
 - No live GCP project is wired up yet — `config/regions.yaml` is a placeholder
   (`UNPROBED`) until Rangga runs `npm run probe` against a real project.
 - Capture, pipeline, and agent code are not built yet (later tasks).
+- `T-206` (the incident-keyword fast path — flagging a safety/security
+  incident immediately rather than waiting for the normal label pipeline) is
+  specified but not built; no task currently owns it.
+- `DAILY_TOKEN_CEILING` (the per-outlet daily cost-guard cap on non-essential
+  model calls) is specified in `CLAUDE.md` §7 but not enforced anywhere in
+  code yet.
 - See `CLAUDE.md` and `docs/` for the full set of hard rules, architecture,
   and honestly-stated known gaps (DPIA, Transcribe preview status, etc.).
 
