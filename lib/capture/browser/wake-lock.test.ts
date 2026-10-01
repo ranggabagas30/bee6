@@ -145,4 +145,48 @@ describe("WakeLockManager", () => {
     expect(request).toHaveBeenCalledTimes(1); // no self-triggered re-acquire
     expect(manager.held).toBe(false);
   });
+
+  it("does not orphan a superseded sentinel when its stale release event fires after a reacquire (round 3: B-1 orphan)", async () => {
+    // Sequence that leaked a live sentinel forever: the browser sets S1's
+    // `released` flag synchronously, a queued `visibilitychange` -> visible
+    // callback runs first and reacquires (S2) before S1's own queued
+    // `release` event has fired. When that stale event finally fires, it
+    // must be a no-op — not a 3rd unwanted acquire that overwrites
+    // `this.sentinel` with S3 and orphans S2 (which then never gets
+    // released, keeping the screen on forever).
+    const created: Array<ReturnType<typeof makeFakeSentinel>> = [];
+    const request = vi.fn(async () => {
+      const sentinel = makeFakeSentinel();
+      created.push(sentinel);
+      return sentinel;
+    });
+    vi.stubGlobal("navigator", { wakeLock: { request } });
+    vi.stubGlobal("document", { visibilityState: "visible" });
+
+    const manager = new WakeLockManager();
+    await manager.acquire(); // call 1 -> S1
+    const s1 = created[0];
+
+    // Browser marks S1 released synchronously; its `release` event hasn't
+    // fired yet. The queued `visibilitychange` -> visible handler runs first.
+    s1.released = true;
+    await manager.reacquireIfNeeded(); // call 2 -> S2
+    expect(created).toHaveLength(2);
+    const s2 = created[1];
+    expect(manager.held).toBe(true);
+
+    // S1's queued `release` event now fires late, after S2 is already the
+    // live sentinel.
+    s1.__fireRelease();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(request).toHaveBeenCalledTimes(2); // not 3 — the stale event was a no-op
+    expect(manager.held).toBe(true); // S2 is untouched and still live
+
+    await manager.release();
+
+    // Every sentinel ever created ends up released — nothing left orphaned.
+    expect(created.every((sentinel) => sentinel.released)).toBe(true);
+    expect(s2.release).toHaveBeenCalledTimes(1);
+  });
 });
