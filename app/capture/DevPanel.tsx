@@ -51,6 +51,9 @@ const PANEL_STYLE: React.CSSProperties = {
   padding: 12,
   fontFamily: "monospace",
   fontSize: 13,
+  // Keeps the panel (and its event log) inside the page's 360px budget
+  // instead of the border/padding pushing it wider than the parent.
+  boxSizing: "border-box",
 };
 
 const BUTTON_ROW_STYLE: React.CSSProperties = {
@@ -84,6 +87,9 @@ const LOG_LIST_STYLE: React.CSSProperties = {
   padding: 0,
   listStyle: "none",
   fontSize: 12,
+  // A long seg_id/reason string must wrap, never force horizontal overflow
+  // on a 360px-wide phone screen (CLAUDE.md self-review checklist).
+  overflowWrap: "anywhere",
 };
 
 export function DevPanel({ onStart, onPause, onStop, events }: DevPanelProps) {
