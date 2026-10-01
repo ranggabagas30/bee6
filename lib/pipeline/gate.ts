@@ -42,7 +42,7 @@ export const GateDecisionSchema = z
           "passed",
         ]),
         passed: z.boolean(),
-      })
+      }).strict()
     ),
     category: CategorySchema,
     confidence: z.number(),
