@@ -294,8 +294,10 @@ function closeWindowAtCap(
 
 /**
  * Plans label units from windows (batching tiny windows, grouping by ready time).
- * Includes only closed windows with text. Returns units that are ready for labelling
- * (as_of_ms >= unit end time).
+ * - Includes only closed windows with text
+ * - Tiny windows (content_ms < tinyMs) are batched by floor(start_ms/batchMs)
+ * - Large windows get their own unit immediately
+ * - Returns units that are ready for labelling (as_of_ms >= unit end time, all windows in batch closed)
  */
 export function planLabelUnits(
   windows: readonly PipelineWindow[],
@@ -315,24 +317,42 @@ export function planLabelUnits(
     const startWindow = eligible[i];
     if (!startWindow) break;
 
+    // Check if this window is "tiny" enough to batch
+    if (startWindow.content_ms >= config.tinyMs) {
+      // Large window: emit immediately as its own unit
+      if (as_of_ms >= startWindow.end_ms) {
+        const unitId = `unit_${startWindow.device_id}_${startWindow.window_id}`;
+        units.push({
+          unit_id: unitId,
+          window_ids: [startWindow.window_id],
+          lines: startWindow.lines,
+        });
+      }
+      i += 1;
+      continue;
+    }
+
+    // Tiny window: collect windows in this batch
     const batchFloor = Math.floor(startWindow.start_ms / config.batchMs);
     const batchEnd = (batchFloor + 1) * config.batchMs;
 
-    // Collect windows in this batch
     const batchWindows: PipelineWindow[] = [];
     const allLines: TimedLine[] = [];
+    const device_id = startWindow.device_id;
 
     while (i < eligible.length) {
       const w = eligible[i];
-      if (!w || w.start_ms >= batchEnd) break;
+      if (!w || w.start_ms >= batchEnd || w.content_ms >= config.tinyMs) break;
+      // Only add windows that are closed (defensive check; should already be closed)
+      if (w.status !== "closed") break;
       batchWindows.push(w);
       allLines.push(...w.lines);
       i += 1;
     }
 
-    // Only include the batch if it's ready (as_of_ms >= batchEnd)
-    if (as_of_ms >= batchEnd) {
-      const unitId = `unit_${batchFloor}`;
+    // Only include the batch if it's ready (as_of_ms >= batchEnd and all windows closed)
+    if (as_of_ms >= batchEnd && batchWindows.every((w) => w.status === "closed")) {
+      const unitId = `unit_${device_id}_${batchFloor}`;
       units.push({
         unit_id: unitId,
         window_ids: batchWindows.map((w) => w.window_id),
