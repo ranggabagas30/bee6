@@ -74,11 +74,19 @@ export function evaluateGate(input: {
 
   // 1. Check invalid_label (category unknown, NON_WORK, confidence NaN/out-of-[0,1])
   // Validate category first — check if it's in CategorySchema AND not NON_WORK
+  // `parsedCategory` records what the input ACTUALLY was whenever it parses
+  // at all (including NON_WORK) — used for the persisted `category` field so
+  // a NON_WORK/junk label isn't misreported as ROUTINE_OPS downstream.
+  // `categoryParseResult`/`validCategory` stay null/false for NON_WORK too —
+  // every other check (threshold, always_question, needs_supervisor_confirm)
+  // must keep treating NON_WORK as invalid, per hard rule #10.
+  let parsedCategory: Category | null = null;
   let categoryParseResult: Category | null = null;
   let validCategory = false;
   try {
     const parsed = CategorySchema.parse(category);
-    // Hard rule #10: NON_WORK must never reach the gate
+    parsedCategory = parsed;
+    // Hard rule #10: NON_WORK must never reach the gate as valid
     if (parsed !== "NON_WORK") {
       categoryParseResult = parsed;
       validCategory = true;
@@ -166,7 +174,11 @@ export function evaluateGate(input: {
 
   // Ensure we always return a valid category — use the parsed result, or fallback to a default work category
   // This guarantees the schema parse never fails due to an invalid category
-  const finalCategory = categoryParseResult || "ROUTINE_OPS";
+  // Record the real parsed category whenever parsing succeeded at all
+  // (including NON_WORK, which is still invalid_label but a real, known
+  // enum value) — only fall back to a placeholder when the input genuinely
+  // isn't a known category string.
+  const finalCategory = parsedCategory ?? "ROUTINE_OPS";
 
   return {
     verdict,

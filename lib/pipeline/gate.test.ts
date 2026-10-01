@@ -292,6 +292,36 @@ describe("gate", () => {
       expect(invalidLabelCheck?.passed).toBe(false);
     });
 
+    it("preserves the real NON_WORK category in the persisted decision instead of a ROUTINE_OPS sentinel", () => {
+      // The category still parses — it's a real, known enum value, just one
+      // that's always invalid_label per hard rule #10. Downstream (debrief
+      // question routing / proposal evidence) must see "NON_WORK", not a
+      // misleading placeholder that makes it look like a routine-ops gap.
+      const result = evaluateGate({
+        category: "NON_WORK" as unknown as WorkCategory,
+        confidence: 0.95,
+        evidence_line_ids: ["line_1"],
+        label_conflict: false,
+      });
+
+      expect(result.category).toBe("NON_WORK");
+      expect(result.fired_rule).toBe("invalid_label");
+      expect(GateDecisionSchema.safeParse(result).success).toBe(true);
+    });
+
+    it("falls back to a placeholder category only when the input genuinely doesn't parse", () => {
+      const result = evaluateGate({
+        category: "TOTALLY_UNKNOWN" as unknown as WorkCategory,
+        confidence: 0.95,
+        evidence_line_ids: ["line_1"],
+        label_conflict: false,
+      });
+
+      expect(result.category).toBe("ROUTINE_OPS");
+      expect(result.fired_rule).toBe("invalid_label");
+      expect(GateDecisionSchema.safeParse(result).success).toBe(true);
+    });
+
     it("ensures GateDecisionSchema.safeParse always succeeds for evaluateGate output", () => {
       // Test with various edge cases to ensure schema is always satisfied
       const testCases = [
