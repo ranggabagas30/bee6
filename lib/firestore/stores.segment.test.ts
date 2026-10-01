@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Firestore } from "firebase-admin/firestore";
+import { Timestamp } from "firebase-admin/firestore";
 import { firestoreSegmentStore } from "@/lib/firestore/stores";
 import { COLLECTIONS } from "@/lib/firestore/collections";
 import { segmentDocId } from "@/lib/capture/segment-types";
@@ -17,8 +18,8 @@ class AlreadyExistsError extends Error {
   }
 }
 
-function fakeDb(seed: Record<string, Segment> = {}) {
-  const store = new Map<string, Segment>(Object.entries(seed));
+function fakeDb(seed: Record<string, Record<string, unknown>> = {}) {
+  const store = new Map<string, Record<string, unknown>>(Object.entries(seed));
   const calls = { collections: [] as string[], docIds: [] as string[], setUsed: false };
   const db = {
     collection(name: string) {
@@ -31,7 +32,7 @@ function fakeDb(seed: Record<string, Segment> = {}) {
               const data = store.get(id);
               return { exists: data !== undefined, data: () => data };
             },
-            async create(data: Segment) {
+            async create(data: Record<string, unknown>) {
               if (store.has(id)) throw new AlreadyExistsError();
               store.set(id, data);
             },
@@ -70,7 +71,13 @@ describe("firestoreSegmentStore.get", () => {
 
   it("reads the deterministic doc id in the segments collection", async () => {
     const id = segmentDocId(key);
-    const { db, calls } = fakeDb({ [id]: segment });
+    // Seed with expires_at as a Timestamp (normal case when read from Firestore)
+    const { db, calls } = fakeDb({
+      [id]: {
+        ...segment,
+        expires_at: Timestamp.fromDate(new Date(segment.expires_at)),
+      },
+    });
     const found = await firestoreSegmentStore(db).get(key);
     expect(found).toEqual(segment);
     expect(calls.collections).toContain(COLLECTIONS.segments);
@@ -83,14 +90,54 @@ describe("firestoreSegmentStore.create", () => {
     const { db, store, calls } = fakeDb();
     const result = await firestoreSegmentStore(db).create(segment);
     expect(result).toEqual({ status: "created" });
-    expect(store.get("outlet-1:dev-1:seg-1")).toEqual(segment);
+    // The stored value should have expires_at as a Timestamp
+    const stored = store.get("outlet-1:dev-1:seg-1");
+    expect(stored).toBeDefined();
+    expect(stored?.expires_at instanceof Timestamp).toBe(true);
     expect(calls.setUsed).toBe(false);
     expect(calls.docIds).toContain("outlet-1:dev-1:seg-1");
   });
 
+  it("stores expires_at as a Firestore Timestamp (required for TTL policy)", async () => {
+    const { db, store } = fakeDb();
+    await firestoreSegmentStore(db).create(segment);
+    const storedValue = store.get("outlet-1:dev-1:seg-1");
+    expect(storedValue?.expires_at instanceof Timestamp).toBe(true);
+    // Verify the Timestamp value round-trips correctly
+    const timestamp = storedValue?.expires_at as Timestamp;
+    expect(timestamp.toDate().toISOString()).toBe(segment.expires_at);
+  });
+
+  it("round-trip: create then get returns a segment equal to the original", async () => {
+    const { db } = fakeDb();
+    const store = firestoreSegmentStore(db);
+    await store.create(segment);
+    const retrieved = await store.get(key);
+    expect(retrieved).toEqual(segment);
+  });
+
+  it("handles legacy documents with string-typed expires_at on read", async () => {
+    const id = segmentDocId(key);
+    // Seed the fake with a document that has expires_at as a plain string
+    const { db } = fakeDb({
+      [id]: {
+        ...segment,
+        expires_at: "2026-10-02T10:00:15.000Z", // Plain string, not a Timestamp
+      },
+    });
+    const retrieved = await firestoreSegmentStore(db).get(key);
+    expect(retrieved).toEqual(segment);
+  });
+
   it("maps a Firestore ALREADY_EXISTS collision to already_exists, not an error", async () => {
     const id = segmentDocId(key);
-    const { db } = fakeDb({ [id]: segment });
+    // Seed with a document that has expires_at as a Timestamp (normal case)
+    const { db } = fakeDb({
+      [id]: {
+        ...segment,
+        expires_at: Timestamp.fromDate(new Date(segment.expires_at)),
+      },
+    });
     const result = await firestoreSegmentStore(db).create(segment);
     expect(result).toEqual({ status: "already_exists" });
   });

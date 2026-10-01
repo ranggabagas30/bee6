@@ -1,4 +1,4 @@
-import type { Firestore } from "firebase-admin/firestore";
+import { Timestamp, type Firestore } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import { COLLECTIONS } from "@/lib/firestore/collections";
 import { normalizeStaffName } from "@/lib/auth/staff-name";
@@ -17,7 +17,7 @@ import {
   type SegmentCreateResult,
   type SegmentStore,
 } from "@/lib/capture/segment-types";
-import type { Heartbeat, Outlet, Segment } from "@/lib/firestore/schema";
+import { SegmentSchema, type Heartbeat, Outlet, Segment } from "@/lib/firestore/schema";
 
 /** gRPC status code for ALREADY_EXISTS — a `docRef.create()` collision. */
 const GRPC_ALREADY_EXISTS = 6;
@@ -33,6 +33,39 @@ function isAlreadyExistsError(err: unknown): boolean {
     err !== null &&
     (err as { code?: unknown }).code === GRPC_ALREADY_EXISTS
   );
+}
+
+/**
+ * Convert a Segment to a Firestore document with `expires_at` as a native Timestamp.
+ * The Firestore TTL policy on `segments.expires_at` requires a native Timestamp field;
+ * the domain type keeps `expires_at` as an ISO string for consistency elsewhere.
+ * Only `expires_at` is converted — other timestamp fields stay as ISO strings.
+ */
+function toSegmentDoc(segment: Segment): Record<string, unknown> {
+  return {
+    ...segment,
+    expires_at: Timestamp.fromDate(new Date(segment.expires_at)),
+  };
+}
+
+/**
+ * Convert a Firestore segment document back to the Segment domain type.
+ * If `expires_at` is a native Timestamp (the normal case), convert it to ISO.
+ * If it's already a string (legacy doc written before this fix), pass it through unchanged.
+ * Re-validates with zod to ensure consistent boundaries.
+ */
+function fromSegmentDoc(data: Record<string, unknown>): Segment {
+  const expiresAt = data.expires_at;
+  const normalized = {
+    ...data,
+    expires_at:
+      expiresAt instanceof Timestamp
+        ? expiresAt.toDate().toISOString()
+        : typeof expiresAt === "string"
+          ? expiresAt
+          : String(expiresAt), // fallback to string conversion
+  };
+  return SegmentSchema.parse(normalized);
 }
 
 /**
@@ -132,6 +165,9 @@ export function firestoreCaptureStore(): OutletReader & HeartbeatWriter {
  * `already_exists` (mapped to 200 by the route), not an error. Only redacted
  * text ever reaches here (hard rule #3); no audio/base64 is stored (hard rule #2).
  *
+ * Note: `expires_at` is written as a native Firestore Timestamp (required by the TTL
+ * policy) and converted back to an ISO string on read via `fromSegmentDoc()`.
+ *
  * `db` is injectable so the pure idempotency logic is unit-tested with a fake;
  * production passes the real Admin Firestore.
  */
@@ -140,7 +176,7 @@ export function firestoreSegmentStore(db: Firestore = adminDb()): SegmentStore {
   return {
     async get(key) {
       const doc = await col().doc(segmentDocId(key)).get();
-      return doc.exists ? (doc.data() as Segment) : null;
+      return doc.exists ? fromSegmentDoc(doc.data()!) : null;
     },
     async create(segment: Segment): Promise<SegmentCreateResult> {
       const id = segmentDocId({
@@ -149,7 +185,7 @@ export function firestoreSegmentStore(db: Firestore = adminDb()): SegmentStore {
         seg_id: segment.seg_id,
       });
       try {
-        await col().doc(id).create(segment);
+        await col().doc(id).create(toSegmentDoc(segment));
         return { status: "created" };
       } catch (err) {
         if (isAlreadyExistsError(err)) return { status: "already_exists" };
