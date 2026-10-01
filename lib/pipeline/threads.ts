@@ -21,7 +21,7 @@ export const LabelOutputSchema = z.object({
     z.object({
       id: z.string().min(1),
       category: CategorySchema,
-      confidence: z.number().min(0).max(1),
+      confidence: z.number(),
       evidence: z.array(z.number().int().min(0)),
       runner_up: z
         .object({ category: CategorySchema, why_not: z.string() })
