@@ -49,9 +49,10 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ segment: string }> },
 ) {
+  let claims;
   try {
     // Step 1: Authenticate the device (401 on missing/invalid token)
-    const claims = await requireDevice(req);
+    claims = await requireDevice(req);
     if (!claims.device_id) {
       // requireDevice always sets device_id, but guard defensively
       throw new BadRequestError("Device authentication missing device_id");
@@ -138,7 +139,7 @@ export async function PUT(
     });
   } catch (error) {
     // Log whitelisted diagnostic fields for upstream failures (no message/body)
-    if (error instanceof ServiceUnavailableError) {
+    if (claims && error instanceof ServiceUnavailableError) {
       logUnavailableError(error.stage, error.upstream, claims.outlet_id, claims.device_id);
     }
 
