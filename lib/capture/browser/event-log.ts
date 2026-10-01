@@ -24,22 +24,29 @@ export type CaptureEvent =
   | { type: "wake_lock_changed"; held: boolean }
   | { type: "mic_restart"; reason: string };
 
+/** A `CaptureEvent` stamped with when the ring buffer received it. */
+export interface LoggedCaptureEvent {
+  ts: number;
+  event: CaptureEvent;
+}
+
 export interface EventRingBuffer {
+  /** Stamps `event` with `Date.now()` and appends it. */
   push(event: CaptureEvent): void;
   /** A snapshot array; later `push()` calls never mutate a returned list. */
-  list(): readonly CaptureEvent[];
+  list(): readonly LoggedCaptureEvent[];
 }
 
 /**
  * A fixed-capacity, oldest-dropped-first event buffer. `capacity` must be a
  * positive integer; `list()` returns events in insertion (oldest-first)
- * order.
+ * order, each stamped with the time `push()` was called.
  */
 export function createEventRingBuffer(capacity: number): EventRingBuffer {
-  let items: CaptureEvent[] = [];
+  let items: LoggedCaptureEvent[] = [];
   return {
     push(event) {
-      items.push(event);
+      items.push({ ts: Date.now(), event });
       if (items.length > capacity) items = items.slice(items.length - capacity);
     },
     list() {
