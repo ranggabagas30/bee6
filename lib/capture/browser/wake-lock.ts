@@ -7,6 +7,17 @@
  * the first hide, and the lock was never re-acquired). We listen for `release`
  * so our state always reflects reality, and re-acquire on `visibilitychange`
  * -> visible.
+ *
+ * Round 2 fix: `held` reads the sentinel's own synchronous `released`
+ * attribute instead of only relying on our async `release` event listener
+ * having already run. The browser sets `released` to `true` BEFORE firing the
+ * `release` event, so a frozen background tab can deliver a queued
+ * `visibilitychange` -> visible callback before its queued `release` event —
+ * without this, `reacquireIfNeeded` would see a stale non-null `sentinel` and
+ * skip re-acquiring. We also try to re-acquire from inside the `release`
+ * handler itself when the page is still visible (e.g. a battery-saver release
+ * that isn't preceded by any `visibilitychange`), which `visibilitychange`
+ * alone would never catch.
  */
 
 export function isWakeLockSupported(): boolean {
@@ -15,10 +26,36 @@ export function isWakeLockSupported(): boolean {
 
 export class WakeLockManager {
   private sentinel: WakeLockSentinel | null = null;
+  /**
+   * Set around our own `release()` call so the sentinel's `release` event
+   * handler (which also fires for a deliberate release, not just a browser-
+   * initiated one, per spec) knows not to immediately re-acquire what we just
+   * gave up on purpose (e.g. the capture session stopping while the tab is
+   * still visible).
+   */
+  private releasingDeliberately = false;
+  /**
+   * The in-flight `acquire()` attempt, if any. Dedupes a browser-initiated
+   * re-acquire (fired from inside the `release` handler below) racing with an
+   * explicit `reacquireIfNeeded()` call reacting to the very same drop, so one
+   * logical re-acquire never issues two `navigator.wakeLock.request()` calls.
+   */
+  private acquiring: Promise<boolean> | null = null;
 
   /** Requests the screen wake lock; returns whether it was acquired. */
   async acquire(): Promise<boolean> {
     if (!isWakeLockSupported()) return false;
+    if (this.acquiring) return this.acquiring;
+    const attempt = this.doAcquire();
+    this.acquiring = attempt;
+    try {
+      return await attempt;
+    } finally {
+      if (this.acquiring === attempt) this.acquiring = null;
+    }
+  }
+
+  private async doAcquire(): Promise<boolean> {
     try {
       const sentinel = await navigator.wakeLock.request("screen");
       this.sentinel = sentinel;
@@ -29,6 +66,13 @@ export class WakeLockManager {
         // Only clear if this is still the current sentinel — a later acquire()
         // may already have replaced it with a fresh one.
         if (this.sentinel === sentinel) this.sentinel = null;
+        if (this.releasingDeliberately) return; // our own release() call
+        // A release while the page stays visible (e.g. battery saver) is never
+        // followed by a `visibilitychange` -> visible, so `reacquireIfNeeded`
+        // would never run for it. Try again here instead.
+        if (typeof document !== "undefined" && document.visibilityState === "visible") {
+          void this.acquire();
+        }
       });
       return true;
     } catch {
@@ -42,21 +86,31 @@ export class WakeLockManager {
     if (
       typeof document !== "undefined" &&
       document.visibilityState === "visible" &&
-      this.sentinel === null
+      !this.held
     ) {
       await this.acquire();
     }
   }
 
   async release(): Promise<void> {
+    this.releasingDeliberately = true;
     try {
       await this.sentinel?.release();
     } finally {
       this.sentinel = null;
+      this.releasingDeliberately = false;
     }
   }
 
+  /**
+   * Whether the lock is actually still in effect right now. Reads the
+   * sentinel's own synchronous `released` attribute (round 2 fix) rather than
+   * only `sentinel !== null`: the browser sets `released = true` before
+   * firing the async `release` event, so checking `released` directly closes
+   * a race where a frozen background tab delivers a queued `visibilitychange`
+   * -> visible callback before its queued `release` event has run.
+   */
   get held(): boolean {
-    return this.sentinel !== null;
+    return this.sentinel !== null && !this.sentinel.released;
   }
 }
