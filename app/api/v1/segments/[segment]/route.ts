@@ -4,6 +4,7 @@ import { BadRequestError } from "@/lib/http/errors";
 import { jsonOk } from "@/lib/http/respond";
 import { requireDevice } from "@/lib/http/guard";
 import {
+  assertDeviceMatch,
   assertSegmentSize,
   SEGMENT_CONTENT_TYPE,
   parseSegmentPath,
@@ -59,6 +60,9 @@ export async function PUT(
     // Step 2: Parse the path param (400 on malformed)
     const { segment } = await params;
     const { device_id: pathDeviceId, seg_id } = parseSegmentPath(segment);
+
+    // Step 2b: Check device match BEFORE reading body (403 before 400 before 413)
+    assertDeviceMatch(pathDeviceId, claims.device_id);
 
     // Step 3: Check Content-Type BEFORE reading body (400 if wrong)
     const contentType = req.headers.get("content-type");
