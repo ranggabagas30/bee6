@@ -61,14 +61,15 @@ describe("threads", () => {
       expect(result.success).toBe(false);
     });
 
-    it("rejects confidence out of range", () => {
-      const invalidLabel = {
+    it("allows confidence out of range in parse (gate catches it)", () => {
+      // Confidence bounds removed from schema; invalid values are caught by the gate, not the parse
+      const labelWithOutOfRangeConfidence = {
         lines: [{ i: 0, reply_to: null, thread: "thread_1" }],
         threads: [
           {
             id: "thread_1",
             category: "ROUTINE_OPS",
-            confidence: 1.5,
+            confidence: 1.5, // out of [0, 1] but now allowed in parse
             evidence: [0],
             summary: "test",
           },
@@ -76,8 +77,9 @@ describe("threads", () => {
         non_work_lines: [],
       };
 
-      const result = LabelOutputSchema.safeParse(invalidLabel);
-      expect(result.success).toBe(false);
+      const result = LabelOutputSchema.safeParse(labelWithOutOfRangeConfidence);
+      expect(result.success).toBe(true); // Parse succeeds
+      // Gate will catch this as invalid_label, see gate.test.ts
     });
   });
 
