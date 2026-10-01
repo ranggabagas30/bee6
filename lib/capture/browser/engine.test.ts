@@ -226,6 +226,47 @@ describe("CaptureEngine", () => {
     expect(seg.end_ms).toBeGreaterThanOrEqual(seg.start_ms);
   });
 
+  it("keeps the PCM buffer bounded during extended continuous silence (B-3)", () => {
+    // Without the fix, trimBeforeMs only runs when a segment closes. During
+    // silence the batcher never closes anything, so the buffer would grow by
+    // ~64 KB/s (~230 MB/h) for as long as the mic stays muted/disconnected.
+    const { engine } = makeEngine();
+    const frameMs = 100; // 1_600 samples @ 16 kHz = 100 ms/frame
+    const oneHourOfFrames = (60 * 60 * 1_000) / frameMs; // 36_000 frames
+    for (let i = 0; i < oneHourOfFrames; i++) {
+      engine.pushFrame(frame(i * frameMs, 1_600, /* speech */ false));
+    }
+    // Stays near the idle-trim headroom (1 s) regardless of how long the
+    // silence lasted, instead of accumulating an hour of PCM.
+    expect(engine.bufferedMs).toBeLessThan(2_000);
+  });
+
+  it("still buffers the full segment while one is open, even next to idle trimming", async () => {
+    // The idle trim (B-3) must never eat into audio an open segment still
+    // needs — only silence with no open segment should be trimmed.
+    const seen: { length: number }[] = [];
+    const encode = vi.fn(async (samples: Float32Array) => {
+      seen.push({ length: samples.length });
+      return { bytes: new Uint8Array([1]), contentType: "audio/webm;codecs=opus" };
+    });
+    const { engine } = makeEngine({
+      encode,
+      batcher: new SegmentBatcher({ maxSegmentMs: 5_000, prerollMs: 0 }),
+    });
+    // A long run of speech (segment open throughout) must survive intact.
+    for (let i = 0; i < 40; i++) {
+      engine.pushFrame(frame(i * 100, 1_600, true));
+    }
+    engine.flush();
+    await engine.drain();
+
+    expect(encode).toHaveBeenCalledTimes(1);
+    // end_ms is the *start* of the last speech frame (pre-existing, documented
+    // half-open extraction, §2.3), so the span is 39 frames' worth, not 40 —
+    // the point here is that idle trimming took nothing extra off that.
+    expect(seen[0]?.length).toBe(39 * 1_600);
+  });
+
   it("computes speech percentage and resets it on snapshot", () => {
     const { engine } = makeEngine();
     engine.pushFrame(frame(0, 1_600, true));

@@ -22,6 +22,14 @@ import type { CaptureVadFrame } from "@/lib/capture/browser/vad";
 
 const DEFAULT_SAMPLE_RATE = 16_000;
 const MAX_BACKOFF_MS = 30_000;
+/**
+ * How much PCM to keep as headroom while idle (no open segment), so the next
+ * segment's pre-roll (default 400 ms, `batcher.ts`) is still in the buffer
+ * when speech resumes. Trimming to this little during silence is what bounds
+ * memory during a long quiet period (finding B-3) instead of only trimming on
+ * segment close.
+ */
+const IDLE_TRIM_KEEP_MS = 1_000;
 
 export interface QueuedSegment extends QueueItem {
   id: string;
@@ -127,7 +135,16 @@ export class CaptureEngine {
     if (frame.speech) this.speechFrames += 1;
 
     const segment = this.batcher.push({ ts: frame.ts, speech: frame.speech });
-    if (segment) this.closeSegment(segment);
+    if (segment) {
+      this.closeSegment(segment);
+    } else if (!this.batcher.isActive) {
+      // No segment is open (continuous silence, or a muted/disconnected mic):
+      // the batcher never closes anything to trigger `closeSegment`'s trim, so
+      // trim here too, independent of segment closure. This bounds memory
+      // during an arbitrarily long quiet period instead of growing ~64 KB/s
+      // forever (finding B-3).
+      this.buffer.trimBeforeMs(frame.ts - IDLE_TRIM_KEEP_MS);
+    }
   }
 
   /** Closes any open segment (call on stop / closing time). */
@@ -183,6 +200,11 @@ export class CaptureEngine {
       droppedCount: this.queue.droppedCount + this.uploadDropped,
       micError: this.micError,
     };
+  }
+
+  /** Approximate PCM buffer size in ms (observability / test hook, B-3). */
+  get bufferedMs(): number {
+    return this.buffer?.bufferedMs ?? 0;
   }
 
   /** Heartbeat metrics; resets the speech window so each call covers ~60 s. */
