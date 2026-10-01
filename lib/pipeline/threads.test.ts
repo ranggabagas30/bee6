@@ -911,7 +911,7 @@ describe("threads", () => {
       expect(result.threads[0]?.thread_id).toBe("unit_2:thread_1");
     });
 
-    it("gap measured from the component's earliest RESOLVED line, not the line that happens to carry the hint", () => {
+    it("gap measured from the component's earliest line, not the line that happens to carry the hint", () => {
       // reply_to chain: line 0 (earliest, resolved) <- line 1 (carries the
       // hint, resolved) — both resolved, same thread. Earliest start (line 0)
       // is beyond grace from the open thread even though line 1 (the hint
@@ -945,6 +945,84 @@ describe("threads", () => {
 
       expect(result.threads).toHaveLength(1);
       expect(result.threads[0]?.continued_from_open).toBe(true);
+    });
+
+    it("gap measured over ALL emitted members (including an unresolved one), not just resolved members — an early unresolved member beyond grace blocks the join", () => {
+      // The resolved line (carries the matching hint) alone would be within
+      // grace of the open thread. But an unresolved member, pulled into the
+      // same component via reply_to, starts 10s before the resolved line —
+      // well beyond grace from the open thread. Since that unresolved line
+      // is still emitted in the final thread, its start must count toward
+      // the gap calculation too — never merge it in unchecked.
+      const unit: LabelUnit = {
+        unit_id: "unit_2",
+        window_ids: ["w_seg_002"],
+        lines: [
+          { line_id: "seg_002#0", seg_id: "seg_002", text: "unresolved, starts early", start_ms: 0, end_ms: 1000 },
+          { line_id: "seg_002#1", seg_id: "seg_002", text: "resolved, carries the hint", start_ms: 10000, end_ms: 15000 },
+        ],
+      };
+
+      const label: LabelOutput = {
+        lines: [
+          { i: 0, reply_to: null, thread: "ghost_hint" }, // no label.threads entry — unresolved
+          { i: 1, reply_to: 0, thread: "thread_1" }, // resolved; unions with line 0 via reply_to
+        ],
+        threads: [
+          { id: "thread_1", category: "ROUTINE_OPS", confidence: 0.9, evidence: [1], summary: "resolved" },
+        ],
+        non_work_lines: [],
+      };
+
+      // ROUTINE_OPS grace = 120_000ms.
+      // Gap from the resolved line alone (10000 - 0 = 10000ms) would be within grace.
+      // Gap from the earliest EMITTED member (unresolved, start 0; open thread
+      // last_line_end_ms = 200000) is negative (0 - 200000) — must reject, not join.
+      const openThread = { thread_id: "thread_1", category: "ROUTINE_OPS" as const, last_line_end_ms: 200000 };
+      const result = buildThreads({ unit, label, open_threads: [openThread] });
+
+      expect(result.threads).toHaveLength(1);
+      expect(result.threads[0]?.continued_from_open).toBe(false);
+      expect(result.threads[0]?.thread_id).toBe("unit_2:thread_1");
+      // Both lines are still emitted together in the fresh thread (unresolved
+      // member rides along via the union, per the resolution rule).
+      expect(result.threads[0]?.line_ids).toEqual(["seg_002#0", "seg_002#1"]);
+    });
+
+    it("blocks the join when an unresolved member starts just inside grace but the resolved hint line alone would have been well within grace too (tech-lead's literal case)", () => {
+      // Unresolved member starts at last_end - 1 (1ms before the open
+      // thread's last line ended — effectively a negative/near-zero gap).
+      // Resolved hint line starts at last_end + 10s (comfortably within
+      // grace alone). The component's gap must be measured from the
+      // unresolved member's start, which produces a near-negative gap here,
+      // not from the resolved line's comfortably-in-grace start.
+      const lastEnd = 200000;
+      const unit: LabelUnit = {
+        unit_id: "unit_2",
+        window_ids: ["w_seg_002"],
+        lines: [
+          { line_id: "seg_002#0", seg_id: "seg_002", text: "unresolved, starts just before last_end", start_ms: lastEnd - 1, end_ms: lastEnd + 4000 },
+          { line_id: "seg_002#1", seg_id: "seg_002", text: "resolved hint line, well within grace alone", start_ms: lastEnd + 10000, end_ms: lastEnd + 15000 },
+        ],
+      };
+
+      const label: LabelOutput = {
+        lines: [
+          { i: 0, reply_to: null, thread: "ghost_hint" },
+          { i: 1, reply_to: 0, thread: "thread_1" },
+        ],
+        threads: [
+          { id: "thread_1", category: "ROUTINE_OPS", confidence: 0.9, evidence: [1], summary: "resolved" },
+        ],
+        non_work_lines: [],
+      };
+
+      const openThread = { thread_id: "thread_1", category: "ROUTINE_OPS" as const, last_line_end_ms: lastEnd };
+      const result = buildThreads({ unit, label, open_threads: [openThread] });
+
+      // Gap from earliest emitted member: (lastEnd - 1) - lastEnd = -1 — negative, rejected.
+      expect(result.threads).toHaveLength(1);
+      expect(result.threads[0]?.continued_from_open).toBe(false);
     });
 
     it("joins correctly when the open-id hint is on a line unioned only via a later same-hint pass (no stale component root)", () => {

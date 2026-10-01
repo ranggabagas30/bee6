@@ -84,9 +84,10 @@ export interface BuiltThread {
  *      matching all of (a) some member's hint equals that open thread's
  *      `thread_id`, (b) the open thread's category equals the component's
  *      resolved category, (c) the gap from the open thread's
- *      `last_line_end_ms` to the component's EARLIEST *resolved* member
- *      line start is in [0, grace] inclusive (negative gaps rejected, never
- *      clamped) — continues that open thread. Zero or more-than-one
+ *      `last_line_end_ms` to the EARLIEST line among ALL emitted members
+ *      (resolved or not — whatever actually ends up in the thread) is in
+ *      [0, grace] inclusive (negative gaps rejected, never clamped) —
+ *      continues that open thread. Zero or more-than-one
  *      matching candidate is ambiguous or absent: never guess, use a fresh
  *      id. A fresh id is always `${unit_id}:${modelThreadId}` — a bare
  *      model-assigned thread id is never used as the final thread_id,
@@ -218,7 +219,6 @@ export function buildThreads(input: {
     let fields: Record<string, unknown> | undefined;
     let lowestResolvedModelId: string | undefined;
     const hints = new Set<string>(); // every member's hint, resolved or not — used for join matching
-    const resolvedStartMss: number[] = [];
 
     for (const idx of memberIdxs) {
       const ll = labelLinesByI.get(idx);
@@ -231,8 +231,6 @@ export function buildThreads(input: {
       const cat = threadObj.category as WorkCategory; // NON_WORK already excluded above
       categories.add(cat);
       if (lowestResolvedModelId === undefined) lowestResolvedModelId = threadObj.id;
-      const unitLine = unit.lines[idx];
-      if (unitLine) resolvedStartMss.push(unitLine.start_ms);
 
       if (
         Number.isFinite(threadObj.confidence) &&
@@ -266,7 +264,14 @@ export function buildThreads(input: {
     let threadId = `${unit.unit_id}:${lowestResolvedModelId}`;
 
     if (!label_conflict) {
-      const earliestStartMs = Math.min(...resolvedStartMss);
+      // Gap is measured from the earliest line that actually ends up in the
+      // thread — ALL emitted members, not just the resolved ones. Otherwise
+      // an unresolved member riding along via union could start before
+      // ot.last_line_end_ms (a negative gap) or beyond grace and still get
+      // merged in unchecked.
+      const earliestStartMs = Math.min(
+        ...memberIdxs.map((i) => unit.lines[i]?.start_ms ?? Infinity)
+      );
       const grace = GRACE_MS[category];
       const candidates = open_threads.filter((ot) => {
         if (!hints.has(ot.thread_id)) return false;
