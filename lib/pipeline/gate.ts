@@ -69,35 +69,39 @@ export function evaluateGate(input: {
 }): GateDecision {
   const { category, confidence, evidence_line_ids, label_conflict } = input;
 
-  // Validate category (must be WorkCategory, not NON_WORK)
-  let categoryParseResult: Category;
-  try {
-    categoryParseResult = CategorySchema.parse(category);
-  } catch {
-    // Invalid category - treat as invalid_label
-    categoryParseResult = category as Category;
-  }
-
-  // Get threshold for this category
-  const threshold =
-    FACT_THRESHOLD[category as keyof typeof FACT_THRESHOLD] ?? 0.9;
-
   const checks: Array<{ rule: GateRule; passed: boolean }> = [];
   let firedRule: GateRule = "passed";
 
   // 1. Check invalid_label (category unknown, confidence NaN/out-of-[0,1])
-  const validCategory =
-    categoryParseResult && !categoryParseResult.includes("undefined");
+  // Validate category first — check if it's in CategorySchema
+  let categoryParseResult: Category;
+  let validCategory = false;
+  try {
+    categoryParseResult = CategorySchema.parse(category);
+    validCategory = true;
+  } catch {
+    // Invalid category — treat as invalid_label
+    categoryParseResult = category as Category;
+    validCategory = false;
+  }
+
+  // Check confidence validity (must be a number in [0, 1])
   const validConfidence =
     typeof confidence === "number" &&
     !isNaN(confidence) &&
     confidence >= 0 &&
     confidence <= 1;
+
   const isValidLabel = validCategory && validConfidence;
   checks.push({ rule: "invalid_label", passed: isValidLabel });
   if (!isValidLabel && firedRule === "passed") {
     firedRule = "invalid_label";
   }
+
+  // Get threshold for this category (safely, in case invalid)
+  const threshold = validCategory
+    ? FACT_THRESHOLD[category as keyof typeof FACT_THRESHOLD] ?? 0.9
+    : 0.9;
 
   // 2. Check label_conflict (independently)
   const hasConflict = label_conflict;
@@ -106,15 +110,15 @@ export function evaluateGate(input: {
     firedRule = "label_conflict";
   }
 
-  // 3. Check always_question (PHONE_CALL)
-  const isAlwaysQuestion = ALWAYS_QUESTION.has(category);
+  // 3. Check always_question (PHONE_CALL) — only if category is valid
+  const isAlwaysQuestion = validCategory && ALWAYS_QUESTION.has(category);
   checks.push({ rule: "always_question", passed: !isAlwaysQuestion });
   if (isAlwaysQuestion && firedRule === "passed") {
     firedRule = "always_question";
   }
 
-  // 4. Check needs_supervisor_confirm
-  const needsConfirm = NEEDS_SUPERVISOR_CONFIRM.has(category);
+  // 4. Check needs_supervisor_confirm — only if category is valid
+  const needsConfirm = validCategory && NEEDS_SUPERVISOR_CONFIRM.has(category);
   checks.push({
     rule: "needs_supervisor_confirm",
     passed: !needsConfirm,
@@ -123,8 +127,11 @@ export function evaluateGate(input: {
     firedRule = "needs_supervisor_confirm";
   }
 
-  // 5. Check no_evidence
-  const hasEvidence = evidence_line_ids.length >= 1;
+  // 5. Check no_evidence — require non-empty, non-whitespace evidence IDs
+  const validEvidence = evidence_line_ids.filter(
+    (id) => typeof id === "string" && id.trim().length > 0
+  );
+  const hasEvidence = validEvidence.length >= 1;
   checks.push({ rule: "no_evidence", passed: hasEvidence });
   if (!hasEvidence && firedRule === "passed") {
     firedRule = "no_evidence";
@@ -158,7 +165,7 @@ export function evaluateGate(input: {
     category: categoryParseResult || (category as Category),
     confidence,
     threshold,
-    evidence_count: evidence_line_ids.length,
+    evidence_count: validEvidence.length,
     gate_version: "1",
   };
 }
