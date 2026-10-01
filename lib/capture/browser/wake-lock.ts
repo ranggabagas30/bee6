@@ -1,7 +1,12 @@
 /**
  * Screen Wake Lock manager (web spec §4.1: "keeps the screen awake while open").
- * Browser only. Re-acquires the lock when the page becomes visible again, since
- * the sentinel is released automatically when the tab is hidden.
+ * Browser only. The browser releases the sentinel automatically whenever the
+ * tab is hidden (even once), without calling back into our code unless we
+ * listen for the sentinel's own `release` event (bug B-1: without that
+ * listener, `held`/the heartbeat's `screen_awake` kept reporting `true` after
+ * the first hide, and the lock was never re-acquired). We listen for `release`
+ * so our state always reflects reality, and re-acquire on `visibilitychange`
+ * -> visible.
  */
 
 export function isWakeLockSupported(): boolean {
@@ -15,7 +20,16 @@ export class WakeLockManager {
   async acquire(): Promise<boolean> {
     if (!isWakeLockSupported()) return false;
     try {
-      this.sentinel = await navigator.wakeLock.request("screen");
+      const sentinel = await navigator.wakeLock.request("screen");
+      this.sentinel = sentinel;
+      // The browser can release this sentinel on its own (tab hidden, battery
+      // saver, …) without us calling release(). Listen so `held` stays honest
+      // instead of assuming the lock is still in effect.
+      sentinel.addEventListener("release", () => {
+        // Only clear if this is still the current sentinel — a later acquire()
+        // may already have replaced it with a fresh one.
+        if (this.sentinel === sentinel) this.sentinel = null;
+      });
       return true;
     } catch {
       this.sentinel = null;
