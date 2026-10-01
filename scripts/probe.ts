@@ -293,7 +293,13 @@ function normalizeDlpError(err: unknown): { code: string; message: string } {
  */
 export function makeDlpServiceCaller(project: string): ServiceCaller {
   return async (_service, region) => {
-    const client = new DlpServiceClient({ apiEndpoint: `dlp.${region}.rep.googleapis.com` });
+    // "global" has no `<region>.rep.` endpoint of its own (see
+    // lib/redact/dlp.ts) — every real region gets the regional override,
+    // "global" uses the client's plain default host.
+    const client =
+      region === "global"
+        ? new DlpServiceClient()
+        : new DlpServiceClient({ apiEndpoint: `dlp.${region}.rep.googleapis.com` });
     const startedAt = Date.now();
     try {
       await client.deidentifyContent(

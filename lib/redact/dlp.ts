@@ -62,12 +62,16 @@ export interface DlpRedactorDeps {
   regexPass?: boolean;
 }
 
-/** The default caller: a regional DLP client (ADC), one `deidentifyContent`. */
+/** The default caller: a regional (or global) DLP client (ADC), one `deidentifyContent`. */
 function makeDlpDeidentify(region: string): Deidentify {
   // Regional endpoint per the DLP docs (data stays in-region, hard rule #5).
-  const client = new DlpServiceClient({
-    apiEndpoint: `dlp.${region}.rep.googleapis.com`,
-  });
+  // "global" has no `<region>.rep.` regional endpoint of its own — it is
+  // reached through the plain default host, so no apiEndpoint override is
+  // passed in that case (unlike every real region, which gets one).
+  const client =
+    region === "global"
+      ? new DlpServiceClient()
+      : new DlpServiceClient({ apiEndpoint: `dlp.${region}.rep.googleapis.com` });
   return async (request, options) => {
     const [response] = await client.deidentifyContent(request, options);
     return response;
