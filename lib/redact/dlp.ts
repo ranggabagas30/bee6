@@ -1,4 +1,5 @@
 import { DlpServiceClient, type protos } from "@google-cloud/dlp";
+import { getServiceLocation } from "@/config/regions";
 import { ServiceUnavailableError } from "@/lib/http/errors";
 import { redactIndonesianPhones } from "@/lib/redact/indonesian-phone";
 import type { Redactor } from "@/lib/redact/types";
@@ -17,6 +18,12 @@ import type { Redactor } from "@/lib/redact/types";
  *    Error, so a transcript line cannot leak through a failure path.
  *
  * A pure Indonesian-phone regex pass runs first as a deterministic supplement.
+ *
+ * Region (hard rule #5): DLP does not offer a Jakarta regional endpoint, so
+ * its location is never a literal or a raw `APP_REGION` env read — it comes
+ * from `getServiceLocation("dlp")` (config/regions.yaml), which `npm run
+ * probe` fills in with the first region that actually answers, trying
+ * Jakarta, then Singapore, then global (scripts/probe.ts).
  */
 
 type IDeidentifyContentRequest =
@@ -33,7 +40,6 @@ export const DLP_INFO_TYPES = [
 ] as const;
 
 const DEFAULT_TIMEOUT_MS = 30_000;
-const DEFAULT_REGION = "asia-southeast2";
 
 /**
  * Test seam: performs one `deidentifyContent` call. The default implementation
@@ -48,7 +54,7 @@ export interface DlpRedactorDeps {
   deidentify?: Deidentify;
   /** GCP project id. Defaults to `process.env.GOOGLE_CLOUD_PROJECT`. */
   project?: string;
-  /** DLP region. Defaults to `process.env.APP_REGION` then asia-southeast2. */
+  /** DLP region. Defaults to `getServiceLocation("dlp").location` (config/regions.yaml). */
   region?: string;
   /** Server-side timeout in ms. Defaults to 30 s. */
   timeoutMs?: number;
@@ -95,7 +101,7 @@ function buildRequest(
 
 export function dlpRedactor(deps: DlpRedactorDeps = {}): Redactor {
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const region = deps.region ?? process.env.APP_REGION ?? DEFAULT_REGION;
+  const region = deps.region ?? getServiceLocation("dlp").location;
   const useRegex = deps.regexPass ?? true;
   const deidentify = deps.deidentify ?? makeDlpDeidentify(region);
 
