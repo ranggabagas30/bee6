@@ -20,11 +20,12 @@ import type { Redactor } from "@/lib/redact/types";
  *
  * A pure Indonesian-phone regex pass runs first as a deterministic supplement.
  *
- * Region (hard rule #5): DLP does not offer a Jakarta regional endpoint, so
- * its location is never a literal or a raw `APP_REGION` env read — it comes
- * from `getServiceLocation("dlp")` (config/regions.yaml), which `npm run
- * probe` fills in with the first region that actually answers, trying
- * Jakarta, then Singapore, then global (scripts/probe.ts).
+ * Region (hard rule #5): its location is never a literal or a raw
+ * `APP_REGION` env read — it comes from `getServiceLocation("dlp")`
+ * (config/regions.yaml), resolved the same probed-fallback way the
+ * Gemini models are: `npm run probe` fills it in with the first region
+ * that actually answers, trying Jakarta, then Singapore, then global
+ * (scripts/probe.ts).
  */
 
 type IDeidentifyContentRequest =

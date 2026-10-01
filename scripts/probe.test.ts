@@ -131,12 +131,12 @@ describe("probeService — same Jakarta->Singapore->global fallback, for non-mod
     expect(seen).toEqual(["asia-southeast2", "asia-southeast1", "global"]);
   });
 
-  it("stops at the first region that succeeds (e.g. DLP has no Jakarta endpoint, Singapore answers)", async () => {
+  it("stops at the first region that succeeds (e.g. Jakarta fails for some other reason, Singapore answers)", async () => {
     const seen: string[] = [];
     const callService: ServiceCaller = async (_service, region) => {
       seen.push(region);
       if (region === "asia-southeast2") {
-        throw new ProbeCallError("NOT_FOUND", "no regional endpoint in asia-southeast2");
+        throw new ProbeCallError("UNAVAILABLE", "asia-southeast2 unreachable right now");
       }
       return { ok: true, latencyMs: 55 };
     };
@@ -176,7 +176,7 @@ describe("probeAllServices", () => {
 describe("toServicesYamlDoc", () => {
   it("shapes service outcomes the same way toRegionsYamlDoc shapes model outcomes", async () => {
     const callService: ServiceCaller = async (_service, region) =>
-      region === "asia-southeast1" ? { ok: true, latencyMs: 9 } : { ok: false, code: "NOT_FOUND", message: "no Jakarta endpoint" };
+      region === "asia-southeast1" ? { ok: true, latencyMs: 9 } : { ok: false, code: "UNAVAILABLE", message: "asia-southeast2 unreachable right now" };
 
     const outcomes = await probeAllServices(["dlp"], callService, REGION_ORDER, FIXED_NOW);
     const doc = toServicesYamlDoc(outcomes);

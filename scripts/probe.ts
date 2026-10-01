@@ -18,6 +18,14 @@
  * `probeModel`/`probeAllModels`, so the retry/fallback ordering and the
  * "record every failure" behaviour are unit-tested with a mocked caller
  * (scripts/probe.test.ts) while `main()` wires in the real one.
+ *
+ * KNOWN GAP: `npm run probe` runs under whoever's Application Default
+ * Credentials (a developer's `gcloud auth application-default login`),
+ * not Cloud Run's runtime service account. A clean probe result here
+ * proves the model/service is reachable under that caller's identity and
+ * quota project — it does NOT prove the Cloud Run service account has
+ * the matching IAM role (e.g. `roles/dlp.user`). That needs separate
+ * verification on first live deploy, not just a green `npm run probe`.
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -155,9 +163,8 @@ export async function probeAllModels(
  * Non-model Google Cloud APIs probed the same way as Gemini models
  * (Jakarta -> Singapore -> global). Today this is just Sensitive Data
  * Protection (DLP): `lib/redact/dlp.ts` must redact every transcript line
- * before storage (hard rule #3), and DLP's regional endpoints do not
- * include Jakarta, so the fallback — not a pinned literal — is what
- * actually picks its region (hard rule #5).
+ * before storage (hard rule #3). Its region comes from this probed
+ * fallback, like a model's, never a pinned literal (hard rule #5).
  */
 export const SERVICE_KEYS = ["dlp"] as const;
 export type ServiceKey = (typeof SERVICE_KEYS)[number];
@@ -178,7 +185,8 @@ export interface ServiceProbeOutcome {
  * Same retry/fallback contract as `probeModel`: tries `service` against
  * each region in `regionOrder`, in order, stopping at the first success,
  * and recording every attempt (success or failure) so a region that
- * fails (e.g. DLP has no Jakarta endpoint) is never silently skipped.
+ * fails is never silently skipped — a non-model service's region comes
+ * from this probed fallback, like models, never a literal.
  */
 export async function probeService(
   service: ServiceKey,

@@ -30,11 +30,12 @@ const RegionsFileSchema = z.object({
   version: z.number(),
   probed_at: z.string().nullable(),
   models: z.record(z.string(), RegionEntrySchema),
-  // Non-model Google Cloud APIs probed the same way as models (hard rule
-  // #5): Jakarta -> Singapore -> global. Today this is Sensitive Data
-  // Protection (DLP), which has no Jakarta regional endpoint. Optional +
-  // defaulted so a regions.yaml written before this section existed still
-  // parses (back-compat).
+  // Non-model Google Cloud APIs, probed the same Jakarta -> Singapore ->
+  // global way as models (hard rule #5): its region comes from the
+  // probed fallback, like models, never a literal. Today this is
+  // Sensitive Data Protection (DLP). Optional + defaulted so a
+  // regions.yaml written before this section existed still parses
+  // (back-compat).
   services: z.record(z.string(), RegionEntrySchema).optional().default({}),
 });
 
