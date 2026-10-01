@@ -115,15 +115,25 @@ export function geminiTranscriber(deps: GeminiTranscriberDeps = {}): Transcriber
         // failure (5xx/429/timeout/400/network) becomes a retryable 503.
         // Extract upstream status code or timeout signal without message text.
         let upstream: number | "timeout" | "unknown" = "unknown";
+        // Check for timeout first (highest priority)
         if (error instanceof Error) {
           if (error.name === "AbortError" || error.message.includes("timeout")) {
             upstream = "timeout";
+          } else if (
+            error &&
+            typeof error === "object" &&
+            "status" in error &&
+            typeof (error as { status?: unknown }).status === "number"
+          ) {
+            upstream = (error as { status?: unknown }).status as number;
           }
-        }
-        // Try to extract numeric status from SDK error if available
-        if (error && typeof error === "object" && "status" in error) {
-          const status = (error as { status?: unknown }).status;
-          if (typeof status === "number") upstream = status;
+        } else if (
+          error &&
+          typeof error === "object" &&
+          "status" in error &&
+          typeof (error as { status?: unknown }).status === "number"
+        ) {
+          upstream = (error as { status?: unknown }).status as number;
         }
         throw new ServiceUnavailableError("Transcription upstream unavailable", "transcribe", upstream);
       }

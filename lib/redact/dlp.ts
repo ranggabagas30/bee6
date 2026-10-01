@@ -115,15 +115,25 @@ export function dlpRedactor(deps: DlpRedactorDeps = {}): Redactor {
         // Sanitised: never interpolate the DLP error or the input text.
         // Extract upstream status code or timeout signal without message text.
         let upstream: number | "timeout" | "unknown" = "unknown";
+        // Check for timeout first (highest priority)
         if (error instanceof Error) {
           if (error.name === "AbortError" || error.message.includes("timeout")) {
             upstream = "timeout";
+          } else if (
+            error &&
+            typeof error === "object" &&
+            "code" in error &&
+            typeof (error as { code?: unknown }).code === "number"
+          ) {
+            upstream = (error as { code?: unknown }).code as number;
           }
-        }
-        // Try to extract numeric code from gRPC error if available
-        if (error && typeof error === "object" && "code" in error) {
-          const code = (error as { code?: unknown }).code;
-          if (typeof code === "number") upstream = code;
+        } else if (
+          error &&
+          typeof error === "object" &&
+          "code" in error &&
+          typeof (error as { code?: unknown }).code === "number"
+        ) {
+          upstream = (error as { code?: unknown }).code as number;
         }
         throw new ServiceUnavailableError("Redaction upstream unavailable", "redact", upstream);
       }
