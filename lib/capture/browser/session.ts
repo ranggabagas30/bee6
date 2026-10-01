@@ -14,6 +14,7 @@ import {
   type DeviceAuth,
 } from "@/lib/capture/browser/client";
 import type { CaptureConfigResponse } from "@/lib/capture/contract";
+import type { CaptureEvent } from "@/lib/capture/browser/event-log";
 
 /**
  * Browser capture session (web spec §5): wires the tested adapters + engine into
@@ -48,6 +49,13 @@ export interface CaptureSessionCallbacks {
   onMicSource: (label: string) => void;
   onUnsupported: () => void;
   onSampleRateRejected: (message: string) => void;
+  /**
+   * DEV-01 dev-panel event log. Optional — omitting it is a no-op, so every
+   * existing caller is unaffected. Fed from the same state-reporting points
+   * that already drive `onStatus`/`onMicSource`/the wake lock, recorded as a
+   * timestamped list instead of just the latest value.
+   */
+  onEvent?: (event: CaptureEvent) => void;
 }
 
 export interface CaptureSession {
@@ -73,7 +81,19 @@ export async function startCaptureSession(
   const engine = new CaptureEngine({
     encode: encodeSegmentToWebmOpus,
     upload: createSegmentUploader(auth),
-    onStatusChange: cb.onStatus,
+    onStatusChange: (status) => {
+      cb.onStatus(status);
+      // Translate the existing status callback into a state_changed event —
+      // the engine's own segment_* events are forwarded as-is below.
+      cb.onEvent?.({
+        type: "state_changed",
+        state: status.state,
+        queuedCount: status.queuedCount,
+      });
+    },
+    // The engine's segment_opened/closed/upload_started/upload_result events
+    // are already in CaptureEvent shape; forward them unchanged.
+    onEvent: cb.onEvent,
   });
   const wakeLock = new WakeLockManager();
   const restart = new RestartController();
@@ -109,7 +129,7 @@ export async function startCaptureSession(
     engine.pushFrame(frame);
   const onError = (message: string) => {
     engine.setMicError(message);
-    void scheduleRestart();
+    void scheduleRestart(message);
   };
 
   async function spinUp(): Promise<void> {
@@ -119,11 +139,11 @@ export async function startCaptureSession(
       restart.reset();
     } catch {
       engine.setMicError("microphone-unavailable");
-      void scheduleRestart();
+      void scheduleRestart("microphone-unavailable");
     }
   }
 
-  async function scheduleRestart(): Promise<void> {
+  async function scheduleRestart(reason = "device_change"): Promise<void> {
     if (stopped) return;
     const delay = restart.nextDelayMs();
     setTimeout(async () => {
@@ -138,12 +158,14 @@ export async function startCaptureSession(
       // Rebase the engine timeline onto the new VAD clock so post-restart frames
       // extract the right audio instead of silence (finding #1).
       engine.resyncTimeline();
+      cb.onEvent?.({ type: "mic_restart", reason });
       await spinUp();
     }, delay);
   }
 
   await spinUp();
   await wakeLock.acquire();
+  cb.onEvent?.({ type: "wake_lock_changed", held: wakeLock.held });
 
   const heartbeatTimer = setInterval(() => {
     void (async () => {
@@ -160,7 +182,11 @@ export async function startCaptureSession(
     })();
   }, HEARTBEAT_INTERVAL_MS);
 
-  const onVisibility = () => void wakeLock.reacquireIfNeeded();
+  const onVisibility = () =>
+    void (async () => {
+      await wakeLock.reacquireIfNeeded();
+      cb.onEvent?.({ type: "wake_lock_changed", held: wakeLock.held });
+    })();
   const onDeviceChange = () => void scheduleRestart();
   document.addEventListener("visibilitychange", onVisibility);
   navigator.mediaDevices.addEventListener?.("devicechange", onDeviceChange);
@@ -182,6 +208,7 @@ export async function startCaptureSession(
       await engine.abort();
       currentStream?.getTracks().forEach((t) => t.stop());
       await wakeLock.release();
+      cb.onEvent?.({ type: "wake_lock_changed", held: wakeLock.held });
     },
   };
 }

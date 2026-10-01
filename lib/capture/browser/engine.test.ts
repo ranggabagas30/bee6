@@ -4,6 +4,7 @@ import {
   type CaptureEngineOptions,
 } from "@/lib/capture/browser/engine";
 import { SegmentBatcher } from "@/lib/capture/batcher";
+import type { CaptureEvent } from "@/lib/capture/browser/event-log";
 
 const SR = 16_000;
 
@@ -224,6 +225,36 @@ describe("CaptureEngine", () => {
     expect(seg.content_type).toBe("audio/webm;codecs=opus");
     expect(seg.bytes).toBeInstanceOf(Uint8Array);
     expect(seg.end_ms).toBeGreaterThanOrEqual(seg.start_ms);
+  });
+
+  it("emits segment_opened, segment_closed, segment_upload_started and segment_upload_result, in order, sharing one seg_id", async () => {
+    const events: CaptureEvent[] = [];
+    const { engine } = makeEngine({ onEvent: (e) => events.push(e) });
+    engine.pushFrame(frame(0));
+    engine.pushFrame(frame(100));
+    engine.flush();
+    await engine.drain();
+
+    expect(events.map((e) => e.type)).toEqual([
+      "segment_opened",
+      "segment_closed",
+      "segment_upload_started",
+      "segment_upload_result",
+    ]);
+    const segIds = new Set(
+      events.map((e) => ("seg_id" in e ? e.seg_id : null)),
+    );
+    expect(segIds.size).toBe(1);
+    expect(segIds.has("seg-1")).toBe(true);
+    const result = events.find((e) => e.type === "segment_upload_result");
+    expect(result).toMatchObject({ ok: true });
+  });
+
+  it("never calls onEvent when it is omitted (back-compat, no crash)", async () => {
+    const { engine } = makeEngine({ onEvent: undefined });
+    engine.pushFrame(frame(0));
+    engine.flush();
+    await expect(engine.drain()).resolves.toBeUndefined();
   });
 
   it("computes speech percentage and resets it on snapshot", () => {
