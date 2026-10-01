@@ -3,12 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { StatusBanner } from "@/app/capture/StatusBanner";
+import { DevPanel } from "@/app/capture/DevPanel";
 import {
   fetchCaptureConfig,
   readDeviceAuth,
   resolveCapturePhase,
 } from "@/lib/capture/browser/client";
 import { startCaptureSession, type CaptureSession } from "@/lib/capture/browser/session";
+import { isDevControlsEnabled } from "@/lib/capture/dev-mode";
 import type { CaptureConfigResponse } from "@/lib/capture/contract";
 import type { CaptureStatus } from "@/lib/capture/browser/engine";
 
@@ -37,6 +39,10 @@ type View =
   | "active";
 
 export default function CapturePage() {
+  // Build-time flag (lib/capture/dev-mode.ts): off in every real build, so
+  // this branch and the <DevPanel /> import below are dead code there — not a
+  // runtime toggle a query param could flip.
+  const devControlsEnabled = isDevControlsEnabled();
   const router = useRouter();
   const [view, setView] = useState<View>("loading");
   const [config, setConfig] = useState<CaptureConfigResponse | null>(null);
@@ -128,6 +134,8 @@ export default function CapturePage() {
     <main style={PAGE_STYLE}>
       <h1 style={{ fontSize: 22 }}>Shop listening</h1>
 
+      {devControlsEnabled ? <DevPanel /> : null}
+
       {view === "loading" ? <p>Loading capture settings…</p> : null}
 
       {view === "error" ? (
@@ -167,7 +175,10 @@ export default function CapturePage() {
         </section>
       ) : null}
 
-      {view === "active" ? (
+      {/* devControlsEnabled bypasses the opening_hours/consent early return so
+          this section is visible for manual testing, without deleting the
+          real blocked-view sections above (still rendered alongside it). */}
+      {view === "active" || devControlsEnabled ? (
         <>
           <StatusBanner
             state={status.state}
