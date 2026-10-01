@@ -1025,6 +1025,42 @@ describe("threads", () => {
       expect(result.threads[0]?.continued_from_open).toBe(false);
     });
 
+    it("mirror case: unresolved earliest member within grace, resolved hint line also within grace — still joins", () => {
+      // Shows the all-emitted-members gap rule doesn't break the normal
+      // path: the unresolved member (earliest, +10_000ms from last_end) is
+      // itself within ROUTINE_OPS grace (120_000ms), and the resolved hint
+      // line is later but still within grace too — must join.
+      const lastEnd = 200000;
+      const unit: LabelUnit = {
+        unit_id: "unit_2",
+        window_ids: ["w_seg_002"],
+        lines: [
+          { line_id: "seg_002#0", seg_id: "seg_002", text: "unresolved, earliest, within grace", start_ms: lastEnd + 10000, end_ms: lastEnd + 14000 },
+          { line_id: "seg_002#1", seg_id: "seg_002", text: "resolved hint line, later, still within grace", start_ms: lastEnd + 20000, end_ms: lastEnd + 25000 },
+        ],
+      };
+
+      const label: LabelOutput = {
+        lines: [
+          { i: 0, reply_to: null, thread: "ghost_hint" },
+          { i: 1, reply_to: 0, thread: "thread_1" },
+        ],
+        threads: [
+          { id: "thread_1", category: "ROUTINE_OPS", confidence: 0.9, evidence: [1], summary: "resolved" },
+        ],
+        non_work_lines: [],
+      };
+
+      const openThread = { thread_id: "thread_1", category: "ROUTINE_OPS" as const, last_line_end_ms: lastEnd };
+      const result = buildThreads({ unit, label, open_threads: [openThread] });
+
+      // Gap from earliest emitted member: (lastEnd + 10000) - lastEnd = 10000ms — within grace.
+      expect(result.threads).toHaveLength(1);
+      expect(result.threads[0]?.continued_from_open).toBe(true);
+      expect(result.threads[0]?.thread_id).toBe("thread_1");
+      expect(result.threads[0]?.line_ids).toEqual(["seg_002#0", "seg_002#1"]);
+    });
+
     it("joins correctly when the open-id hint is on a line unioned only via a later same-hint pass (no stale component root)", () => {
       // Three lines, no reply_to between 0 and 2 directly — 0 and 2 share a
       // thread hint (union), 1 replies to 0. The line carrying the
