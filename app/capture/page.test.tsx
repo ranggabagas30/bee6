@@ -32,6 +32,9 @@ vi.mock("@/lib/capture/browser/client", () => ({
 // reach it unexpectedly fails loudly via this mock instead of touching real
 // getUserMedia/WebCodecs. Each call returns a distinct fake session with its
 // own `stop` spy, so a test can assert the exact session a button acted on.
+interface FakeCallbacks {
+  onEvent?: (event: { type: string; [key: string]: unknown }) => void;
+}
 interface FakeSession {
   stop: ReturnType<typeof vi.fn>;
 }
@@ -40,15 +43,18 @@ const startCaptureSession = vi.fn(
   async (
     _auth: unknown,
     _config: unknown,
-    _cb: unknown,
+    cb: FakeCallbacks,
   ): Promise<FakeSession> => {
     const session: FakeSession = { stop: vi.fn(async () => {}) };
     fakeSessions.push(session);
+    // Simulate the real session reporting one status transition on start,
+    // the same way session.ts emits state_changed from its onStatusChange.
+    cb.onEvent?.({ type: "state_changed", state: "listening", queuedCount: 0 });
     return session;
   },
 );
 vi.mock("@/lib/capture/browser/session", () => ({
-  startCaptureSession: (auth: unknown, config: unknown, cb: unknown) =>
+  startCaptureSession: (auth: unknown, config: unknown, cb: FakeCallbacks) =>
     startCaptureSession(auth, config, cb),
 }));
 
@@ -169,5 +175,15 @@ describe("CapturePage dev panel manual controls", () => {
     await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(2));
     const [, session2] = fakeSessions;
     expect(session2).not.toBe(session1);
+  });
+
+  it("shows the session's emitted event in the on-page log after Start", async () => {
+    const { container } = await renderInDevMode();
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="dev-event-log"]')?.textContent,
+      ).toMatch(/state_changed/),
+    );
   });
 });

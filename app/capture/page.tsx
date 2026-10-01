@@ -10,6 +10,11 @@ import {
   resolveCapturePhase,
 } from "@/lib/capture/browser/client";
 import { startCaptureSession, type CaptureSession } from "@/lib/capture/browser/session";
+import {
+  createEventRingBuffer,
+  type CaptureEvent,
+  type LoggedCaptureEvent,
+} from "@/lib/capture/browser/event-log";
 import { isDevControlsEnabled } from "@/lib/capture/dev-mode";
 import type { CaptureConfigResponse } from "@/lib/capture/contract";
 import type { CaptureStatus } from "@/lib/capture/browser/engine";
@@ -56,6 +61,18 @@ export default function CapturePage() {
   const [sampleRateMsg, setSampleRateMsg] = useState<string | null>(null);
   const sessionRef = useRef<CaptureSession | null>(null);
 
+  // DEV-01 event log: one ring buffer per mount, in-memory only, never
+  // persisted. The buffer itself is a mutable, non-reactive object; `events`
+  // (state) is the snapshot the render body actually reads, refreshed on
+  // every push — reading `eventBufRef.current` during render would violate
+  // the "no ref access during render" rule.
+  const eventBufRef = useRef(createEventRingBuffer(200));
+  const [events, setEvents] = useState<readonly LoggedCaptureEvent[]>([]);
+  const handleEvent = (event: CaptureEvent) => {
+    eventBufRef.current.push(event);
+    setEvents(eventBufRef.current.list());
+  };
+
   useEffect(() => {
     const auth = readDeviceAuth();
     if (!auth) {
@@ -101,6 +118,7 @@ export default function CapturePage() {
             if (!cancelled) setView("unsupported");
           },
           onSampleRateRejected: (msg) => !cancelled && setSampleRateMsg(msg),
+          onEvent: (e) => !cancelled && handleEvent(e),
         });
         if (cancelled) {
           await session?.stop();
@@ -151,6 +169,7 @@ export default function CapturePage() {
         onMicSource: (label) => setMicSource(label),
         onUnsupported: () => setView("unsupported"),
         onSampleRateRejected: (msg) => setSampleRateMsg(msg),
+        onEvent: handleEvent,
       });
       if (session) {
         sessionRef.current = session;
@@ -171,7 +190,12 @@ export default function CapturePage() {
       <h1 style={{ fontSize: 22 }}>Shop listening</h1>
 
       {devControlsEnabled ? (
-        <DevPanel onStart={handleDevStart} onPause={handleDevStop} onStop={handleDevStop} />
+        <DevPanel
+          onStart={handleDevStart}
+          onPause={handleDevStop}
+          onStop={handleDevStop}
+          events={events}
+        />
       ) : null}
 
       {view === "loading" ? <p>Loading capture settings…</p> : null}
