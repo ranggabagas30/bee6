@@ -5,6 +5,7 @@ import {
   isOpusEncoderSupported,
 } from "@/lib/capture/browser/encoder";
 import { startCaptureVad, type CaptureVadHandle } from "@/lib/capture/browser/vad";
+import { classifyMicSource } from "@/lib/capture/browser/devices";
 import { WakeLockManager } from "@/lib/capture/browser/wake-lock";
 import { RestartController } from "@/lib/capture/browser/restart";
 import { isSampleRateSupported, checkSampleRate } from "@/lib/capture/sample-rate";
@@ -81,7 +82,7 @@ export async function startCaptureSession(
 
   let vadHandle: CaptureVadHandle | null = null;
   let currentStream: MediaStream | null = null;
-  let micSource = "microphone";
+  let micSource = "unknown"; // classified value only (B-5); never a raw label
   // We capture/encode at 16 kHz regardless of the mic's native rate (the VAD
   // resamples), so the heartbeat reports the capture rate.
   const sampleRate = CAPTURE_SAMPLE_RATE;
@@ -100,7 +101,10 @@ export async function startCaptureSession(
       cb.onSampleRateRejected(checkSampleRate(rate).message ?? "Unsupported mic");
       throw new Error("sample-rate-too-low");
     }
-    micSource = track?.label || "microphone";
+    // Classify rather than store the raw label: it commonly carries a device
+    // owner's name (e.g. "Dina's AirPods"), and names must never live outside
+    // the `staff` collection — not in `heartbeats`, and not on screen (B-5).
+    micSource = classifyMicSource(track?.label || "");
     cb.onMicSource(micSource);
     return stream;
   };
