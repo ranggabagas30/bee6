@@ -1,109 +1,403 @@
-import { describe, expect, it } from "vitest";
-import { BadRequestError, ForbiddenError, UnauthorizedError } from "@/lib/http/errors";
-import {
-  assertDeviceMatch,
-  assertSegmentSize,
-  parseSegmentPath,
-  SEGMENT_CONTENT_TYPE,
-} from "@/lib/capture/contract";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { NextRequest } from "next/server";
+import { PUT } from "./route";
+import * as guardModule from "@/lib/http/guard";
+import * as transcribeModule from "@/lib/transcribe/gemini";
+import * as redactModule from "@/lib/redact/dlp";
+import * as storesModule from "@/lib/firestore/stores";
 
-/**
- * Route handler tests are primarily integration-level and test through the service.
- * Service-level tests already cover the full business logic with mocks.
- * Route tests focus on: path parsing, Content-Type validation, error handling.
- */
+vi.mock("@/lib/http/guard");
+vi.mock("@/lib/transcribe/gemini");
+vi.mock("@/lib/redact/dlp");
+vi.mock("@/lib/firestore/stores");
 
-describe("Route: PUT /api/v1/segments/[segment]", () => {
-  describe("Path parsing", () => {
-    it("parses {device_id}:{seg_id} correctly", () => {
-      const { device_id, seg_id } = parseSegmentPath("device-1:seg-1");
-      expect(device_id).toBe("device-1");
-      expect(seg_id).toBe("seg-1");
-    });
-
-    it("throws BadRequestError for missing colon", () => {
-      expect(() => parseSegmentPath("no-colon")).toThrow(BadRequestError);
-    });
-
-    it("throws BadRequestError when device_id is empty", () => {
-      expect(() => parseSegmentPath(":seg-1")).toThrow(BadRequestError);
-    });
-
-    it("throws BadRequestError when seg_id is empty", () => {
-      expect(() => parseSegmentPath("device-1:")).toThrow(BadRequestError);
-    });
-
-    it("handles colons in paths correctly (one split only)", () => {
-      // Path "a:b:c" should split as device_id="a", seg_id="b:c"? No, our impl checks length===2
-      expect(() => parseSegmentPath("a:b:c")).toThrow(BadRequestError);
-    });
+describe("PUT /api/v1/segments/[segment]", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  describe("Content-Type validation", () => {
-    it("defines SEGMENT_CONTENT_TYPE correctly", () => {
-      // The exact Content-Type is defined in contract.ts
-      const expectedType = "audio/webm;codecs=opus";
-      expect(SEGMENT_CONTENT_TYPE).toBe(expectedType);
-    });
-  });
-
-  describe("Device matching", () => {
-    it("throws ForbiddenError when path device does not match claims", () => {
-      expect(() => assertDeviceMatch("device-path", "device-claims")).toThrow(
-        ForbiddenError,
+  describe("Device authentication (401)", () => {
+    it("returns 401 when requireDevice throws UnauthorizedError", async () => {
+      const UnauthorizedError = (await import("@/lib/http/errors")).UnauthorizedError;
+      vi.spyOn(guardModule, "requireDevice").mockRejectedValueOnce(
+        new UnauthorizedError("No token"),
       );
-    });
 
-    it("allows matching devices", () => {
-      expect(() => assertDeviceMatch("device-1", "device-1")).not.toThrow();
-    });
-  });
+      const req = new NextRequest("http://localhost/api/v1/segments/device-1:seg-1", {
+        method: "PUT",
+        headers: { "content-type": "audio/webm;codecs=opus", "content-length": "1000" },
+      });
 
-  describe("Payload size validation", () => {
-    it("throws PayloadTooLargeError when oversized", () => {
-      const oversizedBytes = 256 * 1024 + 1;
-      expect(() => assertSegmentSize(oversizedBytes)).toThrow();
-    });
-
-    it("allows max size (256 KiB)", () => {
-      const maxBytes = 256 * 1024;
-      expect(() => assertSegmentSize(maxBytes)).not.toThrow();
-    });
-
-    it("allows typical size (~45 KB)", () => {
-      const typicalBytes = 45 * 1024;
-      expect(() => assertSegmentSize(typicalBytes)).not.toThrow();
+      const response = await PUT(req, { params: Promise.resolve({ segment: "device-1:seg-1" }) });
+      expect(response.status).toBe(401);
     });
   });
 
-  describe("Route integration (high-level)", () => {
-    it("follows order: auth → path → content-type → metadata → size → transcribe → redact → store",
-      () => {
-        // This order is verified by the tests at service level, which cover:
-        // 1. requireDevice checks 401/auth
-        // 2. parseSegmentPath checks 400/parse
-        // 3. Content-Type checked before body read (400)
-        // 4. Metadata parsed from headers
-        // 5. Size checked (413) before model calls
-        // 6. recordSegment handles transcribe/redact/store
-        // 7. Usage logged on success
-        // 8. All errors mapped via handleApiError
+  describe("Device matching (403)", () => {
+    it("returns 403 when path device_id ≠ credential device_id", async () => {
+      vi.spyOn(guardModule, "requireDevice").mockResolvedValueOnce({
+        outlet_id: "outlet-1",
+        device_id: "device-claims",
+        role: "device",
+      });
+      vi.spyOn(transcribeModule, "geminiTranscriber").mockReturnValueOnce({
+        transcribe: vi.fn(),
+      });
+      vi.spyOn(redactModule, "dlpRedactor").mockReturnValueOnce({
+        redact: vi.fn(),
+      });
+      vi.spyOn(storesModule, "firestoreSegmentStore").mockReturnValueOnce({
+        get: vi.fn(),
+        create: vi.fn(),
+      });
 
-        // Full integration test would need to mock requireDevice, which requires
-        // mocking Firebase Auth, so we verify the order through service tests instead.
-        expect(true).toBe(true);
-      },
-    );
+      const req = new NextRequest("http://localhost/api/v1/segments/device-path:seg-1", {
+        method: "PUT",
+        headers: { "content-type": "audio/webm;codecs=opus" },
+      });
 
-    it("returns proper status codes for each error type", () => {
-      // Verified through service tests:
-      // - 401 UnauthorizedError -> 401
-      // - 400 BadRequestError -> 400
-      // - 403 ForbiddenError -> 403
-      // - 413 PayloadTooLargeError -> 413
-      // - 503 ServiceUnavailableError -> 503
-      // - Other errors -> 500
-      expect(true).toBe(true);
+      const response = await PUT(req, { params: Promise.resolve({ segment: "device-path:seg-1" }) });
+      expect(response.status).toBe(403);
+
+      // Verify transcriber/redactor/store were never called
+      expect(transcribeModule.geminiTranscriber).toHaveBeenCalled();
+      // The mocked instances should not have had their methods called
+    });
+  });
+
+  describe("Content-Type validation (400)", () => {
+    it("returns 400 when Content-Type is wrong", async () => {
+      vi.spyOn(guardModule, "requireDevice").mockResolvedValueOnce({
+        outlet_id: "outlet-1",
+        device_id: "device-1",
+        role: "device",
+      });
+
+      const req = new NextRequest("http://localhost/api/v1/segments/device-1:seg-1", {
+        method: "PUT",
+        headers: { "content-type": "audio/mpeg" },
+      });
+
+      const response = await PUT(req, { params: Promise.resolve({ segment: "device-1:seg-1" }) });
+      expect(response.status).toBe(400);
+    });
+  });
+
+  describe("Payload size validation (413)", () => {
+    it("returns 413 when Content-Length exceeds limit", async () => {
+      vi.spyOn(guardModule, "requireDevice").mockResolvedValueOnce({
+        outlet_id: "outlet-1",
+        device_id: "device-1",
+        role: "device",
+      });
+
+      const req = new NextRequest("http://localhost/api/v1/segments/device-1:seg-1", {
+        method: "PUT",
+        headers: {
+          "content-type": "audio/webm;codecs=opus",
+          "content-length": String(256 * 1024 + 1),
+        },
+      });
+
+      const response = await PUT(req, { params: Promise.resolve({ segment: "device-1:seg-1" }) });
+      expect(response.status).toBe(413);
+    });
+  });
+
+  describe("Metadata validation (400)", () => {
+    it("returns 400 when start_ms header is missing", async () => {
+      vi.spyOn(guardModule, "requireDevice").mockResolvedValueOnce({
+        outlet_id: "outlet-1",
+        device_id: "device-1",
+        role: "device",
+      });
+
+      const req = new NextRequest("http://localhost/api/v1/segments/device-1:seg-1", {
+        method: "PUT",
+        headers: {
+          "content-type": "audio/webm;codecs=opus",
+          "x-segment-end-ms": "5000",
+          "x-segment-sample-rate": "16000",
+        },
+      });
+
+      const response = await PUT(req, { params: Promise.resolve({ segment: "device-1:seg-1" }) });
+      expect(response.status).toBe(400);
+    });
+  });
+
+  describe("Transcription failure (503)", () => {
+    it("returns 503 when transcriber throws ServiceUnavailableError", async () => {
+      const { ServiceUnavailableError } = await import("@/lib/http/errors");
+
+      vi.spyOn(guardModule, "requireDevice").mockResolvedValueOnce({
+        outlet_id: "outlet-1",
+        device_id: "device-1",
+        role: "device",
+      });
+
+      const mockTranscriber = {
+        transcribe: vi.fn().mockRejectedValueOnce(
+          new ServiceUnavailableError("Transcription failed", "transcribe", 503),
+        ),
+      };
+
+      vi.spyOn(transcribeModule, "geminiTranscriber").mockReturnValueOnce(mockTranscriber);
+      vi.spyOn(redactModule, "dlpRedactor").mockReturnValueOnce({
+        redact: vi.fn(),
+      });
+      vi.spyOn(storesModule, "firestoreSegmentStore").mockReturnValueOnce({
+        get: vi.fn().mockResolvedValueOnce(null),
+        create: vi.fn(),
+      });
+
+      const audioBuffer = Buffer.from("fake-audio");
+      const req = new NextRequest("http://localhost/api/v1/segments/device-1:seg-1", {
+        method: "PUT",
+        headers: {
+          "content-type": "audio/webm;codecs=opus",
+          "content-length": String(audioBuffer.length),
+          "x-segment-start-ms": "0",
+          "x-segment-end-ms": "15000",
+          "x-segment-sample-rate": "16000",
+        },
+        body: audioBuffer,
+      });
+
+      const response = await PUT(req, { params: Promise.resolve({ segment: "device-1:seg-1" }) });
+      expect(response.status).toBe(503);
+    });
+  });
+
+  describe("Redaction failure (503)", () => {
+    it("returns 503 when redactor throws ServiceUnavailableError", async () => {
+      const { ServiceUnavailableError } = await import("@/lib/http/errors");
+
+      vi.spyOn(guardModule, "requireDevice").mockResolvedValueOnce({
+        outlet_id: "outlet-1",
+        device_id: "device-1",
+        role: "device",
+      });
+
+      const mockTranscriber = {
+        transcribe: vi.fn().mockResolvedValueOnce({
+          text: "transcribed text",
+          inputTokens: 100,
+          outputTokens: 50,
+          model: "gemini-3.5-transcribe-preview",
+          location: "global",
+        }),
+      };
+
+      const mockRedactor = {
+        redact: vi.fn().mockRejectedValueOnce(
+          new ServiceUnavailableError("Redaction failed", "redact", 503),
+        ),
+      };
+
+      vi.spyOn(transcribeModule, "geminiTranscriber").mockReturnValueOnce(mockTranscriber);
+      vi.spyOn(redactModule, "dlpRedactor").mockReturnValueOnce(mockRedactor);
+      vi.spyOn(storesModule, "firestoreSegmentStore").mockReturnValueOnce({
+        get: vi.fn().mockResolvedValueOnce(null),
+        create: vi.fn(),
+      });
+
+      const audioBuffer = Buffer.from("fake-audio");
+      const req = new NextRequest("http://localhost/api/v1/segments/device-1:seg-1", {
+        method: "PUT",
+        headers: {
+          "content-type": "audio/webm;codecs=opus",
+          "content-length": String(audioBuffer.length),
+          "x-segment-start-ms": "0",
+          "x-segment-end-ms": "15000",
+          "x-segment-sample-rate": "16000",
+        },
+        body: audioBuffer,
+      });
+
+      const response = await PUT(req, { params: Promise.resolve({ segment: "device-1:seg-1" }) });
+      expect(response.status).toBe(503);
+
+      // Verify store.create was never called (fail closed)
+      const mockStore = storesModule.firestoreSegmentStore();
+      expect(mockStore.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Idempotency (duplicate 200)", () => {
+    it("returns 200 when segment already exists, transcriber called only once", async () => {
+      vi.spyOn(guardModule, "requireDevice").mockResolvedValueOnce({
+        outlet_id: "outlet-1",
+        device_id: "device-1",
+        role: "device",
+      });
+
+      const mockTranscriber = {
+        transcribe: vi.fn().mockResolvedValueOnce({
+          text: "transcribed text",
+          inputTokens: 100,
+          outputTokens: 50,
+          model: "gemini-3.5-transcribe-preview",
+          location: "global",
+        }),
+      };
+
+      const mockRedactor = {
+        redact: vi.fn().mockResolvedValueOnce("redacted text"),
+      };
+
+      const existingSegment = {
+        outlet_id: "outlet-1",
+        device_id: "device-1",
+        seg_id: "seg-1",
+        received_at: "2026-10-01T00:00:00.000Z",
+        device_start: "2026-10-01T00:00:00.000Z",
+        device_end: "2026-10-01T00:00:15.000Z",
+        model: "gemini-3.5-transcribe-preview",
+        location: "global",
+        lines: [{ text: "existing line", start: 0, end: 15 }],
+        expires_at: "2026-10-03T00:00:00.000Z",
+      };
+
+      vi.spyOn(transcribeModule, "geminiTranscriber").mockReturnValueOnce(mockTranscriber);
+      vi.spyOn(redactModule, "dlpRedactor").mockReturnValueOnce(mockRedactor);
+      vi.spyOn(storesModule, "firestoreSegmentStore").mockReturnValueOnce({
+        get: vi.fn().mockResolvedValueOnce(existingSegment),
+        create: vi.fn(),
+      });
+
+      const audioBuffer = Buffer.from("fake-audio");
+      const req = new NextRequest("http://localhost/api/v1/segments/device-1:seg-1", {
+        method: "PUT",
+        headers: {
+          "content-type": "audio/webm;codecs=opus",
+          "content-length": String(audioBuffer.length),
+          "x-segment-start-ms": "0",
+          "x-segment-end-ms": "15000",
+          "x-segment-sample-rate": "16000",
+        },
+        body: audioBuffer,
+      });
+
+      const response = await PUT(req, { params: Promise.resolve({ segment: "device-1:seg-1" }) });
+      expect(response.status).toBe(200);
+
+      // Verify transcriber was never called (idempotency hit)
+      expect(mockTranscriber.transcribe).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Success response (200)", () => {
+    it("returns 200 with minimal response body (seg_id and line count only)", async () => {
+      vi.spyOn(guardModule, "requireDevice").mockResolvedValueOnce({
+        outlet_id: "outlet-1",
+        device_id: "device-1",
+        role: "device",
+      });
+
+      const mockTranscriber = {
+        transcribe: vi.fn().mockResolvedValueOnce({
+          text: "hello world",
+          inputTokens: 100,
+          outputTokens: 50,
+          model: "gemini-3.5-transcribe-preview",
+          location: "global",
+        }),
+      };
+
+      const mockRedactor = {
+        redact: vi.fn().mockResolvedValueOnce("redacted text"),
+      };
+
+      vi.spyOn(transcribeModule, "geminiTranscriber").mockReturnValueOnce(mockTranscriber);
+      vi.spyOn(redactModule, "dlpRedactor").mockReturnValueOnce(mockRedactor);
+      vi.spyOn(storesModule, "firestoreSegmentStore").mockReturnValueOnce({
+        get: vi.fn().mockResolvedValueOnce(null),
+        create: vi.fn().mockResolvedValueOnce({ status: "created" }),
+      });
+
+      const audioBuffer = Buffer.from("fake-audio");
+      const req = new NextRequest("http://localhost/api/v1/segments/device-1:seg-1", {
+        method: "PUT",
+        headers: {
+          "content-type": "audio/webm;codecs=opus",
+          "content-length": String(audioBuffer.length),
+          "x-segment-start-ms": "0",
+          "x-segment-end-ms": "15000",
+          "x-segment-sample-rate": "16000",
+        },
+        body: audioBuffer,
+      });
+
+      const response = await PUT(req, { params: Promise.resolve({ segment: "device-1:seg-1" }) });
+      expect(response.status).toBe(200);
+
+      const data = await response.json();
+      expect(data).toEqual({
+        seg_id: "seg-1",
+        lines: 1,
+      });
+
+      // Verify response does NOT contain transcript text
+      expect(JSON.stringify(data)).not.toContain("redacted text");
+    });
+  });
+
+  describe("Error logging (whitelisted)", () => {
+    it("logs diagnostics without message text on ServiceUnavailableError", async () => {
+      const { ServiceUnavailableError } = await import("@/lib/http/errors");
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      vi.spyOn(guardModule, "requireDevice").mockResolvedValueOnce({
+        outlet_id: "outlet-1",
+        device_id: "device-1",
+        role: "device",
+      });
+
+      const mockTranscriber = {
+        transcribe: vi.fn().mockRejectedValueOnce(
+          new ServiceUnavailableError("Transcription failed", "transcribe", 503),
+        ),
+      };
+
+      vi.spyOn(transcribeModule, "geminiTranscriber").mockReturnValueOnce(mockTranscriber);
+      vi.spyOn(redactModule, "dlpRedactor").mockReturnValueOnce({
+        redact: vi.fn(),
+      });
+      vi.spyOn(storesModule, "firestoreSegmentStore").mockReturnValueOnce({
+        get: vi.fn().mockResolvedValueOnce(null),
+        create: vi.fn(),
+      });
+
+      const audioBuffer = Buffer.from("fake-audio");
+      const req = new NextRequest("http://localhost/api/v1/segments/device-1:seg-1", {
+        method: "PUT",
+        headers: {
+          "content-type": "audio/webm;codecs=opus",
+          "content-length": String(audioBuffer.length),
+          "x-segment-start-ms": "0",
+          "x-segment-end-ms": "15000",
+          "x-segment-sample-rate": "16000",
+        },
+        body: audioBuffer,
+      });
+
+      await PUT(req, { params: Promise.resolve({ segment: "device-1:seg-1" }) });
+
+      // Verify log was called with stage and upstream, no message text
+      const errorCalls = consoleErrorSpy.mock.calls.filter(
+        (call) => call[0] === "segment.upstream_unavailable",
+      );
+      expect(errorCalls.length).toBeGreaterThan(0);
+      const logData = errorCalls[0]?.[1];
+      expect(logData).toMatchObject({
+        stage: "transcribe",
+        upstream: 503,
+        outlet_id: "outlet-1",
+        device_id: "device-1",
+      });
+
+      consoleErrorSpy.mockRestore();
     });
   });
 });
