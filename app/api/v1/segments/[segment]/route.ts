@@ -41,7 +41,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // Whitelisted debug log on transcribe/redact failure (no message, no body)
-function logUnavailableError(stage: string | undefined, upstream: number | "timeout" | "unknown" | undefined, outlet_id: string, device_id: string): void {
+function logUnavailableError(stage: string | undefined, upstream: number | "timeout" | "unknown" | undefined, outlet_id: string | undefined, device_id: string | undefined): void {
   console.error("segment.upstream_unavailable", { stage, upstream, outlet_id, device_id });
 }
 
