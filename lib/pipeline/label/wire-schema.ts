@@ -25,8 +25,9 @@ export interface LabelWireOutput {
   non_work_lines: number[];
 }
 
-const SUMMARY_MAX = 300;
-const WHY_NOT_MAX = 200;
+/** Shared with the sanitizer (Task 3) so the over-length fallback check uses the same cap. */
+export const SUMMARY_MAX = 300;
+export const WHY_NOT_MAX = 200;
 
 /** `T1..T<new_alias_count>` then `O1..O<open_alias_count>` — in that order. */
 function buildAliasList(newAliasCount: number, openAliasCount: number): string[] {
