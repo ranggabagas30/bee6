@@ -54,7 +54,7 @@ async function main(): Promise<void> {
     );
   }
 
-  const config = loadCategoriesConfig("config/categories.draft.yaml");
+  const config = loadCategoriesConfig();
   const schema = generateResponseJsonSchema({
     config,
     new_alias_count: NEW_ALIAS_COUNT,

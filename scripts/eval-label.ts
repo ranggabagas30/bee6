@@ -98,7 +98,7 @@ async function main(): Promise<void> {
     );
   }
 
-  const config = loadCategoriesConfig("config/categories.draft.yaml");
+  const config = loadCategoriesConfig();
   const unit = buildFixtureUnit();
   const trapLineText = TRAP_FIXTURE_LINES[TRAP_LINE_INDEX]!.text;
 

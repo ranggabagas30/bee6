@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { parse } from "yaml";
 import { z } from "zod";
@@ -9,10 +9,11 @@ import { CategorySchema, type Category } from "@/lib/pipeline/categories";
  * truth for the label model's category set, per-category field allowlist,
  * decision order, enum value lists and prompt examples.
  *
- * The real file is `config/categories.draft.yaml` until Tiffany's examples
- * land (Sunday 4 Oct, R-05b Decision 1) and it is renamed/promoted — this
- * loader works against whichever file sits at the given path, so nothing
- * here changes that day.
+ * Until Tiffany's examples land (Sunday 4 Oct, R-05b Decision 1), only
+ * `config/categories.draft.yaml` exists. The no-argument default prefers
+ * `config/categories.yaml` whenever it exists, falling back to the draft
+ * file otherwise (`resolveDefaultCategoriesPath`) — so dropping the real
+ * file in on Sunday needs zero code changes, exactly as planned.
  *
  * `.strict()` throughout so an unexpected or missing key is a clear zod
  * error, never a silent `undefined` reaching the prompt builder.
@@ -87,14 +88,25 @@ export type CategoriesConfig = z.infer<typeof CategoriesFileSchema> & {
   >;
 };
 
-const DEFAULT_CATEGORIES_PATH = path.join(process.cwd(), "config", "categories.draft.yaml");
+/**
+ * Picks the default config path for one call: `config/categories.yaml` if
+ * it exists, otherwise `config/categories.draft.yaml`. Evaluated fresh per
+ * call (not a module-level constant) so a file dropped in after the
+ * process started is picked up the next call. `baseDir` is a seam for
+ * tests; real callers never pass it.
+ */
+export function resolveDefaultCategoriesPath(baseDir: string = process.cwd()): string {
+  const real = path.join(baseDir, "config", "categories.yaml");
+  if (existsSync(real)) return real;
+  return path.join(baseDir, "config", "categories.draft.yaml");
+}
 
 /**
  * Loads and validates the categories config. Throws a `z.ZodError` (never a
  * generic crash) if the file is missing a required field or has an
  * unexpected shape.
  */
-export function loadCategoriesConfig(filePath: string = DEFAULT_CATEGORIES_PATH): CategoriesConfig {
+export function loadCategoriesConfig(filePath: string = resolveDefaultCategoriesPath()): CategoriesConfig {
   const raw = readFileSync(filePath, "utf8");
   const parsed: unknown = parse(raw);
   return CategoriesFileSchema.parse(parsed) as CategoriesConfig;

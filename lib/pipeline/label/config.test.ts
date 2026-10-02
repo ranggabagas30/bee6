@@ -1,9 +1,9 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { loadCategoriesConfig } from "@/lib/pipeline/label/config";
+import { loadCategoriesConfig, resolveDefaultCategoriesPath } from "@/lib/pipeline/label/config";
 
 // A full, otherwise-valid config (same 12 categories as the real draft file)
 // with ROUTINE_OPS missing `needs_supervisor_confirm` — the one field under
@@ -132,5 +132,28 @@ describe("loadCategoriesConfig", () => {
     expect(config.categories.ROUTINE_OPS.needs_supervisor_confirm).toBe(false);
     expect(config.field_values.complaint_type).toHaveLength(9);
     expect(config.incident_keywords.length).toBeGreaterThan(0);
+  });
+});
+
+describe("resolveDefaultCategoriesPath", () => {
+  function makeConfigDir(): string {
+    const dir = mkdtempSync(path.join(tmpdir(), "categories-default-path-test-"));
+    mkdirSync(path.join(dir, "config"));
+    return dir;
+  }
+
+  it("falls back to categories.draft.yaml when categories.yaml does not exist", () => {
+    const dir = makeConfigDir();
+    writeFileSync(path.join(dir, "config", "categories.draft.yaml"), "draft", "utf8");
+
+    expect(resolveDefaultCategoriesPath(dir)).toBe(path.join(dir, "config", "categories.draft.yaml"));
+  });
+
+  it("prefers categories.yaml once it exists, even alongside a draft file (Sunday's drop-in needs zero code changes)", () => {
+    const dir = makeConfigDir();
+    writeFileSync(path.join(dir, "config", "categories.draft.yaml"), "draft", "utf8");
+    writeFileSync(path.join(dir, "config", "categories.yaml"), "real", "utf8");
+
+    expect(resolveDefaultCategoriesPath(dir)).toBe(path.join(dir, "config", "categories.yaml"));
   });
 });
