@@ -57,6 +57,15 @@ npm run probe        # region probe -> config/regions.yaml (needs a real GCP pro
   caught by SDP's generic detectors can sit in a `segments` document for its
   48-hour TTL. Deferred: bounded exposure, and R-05b's `scrubStaffNames`
   utility will make an eventual fix cheap to add.
+- A measured redaction-accuracy check (`scripts/eval-redaction.ts`,
+  `npm run eval:redaction`, run 2 Oct against the real `bee6-playground`
+  project) found Google DLP's `STREET_ADDRESS` detector misses common
+  Indonesian "Komplek ... Blok ... No." addresses entirely, and only
+  partially redacts "Jalan ... No." addresses it does catch (house number
+  and district survive in clear text). Phone numbers, emails, and names all
+  scored correctly (9/9 excluding address, 11/11 precision, no
+  over-redaction). Accepted as a known gap rather than building a regex
+  supplement now; revisit if R-13's gold-set eval shows it matters.
 - See `CLAUDE.md` and `docs/` for the full set of hard rules, architecture,
   and honestly-stated known gaps (DPIA, Transcribe preview status, etc.).
 
