@@ -19,6 +19,13 @@ export interface LabelPromptResult {
   userContent: string;
 }
 
+/** Tiffany's examples are still the literal string "TODO" for every category in `config/categories.draft.yaml`; never print that placeholder into a real model prompt. */
+const TODO_PLACEHOLDER = "TODO";
+
+function isPlaceholderExamples(examples: { real: string; not_this: string }): boolean {
+  return examples.real === TODO_PLACEHOLDER || examples.not_this === TODO_PLACEHOLDER;
+}
+
 function buildSystemInstruction(config: CategoriesConfig): string {
   const lines: string[] = [
     "You label short work-note transcript lines from a small F&B shop into categories.",
@@ -36,7 +43,7 @@ function buildSystemInstruction(config: CategoriesConfig): string {
     const noteText = notes.length > 0 ? ` (${notes.join("; ")})` : "";
 
     lines.push(`- ${category}${noteText}: ${entry.definition}`);
-    if (entry.examples) {
+    if (entry.examples && !isPlaceholderExamples(entry.examples)) {
       lines.push(`  real example: ${entry.examples.real}`);
       lines.push(`  NOT this (common confusion): ${entry.examples.not_this}`);
     }

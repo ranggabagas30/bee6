@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadCategoriesConfig } from "@/lib/pipeline/label/config";
+import { loadCategoriesConfig, type CategoriesConfig } from "@/lib/pipeline/label/config";
 import { buildLabelPrompt } from "@/lib/pipeline/label/prompt";
 import type { LabelUnit } from "@/lib/pipeline/windowing";
 import type { OpenThread } from "@/lib/pipeline/threads";
@@ -47,5 +47,33 @@ describe("buildLabelPrompt", () => {
     for (const category of config.decision_order) {
       expect(result.systemInstruction).toMatch(new RegExp(category));
     }
+  });
+
+  it("never prints the literal TODO placeholder into the prompt (config/categories.draft.yaml's examples are still TODO)", () => {
+    const result = buildLabelPrompt({ config, unit: makeUnit(), open_threads: [] });
+
+    expect(result.systemInstruction).not.toMatch(/TODO/);
+  });
+
+  it("still prints a category's real example pair once it's no longer the TODO placeholder", () => {
+    const realExamplesConfig: CategoriesConfig = {
+      version: 0.1,
+      parents: [],
+      decision_order: ["ROUTINE_OPS"],
+      categories: {
+        ...config.categories,
+        ROUTINE_OPS: {
+          ...config.categories.ROUTINE_OPS,
+          examples: { real: "Checked the oven temperature", not_this: "Chatting about ovens in general" },
+        },
+      },
+      field_values: config.field_values,
+      incident_keywords: config.incident_keywords,
+    };
+
+    const result = buildLabelPrompt({ config: realExamplesConfig, unit: makeUnit(), open_threads: [] });
+
+    expect(result.systemInstruction).toMatch(/Checked the oven temperature/);
+    expect(result.systemInstruction).toMatch(/Chatting about ovens in general/);
   });
 });
