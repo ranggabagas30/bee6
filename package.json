@@ -17,7 +17,9 @@
     "probe": "tsx scripts/probe.ts",
     "seed": "tsx scripts/seed.ts",
     "eval": "tsx scripts/eval.ts",
-    "eval:redaction": "tsx scripts/eval-redaction.ts"
+    "eval:redaction": "tsx scripts/eval-redaction.ts",
+    "eval:label": "tsx scripts/eval-label.ts",
+    "probe:label-schema": "tsx scripts/probe-label-schema.ts"
   },
   "dependencies": {
     "@google-cloud/dlp": "^7.1.1",
