@@ -37,36 +37,19 @@ function buildAliasList(newAliasCount: number, openAliasCount: number): string[]
   return aliases;
 }
 
-/**
- * Builds the model's wire-format zod schema fresh for one call — the valid
- * `thread`/`id` alias set depends on how many new/open threads this call
- * offers, so this is never a static module-level schema (review focus #2
- * and #7).
- */
-export function buildLabelWireSchema(input: {
-  new_alias_count: number;
-  open_alias_count: number;
-}): z.ZodType<LabelWireOutput> {
-  const aliases = buildAliasList(input.new_alias_count, input.open_alias_count);
-  if (aliases.length === 0) {
-    throw new Error(
-      "buildLabelWireSchema: new_alias_count + open_alias_count must be >= 1 " +
-        "(a call with zero offered aliases can never label a line).",
-    );
-  }
-  const aliasSchema = z.enum(aliases);
-
+/** Shared shape for both the per-call strict schema and the generic/lenient one below — only the `thread`/`id` subschema differs. */
+function buildWireSchemaWithThreadIdType(threadIdSchema: z.ZodType<string>): z.ZodType<LabelWireOutput> {
   return z.object({
     lines: z.array(
       z.object({
         i: z.number().int().min(0),
         reply_to: z.number().int().min(0).nullable(),
-        thread: aliasSchema,
+        thread: threadIdSchema,
       }),
     ),
     threads: z.array(
       z.object({
-        id: aliasSchema,
+        id: threadIdSchema,
         category: CategorySchema,
         confidence: z.number().min(0).max(1),
         evidence: z.array(z.number().int().min(0)),
@@ -85,6 +68,41 @@ export function buildLabelWireSchema(input: {
     ),
     non_work_lines: z.array(z.number().int().min(0)),
   });
+}
+
+/**
+ * Builds the model's wire-format zod schema fresh for one call — the valid
+ * `thread`/`id` alias set depends on how many new/open threads this call
+ * offers, so this is never a static module-level schema (review focus #2
+ * and #7). Used by `generateResponseJsonSchema` (so Vertex's structured
+ * output can only ever pick an alias actually offered this call) and by
+ * Task 6's route for a final defense-in-depth check before `buildThreads`.
+ */
+export function buildLabelWireSchema(input: {
+  new_alias_count: number;
+  open_alias_count: number;
+}): z.ZodType<LabelWireOutput> {
+  const aliases = buildAliasList(input.new_alias_count, input.open_alias_count);
+  if (aliases.length === 0) {
+    throw new Error(
+      "buildLabelWireSchema: new_alias_count + open_alias_count must be >= 1 " +
+        "(a call with zero offered aliases can never label a line).",
+    );
+  }
+  return buildWireSchemaWithThreadIdType(z.enum(aliases));
+}
+
+/**
+ * The same shape, WITHOUT the per-call alias-enum constraint on
+ * `thread`/`id` (just a non-empty string). Used by the label client (Task
+ * 4) for its own structural "is this a well-formed response at all"
+ * check — the client doesn't know this call's open-thread count, and
+ * Vertex's structured-output config (built from `generateResponseJsonSchema`)
+ * already enforces the real alias set at generation time. The strict,
+ * per-call version is for Task 6's route, which does know the real counts.
+ */
+export function buildLenientLabelWireSchema(): z.ZodType<LabelWireOutput> {
+  return buildWireSchemaWithThreadIdType(z.string().min(1));
 }
 
 const FORBIDDEN_JSON_SCHEMA_KEYS = new Set([
