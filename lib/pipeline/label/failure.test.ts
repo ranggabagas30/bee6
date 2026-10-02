@@ -50,6 +50,16 @@ describe("mapToUnitOutcome", () => {
     expect(outcome).toEqual({ kind: "failed", reason: "invalid_response" });
   });
 
+  it("a parse failure with maxAttempts: 1 maps to failed immediately — never retries past maxAttempts", () => {
+    const outcome = mapToUnitOutcome({ result: PARSE_ERROR_RESULT, attempt: 1, maxAttempts: 1 });
+    expect(outcome).toEqual({ kind: "failed", reason: "invalid_response" });
+  });
+
+  it("mixed error types: a parse failure on attempt 2 (after an earlier retryable attempt 1) with maxAttempts 3 still maps to failed, not a second retry", () => {
+    const outcome = mapToUnitOutcome({ result: PARSE_ERROR_RESULT, attempt: 2, maxAttempts: 3 });
+    expect(outcome).toEqual({ kind: "failed", reason: "invalid_response" });
+  });
+
   it("never leaks the raw issue data into the outcome", () => {
     const outcome = mapToUnitOutcome({ result: PARSE_ERROR_RESULT, attempt: 2, maxAttempts: 3 });
     expect(JSON.stringify(outcome)).not.toMatch(/secret raw model response/);

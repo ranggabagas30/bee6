@@ -19,10 +19,11 @@ export type UnitOutcome =
 /**
  * `retryable_error` (network/upstream failures) gets up to `maxAttempts`
  * tries. `parse_error` (malformed JSON or a wire-shape zod failure) gets
- * exactly ONE retry regardless of `maxAttempts` — a model that returns
- * invalid output twice in a row with the same prompt is unlikely to
- * self-correct with a third try (review focus #4: "one retry, then
- * failed").
+ * at most ONE retry — a model that returns invalid output twice in a row
+ * with the same prompt is unlikely to self-correct with a third try
+ * (review focus #4: "one retry, then failed") — but never more than
+ * `maxAttempts` allows: with `maxAttempts: 1` a parse error gets zero
+ * retries, same as any other failure kind.
  */
 export function mapToUnitOutcome(input: {
   result: LabelClientResult;
@@ -39,8 +40,10 @@ export function mapToUnitOutcome(input: {
     return attempt < maxAttempts ? { kind: "retry" } : { kind: "failed", reason: "retryable_error" };
   }
 
-  // parse_error
-  return attempt <= 1 ? { kind: "retry" } : { kind: "failed", reason: "invalid_response" };
+  // parse_error: capped at 1 extra attempt, but never past maxAttempts.
+  return attempt < Math.min(2, maxAttempts)
+    ? { kind: "retry" }
+    : { kind: "failed", reason: "invalid_response" };
 }
 
 /**
