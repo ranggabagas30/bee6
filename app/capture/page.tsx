@@ -3,12 +3,19 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { StatusBanner } from "@/app/capture/StatusBanner";
+import { DevPanel } from "@/app/capture/DevPanel";
 import {
   fetchCaptureConfig,
   readDeviceAuth,
   resolveCapturePhase,
 } from "@/lib/capture/browser/client";
 import { startCaptureSession, type CaptureSession } from "@/lib/capture/browser/session";
+import {
+  createEventRingBuffer,
+  type CaptureEvent,
+  type LoggedCaptureEvent,
+} from "@/lib/capture/browser/event-log";
+import { isDevControlsEnabled } from "@/lib/capture/dev-mode";
 import type { CaptureConfigResponse } from "@/lib/capture/contract";
 import type { CaptureStatus } from "@/lib/capture/browser/engine";
 import type { MicSourceClass } from "@/lib/capture/mic-source";
@@ -38,6 +45,10 @@ type View =
   | "active";
 
 export default function CapturePage() {
+  // Build-time flag (lib/capture/dev-mode.ts): off in every real build, so
+  // this branch and the <DevPanel /> below are never rendered there — not a
+  // runtime toggle a query param could flip.
+  const devControlsEnabled = isDevControlsEnabled();
   const router = useRouter();
   const [view, setView] = useState<View>("loading");
   const [config, setConfig] = useState<CaptureConfigResponse | null>(null);
@@ -50,6 +61,32 @@ export default function CapturePage() {
   const [micSource, setMicSource] = useState<MicSourceClass>("unknown");
   const [sampleRateMsg, setSampleRateMsg] = useState<string | null>(null);
   const sessionRef = useRef<CaptureSession | null>(null);
+
+  // DEV-01 manual-start re-entrancy guards, mirroring the real auto-gate
+  // effect's own `starting` guard below (see handleDevStart for how they're
+  // used):
+  //  - devStartingRef is true for the whole span between a Start click and
+  //    that startCaptureSession() call settling, so a second Start click (or
+  //    double-click) while one is in flight is a no-op instead of leaking a
+  //    second mic/wake-lock session that nothing can ever stop.
+  //  - devStopRequestedRef records that Pause/Stop (or unmount, via the
+  //    main effect's cleanup) was requested while a start was still in
+  //    flight, so the just-created session is stopped immediately once it
+  //    resolves instead of being handed to sessionRef for no one to find.
+  const devStartingRef = useRef(false);
+  const devStopRequestedRef = useRef(false);
+
+  // DEV-01 event log: one ring buffer per mount, in-memory only, never
+  // persisted. The buffer itself is a mutable, non-reactive object; `events`
+  // (state) is the snapshot the render body actually reads, refreshed on
+  // every push — reading `eventBufRef.current` during render would violate
+  // the "no ref access during render" rule.
+  const eventBufRef = useRef(createEventRingBuffer(200));
+  const [events, setEvents] = useState<readonly LoggedCaptureEvent[]>([]);
+  const handleEvent = (event: CaptureEvent) => {
+    eventBufRef.current.push(event);
+    setEvents(eventBufRef.current.list());
+  };
 
   useEffect(() => {
     const auth = readDeviceAuth();
@@ -67,6 +104,14 @@ export default function CapturePage() {
     async function applyPhase() {
       if (cancelled || starting || unsupported || !loadedConfig) return;
       const phase = resolveCapturePhase(loadedConfig, new Date());
+
+      if (devControlsEnabled) {
+        // Dev mode bypasses the opening_hours/consent auto-gate entirely for
+        // this session — manual Start/Pause/Stop below owns the session.
+        // Still reflect the real computed phase so it's visible underneath.
+        if (!cancelled) setView(phase);
+        return;
+      }
 
       if (phase !== "active") {
         if (sessionRef.current) {
@@ -88,6 +133,13 @@ export default function CapturePage() {
             if (!cancelled) setView("unsupported");
           },
           onSampleRateRejected: (msg) => !cancelled && setSampleRateMsg(msg),
+          // Nothing in the real (non-dev) path reads the ring buffer, so only
+          // wire it up when the dev panel is actually mounted to consume it.
+          onEvent: devControlsEnabled
+            ? (e) => {
+                if (!cancelled) handleEvent(e);
+              }
+            : undefined,
         });
         if (cancelled) {
           await session?.stop();
@@ -118,16 +170,71 @@ export default function CapturePage() {
 
     return () => {
       cancelled = true;
+      // Also covers a dev-mode Start that's still in flight when this effect
+      // tears down (route change / unmount): see devStopRequestedRef below.
+      devStopRequestedRef.current = true;
       if (phaseTimer) clearInterval(phaseTimer);
       const session = sessionRef.current;
       sessionRef.current = null;
       void session?.stop();
     };
-  }, [router]);
+  }, [router, devControlsEnabled]);
+
+  // Dev-only manual controls (DEV-01): call the exact same
+  // startCaptureSession()/session.stop() the real auto-gate effect above
+  // uses, just triggered by a button instead of the phase check — re-entrancy
+  // is guarded by devStartingRef/devStopRequestedRef, declared above. Only
+  // reachable when the dev panel is mounted.
+  const handleDevStart = () => {
+    const auth = readDeviceAuth();
+    if (!auth || !config || sessionRef.current || devStartingRef.current) return;
+    devStartingRef.current = true;
+    devStopRequestedRef.current = false;
+    void (async () => {
+      try {
+        const session = await startCaptureSession(auth, config, {
+          onStatus: (s) => setStatus(s),
+          onMicSource: (label) => setMicSource(label),
+          onUnsupported: () => setView("unsupported"),
+          onSampleRateRejected: (msg) => setSampleRateMsg(msg),
+          onEvent: handleEvent,
+        });
+        if (!session) return;
+        if (devStopRequestedRef.current) {
+          // A stop/unmount landed while this start was in flight — the
+          // caller already moved on, so stop the session we just created
+          // instead of assigning it to sessionRef.
+          await session.stop();
+          return;
+        }
+        sessionRef.current = session;
+        setView("active");
+      } finally {
+        devStartingRef.current = false;
+      }
+    })();
+  };
+
+  const handleDevStop = () => {
+    devStopRequestedRef.current = true;
+    const session = sessionRef.current;
+    if (!session) return;
+    sessionRef.current = null;
+    void session.stop();
+  };
 
   return (
     <main style={PAGE_STYLE}>
       <h1 style={{ fontSize: 22 }}>Shop listening</h1>
+
+      {devControlsEnabled ? (
+        <DevPanel
+          onStart={handleDevStart}
+          onPause={handleDevStop}
+          onStop={handleDevStop}
+          events={events}
+        />
+      ) : null}
 
       {view === "loading" ? <p>Loading capture settings…</p> : null}
 
@@ -168,7 +275,10 @@ export default function CapturePage() {
         </section>
       ) : null}
 
-      {view === "active" ? (
+      {/* devControlsEnabled bypasses the opening_hours/consent early return so
+          this section is visible for manual testing, without deleting the
+          real blocked-view sections above (still rendered alongside it). */}
+      {view === "active" || devControlsEnabled ? (
         <>
           <StatusBanner
             state={status.state}

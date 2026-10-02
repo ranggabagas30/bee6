@@ -18,12 +18,22 @@
  * `probeModel`/`probeAllModels`, so the retry/fallback ordering and the
  * "record every failure" behaviour are unit-tested with a mocked caller
  * (scripts/probe.test.ts) while `main()` wires in the real one.
+ *
+ * KNOWN GAP: `npm run probe` runs under whoever's Application Default
+ * Credentials (a developer's `gcloud auth application-default login`),
+ * not Cloud Run's runtime service account. A clean probe result here
+ * proves the model/service is reachable under that caller's identity and
+ * quota project — it does NOT prove the Cloud Run service account has
+ * the matching IAM role (e.g. `roles/dlp.user`). That needs separate
+ * verification on first live deploy, not just a green `npm run probe`.
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { GoogleGenAI } from "@google/genai";
+import { DlpServiceClient } from "@google-cloud/dlp";
 import { stringify } from "yaml";
+import { dlpApiEndpointFor, dlpParentFor } from "@/lib/redact/dlp-endpoint";
 
 /** Probe order: Jakarta first, then Singapore, then the global endpoint. */
 export const REGION_ORDER = ["asia-southeast2", "asia-southeast1", "global"] as const;
@@ -149,8 +159,190 @@ export async function probeAllModels(
   return outcomes;
 }
 
+/**
+ * Non-model Google Cloud APIs probed the same way as Gemini models
+ * (Jakarta -> Singapore -> global). Today this is just Sensitive Data
+ * Protection (DLP): `lib/redact/dlp.ts` must redact every transcript line
+ * before storage (hard rule #3). Its region comes from this probed
+ * fallback, like a model's, never a pinned literal (hard rule #5).
+ */
+export const SERVICE_KEYS = ["dlp"] as const;
+export type ServiceKey = (typeof SERVICE_KEYS)[number];
+
+/** A service caller: given a service and a candidate region, try it once. */
+export type ServiceCaller = (service: ServiceKey, region: Region) => Promise<ModelCallResult>;
+
+export interface ServiceProbeOutcome {
+  service: ServiceKey;
+  location: Region | "UNPROBED";
+  latencyMs: number | null;
+  probedAt: string;
+  attempts: RegionAttempt[];
+  error: { code: string; message: string } | null;
+}
+
+/**
+ * Same retry/fallback contract as `probeModel`: tries `service` against
+ * each region in `regionOrder`, in order, stopping at the first success,
+ * and recording every attempt (success or failure) so a region that
+ * fails is never silently skipped — a non-model service's region comes
+ * from this probed fallback, like models, never a literal.
+ */
+export async function probeService(
+  service: ServiceKey,
+  callService: ServiceCaller,
+  regionOrder: readonly Region[] = REGION_ORDER,
+  now: () => string = () => new Date().toISOString(),
+): Promise<ServiceProbeOutcome> {
+  const attempts: RegionAttempt[] = [];
+
+  for (const region of regionOrder) {
+    const startedAt = Date.now();
+    let result: ModelCallResult;
+    try {
+      result = await callService(service, region);
+    } catch (err) {
+      result =
+        err instanceof ProbeCallError
+          ? { ok: false, code: err.code, message: err.message }
+          : { ok: false, code: "UNKNOWN", message: err instanceof Error ? err.message : String(err) };
+    }
+
+    if (result.ok) {
+      attempts.push({ region, ok: true, latencyMs: result.latencyMs });
+      return {
+        service,
+        location: region,
+        latencyMs: result.latencyMs,
+        probedAt: now(),
+        attempts,
+        error: null,
+      };
+    }
+
+    const error = { code: result.code, message: result.message };
+    attempts.push({ region, ok: false, error, latencyMs: Date.now() - startedAt });
+  }
+
+  const lastAttempt = attempts[attempts.length - 1];
+  return {
+    service,
+    location: "UNPROBED",
+    latencyMs: null,
+    probedAt: now(),
+    attempts,
+    error: lastAttempt?.error ?? { code: "UNKNOWN", message: "no regions were tried" },
+  };
+}
+
+export async function probeAllServices(
+  services: readonly ServiceKey[],
+  callService: ServiceCaller,
+  regionOrder: readonly Region[] = REGION_ORDER,
+  now: () => string = () => new Date().toISOString(),
+): Promise<ServiceProbeOutcome[]> {
+  const outcomes: ServiceProbeOutcome[] = [];
+  for (const service of services) {
+    // Sequential on purpose, same reasoning as probeAllModels.
+    outcomes.push(await probeService(service, callService, regionOrder, now));
+  }
+  return outcomes;
+}
+
+/** Shapes service probe outcomes into the `services:` map of config/regions.yaml. */
+export function toServicesYamlDoc(outcomes: readonly ServiceProbeOutcome[]) {
+  const services: Record<
+    string,
+    {
+      location: string;
+      latency_ms: number | null;
+      probed_at: string | null;
+      error: { code: string; message: string } | null;
+    }
+  > = {};
+  for (const outcome of outcomes) {
+    services[outcome.service] = {
+      location: outcome.location,
+      latency_ms: outcome.latencyMs,
+      probed_at: outcome.location === "UNPROBED" ? null : outcome.probedAt,
+      error: outcome.error,
+    };
+  }
+  return services;
+}
+
+/**
+ * Turns an unknown thrown value from `@google-cloud/dlp` (google-gax) into
+ * a stable {code, message} pair, the same shape `normalizeGenAiError`
+ * produces for `@google/genai`. gRPC errors expose a numeric `.code`
+ * (e.g. 5 = NOT_FOUND, 14 = UNAVAILABLE); REST-style errors expose
+ * `.status`/`.code` as strings. The message is truncated and the probe
+ * sends only a fixed, non-sensitive string ("ping"), never real text
+ * (hard rule #3 — nothing from a transcript reaches this path).
+ */
+function normalizeDlpError(err: unknown): { code: string; message: string } {
+  const e = err as { code?: unknown; status?: unknown; name?: unknown; message?: unknown };
+  let code = "UNKNOWN";
+  if (typeof e?.status === "string" && e.status) code = e.status;
+  else if (typeof e?.code === "number") code = `GRPC_${e.code}`;
+  else if (typeof e?.code === "string" && e.code) code = e.code;
+  else if (typeof e?.name === "string" && e.name) code = e.name;
+
+  const rawMessage = typeof e?.message === "string" ? e.message : String(err);
+  const message = rawMessage.length > 400 ? `${rawMessage.slice(0, 400)}…` : rawMessage;
+  return { code, message };
+}
+
+/**
+ * The real DLP caller: one minimal `deidentifyContent` call against a
+ * regional DLP endpoint (`dlp.<region>.rep.googleapis.com`), mirroring
+ * how `lib/redact/dlp.ts` calls it for real. The probe text is a fixed,
+ * non-sensitive literal ("ping") — never shop data (hard rule #3) — and
+ * is not logged on failure (only the normalised error code/message is).
+ */
+export function makeDlpServiceCaller(project: string): ServiceCaller {
+  return async (_service, region) => {
+    // Shared with lib/redact/dlp.ts (lib/redact/dlp-endpoint.ts) so the
+    // probe and the real redactor can never disagree about how a region
+    // is reached.
+    const apiEndpoint = dlpApiEndpointFor(region);
+    const client = apiEndpoint ? new DlpServiceClient({ apiEndpoint }) : new DlpServiceClient();
+    const startedAt = Date.now();
+    try {
+      await client.deidentifyContent(
+        {
+          parent: dlpParentFor(project, region),
+          item: { value: "ping" },
+          inspectConfig: { infoTypes: [{ name: "PHONE_NUMBER" }] },
+          deidentifyConfig: {
+            infoTypeTransformations: {
+              transformations: [
+                {
+                  infoTypes: [{ name: "PHONE_NUMBER" }],
+                  primitiveTransformation: {
+                    replaceConfig: { newValue: { stringValue: "[PHONE_NUMBER]" } },
+                  },
+                },
+              ],
+            },
+          },
+        },
+        { timeout: 10_000 },
+      );
+      return { ok: true, latencyMs: Date.now() - startedAt };
+    } catch (err) {
+      const { code, message } = normalizeDlpError(err);
+      throw new ProbeCallError(code, message);
+    }
+  };
+}
+
 /** Shapes the probe outcomes into the config/regions.yaml document. */
-export function toRegionsYamlDoc(outcomes: readonly ProbeOutcome[], probedAt: string) {
+export function toRegionsYamlDoc(
+  outcomes: readonly ProbeOutcome[],
+  probedAt: string,
+  serviceOutcomes: readonly ServiceProbeOutcome[] = [],
+) {
   const models: Record<
     string,
     {
@@ -168,7 +360,7 @@ export function toRegionsYamlDoc(outcomes: readonly ProbeOutcome[], probedAt: st
       error: outcome.error,
     };
   }
-  return { version: 0.1, probed_at: probedAt, models };
+  return { version: 0.1, probed_at: probedAt, models, services: toServicesYamlDoc(serviceOutcomes) };
 }
 
 /**
@@ -295,7 +487,11 @@ async function main(): Promise<void> {
   const probedAt = new Date().toISOString();
   const callModel = makeVertexModelCaller(project);
   const outcomes = await probeAllModels(MODEL_KEYS, callModel);
-  const doc = toRegionsYamlDoc(outcomes, probedAt);
+
+  const callService = makeDlpServiceCaller(project);
+  const serviceOutcomes = await probeAllServices(SERVICE_KEYS, callService);
+
+  const doc = toRegionsYamlDoc(outcomes, probedAt, serviceOutcomes);
 
   for (const outcome of outcomes) {
     const summary =
@@ -303,6 +499,13 @@ async function main(): Promise<void> {
         ? `UNPROBED (last error: ${outcome.error?.code} — ${outcome.error?.message})`
         : `${outcome.location} (${outcome.latencyMs}ms)`;
     console.log(`[probe] ${outcome.model}: ${summary}`);
+  }
+  for (const outcome of serviceOutcomes) {
+    const summary =
+      outcome.location === "UNPROBED"
+        ? `UNPROBED (last error: ${outcome.error?.code} — ${outcome.error?.message})`
+        : `${outcome.location} (${outcome.latencyMs}ms)`;
+    console.log(`[probe] service:${outcome.service}: ${summary}`);
   }
 
   const outPath = path.join(process.cwd(), "config", "regions.yaml");

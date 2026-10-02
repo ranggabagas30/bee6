@@ -9,6 +9,14 @@ import type { CaptureConfigResponse } from "@/lib/capture/contract";
  * reproduce that exact double-fire — call `onError`, then reject — the same
  * way the real `vad.ts` behaves, and assert `session.ts`'s guard still lets
  * only one restart attempt run.
+ *
+ * This file shares `session.ts` with `session-events.test.ts` (DEV-01's
+ * `onEvent` + `stop()` suite). The two files don't share a `vi.mock` of
+ * `@/lib/capture/browser/vad` — this one needs full control over exactly
+ * when `onError` fires vs. when the mock rejects, so it mocks the module as
+ * a bare `vi.fn()`; the other needs a mock that actually calls `getStream`
+ * so `currentStream` release is exercised. Splitting avoids one file's
+ * `vi.mock` factory silently overriding the other's.
  */
 vi.mock("@/lib/capture/browser/vad", () => ({
   startCaptureVad: vi.fn(),

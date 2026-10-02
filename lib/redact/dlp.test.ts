@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { describe, expect, it, vi } from "vitest";
 import type { protos } from "@google-cloud/dlp";
 import {
   DLP_INFO_TYPES,
@@ -7,6 +9,7 @@ import {
 } from "@/lib/redact/dlp";
 import { PHONE_LABEL } from "@/lib/redact/indonesian-phone";
 import { ServiceUnavailableError } from "@/lib/http/errors";
+import * as regions from "@/config/regions";
 
 type Request = protos.google.privacy.dlp.v2.IDeidentifyContentRequest;
 type Response = protos.google.privacy.dlp.v2.IDeidentifyContentResponse;
@@ -172,6 +175,59 @@ describe("dlpRedactor.redact", () => {
     } catch (e) {
       expect((e as ServiceUnavailableError).upstream).toBe("timeout");
     }
+  });
+
+  it("resolves its default region via getServiceLocation('dlp'), not a hardcoded literal (hard rule #5)", async () => {
+    const spy = vi
+      .spyOn(regions, "getServiceLocation")
+      .mockReturnValue({
+        location: "asia-southeast1",
+        latency_ms: 42,
+        probed_at: "2026-10-01T00:00:00.000Z",
+        error: null,
+      });
+    const { deidentify, seen } = recordingDeidentify();
+
+    // No `region` override — exercises the default-resolution path.
+    await dlpRedactor({ project: "proj-1", deidentify }).redact("hello");
+
+    expect(spy).toHaveBeenCalledWith("dlp");
+    expect(seen.request?.parent).toBe("projects/proj-1/locations/asia-southeast1");
+    spy.mockRestore();
+  });
+
+  it("uses the plain global DLP endpoint (no '.rep.' regional suffix) when the resolved region is 'global'", async () => {
+    // `dlp.global.rep.googleapis.com` does not exist — DLP's global
+    // endpoint is the bare `dlp.googleapis.com` host, reached by omitting
+    // apiEndpoint entirely, not by templating "global" into the regional
+    // pattern used for an actual region like "asia-southeast1".
+    const seenEndpoints: (string | undefined)[] = [];
+    vi.doMock("@google-cloud/dlp", () => ({
+      DlpServiceClient: vi.fn().mockImplementation((opts?: { apiEndpoint?: string }) => {
+        seenEndpoints.push(opts?.apiEndpoint);
+        return {
+          deidentifyContent: vi.fn().mockResolvedValue([{ item: { value: "ok" } }]),
+        };
+      }),
+    }));
+    vi.resetModules();
+    const { dlpRedactor: freshDlpRedactor } = await import("@/lib/redact/dlp");
+
+    await freshDlpRedactor({ project: "proj-1", region: "global" }).redact("hello");
+
+    expect(seenEndpoints).toHaveLength(1);
+    expect(seenEndpoints[0]).toBeUndefined();
+    vi.doUnmock("@google-cloud/dlp");
+    vi.resetModules();
+  });
+
+  it("never hardcodes asia-southeast2 (or any literal region) in lib/redact/dlp.ts", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "lib/redact/dlp.ts"),
+      "utf8",
+    );
+    expect(source).not.toMatch(/asia-southeast2/);
+    expect(source).not.toMatch(/process\.env\.APP_REGION/);
   });
 
   it("sets stage='redact' and upstream on no-content response", async () => {

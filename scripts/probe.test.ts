@@ -3,9 +3,13 @@ import {
   ProbeCallError,
   REGION_ORDER,
   type ModelCaller,
+  type ServiceCaller,
   probeAllModels,
+  probeAllServices,
   probeModel,
+  probeService,
   toRegionsYamlDoc,
+  toServicesYamlDoc,
 } from "./probe";
 
 const FIXED_NOW = () => "2026-09-30T00:00:00.000Z";
@@ -111,6 +115,78 @@ describe("probeAllModels", () => {
 
     expect(outcomes.map((o) => o.model)).toEqual(["gemini-3.5-transcribe-preview", "gemini-3.5-flash"]);
     expect(outcomes.every((o) => o.location === "asia-southeast2")).toBe(true);
+  });
+});
+
+describe("probeService — same Jakarta->Singapore->global fallback, for non-model services", () => {
+  it("tries Jakarta, then Singapore, then global, in that order", async () => {
+    const seen: string[] = [];
+    const callService: ServiceCaller = async (_service, region) => {
+      seen.push(region);
+      throw new ProbeCallError("UNAVAILABLE", `${region} down`);
+    };
+
+    await probeService("dlp", callService, REGION_ORDER, FIXED_NOW);
+
+    expect(seen).toEqual(["asia-southeast2", "asia-southeast1", "global"]);
+  });
+
+  it("stops at the first region that succeeds (e.g. Jakarta fails for some other reason, Singapore answers)", async () => {
+    const seen: string[] = [];
+    const callService: ServiceCaller = async (_service, region) => {
+      seen.push(region);
+      if (region === "asia-southeast2") {
+        throw new ProbeCallError("UNAVAILABLE", "asia-southeast2 unreachable right now");
+      }
+      return { ok: true, latencyMs: 55 };
+    };
+
+    const outcome = await probeService("dlp", callService, REGION_ORDER, FIXED_NOW);
+
+    expect(seen).toEqual(["asia-southeast2", "asia-southeast1"]);
+    expect(outcome.location).toBe("asia-southeast1");
+    expect(outcome.error).toBeNull();
+  });
+
+  it("marks the service UNPROBED with the last error when every region fails", async () => {
+    const callService: ServiceCaller = async (_service, region) => {
+      throw new ProbeCallError("NOT_CONFIGURED", `${region} not configured`);
+    };
+
+    const outcome = await probeService("dlp", callService, REGION_ORDER, FIXED_NOW);
+
+    expect(outcome.location).toBe("UNPROBED");
+    expect(outcome.attempts).toHaveLength(3);
+    expect(outcome.error).toEqual({ code: "NOT_CONFIGURED", message: "global not configured" });
+  });
+});
+
+describe("probeAllServices", () => {
+  it("probes every service key and preserves order", async () => {
+    const callService: ServiceCaller = async (_service, region) =>
+      region === "asia-southeast1" ? { ok: true, latencyMs: 5 } : { ok: false, code: "X", message: "x" };
+
+    const outcomes = await probeAllServices(["dlp"], callService, REGION_ORDER, FIXED_NOW);
+
+    expect(outcomes.map((o) => o.service)).toEqual(["dlp"]);
+    expect(outcomes.every((o) => o.location === "asia-southeast1")).toBe(true);
+  });
+});
+
+describe("toServicesYamlDoc", () => {
+  it("shapes service outcomes the same way toRegionsYamlDoc shapes model outcomes", async () => {
+    const callService: ServiceCaller = async (_service, region) =>
+      region === "asia-southeast1" ? { ok: true, latencyMs: 9 } : { ok: false, code: "UNAVAILABLE", message: "asia-southeast2 unreachable right now" };
+
+    const outcomes = await probeAllServices(["dlp"], callService, REGION_ORDER, FIXED_NOW);
+    const doc = toServicesYamlDoc(outcomes);
+
+    expect(doc.dlp).toEqual({
+      location: "asia-southeast1",
+      latency_ms: 9,
+      probed_at: FIXED_NOW(),
+      error: null,
+    });
   });
 });
 
