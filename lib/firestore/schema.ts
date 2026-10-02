@@ -169,6 +169,34 @@ export const AuditLogSchema = z
   .strict();
 export type AuditLog = z.infer<typeof AuditLogSchema>;
 
+// ── label_units (per-line ledger; R-05b Task 5) ──────────────────────────────
+/**
+ * Tracks which lines of a `LabelUnit` (`lib/pipeline/windowing.ts`) have
+ * been labelled, so a late-arriving segment's lines (the TSD's G-1
+ * finding) get labelled exactly once — never skipped, never duplicated.
+ * `unit_key` is the unit's own `unit_id` for a normal unit, or the
+ * `~late~`-suffixed id `filterUnlabelledLines` derives
+ * (`lib/pipeline/label/ledger.ts`) for a partial late slice — the two
+ * naturally never collide.
+ *
+ * `labelled_at_ms` is epoch ms (not the file's usual ISO string) on purpose:
+ * it is compared against pipeline-internal `_ms` values (`as_of_ms`,
+ * `TimedLine.start_ms`/`end_ms`), never formatted for display, so it stays
+ * in the same unit as the rest of the pipeline's own timestamps.
+ */
+export const LabelUnitLedgerSchema = z
+  .object({
+    ...withOutlet,
+    device_id: z.string().min(1),
+    unit_key: z.string().min(1),
+    line_ids: z.array(z.string().min(1)),
+    status: z.enum(["pending", "done", "failed"]),
+    attempts: z.number().int().min(0),
+    labelled_at_ms: z.number().int().min(0).nullable(),
+  })
+  .strict();
+export type LabelUnitLedger = z.infer<typeof LabelUnitLedgerSchema>;
+
 // ── stubs (minimal; expanded in later tasks) ─────────────────────────────────
 // Each keeps `outlet_id` + its id field so it is queryable now; the rest of the
 // shape is added by the task noted. Kept strict so accidental fields fail loudly.

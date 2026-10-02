@@ -3,6 +3,7 @@ import {
   AuditLogSchema,
   DeviceSchema,
   HeartbeatSchema,
+  LabelUnitLedgerSchema,
   OutletSchema,
   SegmentSchema,
   StaffSchema,
@@ -189,5 +190,42 @@ describe("AuditLogSchema", () => {
 
   it("rejects an unknown actor_role", () => {
     expect(AuditLogSchema.safeParse({ ...good, actor_role: "manager" }).success).toBe(false);
+  });
+});
+
+describe("LabelUnitLedgerSchema", () => {
+  const good = {
+    outlet_id: "proofed",
+    device_id: "d1",
+    unit_key: "unit_d1_w1",
+    line_ids: ["s1#0", "s1#1"],
+    status: "pending",
+    attempts: 0,
+    labelled_at_ms: null,
+  };
+
+  it("accepts a pending ledger entry with no labelled_at_ms yet", () => {
+    expect(LabelUnitLedgerSchema.safeParse(good).success).toBe(true);
+  });
+
+  it("accepts a done entry with labelled_at_ms set", () => {
+    expect(
+      LabelUnitLedgerSchema.safeParse({ ...good, status: "done", labelled_at_ms: 1_700_000_000_000 })
+        .success,
+    ).toBe(true);
+  });
+
+  it("rejects an unknown status", () => {
+    expect(LabelUnitLedgerSchema.safeParse({ ...good, status: "processing" }).success).toBe(false);
+  });
+
+  it("rejects a negative attempts count", () => {
+    expect(LabelUnitLedgerSchema.safeParse({ ...good, attempts: -1 }).success).toBe(false);
+  });
+
+  it("accepts a ~late~ unit_key for a partial late slice", () => {
+    expect(
+      LabelUnitLedgerSchema.safeParse({ ...good, unit_key: "unit_d1_w1~late~abcd1234" }).success,
+    ).toBe(true);
   });
 });
