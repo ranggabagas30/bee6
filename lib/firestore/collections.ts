@@ -17,6 +17,10 @@ export const COLLECTIONS = {
   windows: "windows",
   threads: "threads",
   questions: "questions",
+  /** Per-line ledger (R-05b Task 5) — which LabelUnit lines are labelled. */
+  labelUnits: "label_units",
+  /** Single-flight tick lease per device (R-05b Task 6). */
+  pipelineLocks: "pipeline_locks",
   corrections: "corrections",
   sopVersions: "sop_versions",
   proposals: "proposals",

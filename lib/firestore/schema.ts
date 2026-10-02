@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { PrincipalRoleSchema, UserRoleSchema } from "@/lib/auth/roles";
 import { MIC_SOURCE_CLASSES } from "@/lib/capture/mic-source";
+import { CategorySchema } from "@/lib/pipeline/categories";
+import { GateDecisionSchema } from "@/lib/pipeline/gate";
 
 /**
  * Firestore schema v0 (web spec §6.4). zod schemas + inferred TS types for every
@@ -197,25 +199,113 @@ export const LabelUnitLedgerSchema = z
   .strict();
 export type LabelUnitLedger = z.infer<typeof LabelUnitLedgerSchema>;
 
+// ── pipeline_locks (single-flight tick lease; R-05b Task 6) ──────────────────
+/**
+ * One lease per device, acquired with a Firestore `create()` (never `.set()`)
+ * so a second concurrent tick for the same device fails to acquire and skips
+ * that round rather than racing on which thread is "open" (review focus #5).
+ * `expires_at_ms` is a backstop only — released in the tick's own `finally`
+ * on every normal path; the backstop lets a later tick take over a lease left
+ * behind by a crashed process.
+ */
+export const PipelineLockSchema = z
+  .object({
+    ...withOutlet,
+    device_id: z.string().min(1),
+    acquired_at_ms: z.number().int().min(0),
+    expires_at_ms: z.number().int().min(0),
+  })
+  .strict();
+export type PipelineLock = z.infer<typeof PipelineLockSchema>;
+
 // ── stubs (minimal; expanded in later tasks) ─────────────────────────────────
 // Each keeps `outlet_id` + its id field so it is queryable now; the rest of the
 // shape is added by the task noted. Kept strict so accidental fields fail loudly.
 
-/** filled in R-05a (windowing). */
+/**
+ * filled in R-05a (windowing). Windows themselves are never persisted —
+ * they are recomputed deterministically from `segments` every tick
+ * (R-05b, Task 6) — this stub stays a placeholder on purpose.
+ */
 export const WindowSchema = z
   .object({ ...withOutlet, window_id: z.string().min(1) })
   .strict();
 export type Window = z.infer<typeof WindowSchema>;
 
-/** filled in R-05a/R-05b (thread builder + labels). */
+// ── threads (R-05a thread builder + R-05b label call, persisted) ────────────
+/** One line copied verbatim from a (scrubbed) `LabelUnit` into the stored thread. */
+export const ThreadLineSchema = z
+  .object({
+    line_id: z.string().min(1),
+    start_ms: z.number().int().min(0),
+    end_ms: z.number().int().min(0),
+    text: z.string(),
+  })
+  .strict();
+export type ThreadLine = z.infer<typeof ThreadLineSchema>;
+
+export const ThreadRunnerUpSchema = z
+  .object({ category: CategorySchema, why_not: z.string() })
+  .strict();
+
+/**
+ * A built thread (`lib/pipeline/threads.ts` `BuiltThread`, sanitized —
+ * Task 3 — and gated — R-05a `evaluateGate`) persisted as its own document.
+ * `status` is `applyGateDecision`'s own return type: a fresh/continued
+ * thread above threshold is `"fact"`; everything else is `"open"` (a
+ * debrief question also exists for it — see `QuestionSchema`) or, once
+ * R-06/R-07 wire `expireQuestion`, `"unverified"`. Decision 4: when a later
+ * unit continues an existing thread, `confidence` becomes
+ * `min(stored, new)` and a stored `"fact"` CAN be downgraded back to
+ * `"open"` — never the reverse within this task (a thread that gathers
+ * more evidence after already being a question is a known gap, see the
+ * task's Result section).
+ */
 export const ThreadSchema = z
-  .object({ ...withOutlet, thread_id: z.string().min(1) })
+  .object({
+    ...withOutlet,
+    thread_id: z.string().min(1),
+    device_id: z.string().min(1),
+    category: CategorySchema,
+    confidence: z.number(),
+    line_ids: z.array(z.string().min(1)),
+    evidence_line_ids: z.array(z.string().min(1)),
+    lines: z.array(ThreadLineSchema),
+    first_line_start_ms: z.number().int().min(0),
+    last_line_end_ms: z.number().int().min(0),
+    summary: z.string(),
+    fields: z.record(z.string(), z.unknown()).optional(),
+    runner_up: ThreadRunnerUpSchema.optional(),
+    label_conflict: z.boolean(),
+    status: z.enum(["fact", "open", "unverified"]),
+    gate: GateDecisionSchema,
+    created_at_ms: z.number().int().min(0),
+    updated_at_ms: z.number().int().min(0),
+  })
   .strict();
 export type Thread = z.infer<typeof ThreadSchema>;
 
-/** filled in R-07 (debrief questions). */
+// ── questions (debrief questions; R-05b writes the failed-unit/gate kinds) ──
+/**
+ * `kind: "unlabelled_unit"` (Task 4's `buildFailedUnitQuestion`) has no
+ * `thread_id`/`category` — the label call never produced a thread at all.
+ * `kind: "gate"` is attached to a real thread whose gate verdict is
+ * `"open"` (R-07 fills in the staff-answer flow; this task only writes the
+ * question, never answers one).
+ */
 export const QuestionSchema = z
-  .object({ ...withOutlet, question_id: z.string().min(1) })
+  .object({
+    ...withOutlet,
+    question_id: z.string().min(1),
+    device_id: z.string().min(1),
+    thread_id: z.string().min(1).nullable(),
+    kind: z.enum(["gate", "unlabelled_unit"]),
+    status: z.enum(["open", "unverified"]),
+    category: CategorySchema.nullable(),
+    window_start_ms: z.number().int().min(0),
+    window_end_ms: z.number().int().min(0),
+    created_at_ms: z.number().int().min(0),
+  })
   .strict();
 export type Question = z.infer<typeof QuestionSchema>;
 

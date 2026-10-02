@@ -5,8 +5,11 @@ import {
   HeartbeatSchema,
   LabelUnitLedgerSchema,
   OutletSchema,
+  PipelineLockSchema,
+  QuestionSchema,
   SegmentSchema,
   StaffSchema,
+  ThreadSchema,
   UserSchema,
 } from "@/lib/firestore/schema";
 
@@ -227,5 +230,109 @@ describe("LabelUnitLedgerSchema", () => {
     expect(
       LabelUnitLedgerSchema.safeParse({ ...good, unit_key: "unit_d1_w1~late~abcd1234" }).success,
     ).toBe(true);
+  });
+});
+
+describe("PipelineLockSchema", () => {
+  const good = {
+    outlet_id: "proofed",
+    device_id: "d1",
+    acquired_at_ms: 1_700_000_000_000,
+    expires_at_ms: 1_700_000_060_000,
+  };
+
+  it("accepts a well-formed lease", () => {
+    expect(PipelineLockSchema.safeParse(good).success).toBe(true);
+  });
+
+  it("rejects a negative acquired_at_ms", () => {
+    expect(PipelineLockSchema.safeParse({ ...good, acquired_at_ms: -1 }).success).toBe(false);
+  });
+});
+
+describe("ThreadSchema", () => {
+  const good = {
+    outlet_id: "proofed",
+    thread_id: "unit_d1_w1:T1",
+    device_id: "d1",
+    category: "CUSTOMER_SERVICE",
+    confidence: 0.92,
+    line_ids: ["s1#0", "s1#1"],
+    evidence_line_ids: ["s1#0"],
+    lines: [{ line_id: "s1#0", start_ms: 0, end_ms: 1000, text: "egg tart sold out" }],
+    first_line_start_ms: 0,
+    last_line_end_ms: 1000,
+    summary: "Customer asked for egg tart; sold out",
+    label_conflict: false,
+    status: "fact",
+    gate: {
+      verdict: "fact",
+      fired_rule: "passed",
+      checks: [{ rule: "passed", passed: true }],
+      category: "CUSTOMER_SERVICE",
+      confidence: 0.92,
+      threshold: 0.9,
+      evidence_count: 1,
+      gate_version: "1",
+    },
+    created_at_ms: 1_700_000_000_000,
+    updated_at_ms: 1_700_000_000_000,
+  };
+
+  it("accepts a well-formed fact thread with its gate decision embedded", () => {
+    expect(ThreadSchema.safeParse(good).success).toBe(true);
+  });
+
+  it("accepts optional fields/runner_up when present", () => {
+    expect(
+      ThreadSchema.safeParse({
+        ...good,
+        fields: { sale: false },
+        runner_up: { category: "COMPLAINT", why_not: "no dissatisfaction expressed" },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects an unknown status", () => {
+    expect(ThreadSchema.safeParse({ ...good, status: "closed" }).success).toBe(false);
+  });
+
+  it("rejects a thread with no name field — this schema never carries a staff name (hard rule #7)", () => {
+    expect(ThreadSchema.safeParse({ ...good, staff_name: "Dina" }).success).toBe(false);
+  });
+});
+
+describe("QuestionSchema", () => {
+  const gateQuestion = {
+    outlet_id: "proofed",
+    question_id: "q_thread_unit_d1_w1:T1",
+    device_id: "d1",
+    thread_id: "unit_d1_w1:T1",
+    kind: "gate",
+    status: "open",
+    category: "ROUTINE_OPS",
+    window_start_ms: 0,
+    window_end_ms: 1000,
+    created_at_ms: 1_700_000_000_000,
+  };
+
+  it("accepts a gate question tied to a thread", () => {
+    expect(QuestionSchema.safeParse(gateQuestion).success).toBe(true);
+  });
+
+  it("accepts an unlabelled_unit question with no thread_id/category", () => {
+    expect(
+      QuestionSchema.safeParse({
+        ...gateQuestion,
+        question_id: "q_unit_d1_w1",
+        thread_id: null,
+        kind: "unlabelled_unit",
+        category: null,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects an unknown kind", () => {
+    expect(QuestionSchema.safeParse({ ...gateQuestion, kind: "debrief" }).success).toBe(false);
   });
 });
