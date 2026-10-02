@@ -52,6 +52,11 @@ npm run probe        # region probe -> config/regions.yaml (needs a real GCP pro
 - `DAILY_TOKEN_CEILING` (the per-outlet daily cost-guard cap on non-essential
   model calls) is specified in `CLAUDE.md` §7 but not enforced anywhere in
   code yet.
+- R-04's segment write runs Sensitive Data Protection redaction but has no
+  staff-name scrub before storing line text, so a spoken staff name not
+  caught by SDP's generic detectors can sit in a `segments` document for its
+  48-hour TTL. Deferred: bounded exposure, and R-05b's `scrubStaffNames`
+  utility will make an eventual fix cheap to add.
 - See `CLAUDE.md` and `docs/` for the full set of hard rules, architecture,
   and honestly-stated known gaps (DPIA, Transcribe preview status, etc.).
 
