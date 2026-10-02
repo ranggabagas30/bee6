@@ -79,7 +79,7 @@
 |---|---|---|---|
 | Mon 5 | Go-live step 1 support (1 h) · **R-05b** label call: Flash-Lite, structured output, categories, work vs private (3 h) | 4 | Capture + transcription |
 | Tue 6 | **R-06** day record screen (supervisor full, owner summaries) (3 h) · fixes (1 h) | 4 | + labels, day record |
-| Wed 7 | **R-07** tap debrief: PIN → ≤ 5 questions → *Iya / Bukan* + optional typed fix; stored as "a staff member" (3 h) · **R-08** starts (1 h) | 4 | + tap debrief at close |
+| Wed 7 | **R-07** tap debrief: PIN → ≤ 5 questions → choice-tap or *Iya / Tidak* + reason; stored as "a staff member" (4 h) · **R-08** starts (1 h) | 4 | + tap debrief at close |
 | Thu 8 | **R-08** ProposalAgent (ADK, Gemini 3.5 Flash): library intervention, ≥ 1 rubric criterion + ≥ 2 dated evidence items, or no proposal (logged) (4 h) | 4 | |
 | Fri 9 | **R-09** approval screens: supervisor *Feasible / Reject + reason* (reason saved as a permanent rule), owner *Approve / Reject* (4 h) | 4 | First real proposal |
 | Sat 10 | **R-10** SOP versions + v1→v2 diff (2 h) · **R-15** CriticAgent (3 h) · review support + fixes (3 h) | 8 | **SOP v2 ships** |
@@ -111,7 +111,7 @@ The first proposal (Fri 9) doesn't go through the Critic, because the Critic is 
 | Sprint 1 | 25 h | 28 h | 89% |
 | Sprint 2 | 29 h | 36 h | 81% |
 | Sprint 3 | 13 h | 20 h | 65% |
-| **All** | **67 h** | **84 h** | **80%** |
+| **All** | **68 h** | **84 h** | **81%** |
 
 Sprint 1 is the fullest and has the biggest unknown (browser recording on the shop phone). Its first cut is R-05a moving to Monday.
 
