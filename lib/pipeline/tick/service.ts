@@ -1,0 +1,534 @@
+import type { Category, WorkCategory } from "@/lib/pipeline/categories";
+import { loadCategoriesConfig, type CategoriesConfig } from "@/lib/pipeline/label/config";
+import { buildLabelPrompt } from "@/lib/pipeline/label/prompt";
+import { buildLabelWireSchema, generateResponseJsonSchema } from "@/lib/pipeline/label/wire-schema";
+import { callLabelModel, type LabelClientDeps } from "@/lib/pipeline/label/client";
+import type { LabelWireOutput } from "@/lib/pipeline/label/wire-schema";
+import { mapToUnitOutcome, buildFailedUnitQuestion } from "@/lib/pipeline/label/failure";
+import { filterUnlabelledLines } from "@/lib/pipeline/label/ledger";
+import { scrubUnitLines } from "@/lib/pipeline/label/scrub";
+import { sanitizeLabelOutput, type SanitizeDeps } from "@/lib/pipeline/label/sanitize";
+import { deriveAsOfMs } from "@/lib/pipeline/label/clock";
+import { buildWindows, planLabelUnits, type LabelUnit, type SegmentForWindowing } from "@/lib/pipeline/windowing";
+import { buildThreads, openThreadsAt, type BuiltThread, type OpenThread, type LabelOutput } from "@/lib/pipeline/threads";
+import { evaluateGate, applyGateDecision } from "@/lib/pipeline/gate";
+import { remapOpenThreadAliases } from "@/lib/pipeline/tick/alias";
+import type {
+  LedgerWrite,
+  QuestionWrite,
+  RecentThreadSummary,
+  StoredThread,
+  ThreadWrite,
+  TickStore,
+} from "@/lib/pipeline/tick/types";
+
+/**
+ * Pipeline tick orchestration (R-05b, Task 6). Pure(ish) — all I/O goes
+ * through the injected `TickStore` and label client deps, so this module
+ * is unit-tested end to end with in-memory fakes. The Next.js route
+ * (`app/api/internal/pipeline/tick/route.ts`) is a thin wrapper: OIDC
+ * check, then `runTick` with real Firestore-backed deps.
+ *
+ * Per device, in order: acquire lease -> load segments -> derive as_of_ms
+ * (newest-segment-only, Decision 7) -> build windows/units (R-05a,
+ * unchanged) -> filter already-labelled lines (Task 5's ledger) -> up to
+ * 20 units, oldest-first: scrub staff names on the INPUT unit (Decision 8)
+ * -> label call (bounded retry) -> sanitize -> buildThreads/evaluateGate
+ * (R-05a, unchanged) -> merge into any continued open thread
+ * (Decision 4) -> persist thread + question + ledger + non-work blanking
+ * in one store call -> release lease (always, via `finally`).
+ */
+
+export const DEFAULT_MAX_UNITS_PER_DEVICE = 20;
+export const DEFAULT_LEASE_TTL_MS = 110_000; // just under the 2-min Scheduler cadence
+export const DEFAULT_LABEL_MAX_ATTEMPTS = 3;
+/** Covers every category's GRACE_MS (max 600s, TRAINING) with margin. */
+export const DEFAULT_RECENT_THREAD_LOOKBACK_MS = 900_000;
+
+export interface RunTickDeps {
+  store: TickStore;
+  now_ms: number;
+  config?: CategoriesConfig;
+  labelClientDeps?: LabelClientDeps;
+  sanitizeDeps?: SanitizeDeps;
+  maxUnitsPerDevice?: number;
+  leaseTtlMs?: number;
+  recentThreadLookbackMs?: number;
+  /** Test seam only: replaces the whitelisted skew log line. */
+  logSkew?: (entry: { device_id: string; skew_newest_ms: number; skew_min_ms: number; n_segments: number }) => void;
+}
+
+export interface DeviceTickResult {
+  outlet_id: string;
+  device_id: string;
+  skipped_reason: "lease_held" | "no_segments" | null;
+  units_processed: number;
+  threads_written: number;
+  questions_written: number;
+  failed_units: number;
+}
+
+export interface RunTickResult {
+  devices: DeviceTickResult[];
+}
+
+function defaultLogSkew(entry: {
+  device_id: string;
+  skew_newest_ms: number;
+  skew_min_ms: number;
+  n_segments: number;
+}): void {
+  console.log("[pipeline-tick] skew", entry);
+}
+
+function toSegmentsForWindowing(segments: readonly { seg_id: string; device_start: string; device_end: string; lines: { text: string; start: number; end: number }[] }[]): SegmentForWindowing[] {
+  return segments.map((s) => ({
+    seg_id: s.seg_id,
+    device_start: s.device_start,
+    device_end: s.device_end,
+    lines: s.lines,
+  }));
+}
+
+/**
+ * Replicates `buildThreads`' own non-work detection (explicit
+ * `non_work_lines` plus any line whose thread hint resolves to a
+ * NON_WORK-category thread) without changing R-05a's frozen code —
+ * `buildThreads` reports only a count, never the line ids, so the tick
+ * needs its own pass to know WHICH lines to blank in the source segment.
+ */
+function computeNonWorkLineIds(unit: LabelUnit, label: LabelOutput): string[] {
+  const numLines = unit.lines.length;
+  const nonWorkIdx = new Set<number>();
+  for (const idx of label.non_work_lines) {
+    if (idx >= 0 && idx < numLines) nonWorkIdx.add(idx);
+  }
+  const nonWorkThreadIds = new Set(label.threads.filter((t) => t.category === "NON_WORK").map((t) => t.id));
+  for (const line of label.lines) {
+    if (line.i >= 0 && line.i < numLines && nonWorkThreadIds.has(line.thread)) {
+      nonWorkIdx.add(line.i);
+    }
+  }
+  const ids: string[] = [];
+  for (const idx of nonWorkIdx) {
+    const lineId = unit.lines[idx]?.line_id;
+    if (lineId) ids.push(lineId);
+  }
+  return ids;
+}
+
+function dedupeConcat(a: readonly string[], b: readonly string[]): string[] {
+  return Array.from(new Set([...a, ...b]));
+}
+
+interface MergedThread {
+  category: WorkCategory;
+  confidence: number;
+  line_ids: string[];
+  evidence_line_ids: string[];
+  lines: Array<{ line_id: string; start_ms: number; end_ms: number; text: string }>;
+  first_line_start_ms: number;
+  last_line_end_ms: number;
+  summary: string;
+  fields?: Record<string, unknown>;
+  runner_up?: { category: Category; why_not: string };
+  created_at_ms: number | null; // null => caller stamps now_ms (brand new thread)
+}
+
+/** Decision 4: confidence = min(stored, new); lines/evidence accumulate; category is unchanged by construction (buildThreads only continues a thread whose category already matches). */
+function mergeThread(stored: StoredThread | null, built: BuiltThread): MergedThread {
+  if (!stored) {
+    return {
+      category: built.category,
+      confidence: built.confidence,
+      line_ids: built.line_ids,
+      evidence_line_ids: built.evidence_line_ids,
+      lines: built.lines,
+      first_line_start_ms: built.first_line_start_ms,
+      last_line_end_ms: built.last_line_end_ms,
+      summary: built.summary,
+      fields: built.fields,
+      runner_up: built.runner_up,
+      created_at_ms: null,
+    };
+  }
+  return {
+    category: built.category,
+    confidence: Math.min(stored.confidence, built.confidence),
+    line_ids: dedupeConcat(stored.line_ids, built.line_ids),
+    evidence_line_ids: dedupeConcat(stored.evidence_line_ids, built.evidence_line_ids),
+    lines: [...stored.lines, ...built.lines],
+    first_line_start_ms: Math.min(stored.first_line_start_ms, built.first_line_start_ms),
+    last_line_end_ms: Math.max(stored.last_line_end_ms, built.last_line_end_ms),
+    summary: stored.summary || built.summary,
+    fields: built.fields ?? stored.fields,
+    runner_up: built.runner_up ?? stored.runner_up,
+    created_at_ms: stored.created_at_ms,
+  };
+}
+
+/** Logs only {unit_id, error_class} — never a raw error message (same discipline as the label client, TSD L-T7). */
+function classifyUnexpectedError(error: unknown): string {
+  if (error instanceof Error) return error.name || "Error";
+  return "unknown";
+}
+
+async function processOneUnit(input: {
+  unit: LabelUnit;
+  outlet_id: string;
+  device_id: string;
+  config: CategoriesConfig;
+  staffNames: readonly string[];
+  openThreadPool: RecentThreadSummary[];
+  as_of_ms: number;
+  now_ms: number;
+  store: TickStore;
+  labelClientDeps: LabelClientDeps | undefined;
+  sanitizeDeps: SanitizeDeps | undefined;
+}): Promise<{ threadsWritten: number; questionsWritten: number; failed: boolean }> {
+  const { unit, outlet_id, device_id, config, staffNames, openThreadPool, as_of_ms, now_ms, store } = input;
+
+  try {
+    const scrubbedUnit = scrubUnitLines(unit, staffNames);
+    const openThreads: OpenThread[] = openThreadsAt(openThreadPool, as_of_ms);
+
+    const prompt = buildLabelPrompt({ config, unit: scrubbedUnit, open_threads: openThreads });
+    const newAliasCount = Math.max(1, Math.min(scrubbedUnit.lines.length, 20));
+    const wireSchema = buildLabelWireSchema({ new_alias_count: newAliasCount, open_alias_count: openThreads.length });
+    const responseSchema = generateResponseJsonSchema({
+      config,
+      new_alias_count: newAliasCount,
+      open_alias_count: openThreads.length,
+    });
+
+    let wire: LabelWireOutput | null = null;
+    let failureReason: string | null = null;
+    let attempts = 0;
+
+    for (let attempt = 1; attempt <= DEFAULT_LABEL_MAX_ATTEMPTS; attempt += 1) {
+      attempts = attempt;
+      const result = await callLabelModel(
+        { unit: scrubbedUnit, prompt, schema: responseSchema, wireSchema },
+        input.labelClientDeps,
+      );
+      const outcome = mapToUnitOutcome({ result, attempt, maxAttempts: DEFAULT_LABEL_MAX_ATTEMPTS });
+      if (outcome.kind === "ok") {
+        wire = outcome.wire;
+        break;
+      }
+      if (outcome.kind === "failed") {
+        failureReason = outcome.reason;
+        break;
+      }
+      // retry: loop again
+    }
+
+    if (!wire) {
+      const q = buildFailedUnitQuestion(unit);
+      const ledger: LedgerWrite = {
+        outlet_id,
+        device_id,
+        unit_key: unit.unit_id,
+        line_ids: unit.lines.map((l) => l.line_id),
+        status: "failed",
+        attempts,
+        labelled_at_ms: null,
+      };
+      const question: QuestionWrite = {
+        outlet_id,
+        device_id,
+        question_id: q.question_id,
+        thread_id: null,
+        kind: q.kind,
+        status: q.status,
+        category: null,
+        window_start_ms: q.window_start_ms,
+        window_end_ms: q.window_end_ms,
+        created_at_ms: now_ms,
+      };
+      await store.writeUnitResult(outlet_id, device_id, {
+        threads: [],
+        questions: [question],
+        ledger,
+        blank_line_ids: [],
+      });
+      void failureReason; // reason is logged by the label client itself; never re-logged here with raw detail
+      return { threadsWritten: 0, questionsWritten: 1, failed: true };
+    }
+
+    const sanitized = await sanitizeLabelOutput({ wire, config, staffNames }, input.sanitizeDeps);
+    // Map echoed O# aliases back to the real stored thread_id BEFORE
+    // buildThreads runs — the sanitizer passes O# through unchanged on
+    // purpose (PR1 tech-lead review; see lib/pipeline/tick/alias.ts).
+    const remapped = remapOpenThreadAliases(sanitized, openThreads);
+    const built = buildThreads({ unit: scrubbedUnit, label: remapped, open_threads: openThreads });
+    const nonWorkLineIds = computeNonWorkLineIds(scrubbedUnit, remapped);
+
+    const threadWrites: ThreadWrite[] = [];
+    const questionWrites: QuestionWrite[] = [];
+
+    for (const builtThread of built.threads) {
+      const stored = builtThread.continued_from_open
+        ? await store.getStoredThread(outlet_id, builtThread.thread_id)
+        : null;
+      const merged = mergeThread(stored, builtThread);
+
+      const gate = evaluateGate({
+        category: merged.category,
+        confidence: merged.confidence,
+        evidence_line_ids: merged.evidence_line_ids,
+        label_conflict: builtThread.label_conflict,
+      });
+
+      const existingStatus = stored ? stored.status : null;
+      const newStatus = applyGateDecision(existingStatus, gate);
+
+      const threadWrite: ThreadWrite = {
+        outlet_id,
+        device_id,
+        thread_id: builtThread.thread_id,
+        category: merged.category,
+        confidence: merged.confidence,
+        line_ids: merged.line_ids,
+        evidence_line_ids: merged.evidence_line_ids,
+        lines: merged.lines,
+        first_line_start_ms: merged.first_line_start_ms,
+        last_line_end_ms: merged.last_line_end_ms,
+        summary: merged.summary,
+        label_conflict: builtThread.label_conflict,
+        status: newStatus,
+        gate,
+        created_at_ms: merged.created_at_ms ?? now_ms,
+        updated_at_ms: now_ms,
+      };
+      if (merged.fields) threadWrite.fields = merged.fields;
+      if (merged.runner_up) threadWrite.runner_up = merged.runner_up;
+      threadWrites.push(threadWrite);
+
+      // Keep this tick's own in-memory pool current so a LATER unit in the
+      // same device/tick can still continue a thread just written/updated
+      // this tick (the store won't necessarily reflect it yet).
+      const poolIdx = openThreadPool.findIndex((t) => t.thread_id === builtThread.thread_id);
+      const poolEntry: RecentThreadSummary = {
+        thread_id: builtThread.thread_id,
+        category: merged.category,
+        last_line_end_ms: merged.last_line_end_ms,
+      };
+      if (poolIdx >= 0) openThreadPool[poolIdx] = poolEntry;
+      else openThreadPool.push(poolEntry);
+
+      if (newStatus === "open") {
+        questionWrites.push({
+          outlet_id,
+          device_id,
+          question_id: `q_thread_${builtThread.thread_id}`,
+          thread_id: builtThread.thread_id,
+          kind: "gate",
+          status: "open",
+          category: merged.category,
+          window_start_ms: merged.first_line_start_ms,
+          window_end_ms: merged.last_line_end_ms,
+          created_at_ms: now_ms,
+        });
+      }
+    }
+
+    const ledger: LedgerWrite = {
+      outlet_id,
+      device_id,
+      unit_key: unit.unit_id,
+      line_ids: unit.lines.map((l) => l.line_id),
+      status: "done",
+      attempts,
+      labelled_at_ms: now_ms,
+    };
+
+    await store.writeUnitResult(outlet_id, device_id, {
+      threads: threadWrites,
+      questions: questionWrites,
+      ledger,
+      blank_line_ids: nonWorkLineIds,
+    });
+
+    return { threadsWritten: threadWrites.length, questionsWritten: questionWrites.length, failed: false };
+  } catch (error) {
+    // PR1 tech-lead review: an unexpected throw (e.g. getModelLocation()
+    // missing a regions.yaml entry) must become a failed unit, never crash
+    // the whole tick. Logged by class only — never the raw message (hard
+    // rule-friendly logging, same discipline as the label client).
+    console.error("[pipeline-tick] unit failed unexpectedly", {
+      device_id,
+      unit_id: unit.unit_id,
+      error_class: classifyUnexpectedError(error),
+    });
+    const q = buildFailedUnitQuestion(unit);
+    const ledger: LedgerWrite = {
+      outlet_id,
+      device_id,
+      unit_key: unit.unit_id,
+      line_ids: unit.lines.map((l) => l.line_id),
+      status: "failed",
+      attempts: 1,
+      labelled_at_ms: null,
+    };
+    await store.writeUnitResult(outlet_id, device_id, {
+      threads: [],
+      questions: [
+        {
+          outlet_id,
+          device_id,
+          question_id: q.question_id,
+          thread_id: null,
+          kind: q.kind,
+          status: q.status,
+          category: null,
+          window_start_ms: q.window_start_ms,
+          window_end_ms: q.window_end_ms,
+          created_at_ms: now_ms,
+        },
+      ],
+      ledger,
+      blank_line_ids: [],
+    });
+    return { threadsWritten: 0, questionsWritten: 1, failed: true };
+  }
+}
+
+async function processOneDevice(
+  device: { outlet_id: string; device_id: string },
+  deps: Required<Pick<RunTickDeps, "store" | "now_ms" | "config" | "maxUnitsPerDevice" | "leaseTtlMs" | "recentThreadLookbackMs" | "logSkew">> &
+    Pick<RunTickDeps, "labelClientDeps" | "sanitizeDeps">,
+): Promise<DeviceTickResult> {
+  const { store, now_ms, config, maxUnitsPerDevice, leaseTtlMs, recentThreadLookbackMs, logSkew } = deps;
+  const { outlet_id, device_id } = device;
+
+  const acquired = await store.acquireLease(outlet_id, device_id, now_ms, leaseTtlMs);
+  if (!acquired) {
+    return {
+      outlet_id,
+      device_id,
+      skipped_reason: "lease_held",
+      units_processed: 0,
+      threads_written: 0,
+      questions_written: 0,
+      failed_units: 0,
+    };
+  }
+
+  try {
+    const segments = await store.listSegmentsForDevice(outlet_id, device_id);
+    if (segments.length === 0) {
+      return {
+        outlet_id,
+        device_id,
+        skipped_reason: "no_segments",
+        units_processed: 0,
+        threads_written: 0,
+        questions_written: 0,
+        failed_units: 0,
+      };
+    }
+
+    const asOf = deriveAsOfMs({ segments, server_now_ms: now_ms });
+    if (!asOf) {
+      return {
+        outlet_id,
+        device_id,
+        skipped_reason: "no_segments",
+        units_processed: 0,
+        threads_written: 0,
+        questions_written: 0,
+        failed_units: 0,
+      };
+    }
+
+    logSkew({
+      device_id,
+      skew_newest_ms: asOf.skew_newest_ms,
+      skew_min_ms: asOf.skew_min_ms,
+      n_segments: segments.length,
+    });
+
+    const windows = buildWindows({
+      device_id,
+      segments: toSegmentsForWindowing(segments),
+      as_of_ms: asOf.as_of_ms,
+    });
+    const units = planLabelUnits(windows, asOf.as_of_ms);
+
+    const labelledLineIds = await store.listLabelledLineIds(outlet_id, device_id);
+    const staffNames = await store.listStaffScrubNames(outlet_id);
+    const openThreadPool = await store.listRecentThreads(outlet_id, device_id, asOf.as_of_ms - recentThreadLookbackMs);
+
+    let unitsProcessed = 0;
+    let threadsWritten = 0;
+    let questionsWritten = 0;
+    let failedUnits = 0;
+
+    for (const unit of units) {
+      if (unitsProcessed >= maxUnitsPerDevice) break;
+      const filtered = filterUnlabelledLines(unit, labelledLineIds);
+      if (!filtered) continue; // already fully labelled; free, doesn't count toward the cap
+
+      const result = await processOneUnit({
+        unit: filtered,
+        outlet_id,
+        device_id,
+        config,
+        staffNames,
+        openThreadPool,
+        as_of_ms: asOf.as_of_ms,
+        now_ms,
+        store,
+        labelClientDeps: deps.labelClientDeps,
+        sanitizeDeps: deps.sanitizeDeps,
+      });
+
+      unitsProcessed += 1;
+      threadsWritten += result.threadsWritten;
+      questionsWritten += result.questionsWritten;
+      if (result.failed) failedUnits += 1;
+    }
+
+    return {
+      outlet_id,
+      device_id,
+      skipped_reason: null,
+      units_processed: unitsProcessed,
+      threads_written: threadsWritten,
+      questions_written: questionsWritten,
+      failed_units: failedUnits,
+    };
+  } finally {
+    await store.releaseLease(outlet_id, device_id);
+  }
+}
+
+/** Runs one tick: every active device, one at a time, oldest-units-first, under a per-device lease. */
+export async function runTick(deps: RunTickDeps): Promise<RunTickResult> {
+  const config = deps.config ?? loadCategoriesConfig();
+  const maxUnitsPerDevice = deps.maxUnitsPerDevice ?? DEFAULT_MAX_UNITS_PER_DEVICE;
+  const leaseTtlMs = deps.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS;
+  const recentThreadLookbackMs = deps.recentThreadLookbackMs ?? DEFAULT_RECENT_THREAD_LOOKBACK_MS;
+  const logSkew = deps.logSkew ?? defaultLogSkew;
+
+  const devices = await deps.store.listActiveDevices();
+  const results: DeviceTickResult[] = [];
+
+  for (const device of devices) {
+    const result = await processOneDevice(device, {
+      store: deps.store,
+      now_ms: deps.now_ms,
+      config,
+      maxUnitsPerDevice,
+      leaseTtlMs,
+      recentThreadLookbackMs,
+      logSkew,
+      labelClientDeps: deps.labelClientDeps,
+      sanitizeDeps: deps.sanitizeDeps,
+    });
+    results.push(result);
+  }
+
+  return { devices: results };
+}
