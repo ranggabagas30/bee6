@@ -142,6 +142,7 @@ describe("startCaptureSession stop()", () => {
     await session?.stop();
 
     expect(hoisted.vadDestroy).toHaveBeenCalledTimes(1);
+    expect(hoisted.mediaTrackStop).toHaveBeenCalled();
     expect(hoisted.wakeLockRelease).toHaveBeenCalledTimes(1);
   });
 });
