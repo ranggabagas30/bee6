@@ -15,8 +15,10 @@ import { dlpRedactor } from "@/lib/redact/dlp";
  *   3. digit-run (6+) replacement -> `[NUMBER]`
  *   4. `scrubStaffNames` -> `[STAFF]`
  *   5. one batched Sensitive Data Protection call per unit
- *   6. over-length fallback template for `summary` (defense-in-depth; Task 2's
- *      wire schema cap already makes this unreachable from a real call)
+ *   6. over-length fallback template for `summary` (defense-in-depth, but
+ *      genuinely reachable: a summary near the 300-char wire-schema cap can
+ *      grow past it once `[STAFF]`/SDP replacement tokens are substituted
+ *      in, since those tokens are often longer than the text they replace)
  *
  * Validation (1-2) runs on the model's RAW values, so replacement tokens
  * added in (3-5) can never cause a drop. Enum and boolean field values are
@@ -116,7 +118,7 @@ export async function sanitizeLabelOutput(
       category: t.category,
       confidence: t.confidence,
       evidence: [...t.evidence],
-      summary: replaceDigitRuns(scrubStaffNames(t.summary, staffNames)),
+      summary: scrubStaffNames(replaceDigitRuns(t.summary), staffNames),
       fields,
     };
     batchTexts.push(working.summary);
@@ -127,7 +129,7 @@ export async function sanitizeLabelOutput(
     if (t.runner_up) {
       const runnerUp = {
         category: t.runner_up.category,
-        why_not: replaceDigitRuns(scrubStaffNames(t.runner_up.why_not, staffNames)),
+        why_not: scrubStaffNames(replaceDigitRuns(t.runner_up.why_not), staffNames),
       };
       working.runner_up = runnerUp;
       batchTexts.push(runnerUp.why_not);
@@ -139,7 +141,7 @@ export async function sanitizeLabelOutput(
     if (fields) {
       const unmetRequest = fields.unmet_request as { item: string; reason: string } | undefined;
       if (unmetRequest) {
-        unmetRequest.item = replaceDigitRuns(scrubStaffNames(unmetRequest.item, staffNames));
+        unmetRequest.item = scrubStaffNames(replaceDigitRuns(unmetRequest.item), staffNames);
         batchTexts.push(unmetRequest.item);
         batchSetters.push((v) => {
           unmetRequest.item = v;
@@ -149,7 +151,7 @@ export async function sanitizeLabelOutput(
       const extractedRules = fields.extracted_rules as string[] | undefined;
       if (extractedRules) {
         extractedRules.forEach((rule, idx) => {
-          extractedRules[idx] = replaceDigitRuns(scrubStaffNames(rule, staffNames));
+          extractedRules[idx] = scrubStaffNames(replaceDigitRuns(rule), staffNames);
           batchTexts.push(extractedRules[idx]!);
           batchSetters.push((v) => {
             extractedRules[idx] = v;
@@ -172,10 +174,13 @@ export async function sanitizeLabelOutput(
     redacted.forEach((value, i) => batchSetters[i]!(value));
   }
 
-  // Step 6: over-length fallback (defense-in-depth; Task 2's wire schema cap
-  // already makes this unreachable from a real call). Never truncates —
-  // truncating could change meaning — replaces with a fixed, code-generated
-  // template instead.
+  // Step 6: over-length fallback. Genuinely reachable: a summary close to
+  // the 300-char wire-schema cap can grow past it after replacement tokens
+  // are substituted in — `[STAFF]` (7 chars) is longer than many short
+  // names, and SDP's own replacement tokens (e.g. `[EMAIL_ADDRESS]`) are
+  // longer than the text they replace. Never truncates — truncating could
+  // change meaning — replaces with a fixed, code-generated template
+  // instead.
   for (const working of workingThreads) {
     if (working.summary.length > SUMMARY_MAX) {
       working.summary = `${working.category} summary unavailable (too long)`;

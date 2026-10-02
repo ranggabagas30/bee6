@@ -357,6 +357,28 @@ describe("sanitizeLabelOutput", () => {
     expect(result.threads[0]?.summary).toBe("Order number [NUMBER] was checked");
   });
 
+  it("runs digit-replacement BEFORE staff-name scrub, so a name glued to digits is still caught", async () => {
+    // "Dina123456" — scrubbing first would fail (`\b` can't match between
+    // two word characters, so the glued name is never caught); digits-first
+    // leaves "Dina[NUMBER]", and `[` is a non-word boundary the scrub can match.
+    const wire = baseWire({
+      threads: [
+        {
+          id: "T1",
+          category: "ROUTINE_OPS",
+          confidence: 0.95,
+          evidence: [0],
+          summary: "Dina123456 cek oven",
+        },
+      ],
+    });
+    const result = await sanitizeLabelOutput(
+      { wire, config, staffNames: ["Dina"] },
+      { redactBatch: identityRedactBatch() },
+    );
+    expect(result.threads[0]?.summary).toBe("[STAFF][NUMBER] cek oven");
+  });
+
   it("calls the SDP batch client exactly once per unit, across every thread's free-text strings", async () => {
     const redactBatch = identityRedactBatch();
     const wire = baseWire({
