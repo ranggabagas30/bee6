@@ -41,6 +41,14 @@ npm test             # unit tests (vitest)
 npm run probe        # region probe -> config/regions.yaml (needs a real GCP project)
 ```
 
+`npm install` also runs `npm run prepare`, which points git at `.githooks`
+(`core.hooksPath`) for this repo. From then on, `git push` runs lint, build,
+and unit tests locally first and refuses the push if any of them fail (a
+`npm run smoke` step is skipped for now — it's not built until R-13). Use
+`git push --no-verify` to bypass this deliberately; that's standard git
+behavior, reserved for a human's explicit call, not something an agent
+decides on its own.
+
 ## Known gaps
 
 - No live GCP project is wired up yet — `config/regions.yaml` is a placeholder

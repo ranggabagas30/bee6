@@ -5,6 +5,7 @@
   "description": "SOP Improvement Agent for small F&B shops (GATI x Google Cloud AI Builder Cup 2026).",
   "scripts": {
     "dev": "next dev",
+    "prepare": "git config core.hooksPath .githooks || true",
     "vendor:capture": "node scripts/vendor-capture-assets.mjs",
     "predev": "npm run vendor:capture",
     "prebuild": "npm run vendor:capture",
