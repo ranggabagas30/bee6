@@ -4,11 +4,19 @@ import type { CaptureState } from "@/lib/capture/browser/engine";
  * Capture pipeline event log (DEV-01). A discriminated union of the capture
  * state machine's observable transitions — VAD/segment/wake-lock — for the
  * dev panel's on-page log. Deliberately carries only state names, segment
- * ids, byte counts and durations: **no variant has a free-text field**, so a
- * transcript or audio payload can never end up here even by accident (hard
- * rule #2). A future variant that tried to add one would be a reviewable type
- * change (caught by `lib/capture/browser/event-log.test.ts`'s
- * `@ts-expect-error` check), not a silent runtime leak.
+ * ids, byte counts and durations, so a transcript or audio payload can never
+ * end up here even by accident (hard rule #2). A future variant that tried to
+ * add a free-text field to one of these would be a reviewable type change
+ * (caught by `lib/capture/browser/event-log.test.ts`'s `@ts-expect-error`
+ * check), not a silent runtime leak.
+ *
+ * `mic_restart.reason` is the one field that isn't a closed enum: it's always
+ * a short machine identifier, never user-entered text, transcript, or audio —
+ * either a `DOMException`/`Error` `.name` (e.g. `"NotAllowedError"`) surfaced
+ * by `startCaptureVad`'s `onError`, or one of this module's own literals
+ * (`"device_change"`, `"microphone-unavailable"`). `Error.name` is open-ended
+ * (any string is legal), so it's typed as `string` rather than a literal
+ * union that would silently drift out of sync with real browser error names.
  *
  * Fed from the same state-reporting path that already drives
  * `StatusBanner`'s single current state (`CaptureSessionCallbacks.onStatus` /
