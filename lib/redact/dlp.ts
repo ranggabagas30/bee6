@@ -1,4 +1,6 @@
 import { DlpServiceClient, type protos } from "@google-cloud/dlp";
+import { getServiceLocation } from "@/config/regions";
+import { dlpApiEndpointFor, dlpParentFor } from "@/lib/redact/dlp-endpoint";
 import { ServiceUnavailableError } from "@/lib/http/errors";
 import { redactIndonesianPhones } from "@/lib/redact/indonesian-phone";
 import type { Redactor } from "@/lib/redact/types";
@@ -17,6 +19,13 @@ import type { Redactor } from "@/lib/redact/types";
  *    Error, so a transcript line cannot leak through a failure path.
  *
  * A pure Indonesian-phone regex pass runs first as a deterministic supplement.
+ *
+ * Region (hard rule #5): its location is never a literal or a raw
+ * `APP_REGION` env read — it comes from `getServiceLocation("dlp")`
+ * (config/regions.yaml), resolved the same probed-fallback way the
+ * Gemini models are: `npm run probe` fills it in with the first region
+ * that actually answers, trying Jakarta, then Singapore, then global
+ * (scripts/probe.ts).
  */
 
 type IDeidentifyContentRequest =
@@ -33,7 +42,6 @@ export const DLP_INFO_TYPES = [
 ] as const;
 
 const DEFAULT_TIMEOUT_MS = 30_000;
-const DEFAULT_REGION = "asia-southeast2";
 
 /**
  * Test seam: performs one `deidentifyContent` call. The default implementation
@@ -48,7 +56,7 @@ export interface DlpRedactorDeps {
   deidentify?: Deidentify;
   /** GCP project id. Defaults to `process.env.GOOGLE_CLOUD_PROJECT`. */
   project?: string;
-  /** DLP region. Defaults to `process.env.APP_REGION` then asia-southeast2. */
+  /** DLP region. Defaults to `getServiceLocation("dlp").location` (config/regions.yaml). */
   region?: string;
   /** Server-side timeout in ms. Defaults to 30 s. */
   timeoutMs?: number;
@@ -56,12 +64,13 @@ export interface DlpRedactorDeps {
   regexPass?: boolean;
 }
 
-/** The default caller: a regional DLP client (ADC), one `deidentifyContent`. */
+/** The default caller: a regional (or global) DLP client (ADC), one `deidentifyContent`. */
 function makeDlpDeidentify(region: string): Deidentify {
-  // Regional endpoint per the DLP docs (data stays in-region, hard rule #5).
-  const client = new DlpServiceClient({
-    apiEndpoint: `dlp.${region}.rep.googleapis.com`,
-  });
+  // Shared with scripts/probe.ts (lib/redact/dlp-endpoint.ts) so the real
+  // redactor and the probe can never disagree about how a region is
+  // reached (hard rule #5).
+  const apiEndpoint = dlpApiEndpointFor(region);
+  const client = apiEndpoint ? new DlpServiceClient({ apiEndpoint }) : new DlpServiceClient();
   return async (request, options) => {
     const [response] = await client.deidentifyContent(request, options);
     return response;
@@ -74,7 +83,7 @@ function buildRequest(
   text: string,
 ): IDeidentifyContentRequest {
   return {
-    parent: `projects/${project}/locations/${region}`,
+    parent: dlpParentFor(project, region),
     item: { value: text },
     inspectConfig: {
       infoTypes: DLP_INFO_TYPES.map((name) => ({ name })),
@@ -95,7 +104,7 @@ function buildRequest(
 
 export function dlpRedactor(deps: DlpRedactorDeps = {}): Redactor {
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const region = deps.region ?? process.env.APP_REGION ?? DEFAULT_REGION;
+  const region = deps.region ?? getServiceLocation("dlp").location;
   const useRegex = deps.regexPass ?? true;
   const deidentify = deps.deidentify ?? makeDlpDeidentify(region);
 

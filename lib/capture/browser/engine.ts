@@ -3,6 +3,7 @@ import { InMemoryQueue, type QueueItem } from "@/lib/capture/queue";
 import { PcmWindowBuffer } from "@/lib/capture/browser/pcm-buffer";
 import { backoffDelayMs, classifyUploadResult } from "@/lib/capture/retry";
 import type { CaptureVadFrame } from "@/lib/capture/browser/vad";
+import type { CaptureEvent } from "@/lib/capture/browser/event-log";
 
 /**
  * Headless capture engine (web spec §5) — the non-UI orchestration that turns VAD
@@ -78,6 +79,8 @@ export interface CaptureEngineOptions {
   maxAttempts?: number;
   sleep?: SleepFn;
   onStatusChange?: (status: CaptureStatus) => void;
+  /** DEV-01 dev-panel event log; optional, no behavior change when omitted. */
+  onEvent?: (event: CaptureEvent) => void;
 }
 
 const defaultSleep: SleepFn = (ms) =>
@@ -96,6 +99,7 @@ export class CaptureEngine {
   private readonly maxAttempts: number;
   private readonly sleep: SleepFn;
   private readonly onStatusChange?: (status: CaptureStatus) => void;
+  private readonly onEvent?: (event: CaptureEvent) => void;
   private readonly encode: EncodeFn;
   private readonly upload: UploadFn;
 
@@ -133,6 +137,7 @@ export class CaptureEngine {
     this.maxAttempts = options.maxAttempts ?? 6;
     this.sleep = options.sleep ?? defaultSleep;
     this.onStatusChange = options.onStatusChange;
+    this.onEvent = options.onEvent;
   }
 
   /** Feeds one VAD frame. Non-blocking; segment work is chained internally. */
@@ -230,13 +235,27 @@ export class CaptureEngine {
     };
   }
 
-  /** Extracts a closed segment's PCM synchronously, then chains encode+upload. */
+  /**
+   * Extracts a closed segment's PCM synchronously, then chains encode+upload.
+   * The segment id is generated here (not after encoding) so the dev-panel
+   * event log (`segment_opened`/`segment_closed`) can tag the same id the
+   * later upload events use — the batcher only ever reports a segment once
+   * its whole interval is known, so "opened" and "closed" are emitted
+   * together here rather than at two genuinely different real-time moments.
+   */
   private closeSegment(segment: { start_ms: number; end_ms: number }): void {
     if (!this.buffer) return;
     const samples = this.buffer.extractByMs(segment.start_ms, segment.end_ms);
     this.buffer.trimBeforeMs(segment.end_ms);
+    const segId = this.genSegId();
+    this.emitEvent({ type: "segment_opened", seg_id: segId });
+    this.emitEvent({
+      type: "segment_closed",
+      seg_id: segId,
+      duration_ms: segment.end_ms - segment.start_ms,
+    });
     this.pending = this.pending
-      .then(() => this.handleSegment(segment, samples))
+      .then(() => this.handleSegment(segId, segment, samples))
       .catch(() => {
         // handleSegment never rejects (encode failures drop the segment); this
         // only guards an unexpected throw so the chain survives.
@@ -244,6 +263,7 @@ export class CaptureEngine {
   }
 
   private async handleSegment(
+    segId: string,
     segment: { start_ms: number; end_ms: number },
     samples: Float32Array,
   ): Promise<void> {
@@ -254,10 +274,14 @@ export class CaptureEngine {
       return; // Cannot encode (e.g. no WebCodecs): drop rather than block.
     }
 
-    const id = this.genSegId();
+    this.emitEvent({
+      type: "segment_upload_started",
+      seg_id: segId,
+      byte_count: encoded.bytes.length,
+    });
     this.queue.enqueue({
-      id,
-      seg_id: id,
+      id: segId,
+      seg_id: segId,
       duration_ms: segment.end_ms - segment.start_ms,
       start_ms: segment.start_ms,
       end_ms: segment.end_ms,
@@ -284,6 +308,11 @@ export class CaptureEngine {
 
         const status = await this.upload(item);
         const disposition = classifyUploadResult(status);
+        this.emitEvent({
+          type: "segment_upload_result",
+          seg_id: item.id,
+          ok: disposition === "success",
+        });
 
         if (disposition === "success") {
           this.queue.confirmUploaded(item.id);
@@ -352,5 +381,9 @@ export class CaptureEngine {
 
   private emitStatus(): void {
     this.onStatusChange?.(this.status);
+  }
+
+  private emitEvent(event: CaptureEvent): void {
+    this.onEvent?.(event);
   }
 }

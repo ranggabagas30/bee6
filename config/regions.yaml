@@ -1,22 +1,22 @@
 # Written by `npm run probe`. Do not hand-edit — see scripts/probe.ts.
 # Probe order per model: asia-southeast2 -> asia-southeast1 -> global.
 version: 0.1
-probed_at: 2026-09-30T13:39:20.912Z
+probed_at: 2026-10-01T16:40:50.173Z
 models:
   gemini-3.5-transcribe-preview:
     location: global
-    latency_ms: 1711
-    probed_at: 2026-09-30T13:39:23.382Z
+    latency_ms: 1023
+    probed_at: 2026-10-01T16:40:51.821Z
     error: null
   gemini-3.5-flash-lite:
     location: global
-    latency_ms: 1368
-    probed_at: 2026-09-30T13:39:25.027Z
+    latency_ms: 952
+    probed_at: 2026-10-01T16:40:53.037Z
     error: null
   gemini-3.5-flash:
     location: asia-southeast1
-    latency_ms: 1712
-    probed_at: 2026-09-30T13:39:27.375Z
+    latency_ms: 1228
+    probed_at: 2026-10-01T16:40:54.398Z
     error: null
   gemini-live-debrief:
     location: UNPROBED
@@ -25,8 +25,14 @@ models:
     error:
       code: HTTP_404
       message: '{"error":{"code":404,"message":"Publisher model
-        `projects/project-a10437b4-b198-402e-97e/locations/global/publishers/google/models/gemini-live-debrief`
+        `projects/bee6-playground/locations/global/publishers/google/models/gemini-live-debrief`
         was not found or your project does not have access to it. Ensure you are
         using a valid model name and that the model is available in the
         specified region. For more information, see:
-        https://docs.cloud.google.com/gemini-enterprise-agent-platform/res…'
+        https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/location…'
+services:
+  dlp:
+    location: asia-southeast2
+    latency_ms: 2630
+    probed_at: 2026-10-01T16:40:57.711Z
+    error: null
