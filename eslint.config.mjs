@@ -24,6 +24,11 @@ const eslintConfig = defineConfig([
     // Vendored, minified capture assets (VAD worklet + ORT loaders), copied from
     // node_modules by scripts/vendor-capture-assets.mjs — not our source.
     "public/vendor/**",
+    // Local git worktrees (created under .claude/worktrees/ by agents/sessions for
+    // isolated builds) carry their own build artifacts (e.g. a nested .next/).
+    // They are local-only and never committed, so nothing inside them should be
+    // scanned from the main checkout.
+    ".claude/worktrees/**",
   ]),
 ]);
 
