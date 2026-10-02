@@ -26,7 +26,7 @@ import { pathToFileURL } from "node:url";
 import { callLabelModel } from "@/lib/pipeline/label/client";
 import { loadCategoriesConfig, type CategoriesConfig } from "@/lib/pipeline/label/config";
 import { buildLabelPrompt } from "@/lib/pipeline/label/prompt";
-import { generateResponseJsonSchema } from "@/lib/pipeline/label/wire-schema";
+import { buildLabelWireSchema, generateResponseJsonSchema } from "@/lib/pipeline/label/wire-schema";
 import type { LabelUnit } from "@/lib/pipeline/windowing";
 import { TRAP_FIXTURE_LINES, TRAP_LINE_INDEX } from "@/scripts/eval-label-fixtures";
 
@@ -71,8 +71,12 @@ export async function runTrapOnce(
     new_alias_count: unit.lines.length,
     open_alias_count: 0,
   });
+  const wireSchema = buildLabelWireSchema({
+    new_alias_count: unit.lines.length,
+    open_alias_count: 0,
+  });
 
-  const result = await callLabelModel({ unit, prompt, schema });
+  const result = await callLabelModel({ unit, prompt, schema, wireSchema });
   if (result.kind !== "ok") {
     console.log(`  run result: ${result.kind}`);
     return null;
