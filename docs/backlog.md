@@ -44,7 +44,7 @@ Off the path (can slip without moving a milestone): R-12, R-13, R-15, R-16.
 ## 3. Sprint 2 — understand the day, close the proposal loop (Mon 5 – Sun 11 Oct)
 
 ### R-05b Label call · 3 h · Mon 5
-- **Steps:** label prompt + JSON schema generated from `config/categories.yaml` (T-301) · Flash-Lite call with structured output: `reply_to` per line, category enum, fields, confidence, evidence line indices, runner-up + why not, `non_work_lines` (T-304) · private lines deleted after labelling, only counted · Cloud Tasks → `/api/internal/*` (OIDC) · Monday's segments reprocessed Tue.
+- **Steps:** label prompt + JSON schema generated from `config/categories.yaml` (T-301) · Flash-Lite call with structured output: `reply_to` per line, category enum, fields, confidence, evidence line indices, runner-up + why not, `non_work_lines` (T-304) · private lines deleted after labelling, only counted · Cloud Scheduler every 2 min → `POST /api/internal/pipeline/tick` (OIDC), one device at a time under a lease, oldest-first · Monday's segments reprocessed Tue.
 - **Depends on:** R-05a, Tiffany's category examples (Sun 4).
 - **Done when:** the hypothetical trap ("kalau nanti … habis") is labelled TRAINING on 5/5 runs; outputs pass zod; failures become questions, not facts.
 

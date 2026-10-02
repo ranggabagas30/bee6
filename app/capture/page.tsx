@@ -18,6 +18,7 @@ import {
 import { isDevControlsEnabled } from "@/lib/capture/dev-mode";
 import type { CaptureConfigResponse } from "@/lib/capture/contract";
 import type { CaptureStatus } from "@/lib/capture/browser/engine";
+import type { MicSourceClass } from "@/lib/capture/mic-source";
 
 /**
  * /capture — the shop phone's always-on listening screen (web spec §4.1, §5).
@@ -57,7 +58,7 @@ export default function CapturePage() {
     droppedCount: 0,
     micError: null,
   });
-  const [micSource, setMicSource] = useState("microphone");
+  const [micSource, setMicSource] = useState<MicSourceClass>("unknown");
   const [sampleRateMsg, setSampleRateMsg] = useState<string | null>(null);
   const sessionRef = useRef<CaptureSession | null>(null);
 
@@ -126,7 +127,7 @@ export default function CapturePage() {
       try {
         const session = await startCaptureSession(auth!, loadedConfig, {
           onStatus: (s) => !cancelled && setStatus(s),
-          onMicSource: (label) => !cancelled && setMicSource(label),
+          onMicSource: (source) => !cancelled && setMicSource(source),
           onUnsupported: () => {
             unsupported = true;
             if (!cancelled) setView("unsupported");

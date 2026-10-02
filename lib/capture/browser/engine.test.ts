@@ -91,6 +91,42 @@ describe("CaptureEngine", () => {
     expect(engine.status.droppedCount).toBe(1);
   });
 
+  it("does not drop a segment on the first 5xx right after reconnecting (B-4)", async () => {
+    // A long offline stretch (network-unreachable, status null) must not
+    // consume the server-error attempt budget. Before the fix, `count`
+    // counted every attempt including network failures, so a single 5xx
+    // arriving right after reconnect could push an already-high count past
+    // maxAttempts and drop the segment immediately.
+    let calls = 0;
+    const upload = vi.fn(async () => {
+      calls += 1;
+      if (calls <= 5) return null; // offline outage: 5 network failures
+      if (calls === 6) return 500; // one real server error after reconnecting
+      return 200; // then it recovers
+    });
+    const { engine } = makeEngine({ upload, maxAttempts: 3 });
+    engine.pushFrame(frame(0));
+    engine.flush();
+    await engine.drain();
+
+    expect(upload).toHaveBeenCalledTimes(7);
+    expect(engine.status.droppedCount).toBe(0);
+    expect(engine.status.queuedCount).toBe(0);
+  });
+
+  it("still drops a segment after maxAttempts worth of REAL server errors (B-4 regression guard)", async () => {
+    // The fix must not loosen the ceiling for genuine repeated 5xx/429s —
+    // only network failures should be excluded from the budget.
+    const upload = vi.fn(async () => 503 as number | null);
+    const { engine } = makeEngine({ upload, maxAttempts: 3 });
+    engine.pushFrame(frame(0));
+    engine.flush();
+    await engine.drain();
+
+    expect(upload).toHaveBeenCalledTimes(3);
+    expect(engine.status.droppedCount).toBe(1);
+  });
+
   it("survives a long offline outage without dropping any segment (finding #2)", async () => {
     // Connectivity is down (null) for many attempts, then recovers. With small
     // segments the 10-min capacity is never reached, so nothing is pruned and
@@ -255,6 +291,88 @@ describe("CaptureEngine", () => {
     engine.pushFrame(frame(0));
     engine.flush();
     await expect(engine.drain()).resolves.toBeUndefined();
+  });
+
+  it("keeps the PCM buffer bounded during extended continuous silence (B-3)", () => {
+    // Without the fix, trimBeforeMs only runs when a segment closes. During
+    // silence the batcher never closes anything, so the buffer would grow by
+    // ~64 KB/s (~230 MB/h) for as long as the mic stays muted/disconnected.
+    const { engine } = makeEngine();
+    const frameMs = 100; // 1_600 samples @ 16 kHz = 100 ms/frame
+    const oneHourOfFrames = (60 * 60 * 1_000) / frameMs; // 36_000 frames
+    for (let i = 0; i < oneHourOfFrames; i++) {
+      engine.pushFrame(frame(i * frameMs, 1_600, /* speech */ false));
+    }
+    // Stays near the idle-trim headroom (1 s) regardless of how long the
+    // silence lasted, instead of accumulating an hour of PCM.
+    expect(engine.bufferedMs).toBeLessThan(2_000);
+  });
+
+  it("still buffers the full segment while one is open, even next to idle trimming", async () => {
+    // The idle trim (B-3) must never eat into audio an open segment still
+    // needs — only silence with no open segment should be trimmed.
+    const seen: { length: number }[] = [];
+    const encode = vi.fn(async (samples: Float32Array) => {
+      seen.push({ length: samples.length });
+      return { bytes: new Uint8Array([1]), contentType: "audio/webm;codecs=opus" };
+    });
+    const { engine } = makeEngine({
+      encode,
+      batcher: new SegmentBatcher({ maxSegmentMs: 5_000, prerollMs: 0 }),
+    });
+    // A long run of speech (segment open throughout) must survive intact.
+    for (let i = 0; i < 40; i++) {
+      engine.pushFrame(frame(i * 100, 1_600, true));
+    }
+    engine.flush();
+    await engine.drain();
+
+    expect(encode).toHaveBeenCalledTimes(1);
+    // end_ms is the *start* of the last speech frame (pre-existing, documented
+    // half-open extraction, §2.3), so the span is 39 frames' worth, not 40 —
+    // the point here is that idle trimming took nothing extra off that.
+    expect(seen[0]?.length).toBe(39 * 1_600);
+  });
+
+  it("preserves the full default 400 ms pre-roll across a long-silence -> speech transition (B-3 boundary, round 2)", async () => {
+    // Both B-3 tests above use `prerollMs: 0`, so neither ever exercises the
+    // boundary where the idle-trim headroom (1 s, IDLE_TRIM_KEEP_MS) must
+    // still cover the batcher's DEFAULT 400 ms pre-roll once speech resumes.
+    // Use the real default batcher config here instead of overriding it.
+    const seen: Float32Array[] = [];
+    const encode = vi.fn(async (samples: Float32Array) => {
+      seen.push(samples);
+      return { bytes: new Uint8Array([1]), contentType: "audio/webm;codecs=opus" };
+    });
+    const { engine } = makeEngine({
+      encode,
+      batcher: new SegmentBatcher(), // DEFAULT_BATCHER_CONFIG: prerollMs 400
+    });
+
+    const frameMs = 100;
+    // 10 s of continuous silence — long enough for the idle trim to run many
+    // times before speech starts.
+    const silenceFrames = 10_000 / frameMs;
+    for (let i = 0; i < silenceFrames; i++) {
+      engine.pushFrame(frame(i * frameMs, 1_600, /* speech */ false));
+    }
+    // 400 ms of speech (5 frames) right after the silence.
+    for (let i = 0; i < 5; i++) {
+      engine.pushFrame(frame(silenceFrames * frameMs + i * frameMs, 1_600, true));
+    }
+    engine.flush();
+    await engine.drain();
+
+    expect(encode).toHaveBeenCalledTimes(1);
+    // 400 ms pre-roll + 400 ms of speech (4 inter-frame gaps) = 800 ms @ 16 kHz.
+    expect(seen[0]?.length).toBe(12_800);
+    // No sample in the extracted window — including the 400 ms pre-roll
+    // portion — is a default-initialized zero (`extractByMs` zero-fills any
+    // stretch no retained chunk covers), which is what idle-trim having eaten
+    // into the pre-roll window would otherwise leave behind. (Not compared
+    // against the literal `0.1` fill value itself: Float32Array storage
+    // can't represent 0.1 exactly, so that equality would never hold.)
+    expect(Array.from(seen[0] ?? []).every((s) => s !== 0)).toBe(true);
   });
 
   it("computes speech percentage and resets it on snapshot", () => {

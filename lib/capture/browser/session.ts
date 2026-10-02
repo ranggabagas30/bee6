@@ -5,6 +5,7 @@ import {
   isOpusEncoderSupported,
 } from "@/lib/capture/browser/encoder";
 import { startCaptureVad, type CaptureVadHandle } from "@/lib/capture/browser/vad";
+import { classifyMicSource, type MicSourceClass } from "@/lib/capture/mic-source";
 import { WakeLockManager } from "@/lib/capture/browser/wake-lock";
 import { RestartController } from "@/lib/capture/browser/restart";
 import { isSampleRateSupported, checkSampleRate } from "@/lib/capture/sample-rate";
@@ -46,7 +47,8 @@ async function readBatteryPct(): Promise<number | null> {
 
 export interface CaptureSessionCallbacks {
   onStatus: (status: CaptureStatus) => void;
-  onMicSource: (label: string) => void;
+  /** Always a classified value (hard rule #7, B-5) — never a raw device label. */
+  onMicSource: (source: MicSourceClass) => void;
   onUnsupported: () => void;
   onSampleRateRejected: (message: string) => void;
   /**
@@ -101,7 +103,10 @@ export async function startCaptureSession(
 
   let vadHandle: CaptureVadHandle | null = null;
   let currentStream: MediaStream | null = null;
-  let micSource = "microphone";
+  // Classified value only (B-5); never a raw label. Typed as `MicSourceClass`
+  // (not `string`) so a future edit can't accidentally assign a raw label
+  // without a type error.
+  let micSource: MicSourceClass = "unknown";
   // We capture/encode at 16 kHz regardless of the mic's native rate (the VAD
   // resamples), so the heartbeat reports the capture rate.
   const sampleRate = CAPTURE_SAMPLE_RATE;
@@ -120,7 +125,10 @@ export async function startCaptureSession(
       cb.onSampleRateRejected(checkSampleRate(rate).message ?? "Unsupported mic");
       throw new Error("sample-rate-too-low");
     }
-    micSource = track?.label || "microphone";
+    // Classify rather than store the raw label: it commonly carries a device
+    // owner's name (e.g. "Dina's AirPods"), and names must never live outside
+    // the `staff` collection — not in `heartbeats`, and not on screen (B-5).
+    micSource = classifyMicSource(track?.label || "");
     cb.onMicSource(micSource);
     return stream;
   };
@@ -129,7 +137,7 @@ export async function startCaptureSession(
     engine.pushFrame(frame);
   const onError = (message: string) => {
     engine.setMicError(message);
-    void scheduleRestart(message);
+    scheduleRestart(message);
   };
 
   async function spinUp(): Promise<void> {
@@ -139,27 +147,110 @@ export async function startCaptureSession(
       restart.reset();
     } catch {
       engine.setMicError("microphone-unavailable");
-      void scheduleRestart("microphone-unavailable");
+      scheduleRestart("microphone-unavailable");
     }
   }
 
-  async function scheduleRestart(reason = "device_change"): Promise<void> {
-    if (stopped) return;
+  /**
+   * Single in-flight-restart guard (finding B-2). The VAD's `getStream`
+   * wrapper rethrows a mic failure after already calling `onError`
+   * (`vad.ts`), so one mic error fires both `onError` (above) and this same
+   * `spinUp`/`runRestartAttempt` call's own catch below — without a guard,
+   * both call sites would each schedule and run their own restart, leaving
+   * two `MicVAD`s feeding one engine with different time bases and a
+   * corrupted PCM timeline. `restarting` stays true for the whole retry
+   * cycle (possibly several attempts) and is only ever cleared once the mic
+   * comes back healthy, or the session stops — so external triggers
+   * (another `onError`, a `devicechange` burst) during that time are
+   * no-ops, coalesced into the one cycle already running.
+   */
+  let restarting = false;
+
+  /**
+   * Stops and drops the current media stream's tracks. Factored into its own
+   * function (rather than inlined at each call site) so each call gets a
+   * fresh type-narrowing pass on `currentStream` — inlining this after an
+   * explicit `currentStream = null` would otherwise have TypeScript narrow it
+   * to literal `null` straight through the following `await`, which is wrong
+   * once `getStream` (reachable through that same `await`) may have
+   * reassigned it in the meantime.
+   */
+  function stopCurrentStream(): void {
+    currentStream?.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+    currentStream = null;
+  }
+
+  function scheduleRestart(reason: string): void {
+    if (stopped || restarting) return;
+    restarting = true;
+    runRestartAttempt(reason);
+  }
+
+  /**
+   * Runs one restart attempt after backoff. On failure it chains directly
+   * into the next attempt instead of going through `scheduleRestart` — that
+   * guard must stay closed for the whole cycle, not reopen between its own
+   * attempts. A failed attempt's retry always chains with reason
+   * `"microphone-unavailable"` (not the original trigger) — only the very
+   * first attempt of a cycle carries the real trigger (the `onError`
+   * message, `"device_change"`, or the initial `spinUp` failure), matching
+   * DEV-01's `mic_restart` event log semantics (`event-log.ts`).
+   *
+   * The whole body (round 2 fix) runs inside one try/catch: if anything
+   * throws — including a synchronous throw from `engine.resyncTimeline()`,
+   * not just a `startCaptureVad` rejection — the catch chains into another
+   * attempt instead of letting the async IIFE reject silently, which would
+   * otherwise leave `restarting` stuck `true` forever and permanently
+   * disable mic self-restart for the rest of the session. A chained retry
+   * that fires after `stop()` is a no-op: it immediately hits the `stopped`
+   * check at the top of the next attempt and clears the guard without
+   * spinning up a new mic.
+   */
+  function runRestartAttempt(reason: string): void {
     const delay = restart.nextDelayMs();
-    setTimeout(async () => {
-      if (stopped) return;
-      try {
-        await vadHandle?.destroy();
-      } catch {
-        /* ignore */
-      }
-      currentStream?.getTracks().forEach((t) => t.stop());
-      currentStream = null;
-      // Rebase the engine timeline onto the new VAD clock so post-restart frames
-      // extract the right audio instead of silence (finding #1).
-      engine.resyncTimeline();
-      cb.onEvent?.({ type: "mic_restart", reason });
-      await spinUp();
+    setTimeout(() => {
+      void (async () => {
+        if (stopped) {
+          restarting = false;
+          return;
+        }
+        try {
+          try {
+            await vadHandle?.destroy();
+          } catch {
+            /* ignore */
+          }
+          stopCurrentStream();
+          // Rebase the engine timeline onto the new VAD clock so post-restart
+          // frames extract the right audio instead of silence (finding #1).
+          engine.resyncTimeline();
+          // DEV-01 dev-panel event log — one entry per attempt, including
+          // chained retries (see the reason-threading note above).
+          cb.onEvent?.({ type: "mic_restart", reason });
+          const handle = await startCaptureVad({ getStream, onFrame, onError });
+          if (stopped) {
+            // `stop()` ran while `startCaptureVad` was in flight: it already
+            // tore down the previous mic, so don't let this late-arriving
+            // handle become the live one — destroy it and the stream it
+            // opened, or the mic stays on and frames keep reaching an
+            // aborted engine (finding #2).
+            try {
+              await handle.destroy();
+            } finally {
+              stopCurrentStream();
+            }
+            restarting = false;
+            return;
+          }
+          vadHandle = handle;
+          engine.clearMicError();
+          restart.reset();
+          restarting = false;
+        } catch {
+          engine.setMicError("microphone-unavailable");
+          runRestartAttempt("microphone-unavailable");
+        }
+      })();
     }, delay);
   }
 
@@ -187,7 +278,7 @@ export async function startCaptureSession(
       await wakeLock.reacquireIfNeeded();
       cb.onEvent?.({ type: "wake_lock_changed", held: wakeLock.held });
     })();
-  const onDeviceChange = () => void scheduleRestart();
+  const onDeviceChange = () => scheduleRestart("device_change");
   document.addEventListener("visibilitychange", onVisibility);
   navigator.mediaDevices.addEventListener?.("devicechange", onDeviceChange);
 

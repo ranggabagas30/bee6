@@ -6,6 +6,7 @@ import {
 } from "@/lib/http/errors";
 import { HeartbeatSchema, OutletSchema, type Heartbeat } from "@/lib/firestore/schema";
 import type { CustomClaims } from "@/lib/auth/roles";
+import { classifyMicSource } from "@/lib/capture/mic-source";
 
 /**
  * Shared capture contract (R-03, web spec §4.1/§5). This module is the single
@@ -123,10 +124,22 @@ export type SegmentMetadata = z.infer<typeof SegmentMetadataSchema>;
  * client — and are merged back in by `toHeartbeat` before the stored
  * `HeartbeatSchema` is ever satisfied. Reuses the stored schema so the two can
  * never drift.
+ *
+ * `mic_source` overrides the stored enum field with `z.string().transform(
+ * classifyMicSource)` (hard rule #7, B-5 round 2): the wire format still
+ * accepts ANY string, so an already-deployed client that hasn't picked up the
+ * client-side classification yet (`session.ts`) keeps getting 200s — but the
+ * value is classified into a fixed bucket here, server-side, before it is ever
+ * used or passed to `toHeartbeat`/`HeartbeatSchema`. Classifying only on the
+ * client (as the first B-5 fix did) is not a security boundary on its own: an
+ * old JS bundle already loaded on the shop phone would otherwise keep posting
+ * the raw label until the page reloads.
  */
 export const HeartbeatRequestSchema = HeartbeatSchema.omit({
   outlet_id: true,
   device_id: true,
+}).extend({
+  mic_source: z.string().transform(classifyMicSource),
 });
 export type HeartbeatRequest = z.infer<typeof HeartbeatRequestSchema>;
 

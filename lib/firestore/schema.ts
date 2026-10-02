@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PrincipalRoleSchema, UserRoleSchema } from "@/lib/auth/roles";
+import { MIC_SOURCE_CLASSES } from "@/lib/capture/mic-source";
 
 /**
  * Firestore schema v0 (web spec §6.4). zod schemas + inferred TS types for every
@@ -99,7 +100,13 @@ export const HeartbeatSchema = z
     ...withOutlet,
     device_id: z.string().min(1),
     ts: isoDateTime,
-    mic_source: z.string().min(1),
+    /**
+     * One of the fixed classes only (hard rule #7, B-5 round 2) — never a raw
+     * device label. The heartbeat *request* schema (`contract.ts`) classifies
+     * any incoming string before this is ever parsed, so a stale client that
+     * still posts a raw label gets reclassified server-side, not rejected.
+     */
+    mic_source: z.enum(MIC_SOURCE_CLASSES),
     sample_rate: z.number().int().positive(),
     speech_pct: z.number().min(0).max(100),
     queue_size: z.number().int().min(0),

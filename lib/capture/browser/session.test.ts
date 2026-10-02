@@ -1,148 +1,214 @@
-// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { DeviceAuth } from "@/lib/capture/browser/client";
+import type { CaptureConfigResponse } from "@/lib/capture/contract";
 
 /**
- * `startCaptureSession` composes browser-only adapters (mic, VAD, wake lock,
- * encoder, HTTP) that this project otherwise verifies via QA's browser pass,
- * not unit tests (see the module's own header comment). DEV-01 adds a plain
- * translation step (status → `CaptureEvent`) inside that composition, so this
- * file fakes every adapter session.ts imports and asserts only the new
- * `onEvent` wiring + the real `stop()` release behavior the dev panel's Pause
- * button reuses — it is not a general session.ts behavior suite.
+ * Finding B-2: the VAD's `getStream` wrapper (`vad.ts`) calls `onError` and
+ * then rethrows on a mic failure, so without a single-flight guard, one mic
+ * error schedules two concurrent restarts. We mock `startCaptureVad` to
+ * reproduce that exact double-fire — call `onError`, then reject — the same
+ * way the real `vad.ts` behaves, and assert `session.ts`'s guard still lets
+ * only one restart attempt run.
+ *
+ * This file shares `session.ts` with `session-events.test.ts` (DEV-01's
+ * `onEvent` + `stop()` suite). The two files don't share a `vi.mock` of
+ * `@/lib/capture/browser/vad` — this one needs full control over exactly
+ * when `onError` fires vs. when the mock rejects, so it mocks the module as
+ * a bare `vi.fn()`; the other needs a mock that actually calls `getStream`
+ * so `currentStream` release is exercised. Splitting avoids one file's
+ * `vi.mock` factory silently overriding the other's.
  */
-
-const hoisted = vi.hoisted(() => ({
-  vadOnFrame: null as ((frame: unknown) => void) | null,
-  vadOnError: null as ((message: string) => void) | null,
-  vadDestroy: vi.fn(async () => {}),
-  wakeLockAcquire: vi.fn(async () => true),
-  wakeLockRelease: vi.fn(async () => {}),
-  mediaTrackStop: vi.fn(),
+vi.mock("@/lib/capture/browser/vad", () => ({
+  startCaptureVad: vi.fn(),
 }));
-
 vi.mock("@/lib/capture/browser/encoder", () => ({
   CAPTURE_SAMPLE_RATE: 16_000,
   isOpusEncoderSupported: () => true,
-  encodeSegmentToWebmOpus: async () => ({
-    bytes: new Uint8Array([1, 2, 3]),
-    contentType: "audio/webm;codecs=opus",
-  }),
+  encodeSegmentToWebmOpus: vi.fn(),
 }));
 
-vi.mock("@/lib/capture/browser/vad", () => ({
-  startCaptureVad: async (opts: {
-    getStream: () => Promise<unknown>;
-    onFrame: (frame: unknown) => void;
-    onError: (message: string) => void;
-  }) => {
-    // The real VAD requests the mic stream before it starts delivering
-    // frames; mirror that here so `currentStream` (and its eventual release
-    // on stop()) is actually exercised, not skipped.
-    await opts.getStream();
-    hoisted.vadOnFrame = opts.onFrame;
-    hoisted.vadOnError = opts.onError;
-    return { destroy: hoisted.vadDestroy };
-  },
-}));
-
-vi.mock("@/lib/capture/browser/wake-lock", () => ({
-  WakeLockManager: class {
-    held = true;
-    acquire = hoisted.wakeLockAcquire;
-    release = hoisted.wakeLockRelease;
-    reacquireIfNeeded = async () => {};
-  },
-}));
-
-vi.mock("@/lib/capture/browser/client", () => ({
-  createHeartbeatPoster: () => async () => {},
-  createSegmentUploader: () => async () => 200,
-}));
-
+import { startCaptureVad } from "@/lib/capture/browser/vad";
 import { startCaptureSession } from "@/lib/capture/browser/session";
-import type { CaptureEvent } from "@/lib/capture/browser/event-log";
 
-const AUTH = { deviceToken: "t", deviceId: "d" };
-const CONFIG = {
-  consent_complete: true,
-  opening_time: "08:00",
-  closing_time: "20:00",
-  timezone: "Asia/Jakarta",
-} as const;
+const startCaptureVadMock = startCaptureVad as unknown as ReturnType<typeof vi.fn>;
 
-beforeEach(() => {
-  Object.defineProperty(navigator, "mediaDevices", {
-    configurable: true,
-    value: {
-      getUserMedia: vi.fn(async () => ({
-        getAudioTracks: () => [{ label: "fake mic", getSettings: () => ({}), stop: hoisted.mediaTrackStop }],
-        getTracks: () => [{ stop: hoisted.mediaTrackStop }],
-      })),
+function stubBrowserGlobals() {
+  vi.stubGlobal("document", {
+    visibilityState: "visible",
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  });
+  vi.stubGlobal("navigator", {
+    mediaDevices: {
+      getUserMedia: vi.fn(),
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
     },
   });
-});
+}
 
-afterEach(() => {
-  vi.clearAllMocks();
-  hoisted.vadOnFrame = null;
-  hoisted.vadOnError = null;
-});
+const auth: DeviceAuth = { deviceToken: "t", deviceId: "d" };
+const config = {} as CaptureConfigResponse;
+const cb = {
+  onStatus: vi.fn(),
+  onMicSource: vi.fn(),
+  onUnsupported: vi.fn(),
+  onSampleRateRejected: vi.fn(),
+};
 
-describe("startCaptureSession onEvent", () => {
-  it("calls onEvent with a matching state_changed event when onEvent is provided", async () => {
-    const events: CaptureEvent[] = [];
-    const onStatusCalls: unknown[] = [];
-    const session = await startCaptureSession(AUTH, CONFIG, {
-      onStatus: (s) => onStatusCalls.push(s),
-      onMicSource: () => {},
-      onUnsupported: () => {},
-      onSampleRateRejected: () => {},
-      onEvent: (e) => events.push(e),
-    });
+describe("startCaptureSession restart guard (B-2)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    stubBrowserGlobals();
+    startCaptureVadMock.mockReset();
+  });
 
-    const stateEvents = events.filter((e) => e.type === "state_changed");
-    expect(stateEvents.length).toBeGreaterThan(0);
-    const last = stateEvents.at(-1);
-    const lastStatus = onStatusCalls.at(-1) as { state: string; queuedCount: number };
-    expect(last).toEqual({
-      type: "state_changed",
-      state: lastStatus.state,
-      queuedCount: lastStatus.queuedCount,
-    });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("runs exactly one restart when onError and the spinUp catch both fire for the same mic failure", async () => {
+    let calls = 0;
+    startCaptureVadMock.mockImplementation(
+      async (opts: { onError?: (msg: string) => void }) => {
+        calls += 1;
+        if (calls === 1) {
+          // Reproduce vad-web's real behaviour: call onError, THEN reject —
+          // both call sites in session.ts fire for this one failure.
+          opts.onError?.("NotReadableError");
+          throw new Error("NotReadableError");
+        }
+        // The restart attempt succeeds.
+        return { pause: vi.fn(), destroy: vi.fn() };
+      },
+    );
+
+    const session = await startCaptureSession(auth, config, cb);
+    // The initial spinUp has already failed and scheduled (at most) one
+    // restart by this point.
+    expect(startCaptureVadMock).toHaveBeenCalledTimes(1);
+
+    // Without the guard, `onError` and the `spinUp` catch each schedule their
+    // own timer via RestartController.nextDelayMs() (500 ms, then 1_000 ms for
+    // the second). Advance past BOTH possible delays, not just the first, so
+    // a second, orphaned restart attempt would have had the chance to fire.
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    // Exactly one restart attempt ran — not two. Two would mean a second,
+    // orphaned MicVAD is also feeding the engine (the corrupted-timeline bug).
+    expect(startCaptureVadMock).toHaveBeenCalledTimes(2);
 
     await session?.stop();
   });
 
-  it("does nothing extra (no crash, no behavior change) when onEvent is omitted", async () => {
-    const onStatusCalls: unknown[] = [];
-    const session = await startCaptureSession(AUTH, CONFIG, {
-      onStatus: (s) => onStatusCalls.push(s),
-      onMicSource: () => {},
-      onUnsupported: () => {},
-      onSampleRateRejected: () => {},
-      // onEvent omitted on purpose.
-    });
-    expect(onStatusCalls.length).toBeGreaterThan(0);
+  it("leaves no lingering duplicate restart timer after the mic recovers", async () => {
+    // Without the guard, onError's timer (500 ms) and spinUp's catch's timer
+    // (1_000 ms) are both scheduled from the one initial failure. The first
+    // one succeeding must not leave the second one to fire later and spin up
+    // a second, orphaned MicVAD anyway.
+    let calls = 0;
+    startCaptureVadMock.mockImplementation(
+      async (opts: { onError?: (msg: string) => void }) => {
+        calls += 1;
+        if (calls === 1) {
+          opts.onError?.("NotReadableError");
+          throw new Error("NotReadableError");
+        }
+        return { pause: vi.fn(), destroy: vi.fn() }; // every retry succeeds
+      },
+    );
+
+    const session = await startCaptureSession(auth, config, cb);
+    expect(startCaptureVadMock).toHaveBeenCalledTimes(1);
+
+    // Past both of the two delays a buggy unguarded implementation would
+    // have scheduled (500 ms and 1_000 ms) from the single initial failure.
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(startCaptureVadMock).toHaveBeenCalledTimes(2);
+
     await session?.stop();
   });
-});
 
-describe("startCaptureSession stop()", () => {
-  it("releases the mic track and the wake lock", async () => {
-    const session = await startCaptureSession(AUTH, CONFIG, {
-      onStatus: () => {},
-      onMicSource: () => {},
-      onUnsupported: () => {},
-      onSampleRateRejected: () => {},
-    });
-    expect(hoisted.wakeLockAcquire).toHaveBeenCalledTimes(1);
+  it("coalesces a devicechange burst with an in-flight restart into one attempt", async () => {
+    let calls = 0;
+    let deviceChangeHandler: (() => void) | undefined;
+    const mediaDevices = {
+      getUserMedia: vi.fn(),
+      addEventListener: vi.fn((type: string, handler: () => void) => {
+        if (type === "devicechange") deviceChangeHandler = handler;
+      }),
+      removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal("navigator", { mediaDevices });
+
+    startCaptureVadMock.mockImplementation(
+      async (opts: { onError?: (msg: string) => void }) => {
+        calls += 1;
+        if (calls === 1) {
+          opts.onError?.("NotReadableError");
+          throw new Error("NotReadableError");
+        }
+        return { pause: vi.fn(), destroy: vi.fn() };
+      },
+    );
+
+    const session = await startCaptureSession(auth, config, cb);
+    expect(startCaptureVadMock).toHaveBeenCalledTimes(1);
+
+    // A devicechange burst while the restart from the mic error is still
+    // pending must not add extra restart attempts.
+    deviceChangeHandler?.();
+    deviceChangeHandler?.();
+    deviceChangeHandler?.();
+
+    // Advance past every delay a buggy, unguarded implementation could have
+    // scheduled (one from onError/catch, one or more from the devicechange
+    // bursts), not just the first.
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(startCaptureVadMock).toHaveBeenCalledTimes(2);
 
     await session?.stop();
+  });
 
-    expect(hoisted.vadDestroy).toHaveBeenCalledTimes(1);
-    expect(hoisted.mediaTrackStop).toHaveBeenCalled();
-    expect(hoisted.wakeLockRelease).toHaveBeenCalledTimes(1);
+  it("reopens the guard after recovery: a later devicechange still triggers a restart (round 2)", async () => {
+    // Distinguishes the guard from a one-shot latch: once a restart cycle
+    // completes and the mic is healthy again, a brand-new failure must be
+    // able to trigger its own restart — `restarting` must not still be stuck
+    // `true` from the earlier cycle.
+    let deviceChangeHandler: (() => void) | undefined;
+    const mediaDevices = {
+      getUserMedia: vi.fn(),
+      addEventListener: vi.fn((type: string, handler: () => void) => {
+        if (type === "devicechange") deviceChangeHandler = handler;
+      }),
+      removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal("navigator", { mediaDevices });
+
+    // The initial spinUp and every restart attempt succeed cleanly (no
+    // onError double-fire here — that's covered by the tests above).
+    startCaptureVadMock.mockImplementation(async () => ({
+      pause: vi.fn(),
+      destroy: vi.fn(),
+    }));
+
+    const session = await startCaptureSession(auth, config, cb);
+    expect(startCaptureVadMock).toHaveBeenCalledTimes(1);
+
+    // First devicechange: guard opens, one restart cycle runs to completion.
+    deviceChangeHandler?.();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(startCaptureVadMock).toHaveBeenCalledTimes(2);
+
+    // A second, later devicechange — after the first cycle fully finished —
+    // must still trigger a new restart, proving the guard reopened instead
+    // of staying latched closed.
+    deviceChangeHandler?.();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(startCaptureVadMock).toHaveBeenCalledTimes(3);
+
+    await session?.stop();
   });
 });

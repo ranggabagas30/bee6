@@ -23,6 +23,14 @@ import type { CaptureEvent } from "@/lib/capture/browser/event-log";
 
 const DEFAULT_SAMPLE_RATE = 16_000;
 const MAX_BACKOFF_MS = 30_000;
+/**
+ * How much PCM to keep as headroom while idle (no open segment), so the next
+ * segment's pre-roll (default 400 ms, `batcher.ts`) is still in the buffer
+ * when speech resumes. Trimming to this little during silence is what bounds
+ * memory during a long quiet period (finding B-3) instead of only trimming on
+ * segment close.
+ */
+const IDLE_TRIM_KEEP_MS = 1_000;
 
 export interface QueuedSegment extends QueueItem {
   id: string;
@@ -96,8 +104,16 @@ export class CaptureEngine {
   private readonly upload: UploadFn;
 
   private buffer: PcmWindowBuffer | null = null;
-  /** Attempt counter for the current queue head only (O(1), no leak). */
-  private headAttempt: { id: string; count: number } | null = null;
+  /**
+   * Attempt counters for the current queue head only (O(1), no leak).
+   * `serverErrorCount` is what `maxAttempts` is checked against — it counts
+   * only real 429/5xx responses. Plain network-unreachable attempts (`status
+   * === null`) bump `count` for observability but never `serverErrorCount`,
+   * so a long offline stretch can't consume the server-error budget and get
+   * a segment dropped on its first 5xx right after reconnecting (B-4).
+   */
+  private headAttempt: { id: string; count: number; serverErrorCount: number } | null =
+    null;
   private pumping = false;
   private connectionOk = true;
   private micError: string | null = null;
@@ -132,7 +148,16 @@ export class CaptureEngine {
     if (frame.speech) this.speechFrames += 1;
 
     const segment = this.batcher.push({ ts: frame.ts, speech: frame.speech });
-    if (segment) this.closeSegment(segment);
+    if (segment) {
+      this.closeSegment(segment);
+    } else if (!this.batcher.isActive) {
+      // No segment is open (continuous silence, or a muted/disconnected mic):
+      // the batcher never closes anything to trigger `closeSegment`'s trim, so
+      // trim here too, independent of segment closure. This bounds memory
+      // during an arbitrarily long quiet period instead of growing ~64 KB/s
+      // forever (finding B-3).
+      this.buffer.trimBeforeMs(frame.ts - IDLE_TRIM_KEEP_MS);
+    }
   }
 
   /** Closes any open segment (call on stop / closing time). */
@@ -188,6 +213,11 @@ export class CaptureEngine {
       droppedCount: this.queue.droppedCount + this.uploadDropped,
       micError: this.micError,
     };
+  }
+
+  /** Approximate PCM buffer size in ms (observability / test hook, B-3). */
+  get bufferedMs(): number {
+    return this.buffer?.bufferedMs ?? 0;
   }
 
   /** Heartbeat metrics; resets the speech window so each call covers ~60 s. */
@@ -272,7 +302,7 @@ export class CaptureEngine {
         if (!item) break;
 
         if (this.headAttempt?.id !== item.id) {
-          this.headAttempt = { id: item.id, count: 0 };
+          this.headAttempt = { id: item.id, count: 0, serverErrorCount: 0 };
         }
         this.headAttempt.count += 1;
 
@@ -299,8 +329,12 @@ export class CaptureEngine {
         // Transient failure. A network loss (null) retries forever — only the
         // 10-min queue capacity prunes it (finding #2). A repeated server error
         // still gives up after maxAttempts so one poison segment can't stall the
-        // queue indefinitely.
-        if (status !== null && this.headAttempt.count >= this.maxAttempts) {
+        // queue indefinitely. Only real 429/5xx responses count toward that
+        // budget (`serverErrorCount`) — a network-unreachable stretch (status
+        // null) must not consume it, or a segment can get dropped on its very
+        // first 5xx right after reconnecting (B-4).
+        if (status !== null) this.headAttempt.serverErrorCount += 1;
+        if (status !== null && this.headAttempt.serverErrorCount >= this.maxAttempts) {
           this.dropHead(item.id);
           continue;
         }
