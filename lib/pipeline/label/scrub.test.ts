@@ -33,6 +33,12 @@ describe("scrubStaffNames", () => {
       "[STAFF] and [STAFF] checked the oven",
     );
   });
+
+  it("matches a non-ASCII name using unicode-aware word boundaries", () => {
+    // `\b` only treats ASCII letters/digits as word characters, so without
+    // the `u`-flag lookaround fix this name would never match.
+    expect(scrubStaffNames("tanya Đạt dulu", ["Đạt"])).toBe("tanya [STAFF] dulu");
+  });
 });
 
 describe("scrubUnitLines", () => {

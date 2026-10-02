@@ -46,7 +46,15 @@ export function scrubStaffNames(text: string, staffNames: readonly string[]): st
   for (const name of names) {
     const foldedName = foldString(name).toLowerCase();
     if (!foldedName) continue;
-    const pattern = new RegExp(`\\b${escapeRegExp(foldedName)}\\b`, "g");
+    // Unicode-aware word boundaries: `\b` only treats ASCII letters/digits
+    // as word characters, so a non-ASCII name (e.g. "Đạt") glued to
+    // non-word punctuation would never match. Lookaround against
+    // `\p{L}`/`\p{N}` with the `u` flag works for any script; `\b` itself
+    // can't be made unicode-aware directly.
+    const pattern = new RegExp(
+      `(?<![\\p{L}\\p{N}_])${escapeRegExp(foldedName)}(?![\\p{L}\\p{N}_])`,
+      "gu",
+    );
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(foldedLower)) !== null) {
       ranges.push({ start: match.index, end: match.index + match[0].length });
