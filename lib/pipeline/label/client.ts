@@ -5,7 +5,7 @@ import {
 } from "@google/genai";
 import { z } from "zod";
 import { getModelLocation } from "@/config/regions";
-import { buildLenientLabelWireSchema, type LabelWireOutput } from "@/lib/pipeline/label/wire-schema";
+import type { LabelWireOutput } from "@/lib/pipeline/label/wire-schema";
 import type { LabelUnit } from "@/lib/pipeline/windowing";
 
 /**
@@ -96,6 +96,11 @@ export async function callLabelModel(
     unit: LabelUnit;
     prompt: { systemInstruction: string; userContent: string };
     schema: object;
+    /** The same call's strict, per-call wire schema (`buildLabelWireSchema`'s
+     * output) — the caller already knows both alias counts needed to build
+     * it, so the client validates the real response against the real
+     * alias set directly, rather than deferring to a later, weaker check. */
+    wireSchema: z.ZodType<LabelWireOutput>;
   },
   deps: LabelClientDeps = {},
 ): Promise<LabelClientResult> {
@@ -137,13 +142,12 @@ export async function callLabelModel(
     };
   }
 
-  // Structural check only (thread/id as a non-empty string, not the real
-  // per-call alias set) — this client doesn't know this call's open-thread
-  // count; Vertex's structured-output config (built from
-  // generateResponseJsonSchema) already enforced the real alias set at
-  // generation time. Task 6's route re-checks with the strict, per-call
-  // buildLabelWireSchema before buildThreads.
-  const result = buildLenientLabelWireSchema().safeParse(parsedJson);
+  // Full validation against the caller's strict, per-call wire schema —
+  // the same alias set Vertex's structured-output config already enforced
+  // at generation time (built from generateResponseJsonSchema), checked
+  // again here against the actual response. A failure becomes
+  // `parse_error`, same retry path as any other parse failure.
+  const result = input.wireSchema.safeParse(parsedJson);
   if (!result.success) {
     const firstIssue = result.error.issues[0];
     logFailure(input.unit.unit_id, "zod_validation", firstIssue);

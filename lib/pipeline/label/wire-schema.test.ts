@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { loadCategoriesConfig } from "@/lib/pipeline/label/config";
 import { FIELD_SHAPES } from "@/lib/pipeline/label/fields";
-import {
-  buildLabelWireSchema,
-  buildLenientLabelWireSchema,
-  generateResponseJsonSchema,
-} from "@/lib/pipeline/label/wire-schema";
+import { buildLabelWireSchema, generateResponseJsonSchema } from "@/lib/pipeline/label/wire-schema";
 
 const config = loadCategoriesConfig("config/categories.draft.yaml");
 
@@ -104,26 +100,6 @@ describe("buildLabelWireSchema", () => {
           }),
         ],
       }),
-    );
-    expect(result.success).toBe(false);
-  });
-});
-
-describe("buildLenientLabelWireSchema", () => {
-  it("accepts any non-empty thread/id string, unconstrained by a specific alias set", () => {
-    const schema = buildLenientLabelWireSchema();
-    const result = schema.safeParse({
-      lines: [{ i: 0, reply_to: null, thread: "anything-not-an-alias" }],
-      threads: [validThread({ id: "anything-not-an-alias" })],
-      non_work_lines: [],
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it("still rejects a summary over 300 characters", () => {
-    const schema = buildLenientLabelWireSchema();
-    const result = schema.safeParse(
-      baseWire({ threads: [validThread({ id: "X1", summary: "x".repeat(301) })] }),
     );
     expect(result.success).toBe(false);
   });

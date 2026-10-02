@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GenerateContentResponse } from "@google/genai";
 import { callLabelModel, LABEL_MODEL } from "@/lib/pipeline/label/client";
+import { buildLabelWireSchema } from "@/lib/pipeline/label/wire-schema";
 import type { LabelUnit } from "@/lib/pipeline/windowing";
 
 function makeUnit(): LabelUnit {
@@ -13,6 +14,8 @@ function makeUnit(): LabelUnit {
 
 const prompt = { systemInstruction: "instructions", userContent: "0: Checked the oven" };
 const schema = { type: "object" };
+/** The valid wire output below uses thread/id "T1" — a call with 1 new alias and 0 open aliases. */
+const wireSchema = buildLabelWireSchema({ new_alias_count: 1, open_alias_count: 0 });
 
 function fakeResponse(text: string): GenerateContentResponse {
   return { text } as unknown as GenerateContentResponse;
@@ -47,7 +50,7 @@ describe("callLabelModel", () => {
     const generate = vi.fn().mockResolvedValue(fakeResponse(JSON.stringify(VALID_WIRE)));
 
     const result = await callLabelModel(
-      { unit: makeUnit(), prompt, schema },
+      { unit: makeUnit(), prompt, schema, wireSchema },
       { generate, project: "proj", resolveLocation: () => "global" },
     );
 
@@ -61,7 +64,7 @@ describe("callLabelModel", () => {
     const generate = vi.fn().mockRejectedValue(new Error("network blip"));
 
     const result = await callLabelModel(
-      { unit: makeUnit(), prompt, schema },
+      { unit: makeUnit(), prompt, schema, wireSchema },
       { generate, project: "proj", resolveLocation: () => "global" },
     );
 
@@ -72,7 +75,7 @@ describe("callLabelModel", () => {
     const generate = vi.fn().mockResolvedValue(fakeResponse("not json {"));
 
     const result = await callLabelModel(
-      { unit: makeUnit(), prompt, schema },
+      { unit: makeUnit(), prompt, schema, wireSchema },
       { generate, project: "proj", resolveLocation: () => "global" },
     );
 
@@ -85,7 +88,7 @@ describe("callLabelModel", () => {
     );
 
     const result = await callLabelModel(
-      { unit: makeUnit(), prompt, schema },
+      { unit: makeUnit(), prompt, schema, wireSchema },
       { generate, project: "proj", resolveLocation: () => "global" },
     );
 
@@ -95,11 +98,28 @@ describe("callLabelModel", () => {
     }
   });
 
+  it("returns {kind: 'parse_error'} when the response uses a thread/id alias outside this call's own set (PR1 fix: full strict validation, not just structural)", async () => {
+    const outOfRangeWire = {
+      ...VALID_WIRE,
+      lines: [{ i: 0, reply_to: null, thread: "T2" }],
+      threads: [{ ...VALID_WIRE.threads[0], id: "T2" }],
+    };
+    const generate = vi.fn().mockResolvedValue(fakeResponse(JSON.stringify(outOfRangeWire)));
+
+    // wireSchema above only offers alias "T1" (1 new alias, 0 open aliases).
+    const result = await callLabelModel(
+      { unit: makeUnit(), prompt, schema, wireSchema },
+      { generate, project: "proj", resolveLocation: () => "global" },
+    );
+
+    expect(result.kind).toBe("parse_error");
+  });
+
   it("logs only {unit_id, error_class, zod_issue_path?, zod_issue_code?} on failure — never a raw error message", async () => {
     const generate = vi.fn().mockRejectedValue(new Error("a message that must never be logged"));
 
     await callLabelModel(
-      { unit: makeUnit(), prompt, schema },
+      { unit: makeUnit(), prompt, schema, wireSchema },
       { generate, project: "proj", resolveLocation: () => "global" },
     );
 
@@ -118,7 +138,7 @@ describe("callLabelModel", () => {
     const generate = vi.fn().mockResolvedValue(fakeResponse("SECRET-RAW-RESPONSE-TEXT{"));
 
     await callLabelModel(
-      { unit: makeUnit(), prompt, schema },
+      { unit: makeUnit(), prompt, schema, wireSchema },
       { generate, project: "proj", resolveLocation: () => "global" },
     );
 

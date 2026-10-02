@@ -37,7 +37,7 @@ function buildAliasList(newAliasCount: number, openAliasCount: number): string[]
   return aliases;
 }
 
-/** Shared shape for both the per-call strict schema and the generic/lenient one below — only the `thread`/`id` subschema differs. */
+/** Shared shape for the per-call strict schema below — only the `thread`/`id` subschema (the per-call alias enum) varies between calls. */
 function buildWireSchemaWithThreadIdType(threadIdSchema: z.ZodType<string>): z.ZodType<LabelWireOutput> {
   return z.object({
     lines: z.array(
@@ -76,7 +76,10 @@ function buildWireSchemaWithThreadIdType(threadIdSchema: z.ZodType<string>): z.Z
  * offers, so this is never a static module-level schema (review focus #2
  * and #7). Used by `generateResponseJsonSchema` (so Vertex's structured
  * output can only ever pick an alias actually offered this call) and by
- * Task 6's route for a final defense-in-depth check before `buildThreads`.
+ * the label client (Task 4/PR1 fix), which validates the raw response
+ * against this exact per-call schema — the caller already knows both
+ * alias counts needed to build it, so there is no weaker, alias-agnostic
+ * schema in between.
  */
 export function buildLabelWireSchema(input: {
   new_alias_count: number;
@@ -90,19 +93,6 @@ export function buildLabelWireSchema(input: {
     );
   }
   return buildWireSchemaWithThreadIdType(z.enum(aliases));
-}
-
-/**
- * The same shape, WITHOUT the per-call alias-enum constraint on
- * `thread`/`id` (just a non-empty string). Used by the label client (Task
- * 4) for its own structural "is this a well-formed response at all"
- * check — the client doesn't know this call's open-thread count, and
- * Vertex's structured-output config (built from `generateResponseJsonSchema`)
- * already enforces the real alias set at generation time. The strict,
- * per-call version is for Task 6's route, which does know the real counts.
- */
-export function buildLenientLabelWireSchema(): z.ZodType<LabelWireOutput> {
-  return buildWireSchemaWithThreadIdType(z.string().min(1));
 }
 
 const FORBIDDEN_JSON_SCHEMA_KEYS = new Set([
