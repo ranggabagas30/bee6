@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Local pre-push hook: lint -> build -> unit tests -> smoke (if it exists).
+# Installed automatically via `npm install` (see package.json "prepare" script),
+# which sets `git config core.hooksPath .githooks` for this repo.
+#
+# Bypass intentionally, never silently: `git push --no-verify`.
+# This is standard git behavior; no custom override logic is built here.
+#
+# Git invokes pre-push with ref info on stdin (per the pre-push hook
+# contract) and runs it unconditionally for every push attempt. We don't
+# need the ref info for these checks, so stdin is left unread.
+
+set -uo pipefail
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+NC='\033[0m'
+
+run_step() {
+  local label="$1"
+  shift
+  echo ""
+  echo "Running ${label}..."
+  if "$@"; then
+    echo -e "${GREEN}OK ${label} passed${NC}"
+    return 0
+  else
+    echo -e "${RED}FAIL ${label} failed${NC}"
+    echo -e "${RED}Push blocked: fix the '${label}' failure above, or use 'git push --no-verify' to bypass deliberately.${NC}"
+    exit 1
+  fi
+}
+
+echo "pre-push: running lint, build, and unit tests before allowing push."
+
+run_step "lint" npm run lint
+run_step "build" npm run build
+run_step "unit tests" npm run test
+
+# npm run smoke is R-13 (not built yet). Skip gracefully instead of failing
+# on a missing script, but run it automatically once it exists.
+if node -e "process.exit(require('./package.json').scripts.smoke ? 0 : 1)" 2>/dev/null; then
+  run_step "smoke test" npm run smoke
+else
+  echo ""
+  echo -e "${YELLOW}smoke test skipped - npm run smoke not yet implemented, see R-13${NC}"
+fi
+
+echo ""
+echo -e "${GREEN}pre-push checks passed.${NC}"
+exit 0
