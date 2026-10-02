@@ -45,7 +45,7 @@ type View =
 
 export default function CapturePage() {
   // Build-time flag (lib/capture/dev-mode.ts): off in every real build, so
-  // this branch and the <DevPanel /> import below are dead code there — not a
+  // this branch and the <DevPanel /> below are never rendered there — not a
   // runtime toggle a query param could flip.
   const devControlsEnabled = isDevControlsEnabled();
   const router = useRouter();
@@ -60,6 +60,20 @@ export default function CapturePage() {
   const [micSource, setMicSource] = useState("microphone");
   const [sampleRateMsg, setSampleRateMsg] = useState<string | null>(null);
   const sessionRef = useRef<CaptureSession | null>(null);
+
+  // DEV-01 manual-start re-entrancy guards, mirroring the real auto-gate
+  // effect's own `starting` guard below (see handleDevStart for how they're
+  // used):
+  //  - devStartingRef is true for the whole span between a Start click and
+  //    that startCaptureSession() call settling, so a second Start click (or
+  //    double-click) while one is in flight is a no-op instead of leaking a
+  //    second mic/wake-lock session that nothing can ever stop.
+  //  - devStopRequestedRef records that Pause/Stop (or unmount, via the
+  //    main effect's cleanup) was requested while a start was still in
+  //    flight, so the just-created session is stopped immediately once it
+  //    resolves instead of being handed to sessionRef for no one to find.
+  const devStartingRef = useRef(false);
+  const devStopRequestedRef = useRef(false);
 
   // DEV-01 event log: one ring buffer per mount, in-memory only, never
   // persisted. The buffer itself is a mutable, non-reactive object; `events`
@@ -118,7 +132,13 @@ export default function CapturePage() {
             if (!cancelled) setView("unsupported");
           },
           onSampleRateRejected: (msg) => !cancelled && setSampleRateMsg(msg),
-          onEvent: (e) => !cancelled && handleEvent(e),
+          // Nothing in the real (non-dev) path reads the ring buffer, so only
+          // wire it up when the dev panel is actually mounted to consume it.
+          onEvent: devControlsEnabled
+            ? (e) => {
+                if (!cancelled) handleEvent(e);
+              }
+            : undefined,
         });
         if (cancelled) {
           await session?.stop();
@@ -149,6 +169,9 @@ export default function CapturePage() {
 
     return () => {
       cancelled = true;
+      // Also covers a dev-mode Start that's still in flight when this effect
+      // tears down (route change / unmount): see devStopRequestedRef below.
+      devStopRequestedRef.current = true;
       if (phaseTimer) clearInterval(phaseTimer);
       const session = sessionRef.current;
       sessionRef.current = null;
@@ -158,27 +181,41 @@ export default function CapturePage() {
 
   // Dev-only manual controls (DEV-01): call the exact same
   // startCaptureSession()/session.stop() the real auto-gate effect above
-  // uses, just triggered by a button instead of the phase check — no new
-  // session-internal state. Only reachable when the dev panel is mounted.
+  // uses, just triggered by a button instead of the phase check — re-entrancy
+  // is guarded by devStartingRef/devStopRequestedRef, declared above. Only
+  // reachable when the dev panel is mounted.
   const handleDevStart = () => {
     const auth = readDeviceAuth();
-    if (!auth || !config || sessionRef.current) return;
+    if (!auth || !config || sessionRef.current || devStartingRef.current) return;
+    devStartingRef.current = true;
+    devStopRequestedRef.current = false;
     void (async () => {
-      const session = await startCaptureSession(auth, config, {
-        onStatus: (s) => setStatus(s),
-        onMicSource: (label) => setMicSource(label),
-        onUnsupported: () => setView("unsupported"),
-        onSampleRateRejected: (msg) => setSampleRateMsg(msg),
-        onEvent: handleEvent,
-      });
-      if (session) {
+      try {
+        const session = await startCaptureSession(auth, config, {
+          onStatus: (s) => setStatus(s),
+          onMicSource: (label) => setMicSource(label),
+          onUnsupported: () => setView("unsupported"),
+          onSampleRateRejected: (msg) => setSampleRateMsg(msg),
+          onEvent: handleEvent,
+        });
+        if (!session) return;
+        if (devStopRequestedRef.current) {
+          // A stop/unmount landed while this start was in flight — the
+          // caller already moved on, so stop the session we just created
+          // instead of assigning it to sessionRef.
+          await session.stop();
+          return;
+        }
         sessionRef.current = session;
         setView("active");
+      } finally {
+        devStartingRef.current = false;
       }
     })();
   };
 
   const handleDevStop = () => {
+    devStopRequestedRef.current = true;
     const session = sessionRef.current;
     if (!session) return;
     sessionRef.current = null;

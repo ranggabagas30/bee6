@@ -147,6 +147,22 @@ describe("CapturePage dev panel manual controls", () => {
     await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
   });
 
+  it('clicking "Start" twice before the first startCaptureSession call settles calls it exactly once', async () => {
+    await renderInDevMode();
+    const startButton = screen.getByRole("button", { name: /^start$/i });
+
+    // Fire both clicks back-to-back, with no awaited tick in between, so the
+    // second click lands while the first startCaptureSession() promise is
+    // still in flight (the fake resolves on a microtask, not synchronously).
+    fireEvent.click(startButton);
+    fireEvent.click(startButton);
+
+    await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
+    // Let the in-flight start settle and confirm it's the only session created.
+    await waitFor(() => expect(fakeSessions).toHaveLength(1));
+    expect(startCaptureSession).toHaveBeenCalledTimes(1);
+  });
+
   it('clicking "Pause" calls session.stop() and leaves the session cleared', async () => {
     await renderInDevMode();
     fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
