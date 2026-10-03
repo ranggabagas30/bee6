@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Firestore } from "firebase-admin/firestore";
 import { Timestamp } from "firebase-admin/firestore";
 import { firestoreTickStore } from "@/lib/firestore/tick-store";
@@ -344,6 +344,7 @@ describe("firestoreTickStore.listRecentThreads / getStoredThread", () => {
       summary: thread.summary,
       fields: thread.fields,
       runner_up: thread.runner_up,
+      label_conflict: thread.label_conflict,
       status: thread.status,
       created_at_ms: thread.created_at_ms,
     });
@@ -351,23 +352,100 @@ describe("firestoreTickStore.listRecentThreads / getStoredThread", () => {
 });
 
 describe("firestoreTickStore.acquireLease / releaseLease", () => {
-  it("acquires when no lease exists, refuses while held and not expired, re-acquires once expired", async () => {
+  it("acquires when no lease exists (returning the acquisition's own acquired_at_ms), refuses while held and not expired, re-acquires once expired", async () => {
     const { db } = fakeDb();
     const store = firestoreTickStore(db);
 
-    expect(await store.acquireLease(OUTLET, DEVICE, 1000, 110_000)).toBe(true);
+    expect(await store.acquireLease(OUTLET, DEVICE, 1000, 110_000)).toBe(1000);
     // Still held, well before expiry.
-    expect(await store.acquireLease(OUTLET, DEVICE, 2000, 110_000)).toBe(false);
+    expect(await store.acquireLease(OUTLET, DEVICE, 2000, 110_000)).toBeNull();
     // Past the first lease's expires_at_ms (1000 + 110_000 = 111_000).
-    expect(await store.acquireLease(OUTLET, DEVICE, 200_000, 110_000)).toBe(true);
+    expect(await store.acquireLease(OUTLET, DEVICE, 200_000, 110_000)).toBe(200_000);
   });
 
-  it("releaseLease deletes the lease so a later acquire succeeds immediately", async () => {
+  it("releaseLease deletes the lease (given its own token) so a later acquire succeeds immediately", async () => {
     const { db } = fakeDb();
     const store = firestoreTickStore(db);
-    await store.acquireLease(OUTLET, DEVICE, 1000, 110_000);
-    await store.releaseLease(OUTLET, DEVICE);
-    expect(await store.acquireLease(OUTLET, DEVICE, 1500, 110_000)).toBe(true);
+    const token = await store.acquireLease(OUTLET, DEVICE, 1000, 110_000);
+    await store.releaseLease(OUTLET, DEVICE, token!);
+    expect(await store.acquireLease(OUTLET, DEVICE, 1500, 110_000)).toBe(1500);
+  });
+
+  it("[tech-lead review round 2, finding 2] releaseLease only deletes the lease if it still holds the acquisition's own token — a stale release from an expired acquisition never deletes a later tick's lease", async () => {
+    const { db } = fakeDb();
+    const store = firestoreTickStore(db);
+
+    const firstToken = await store.acquireLease(OUTLET, DEVICE, 1000, 100); // expires at 1100
+    expect(firstToken).toBe(1000);
+
+    // The first lease has since expired; a second tick acquires fresh.
+    const secondToken = await store.acquireLease(OUTLET, DEVICE, 5000, 100); // expires at 5100
+    expect(secondToken).toBe(5000);
+
+    // The first tick's finally-release call, using its own (now-stale) token — must be a no-op.
+    await store.releaseLease(OUTLET, DEVICE, firstToken!);
+
+    // The second tick's lease is still held.
+    expect(await store.acquireLease(OUTLET, DEVICE, 5050, 100)).toBeNull();
+
+    // Releasing with the correct (second) token does free it.
+    await store.releaseLease(OUTLET, DEVICE, secondToken!);
+    expect(await store.acquireLease(OUTLET, DEVICE, 5060, 100)).not.toBeNull();
+  });
+});
+
+describe("firestoreTickStore malformed-doc resilience (tech-lead review round 2, finding 7)", () => {
+  it("listSegmentsForDevice skips a malformed segment doc (logging only the error class) and still returns the valid ones", async () => {
+    const seg = makeSegment();
+    const { db } = fakeDb({
+      [COLLECTIONS.segments]: {
+        [segmentDocId({ outlet_id: OUTLET, device_id: DEVICE, seg_id: "s1" })]: {
+          ...seg,
+          expires_at: Timestamp.fromDate(new Date(seg.expires_at)),
+        },
+        [segmentDocId({ outlet_id: OUTLET, device_id: DEVICE, seg_id: "bad" })]: {
+          outlet_id: OUTLET,
+          device_id: DEVICE,
+          seg_id: "bad",
+          // missing every other required field — fails SegmentSchema
+        },
+      },
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const result = await firestoreTickStore(db).listSegmentsForDevice(OUTLET, DEVICE);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.seg_id).toBe("s1");
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(errorSpy.mock.calls[0])).not.toMatch(/checked the oven/i); // never the raw doc
+    errorSpy.mockRestore();
+  });
+
+  it("listLabelledLineIds skips a malformed ledger doc and still aggregates the valid ones", async () => {
+    const { db } = fakeDb({
+      [COLLECTIONS.labelUnits]: {
+        u1: { outlet_id: OUTLET, device_id: DEVICE, unit_key: "u1", line_ids: ["s1#0"], status: "done", attempts: 1, labelled_at_ms: 1000 },
+        bad: { outlet_id: OUTLET, device_id: DEVICE, unit_key: "bad", status: "done" }, // missing line_ids/attempts/labelled_at_ms
+      },
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const result = await firestoreTickStore(db).listLabelledLineIds(OUTLET, DEVICE);
+    expect(result).toEqual(new Set(["s1#0"]));
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    errorSpy.mockRestore();
+  });
+
+  it("listRecentThreads skips a malformed thread doc and still returns the valid ones", async () => {
+    const { db } = fakeDb({
+      [COLLECTIONS.threads]: {
+        t1: asDoc(makeThread({ thread_id: "t1", last_line_end_ms: 5000 })),
+        bad: { outlet_id: OUTLET, device_id: DEVICE, last_line_end_ms: 6000 }, // missing thread_id/category/etc.
+      },
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const result = await firestoreTickStore(db).listRecentThreads(OUTLET, DEVICE, 1000);
+    expect(result).toEqual([{ thread_id: "t1", category: "ROUTINE_OPS", last_line_end_ms: 5000 }]);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    errorSpy.mockRestore();
   });
 });
 

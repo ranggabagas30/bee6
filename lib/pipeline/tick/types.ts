@@ -36,6 +36,12 @@ export interface StoredThread {
   summary: string;
   fields?: Record<string, unknown>;
   runner_up?: { category: Category; why_not: string };
+  /**
+   * Tech-lead review round 2, finding 4: carried forward so a thread held
+   * `open` by a label conflict can't lose that flag on a later clean
+   * merge — `toStoredThread`/`mergeThread` read and write this back.
+   */
+  label_conflict: boolean;
   status: "fact" | "open" | "unverified";
   created_at_ms: number;
 }
@@ -118,9 +124,23 @@ export interface TickStore {
   listRecentThreads(outletId: string, deviceId: string, sinceMs: number): Promise<RecentThreadSummary[]>;
   /** The full stored thread, for the Decision-4 merge when continuing it. */
   getStoredThread(outletId: string, threadId: string): Promise<StoredThread | null>;
-  /** `create()`-semantics lease acquire. Returns false when already held (and not expired). */
-  acquireLease(outletId: string, deviceId: string, nowMs: number, ttlMs: number): Promise<boolean>;
-  releaseLease(outletId: string, deviceId: string): Promise<void>;
+  /**
+   * `create()`-semantics lease acquire. Returns the lease's own
+   * `acquired_at_ms` (this acquisition's release token) when acquired, or
+   * `null` when already held (and not expired).
+   *
+   * Tech-lead review round 2, finding 2: the caller must pass this exact
+   * token back to `releaseLease` — a bare "release my device's lease"
+   * would let a tick whose TTL already expired delete a LATER tick's
+   * lease out from under it.
+   */
+  acquireLease(outletId: string, deviceId: string, nowMs: number, ttlMs: number): Promise<number | null>;
+  /**
+   * Releases the lease only if it still holds the given `acquiredAtMs`
+   * token (a transaction) — never deletes a lease a later acquisition
+   * already holds.
+   */
+  releaseLease(outletId: string, deviceId: string, acquiredAtMs: number): Promise<void>;
   /** Persists one unit's full result (threads, questions, ledger, non-work blanking) together. */
   writeUnitResult(outletId: string, deviceId: string, batch: UnitWriteBatch): Promise<void>;
 }

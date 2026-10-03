@@ -76,9 +76,17 @@ function toStoredThread(data: Thread): StoredThread {
     summary: data.summary,
     fields: data.fields,
     runner_up: data.runner_up,
+    // Tech-lead review round 2, finding 4: read back so a later merge can
+    // carry it forward instead of silently losing it.
+    label_conflict: data.label_conflict,
     status: data.status,
     created_at_ms: data.created_at_ms,
   };
+}
+
+/** Logs only `{doc_id, error_class}` — never the raw doc or zod error (same discipline as the label client, TSD L-T7). Tech-lead review round 2, finding 7. */
+function logSkippedDoc(context: string, docId: string): void {
+  console.error(`[tick-store] skipping malformed ${context} doc`, { doc_id: docId, error_class: "ZodError" });
 }
 
 /**
@@ -132,7 +140,18 @@ export function firestoreTickStore(db: Firestore = adminDb()): TickStore {
         .where("outlet_id", "==", outletId)
         .where("device_id", "==", deviceId)
         .get();
-      return snap.docs.map((doc) => toSegmentForTick(SegmentSchema.parse(normalizeSegmentDoc(doc.data()))));
+      // Tech-lead review round 2, finding 7: one malformed/legacy doc must
+      // never block the whole device every tick — skip it, keep the rest.
+      const result: SegmentForTick[] = [];
+      for (const doc of snap.docs) {
+        const parsed = SegmentSchema.safeParse(normalizeSegmentDoc(doc.data()));
+        if (!parsed.success) {
+          logSkippedDoc("segment", doc.id);
+          continue;
+        }
+        result.push(toSegmentForTick(parsed.data));
+      }
+      return result;
     },
 
     async listLabelledLineIds(outletId: string, deviceId: string): Promise<Set<string>> {
@@ -144,8 +163,12 @@ export function firestoreTickStore(db: Firestore = adminDb()): TickStore {
         .get();
       const lineIds = new Set<string>();
       for (const doc of snap.docs) {
-        const data = LabelUnitLedgerSchema.parse(doc.data());
-        for (const id of data.line_ids) lineIds.add(id);
+        const parsed = LabelUnitLedgerSchema.safeParse(doc.data());
+        if (!parsed.success) {
+          logSkippedDoc("label_units", doc.id);
+          continue;
+        }
+        for (const id of parsed.data.line_ids) lineIds.add(id);
       }
       return lineIds;
     },
@@ -161,14 +184,20 @@ export function firestoreTickStore(db: Firestore = adminDb()): TickStore {
         .where("device_id", "==", deviceId)
         .where("last_line_end_ms", ">=", sinceMs)
         .get();
-      return snap.docs.map((doc) => {
-        const data = ThreadSchema.parse(doc.data());
-        return {
-          thread_id: data.thread_id,
-          category: data.category as WorkCategory,
-          last_line_end_ms: data.last_line_end_ms,
-        };
-      });
+      const result: RecentThreadSummary[] = [];
+      for (const doc of snap.docs) {
+        const parsed = ThreadSchema.safeParse(doc.data());
+        if (!parsed.success) {
+          logSkippedDoc("thread", doc.id);
+          continue;
+        }
+        result.push({
+          thread_id: parsed.data.thread_id,
+          category: parsed.data.category as WorkCategory,
+          last_line_end_ms: parsed.data.last_line_end_ms,
+        });
+      }
+      return result;
     },
 
     async getStoredThread(outletId: string, threadId: string): Promise<StoredThread | null> {
@@ -179,13 +208,13 @@ export function firestoreTickStore(db: Firestore = adminDb()): TickStore {
       return toStoredThread(data);
     },
 
-    async acquireLease(outletId: string, deviceId: string, nowMs: number, ttlMs: number): Promise<boolean> {
+    async acquireLease(outletId: string, deviceId: string, nowMs: number, ttlMs: number): Promise<number | null> {
       const ref = db.collection(LEASE_COLLECTION).doc(leaseDocId(outletId, deviceId));
       return db.runTransaction(async (tx: Transaction) => {
         const snap = await tx.get(ref);
         if (snap.exists) {
           const existing = PipelineLockSchema.parse(snap.data());
-          if (existing.expires_at_ms > nowMs) return false; // still held, not expired
+          if (existing.expires_at_ms > nowMs) return null; // still held, not expired
         }
         const lock = PipelineLockSchema.parse({
           outlet_id: outletId,
@@ -194,12 +223,25 @@ export function firestoreTickStore(db: Firestore = adminDb()): TickStore {
           expires_at_ms: nowMs + ttlMs,
         });
         tx.set(ref, lock);
-        return true;
+        return nowMs; // this acquisition's own release token
       });
     },
 
-    async releaseLease(outletId: string, deviceId: string): Promise<void> {
-      await db.collection(LEASE_COLLECTION).doc(leaseDocId(outletId, deviceId)).delete();
+    /**
+     * Tech-lead review round 2, finding 2: only deletes the lease if it
+     * still holds THIS acquisition's own `acquired_at_ms` — a transaction,
+     * so a tick whose TTL already expired can never delete a later tick's
+     * lease on its own (eventually-consistent) release call.
+     */
+    async releaseLease(outletId: string, deviceId: string, acquiredAtMs: number): Promise<void> {
+      const ref = db.collection(LEASE_COLLECTION).doc(leaseDocId(outletId, deviceId));
+      await db.runTransaction(async (tx: Transaction) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists) return; // already gone
+        const existing = PipelineLockSchema.parse(snap.data());
+        if (existing.acquired_at_ms !== acquiredAtMs) return; // belongs to a later acquisition
+        tx.delete(ref);
+      });
     },
 
     async writeUnitResult(outletId: string, deviceId: string, batch: UnitWriteBatch): Promise<void> {
