@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { StatusBanner } from "@/app/capture/StatusBanner";
 import { DevPanel } from "@/app/capture/DevPanel";
+import { UploadStatusLine, deriveUploadView } from "@/app/capture/UploadStatusLine";
 import {
   fetchCaptureConfig,
   readDeviceAuth,
@@ -392,6 +393,8 @@ export default function CapturePage() {
             micSource={micSource}
             online={networkOnline}
           />
+          {/* Upload status is a separate line: shown only while a session runs. */}
+          {sessionRunning ? <UploadStatusLine view={deriveUploadView(status)} /> : null}
           {sampleRateMsg ? (
             <p role="alert" style={{ color: "#b00020", marginTop: 16 }}>
               {sampleRateMsg}

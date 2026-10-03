@@ -42,6 +42,7 @@ interface FakeCallbacks {
     queuedCount: number;
     droppedCount: number;
     micError: string | null;
+    lastUploadHttpStatus?: number | null;
   }) => void;
 }
 // The callbacks the most recent fake session was started with, so a test can
@@ -411,6 +412,91 @@ describe("CapturePage stale session status (D1)", () => {
       });
       expect(bannerText(container)).toContain("Microphone problem");
       expect(bannerText(container)).not.toContain("Listening");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("CapturePage upload status line", () => {
+  function uploadText(container: HTMLElement): string | null {
+    return container.querySelector('[data-testid="upload-status"]')?.textContent ?? null;
+  }
+  function bannerText(container: HTMLElement): string {
+    return container.querySelector('section[role="status"]')?.textContent ?? "";
+  }
+  const status = (
+    state: "listening" | "offline" | "mic_error",
+    queuedCount: number,
+    lastUploadHttpStatus: number | null,
+  ) => ({ state, queuedCount, droppedCount: 0, micError: null, lastUploadHttpStatus });
+
+  it("dev path: shows each upload state on its own line while the capture headline stays Listening", async () => {
+    isDevControlsEnabled.mockReturnValue(true);
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    fetchCaptureConfig.mockResolvedValue({
+      consent_complete: false,
+      opening_time: "08:00",
+      closing_time: "20:00",
+      timezone: "Asia/Jakarta",
+    });
+    resolveCapturePhase.mockReturnValue("no_consent");
+    const CapturePage = await importCapturePage();
+    const { container } = render(<CapturePage />);
+    await waitFor(() => expect(fetchCaptureConfig).toHaveBeenCalled());
+
+    // No session yet: no upload line at all.
+    expect(uploadText(container)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(fakeSessions).toHaveLength(1));
+
+    act(() => lastCallbacks?.onStatus?.(status("listening", 2, 200)));
+    await waitFor(() => expect(uploadText(container)).toBe("Mengunggah" + "Uploading"));
+    expect(bannerText(container)).toContain("Listening");
+
+    act(() => lastCallbacks?.onStatus?.(status("offline", 1, null)));
+    await waitFor(() =>
+      expect(uploadText(container)).toBe("Gagal unggah, coba ulang" + "Upload failed, retrying"),
+    );
+    expect(bannerText(container)).toContain("Listening · uploads waiting (1)");
+
+    act(() => lastCallbacks?.onStatus?.(status("listening", 0, 200)));
+    await waitFor(() => expect(uploadText(container)).toBe("Unggah berhasil" + "Upload succeeded"));
+    expect(bannerText(container)).toContain("Listening");
+
+    // Pause: no session running, so the upload line disappears with the banner state.
+    fireEvent.click(screen.getByRole("button", { name: /^pause$/i }));
+    await waitFor(() => expect(uploadText(container)).toBeNull());
+    expect(bannerText(container)).toContain("Not started");
+  });
+
+  it("auto path: shows the upload line only while the session is running", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      isDevControlsEnabled.mockReturnValue(false);
+      readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+      fetchCaptureConfig.mockResolvedValue({
+        consent_complete: true,
+        opening_time: "08:00",
+        closing_time: "20:00",
+        timezone: "Asia/Jakarta",
+      });
+      resolveCapturePhase.mockReturnValue("active");
+      const CapturePage = await importCapturePage();
+      const { container } = render(<CapturePage />);
+      await waitFor(() => expect(fakeSessions).toHaveLength(1));
+
+      act(() => lastCallbacks?.onStatus?.(status("offline", 1, null)));
+      await waitFor(() =>
+        expect(uploadText(container)).toBe("Gagal unggah, coba ulang" + "Upload failed, retrying"),
+      );
+
+      resolveCapturePhase.mockReturnValue("outside_hours");
+      await act(async () => {
+        vi.advanceTimersByTime(30_000);
+      });
+      await waitFor(() => expect(uploadText(container)).toBeNull());
     } finally {
       vi.useRealTimers();
     }
