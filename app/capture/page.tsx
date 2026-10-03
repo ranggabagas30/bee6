@@ -282,7 +282,7 @@ export default function CapturePage() {
           </h2>
           <p>
             Outlet ini belum menyelesaikan langkah persetujuan staf, jadi
-            pendengaran belum bisa dimulai. Minta supervisor menyelesaikan
+            pengambilan audio belum bisa dimulai. Minta supervisor menyelesaikan
             persetujuan, lalu muat ulang halaman ini.
           </p>
           <p>

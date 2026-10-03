@@ -137,7 +137,7 @@ describe("CapturePage copy", () => {
     expect(screen.getByText("Capture is off")).toBeTruthy();
     expect(
       screen.getByText(
-        "Outlet ini belum menyelesaikan langkah persetujuan staf, jadi pendengaran belum bisa dimulai. Minta supervisor menyelesaikan persetujuan, lalu muat ulang halaman ini.",
+        "Outlet ini belum menyelesaikan langkah persetujuan staf, jadi pengambilan audio belum bisa dimulai. Minta supervisor menyelesaikan persetujuan, lalu muat ulang halaman ini.",
       ),
     ).toBeTruthy();
     expect(
