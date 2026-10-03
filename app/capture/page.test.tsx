@@ -3,8 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const replace = vi.fn();
+// One stable router object, like Next's real useRouter: the page's mount effect
+// depends on it, so a fresh object per render would re-run (and tear down) it.
+const stableRouter = { replace };
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace }),
+  useRouter: () => stableRouter,
 }));
 
 const isDevControlsEnabled = vi.fn(() => false);
@@ -116,6 +119,56 @@ describe("CapturePage dev panel gating", () => {
     expect(container.textContent).toMatch(/capture is off/i);
     // ...and the active capture view is no longer blocked by it.
     expect(container.textContent).toMatch(/keep this page open/i);
+  });
+});
+
+describe("CapturePage banner truthfulness (dev mode)", () => {
+  async function renderInDevMode() {
+    isDevControlsEnabled.mockReturnValue(true);
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    fetchCaptureConfig.mockResolvedValue({
+      consent_complete: false,
+      opening_time: "08:00",
+      closing_time: "20:00",
+      timezone: "Asia/Jakarta",
+    });
+    resolveCapturePhase.mockReturnValue("no_consent");
+    const CapturePage = await importCapturePage();
+    const result = render(<CapturePage />);
+    await waitFor(() => expect(fetchCaptureConfig).toHaveBeenCalled());
+    return result;
+  }
+
+  // Only the live status region, not the heading ("Mendengarkan toko") or the
+  // privacy copy, so the assertions are about the banner alone.
+  function bannerText(container: HTMLElement): string {
+    return container.querySelector('section[role="status"]')?.textContent ?? "";
+  }
+
+  it("shows the neutral not-started banner before Start, never Listening", async () => {
+    const { container } = await renderInDevMode();
+    expect(bannerText(container)).toContain("Not started");
+    expect(bannerText(container)).not.toContain("Mendengarkan");
+    expect(bannerText(container)).not.toContain("Listening");
+  });
+
+  it("shows Listening only while the started session is running", async () => {
+    const { container } = await renderInDevMode();
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(fakeSessions).toHaveLength(1));
+    await waitFor(() => expect(bannerText(container)).toContain("Listening"));
+    expect(bannerText(container)).toContain("Mendengarkan");
+  });
+
+  it("returns to the neutral banner after Pause and never leaves the green state behind", async () => {
+    const { container } = await renderInDevMode();
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(bannerText(container)).toContain("Listening"));
+
+    fireEvent.click(screen.getByRole("button", { name: /^pause$/i }));
+    await waitFor(() => expect(bannerText(container)).toContain("Not started"));
+    expect(bannerText(container)).not.toContain("Mendengarkan");
+    expect(bannerText(container)).not.toContain("Listening");
   });
 });
 

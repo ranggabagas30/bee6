@@ -63,12 +63,13 @@ export default function CapturePage() {
   const router = useRouter();
   const [view, setView] = useState<View>("loading");
   const [config, setConfig] = useState<CaptureConfigResponse | null>(null);
-  const [status, setStatus] = useState<CaptureStatus>({
-    state: "listening",
-    queuedCount: 0,
-    droppedCount: 0,
-    micError: null,
-  });
+  // Engine status from the running session only. Null until the first report
+  // and reset on stop, so nothing from a previous session is ever shown.
+  const [status, setStatus] = useState<CaptureStatus | null>(null);
+  // True exactly while sessionRef holds a started, not-yet-stopped session.
+  // The banner reads this, not the engine's default state, so it never says
+  // "Listening" when no capture is actually running.
+  const [sessionRunning, setSessionRunning] = useState(false);
   const [micSource, setMicSource] = useState<MicSourceClass>("unknown");
   const [sampleRateMsg, setSampleRateMsg] = useState<string | null>(null);
   const sessionRef = useRef<CaptureSession | null>(null);
@@ -128,6 +129,10 @@ export default function CapturePage() {
         if (sessionRef.current) {
           await sessionRef.current.stop();
           sessionRef.current = null;
+          if (!cancelled) {
+            setSessionRunning(false);
+            setStatus(null);
+          }
         }
         if (!cancelled) setView(phase);
         return;
@@ -158,6 +163,7 @@ export default function CapturePage() {
         }
         if (session) {
           sessionRef.current = session;
+          setSessionRunning(true);
           setView("active");
         }
       } finally {
@@ -188,6 +194,8 @@ export default function CapturePage() {
       const session = sessionRef.current;
       sessionRef.current = null;
       void session?.stop();
+      setSessionRunning(false);
+      setStatus(null);
     };
   }, [router, devControlsEnabled]);
 
@@ -219,6 +227,7 @@ export default function CapturePage() {
           return;
         }
         sessionRef.current = session;
+        setSessionRunning(true);
         setView("active");
       } finally {
         devStartingRef.current = false;
@@ -229,6 +238,8 @@ export default function CapturePage() {
   const handleDevStop = () => {
     devStopRequestedRef.current = true;
     const session = sessionRef.current;
+    setSessionRunning(false);
+    setStatus(null);
     if (!session) return;
     sessionRef.current = null;
     void session.stop();
@@ -334,8 +345,8 @@ export default function CapturePage() {
       {view === "active" || devControlsEnabled ? (
         <>
           <StatusBanner
-            state={status.state}
-            queuedCount={status.queuedCount}
+            state={sessionRunning ? (status?.state ?? "listening") : "idle"}
+            queuedCount={status?.queuedCount ?? 0}
             micSource={micSource}
           />
           {sampleRateMsg ? (

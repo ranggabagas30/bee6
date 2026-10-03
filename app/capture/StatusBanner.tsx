@@ -5,12 +5,18 @@ import type { CaptureState } from "@/lib/capture/browser/engine";
  * 🔴 Mic problem, plus the mic source. No transcript is ever shown. The banner is
  * an aria-live region so a screen reader announces state changes; the emoji is
  * decorative (aria-hidden) with the state conveyed as text too.
+ *
+ * `"idle"` is the neutral "not started" state the page shows whenever no capture
+ * session is actually running (before Start, outside hours, after Stop/Pause).
+ * It never says "Listening": the label must match what the system is doing.
  */
 
 interface BilingualLine {
   id: string;
   en: string;
 }
+
+export type StatusBannerState = CaptureState | "idle";
 
 const PRESENTATION: Record<
   CaptureState,
@@ -51,16 +57,74 @@ const PRESENTATION: Record<
   },
 };
 
+const IDLE_PRESENTATION = {
+  emoji: "⚪",
+  label: "Belum mulai",
+  labelEn: "Not started",
+  color: "#444",
+  detail: {
+    id: "Pengambilan audio belum berjalan",
+    en: "Audio capture is not running",
+  },
+} as const;
+
 export interface StatusBannerProps {
-  state: CaptureState;
+  state: StatusBannerState;
   queuedCount: number;
   micSource: string;
 }
 
 export function StatusBanner({ state, queuedCount, micSource }: StatusBannerProps) {
+  if (state === "idle") {
+    return (
+      <StatusFrame
+        emoji={IDLE_PRESENTATION.emoji}
+        label={IDLE_PRESENTATION.label}
+        labelEn={IDLE_PRESENTATION.labelEn}
+        color={IDLE_PRESENTATION.color}
+      >
+        <p style={{ fontSize: 16, margin: "8px 0 0" }}>{IDLE_PRESENTATION.detail.id}</p>
+        <p style={{ fontSize: 14, margin: "2px 0 0" }}>{IDLE_PRESENTATION.detail.en}</p>
+      </StatusFrame>
+    );
+  }
+
   const { emoji, label, labelEn, color, detail } = PRESENTATION[state];
   const detailLine = detail ? detail(queuedCount) : null;
 
+  return (
+    <StatusFrame emoji={emoji} label={label} labelEn={labelEn} color={color}>
+      {detailLine ? (
+        <>
+          <p style={{ fontSize: 16, margin: "8px 0 0" }}>{detailLine.id}</p>
+          <p style={{ fontSize: 14, margin: "2px 0 0" }}>{detailLine.en}</p>
+        </>
+      ) : (
+        <>
+          <p style={{ fontSize: 16, margin: "8px 0 0" }}>Audio sedang diambil</p>
+          <p style={{ fontSize: 14, margin: "2px 0 0" }}>Audio is being captured</p>
+        </>
+      )}
+      <p style={{ fontSize: 14, margin: "12px 0 0", color: "#444" }}>
+        Mikrofon / Microphone: <strong>{micSource}</strong>
+      </p>
+    </StatusFrame>
+  );
+}
+
+function StatusFrame({
+  emoji,
+  label,
+  labelEn,
+  color,
+  children,
+}: {
+  emoji: string;
+  label: string;
+  labelEn: string;
+  color: string;
+  children: React.ReactNode;
+}) {
   return (
     <section
       role="status"
@@ -82,20 +146,7 @@ export function StatusBanner({ state, queuedCount, micSource }: StatusBannerProp
       <p style={{ fontSize: 18, fontWeight: 600, margin: "4px 0 0", color }}>
         {labelEn}
       </p>
-      {detailLine ? (
-        <>
-          <p style={{ fontSize: 16, margin: "8px 0 0" }}>{detailLine.id}</p>
-          <p style={{ fontSize: 14, margin: "2px 0 0" }}>{detailLine.en}</p>
-        </>
-      ) : (
-        <>
-          <p style={{ fontSize: 16, margin: "8px 0 0" }}>Audio sedang diambil</p>
-          <p style={{ fontSize: 14, margin: "2px 0 0" }}>Audio is being captured</p>
-        </>
-      )}
-      <p style={{ fontSize: 14, margin: "12px 0 0", color: "#444" }}>
-        Mikrofon / Microphone: <strong>{micSource}</strong>
-      </p>
+      {children}
     </section>
   );
 }

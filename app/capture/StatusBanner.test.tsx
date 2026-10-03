@@ -5,6 +5,34 @@ import { StatusBanner } from "@/app/capture/StatusBanner";
 
 afterEach(() => cleanup());
 
+describe("StatusBanner idle (no session running)", () => {
+  it("shows the neutral Bahasa and English not-started label", () => {
+    render(<StatusBanner state="idle" queuedCount={0} micSource="built-in" />);
+    expect(screen.getByText("Belum mulai")).toBeTruthy();
+    expect(screen.getByText("Not started")).toBeTruthy();
+    expect(screen.getByText("Pengambilan audio belum berjalan")).toBeTruthy();
+    expect(screen.getByText("Audio capture is not running")).toBeTruthy();
+  });
+
+  it("never shows Mendengarkan or Listening while idle", () => {
+    const { container } = render(
+      <StatusBanner state="idle" queuedCount={0} micSource="built-in" />,
+    );
+    const text = container.textContent ?? "";
+    expect(text).not.toContain("Mendengarkan");
+    expect(text).not.toContain("Listening");
+    expect(text).not.toContain("Mikrofon / Microphone");
+  });
+
+  it("keeps the idle region polite-live with a non-green decorative emoji", () => {
+    const { container } = render(
+      <StatusBanner state="idle" queuedCount={0} micSource="built-in" />,
+    );
+    expect(screen.getByRole("status").getAttribute("aria-live")).toBe("polite");
+    expect(container.querySelector('[aria-hidden="true"]')?.textContent).toBe("⚪");
+  });
+});
+
 describe("StatusBanner bilingual labels", () => {
   it("shows the Bahasa and English listening labels", () => {
     render(<StatusBanner state="listening" queuedCount={0} micSource="built-in" />);
