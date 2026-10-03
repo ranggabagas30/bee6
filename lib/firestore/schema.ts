@@ -201,12 +201,15 @@ export type LabelUnitLedger = z.infer<typeof LabelUnitLedgerSchema>;
 
 // ── pipeline_locks (single-flight tick lease; R-05b Task 6) ──────────────────
 /**
- * One lease per device, acquired with a Firestore `create()` (never `.set()`)
- * so a second concurrent tick for the same device fails to acquire and skips
- * that round rather than racing on which thread is "open" (review focus #5).
- * `expires_at_ms` is a backstop only — released in the tick's own `finally`
- * on every normal path; the backstop lets a later tick take over a lease left
- * behind by a crashed process.
+ * One lease per device, acquired inside a Firestore `runTransaction` that
+ * reads the existing lock doc, `safeParse`s it, and treats it as expired
+ * if it's unparseable or past `expires_at_ms` before writing the new lock
+ * with `tx.set()` — giving single-flight acquisition and malformed-doc
+ * resilience together (a bare `.create()` can't tell a held lease apart
+ * from a corrupt one; review focus #5). `expires_at_ms` is a backstop
+ * only — released in the tick's own `finally` on every normal path; the
+ * backstop lets a later tick take over a lease left behind by a crashed
+ * process.
  */
 export const PipelineLockSchema = z
   .object({
