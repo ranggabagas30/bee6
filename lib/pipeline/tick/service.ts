@@ -9,7 +9,7 @@ import { filterUnlabelledLines } from "@/lib/pipeline/label/ledger";
 import { scrubUnitLines } from "@/lib/pipeline/label/scrub";
 import { sanitizeLabelOutput, type SanitizeDeps } from "@/lib/pipeline/label/sanitize";
 import { deriveAsOfMs } from "@/lib/pipeline/label/clock";
-import { buildWindows, planLabelUnits, type LabelUnit, type SegmentForWindowing } from "@/lib/pipeline/windowing";
+import { buildWindows, planLabelUnits, earliestLineStartMs, type LabelUnit, type SegmentForWindowing } from "@/lib/pipeline/windowing";
 import { buildThreads, openThreadsAt, type BuiltThread, type OpenThread, type LabelOutput } from "@/lib/pipeline/threads";
 import { evaluateGate, applyGateDecision } from "@/lib/pipeline/gate";
 import { remapOpenThreadAliases } from "@/lib/pipeline/tick/alias";
@@ -40,7 +40,23 @@ import type {
  */
 
 export const DEFAULT_MAX_UNITS_PER_DEVICE = 20;
-export const DEFAULT_LEASE_TTL_MS = 110_000; // just under the 2-min Scheduler cadence
+/**
+ * Tech-lead review round 2, finding 2(b): the old 110s TTL (picked to sit
+ * just under the 2-min Scheduler cadence) could expire mid-tick — up to
+ * `DEFAULT_MAX_UNITS_PER_DEVICE` (20) units, each up to ~90s worst case
+ * (bounded label-call retries + network), is ~1800s (30 min) worst case
+ * for one tick. Set to that worst case, with no extra margin beyond it.
+ *
+ * RANGGA/DEV-OPS ACTION ITEM (flagged, not done here — gcloud/console is
+ * out of scope for this task): Cloud Run's own request timeout AND the
+ * Cloud Scheduler job's `attemptDeadline` must each be configured to at
+ * least this value too, or a tick can still be killed mid-run before this
+ * lease would ever expire on its own. Cloud Scheduler's `attemptDeadline`
+ * hard cap is itself 30 min — if the real per-unit worst case is ever
+ * found (via production data) to exceed ~90s, `DEFAULT_MAX_UNITS_PER_DEVICE`
+ * needs lowering together with this, not just this TTL raised further.
+ */
+export const DEFAULT_LEASE_TTL_MS = 1_800_000; // 30 min — see comment above
 export const DEFAULT_LABEL_MAX_ATTEMPTS = 3;
 /** Covers every category's GRACE_MS (max 600s, TRAINING) with margin. */
 export const DEFAULT_RECENT_THREAD_LOOKBACK_MS = 900_000;
@@ -121,22 +137,44 @@ function dedupeConcat(a: readonly string[], b: readonly string[]): string[] {
   return Array.from(new Set([...a, ...b]));
 }
 
-interface MergedThread {
+type MergedLine = { line_id: string; start_ms: number; end_ms: number; text: string };
+
+/**
+ * Tech-lead review round 2, finding 2(c): dedupe by `line_id` as defense
+ * in depth — `line_ids`/`evidence_line_ids` are already deduped, but the
+ * `lines` array itself was a blind concat, so a line_id that somehow
+ * reaches both the stored thread and a new unit's build would be stored
+ * twice.
+ */
+function dedupeLinesConcat(a: readonly MergedLine[], b: readonly MergedLine[]): MergedLine[] {
+  const seen = new Set<string>();
+  const result: MergedLine[] = [];
+  for (const line of [...a, ...b]) {
+    if (seen.has(line.line_id)) continue;
+    seen.add(line.line_id);
+    result.push(line);
+  }
+  return result;
+}
+
+export interface MergedThread {
   category: WorkCategory;
   confidence: number;
   line_ids: string[];
   evidence_line_ids: string[];
-  lines: Array<{ line_id: string; start_ms: number; end_ms: number; text: string }>;
+  lines: MergedLine[];
   first_line_start_ms: number;
   last_line_end_ms: number;
   summary: string;
   fields?: Record<string, unknown>;
   runner_up?: { category: Category; why_not: string };
+  /** Tech-lead review round 2, finding 4: OR'd forward, never dropped on a later clean merge. */
+  label_conflict: boolean;
   created_at_ms: number | null; // null => caller stamps now_ms (brand new thread)
 }
 
 /** Decision 4: confidence = min(stored, new); lines/evidence accumulate; category is unchanged by construction (buildThreads only continues a thread whose category already matches). */
-function mergeThread(stored: StoredThread | null, built: BuiltThread): MergedThread {
+export function mergeThread(stored: StoredThread | null, built: BuiltThread): MergedThread {
   if (!stored) {
     return {
       category: built.category,
@@ -149,6 +187,7 @@ function mergeThread(stored: StoredThread | null, built: BuiltThread): MergedThr
       summary: built.summary,
       fields: built.fields,
       runner_up: built.runner_up,
+      label_conflict: built.label_conflict,
       created_at_ms: null,
     };
   }
@@ -157,12 +196,13 @@ function mergeThread(stored: StoredThread | null, built: BuiltThread): MergedThr
     confidence: Math.min(stored.confidence, built.confidence),
     line_ids: dedupeConcat(stored.line_ids, built.line_ids),
     evidence_line_ids: dedupeConcat(stored.evidence_line_ids, built.evidence_line_ids),
-    lines: [...stored.lines, ...built.lines],
+    lines: dedupeLinesConcat(stored.lines, built.lines),
     first_line_start_ms: Math.min(stored.first_line_start_ms, built.first_line_start_ms),
     last_line_end_ms: Math.max(stored.last_line_end_ms, built.last_line_end_ms),
     summary: stored.summary || built.summary,
     fields: built.fields ?? stored.fields,
     runner_up: built.runner_up ?? stored.runner_up,
+    label_conflict: stored.label_conflict || built.label_conflict,
     created_at_ms: stored.created_at_ms,
   };
 }
@@ -180,17 +220,33 @@ async function processOneUnit(input: {
   config: CategoriesConfig;
   staffNames: readonly string[];
   openThreadPool: RecentThreadSummary[];
-  as_of_ms: number;
   now_ms: number;
   store: TickStore;
   labelClientDeps: LabelClientDeps | undefined;
   sanitizeDeps: SanitizeDeps | undefined;
 }): Promise<{ threadsWritten: number; questionsWritten: number; failed: boolean }> {
-  const { unit, outlet_id, device_id, config, staffNames, openThreadPool, as_of_ms, now_ms, store } = input;
+  const { unit, outlet_id, device_id, config, staffNames, openThreadPool, now_ms, store } = input;
+
+  // Tech-lead review round 2, finding 3: `attempts` is lifted out of the
+  // `try` block so the catch-path fallback below can report the REAL
+  // attempt count reached, instead of a hard-coded 1.
+  let attempts = 0;
 
   try {
     const scrubbedUnit = scrubUnitLines(unit, staffNames);
-    const openThreads: OpenThread[] = openThreadsAt(openThreadPool, as_of_ms);
+
+    // Tech-lead review round 2, finding 3: the gap check that decides
+    // whether a stored open thread can still accept this unit must be
+    // anchored to THIS UNIT's own start time, not the tick's as_of_ms —
+    // as_of_ms is inflated by however long this unit waited to close
+    // (silence/cadence), which has nothing to do with the actual gap to a
+    // candidate thread. Pool entries whose last_line_end_ms falls AFTER
+    // this unit's start are dropped first so the model is never even
+    // offered a thread buildThreads' own gap>=0 check would reject anyway
+    // (openThreadsAt only bounds the gap from above, not below).
+    const unitStartMs = earliestLineStartMs(scrubbedUnit);
+    const eligiblePool = openThreadPool.filter((t) => t.last_line_end_ms <= unitStartMs);
+    const openThreads: OpenThread[] = openThreadsAt(eligiblePool, unitStartMs);
 
     const prompt = buildLabelPrompt({ config, unit: scrubbedUnit, open_threads: openThreads });
     const newAliasCount = Math.max(1, Math.min(scrubbedUnit.lines.length, 20));
@@ -203,7 +259,6 @@ async function processOneUnit(input: {
 
     let wire: LabelWireOutput | null = null;
     let failureReason: string | null = null;
-    let attempts = 0;
 
     for (let attempt = 1; attempt <= DEFAULT_LABEL_MAX_ATTEMPTS; attempt += 1) {
       attempts = attempt;
@@ -277,11 +332,26 @@ async function processOneUnit(input: {
         category: merged.category,
         confidence: merged.confidence,
         evidence_line_ids: merged.evidence_line_ids,
-        label_conflict: builtThread.label_conflict,
+        // Tech-lead review round 2, finding 4: use the MERGED conflict flag
+        // (stored || built), never the newly-built unit's own flag alone —
+        // otherwise a thread held open by a past conflict could be
+        // silently promoted to fact by a later clean continuation.
+        label_conflict: merged.label_conflict,
       });
 
       const existingStatus = stored ? stored.status : null;
-      const newStatus = applyGateDecision(existingStatus, gate);
+      let newStatus = applyGateDecision(existingStatus, gate);
+      // Tech-lead review round 2, finding 5 (decision default, lower risk,
+      // no new plumbing): a stored thread already `open` stays `open` on
+      // a merge — promotion to `fact` only happens via a fresh (non-merge)
+      // evaluation, never implicitly through a later unit merging in. This
+      // also keeps that thread's existing `q_thread_${id}` question valid
+      // instead of going stale (finding's note: the question doc is never
+      // closed on this path, so letting status flip to fact under it would
+      // leave a "fact" thread with a dangling open question).
+      if (existingStatus === "open") {
+        newStatus = "open";
+      }
 
       const threadWrite: ThreadWrite = {
         outlet_id,
@@ -295,7 +365,7 @@ async function processOneUnit(input: {
         first_line_start_ms: merged.first_line_start_ms,
         last_line_end_ms: merged.last_line_end_ms,
         summary: merged.summary,
-        label_conflict: builtThread.label_conflict,
+        label_conflict: merged.label_conflict,
         status: newStatus,
         gate,
         created_at_ms: merged.created_at_ms ?? now_ms,
@@ -368,29 +438,48 @@ async function processOneUnit(input: {
       unit_key: unit.unit_id,
       line_ids: unit.lines.map((l) => l.line_id),
       status: "failed",
-      attempts: 1,
+      // Tech-lead review round 2, finding 3: the REAL attempt count reached
+      // before this unexpected throw, never a hard-coded 1 (e.g. a throw
+      // during sanitize/buildThreads after a successful label call still
+      // reflects however many label-call attempts that took).
+      attempts,
       labelled_at_ms: null,
     };
-    await store.writeUnitResult(outlet_id, device_id, {
-      threads: [],
-      questions: [
-        {
-          outlet_id,
-          device_id,
-          question_id: q.question_id,
-          thread_id: null,
-          kind: q.kind,
-          status: q.status,
-          category: null,
-          window_start_ms: q.window_start_ms,
-          window_end_ms: q.window_end_ms,
-          created_at_ms: now_ms,
-        },
-      ],
-      ledger,
-      blank_line_ids: [],
-    });
-    return { threadsWritten: 0, questionsWritten: 1, failed: true };
+    // Tech-lead review round 2, finding 6: if even this FALLBACK write
+    // itself throws, it must never escape and take down the rest of the
+    // tick (every remaining device would otherwise be skipped, a 500) —
+    // log only the error class, leave the unit un-ledgered (retried next
+    // tick), and let the device loop continue.
+    let persisted = true;
+    try {
+      await store.writeUnitResult(outlet_id, device_id, {
+        threads: [],
+        questions: [
+          {
+            outlet_id,
+            device_id,
+            question_id: q.question_id,
+            thread_id: null,
+            kind: q.kind,
+            status: q.status,
+            category: null,
+            window_start_ms: q.window_start_ms,
+            window_end_ms: q.window_end_ms,
+            created_at_ms: now_ms,
+          },
+        ],
+        ledger,
+        blank_line_ids: [],
+      });
+    } catch (writeError) {
+      persisted = false;
+      console.error("[pipeline-tick] failed to persist failed-unit fallback", {
+        device_id,
+        unit_id: unit.unit_id,
+        error_class: classifyUnexpectedError(writeError),
+      });
+    }
+    return { threadsWritten: 0, questionsWritten: persisted ? 1 : 0, failed: true };
   }
 }
 
@@ -402,8 +491,12 @@ async function processOneDevice(
   const { store, now_ms, config, maxUnitsPerDevice, leaseTtlMs, recentThreadLookbackMs, logSkew } = deps;
   const { outlet_id, device_id } = device;
 
-  const acquired = await store.acquireLease(outlet_id, device_id, now_ms, leaseTtlMs);
-  if (!acquired) {
+  // Tech-lead review round 2, finding 2: the lease token returned here
+  // (this acquisition's own `acquired_at_ms`) is the ONLY thing that may
+  // release it — passed to `releaseLease` in the `finally` below, never a
+  // bare "release my device's lease" that could delete a later tick's.
+  const leaseToken = await store.acquireLease(outlet_id, device_id, now_ms, leaseTtlMs);
+  if (leaseToken === null) {
     return {
       outlet_id,
       device_id,
@@ -458,7 +551,20 @@ async function processOneDevice(
 
     const labelledLineIds = await store.listLabelledLineIds(outlet_id, device_id);
     const staffNames = await store.listStaffScrubNames(outlet_id);
-    const openThreadPool = await store.listRecentThreads(outlet_id, device_id, asOf.as_of_ms - recentThreadLookbackMs);
+    // Tech-lead review round 2, finding 3: anchor the lookback on the
+    // OLDEST planned unit's own start time, not the tick's as_of_ms —
+    // on a Monday->Tuesday catch-up (or any tick running long after the
+    // units it's about to process actually happened), as_of_ms can sit
+    // far later than the units themselves, which would push this window
+    // too far forward and miss a still-open thread those units should
+    // continue.
+    const oldestUnitStartMs =
+      units.length > 0 ? Math.min(...units.map((u) => earliestLineStartMs(u))) : asOf.as_of_ms;
+    const openThreadPool = await store.listRecentThreads(
+      outlet_id,
+      device_id,
+      oldestUnitStartMs - recentThreadLookbackMs,
+    );
 
     let unitsProcessed = 0;
     let threadsWritten = 0;
@@ -477,7 +583,6 @@ async function processOneDevice(
         config,
         staffNames,
         openThreadPool,
-        as_of_ms: asOf.as_of_ms,
         now_ms,
         store,
         labelClientDeps: deps.labelClientDeps,
@@ -500,7 +605,7 @@ async function processOneDevice(
       failed_units: failedUnits,
     };
   } finally {
-    await store.releaseLease(outlet_id, device_id);
+    await store.releaseLease(outlet_id, device_id, leaseToken);
   }
 }
 

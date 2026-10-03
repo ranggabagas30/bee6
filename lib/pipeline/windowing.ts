@@ -37,6 +37,22 @@ export interface LabelUnit {
   lines: TimedLine[];
 }
 
+/**
+ * The earliest line's `start_ms` in a unit. Tech-lead review round 2,
+ * finding 3: open-thread continuation must anchor its gap check to the
+ * UNIT's own start time, never the tick's `as_of_ms` — the latter is
+ * inflated by however long the tick waited for this unit's own window to
+ * close (silence/cadence), which has nothing to do with how far this
+ * unit's content actually sits from a candidate open thread.
+ */
+export function earliestLineStartMs(unit: Pick<LabelUnit, "lines">): number {
+  let min = Infinity;
+  for (const line of unit.lines) {
+    if (line.start_ms < min) min = line.start_ms;
+  }
+  return min;
+}
+
 export interface WindowingConfig {
   silence: number; // ms to close on silence (default 90_000)
   cap: number; // max window span in ms (default 360_000)

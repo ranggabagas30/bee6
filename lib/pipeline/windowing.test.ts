@@ -3,11 +3,30 @@ import {
   toTimedLines,
   buildWindows,
   planLabelUnits,
+  earliestLineStartMs,
   SegmentForWindowing,
   PipelineWindow,
 } from "./windowing";
 
 describe("windowing", () => {
+  describe("earliestLineStartMs", () => {
+    it("returns the minimum start_ms across a unit's lines, regardless of input order", () => {
+      const unit = {
+        lines: [
+          { line_id: "a", seg_id: "s", text: "x", start_ms: 5000, end_ms: 6000 },
+          { line_id: "b", seg_id: "s", text: "y", start_ms: 1000, end_ms: 2000 },
+          { line_id: "c", seg_id: "s", text: "z", start_ms: 3000, end_ms: 4000 },
+        ],
+      };
+      expect(earliestLineStartMs(unit)).toBe(1000);
+    });
+
+    it("returns the single line's start_ms for a one-line unit", () => {
+      const unit = { lines: [{ line_id: "a", seg_id: "s", text: "x", start_ms: 42, end_ms: 100 }] };
+      expect(earliestLineStartMs(unit)).toBe(42);
+    });
+  });
+
   describe("toTimedLines", () => {
     it("converts segments to absolute-ms timed lines", () => {
       const segments: SegmentForWindowing[] = [

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GenerateContentParameters, GenerateContentResponse } from "@google/genai";
-import { runTick, DEFAULT_MAX_UNITS_PER_DEVICE } from "@/lib/pipeline/tick/service";
+import { runTick, mergeThread, DEFAULT_MAX_UNITS_PER_DEVICE } from "@/lib/pipeline/tick/service";
 import type {
   ActiveDevice,
   RecentThreadSummary,
@@ -9,6 +9,7 @@ import type {
   TickStore,
   UnitWriteBatch,
 } from "@/lib/pipeline/tick/types";
+import type { BuiltThread } from "@/lib/pipeline/threads";
 import { loadCategoriesConfig } from "@/lib/pipeline/label/config";
 
 const CONFIG = loadCategoriesConfig("config/categories.draft.yaml");
@@ -83,7 +84,7 @@ class FakeTickStore implements TickStore {
   segmentsByDevice = new Map<string, SegmentForTick[]>();
   labelledLineIdsByDevice = new Map<string, Set<string>>();
   storedThreads = new Map<string, StoredThread>();
-  leases = new Map<string, { expires_at_ms: number }>();
+  leases = new Map<string, { expires_at_ms: number; acquired_at_ms: number }>();
 
   writes: Array<{ outlet_id: string; device_id: string; batch: UnitWriteBatch }> = [];
   acquireLeaseCalls = 0;
@@ -123,18 +124,22 @@ class FakeTickStore implements TickStore {
     return this.storedThreads.get(threadId) ?? null;
   }
 
-  async acquireLease(outletId: string, deviceId: string, nowMs: number, ttlMs: number): Promise<boolean> {
+  async acquireLease(outletId: string, deviceId: string, nowMs: number, ttlMs: number): Promise<number | null> {
     this.acquireLeaseCalls += 1;
     const key = this.key(outletId, deviceId);
     const existing = this.leases.get(key);
-    if (existing && existing.expires_at_ms >= nowMs) return false;
-    this.leases.set(key, { expires_at_ms: nowMs + ttlMs });
-    return true;
+    if (existing && existing.expires_at_ms >= nowMs) return null;
+    this.leases.set(key, { expires_at_ms: nowMs + ttlMs, acquired_at_ms: nowMs });
+    return nowMs;
   }
 
-  async releaseLease(outletId: string, deviceId: string): Promise<void> {
+  /** Tech-lead review round 2, finding 2: only releases if `acquiredAtMs` still matches the stored lease — never deletes a later acquisition's lease. */
+  async releaseLease(outletId: string, deviceId: string, acquiredAtMs: number): Promise<void> {
     this.releaseLeaseCalls += 1;
-    this.leases.delete(this.key(outletId, deviceId));
+    const key = this.key(outletId, deviceId);
+    const existing = this.leases.get(key);
+    if (!existing || existing.acquired_at_ms !== acquiredAtMs) return;
+    this.leases.delete(key);
   }
 
   async writeUnitResult(outletId: string, deviceId: string, batch: UnitWriteBatch): Promise<void> {
@@ -152,6 +157,7 @@ class FakeTickStore implements TickStore {
         summary: t.summary,
         fields: t.fields,
         runner_up: t.runner_up,
+        label_conflict: t.label_conflict,
         status: t.status,
         created_at_ms: t.created_at_ms,
       });
@@ -508,5 +514,307 @@ describe("runTick", () => {
     const questionWrites = store.writes.flatMap((w) => w.batch.questions).filter((q) => q.kind === "gate");
     expect(questionWrites).toHaveLength(1);
     expect(questionWrites[0]!.thread_id).toBe(storedThreadId);
+  });
+
+  it("[tech-lead review round 2, finding 2] a lease release from an acquisition whose TTL already expired does not delete a later tick's lease", async () => {
+    const store = new FakeTickStore();
+    const outlet = "o1";
+    const device = "d1";
+
+    const firstToken = await store.acquireLease(outlet, device, 1_000, 100); // expires at 1_100
+    expect(firstToken).toBe(1_000);
+
+    // Time has passed well beyond the first lease's expiry; a second tick
+    // acquires fresh.
+    const secondToken = await store.acquireLease(outlet, device, 5_000, 100); // expires at 5_100
+    expect(secondToken).toBe(5_000);
+
+    // The FIRST tick, unaware its own lease already expired, finally-
+    // releases using its OWN (now-stale) token. Must be a no-op.
+    await store.releaseLease(outlet, device, firstToken!);
+
+    // The second tick's lease must still be held.
+    expect(await store.acquireLease(outlet, device, 5_050, 100)).toBeNull();
+
+    // Releasing with the CORRECT (second) token does free it.
+    await store.releaseLease(outlet, device, secondToken!);
+    expect(await store.acquireLease(outlet, device, 5_060, 100)).not.toBeNull();
+  });
+
+  it("[tech-lead review round 2, finding 3] joins two silence-separated windows into one thread, anchored on the unit's own start time rather than the tick's as_of_ms", async () => {
+    const store = new FakeTickStore();
+    store.devices = [{ outlet_id: "o1", device_id: "d1" }];
+
+    // Window 1: a single 10s-long line, deviceStartMs 0 -> 10_000.
+    store.segmentsByDevice.set("o1:d1", [
+      makeSegment({ segId: "s1", deviceStartMs: 0, text: "Checked the oven", durationMs: 10_000 }),
+    ]);
+    const firstGenerate = vi.fn().mockResolvedValue(
+      fakeResponse(
+        JSON.stringify(
+          okWire({
+            threads: [{ id: "T1", category: "ROUTINE_OPS", confidence: 0.95, evidence: [0], summary: "Checked the oven" }],
+          }),
+        ),
+      ),
+    );
+
+    // as_of_ms must clear window 1's own 90s silence close (10_000 + 90_000).
+    const firstTick = await runTick({
+      store,
+      now_ms: 150_000,
+      config: CONFIG,
+      labelClientDeps: { generate: firstGenerate, project: "proj", resolveLocation: () => "global" },
+      sanitizeDeps: { redactBatch: async (texts) => [...texts] },
+    });
+    expect(firstTick.devices[0]!.threads_written).toBe(1);
+    const threadId = Array.from(store.storedThreads.keys())[0]!;
+
+    // Window 2 starts exactly 100s after window 1 ends (10_000 -> 110_000):
+    // a silence gap (>=90s) so it becomes its OWN window, but still inside
+    // ROUTINE_OPS's 120s grace measured from window 1's OWN last line.
+    store.segmentsByDevice.set("o1:d1", [
+      makeSegment({ segId: "s1", deviceStartMs: 0, text: "Checked the oven", durationMs: 10_000 }),
+      makeSegment({ segId: "s2", deviceStartMs: 110_000, text: "Also wiped the counter" }),
+    ]);
+    const secondGenerate = vi.fn().mockResolvedValue(
+      fakeResponse(
+        JSON.stringify({
+          lines: [{ i: 0, reply_to: null, thread: "O1" }],
+          threads: [{ id: "O1", category: "ROUTINE_OPS", confidence: 0.9, evidence: [0], summary: "Wiped the counter" }],
+          non_work_lines: [],
+        }),
+      ),
+    );
+
+    // as_of_ms must clear window 2's OWN 90s silence close (125_000 +
+    // 90_000 = 215_000). Under the OLD, as_of_ms-anchored gap check, the
+    // gap from window 1's last line (10_000) to as_of_ms (220_000) would be
+    // 210s — past ROUTINE_OPS's 120s grace — wrongly excluding window 1 as
+    // a join candidate. Anchored on window 2's OWN start (110_000) instead,
+    // the real gap is 100s, inside grace.
+    const secondTick = await runTick({
+      store,
+      now_ms: 220_000,
+      config: CONFIG,
+      labelClientDeps: { generate: secondGenerate, project: "proj", resolveLocation: () => "global" },
+      sanitizeDeps: { redactBatch: async (texts) => [...texts] },
+    });
+
+    expect(secondTick.devices[0]!.threads_written).toBe(1);
+    expect(store.storedThreads.size).toBe(1); // joined into the SAME thread, not a second one
+    const merged = store.storedThreads.get(threadId)!;
+    expect(merged.line_ids).toHaveLength(2);
+    expect(merged.last_line_end_ms).toBe(125_000);
+  });
+
+  it("[tech-lead review round 2, findings 4 & 5] a conflicted thread stays label_conflict=true AND open after a later clean merge", async () => {
+    const store = new FakeTickStore();
+    store.devices = [{ outlet_id: "o1", device_id: "d1" }];
+
+    // One segment, two lines in the SAME component (line 1 replies to line
+    // 0) but resolved to DIFFERENT categories -> label_conflict=true.
+    const conflictSegment: SegmentForTick = {
+      seg_id: "s1",
+      device_start: new Date(0).toISOString(),
+      device_end: new Date(10_000).toISOString(),
+      received_at: new Date(10_000).toISOString(),
+      lines: [
+        { text: "Checked the oven", start: 0, end: 5 },
+        { text: "A customer complained about the wait", start: 5, end: 10 },
+      ],
+    };
+    store.segmentsByDevice.set("o1:d1", [conflictSegment]);
+
+    const firstGenerate = vi.fn().mockResolvedValue(
+      fakeResponse(
+        JSON.stringify({
+          lines: [
+            { i: 0, reply_to: null, thread: "T1" },
+            { i: 1, reply_to: 0, thread: "T2" }, // unions into T1's component
+          ],
+          threads: [
+            { id: "T1", category: "ROUTINE_OPS", confidence: 0.95, evidence: [0], summary: "Checked the oven" },
+            { id: "T2", category: "COMPLAINT", confidence: 0.95, evidence: [1], summary: "Customer complained" },
+          ],
+          non_work_lines: [],
+        }),
+      ),
+    );
+
+    const firstTick = await runTick({
+      store,
+      now_ms: 150_000,
+      config: CONFIG,
+      labelClientDeps: { generate: firstGenerate, project: "proj", resolveLocation: () => "global" },
+      sanitizeDeps: { redactBatch: async (texts) => [...texts] },
+    });
+    expect(firstTick.devices[0]!.threads_written).toBe(1);
+    const threadId = Array.from(store.storedThreads.keys())[0]!;
+    const storedBefore = store.storedThreads.get(threadId)!;
+    expect(storedBefore.label_conflict).toBe(true);
+    expect(storedBefore.status).toBe("open"); // label_conflict held it open
+
+    // A later, perfectly CLEAN continuation — no conflict at all this time
+    // — within ROUTINE_OPS's 120s grace (100s gap, also clearing the 90s
+    // silence threshold so it is its own window).
+    store.segmentsByDevice.set("o1:d1", [
+      conflictSegment,
+      makeSegment({ segId: "s2", deviceStartMs: 110_000, text: "Restocked the napkins" }),
+    ]);
+    const secondGenerate = vi.fn().mockResolvedValue(
+      fakeResponse(
+        JSON.stringify({
+          lines: [{ i: 0, reply_to: null, thread: "O1" }],
+          threads: [{ id: "O1", category: "ROUTINE_OPS", confidence: 0.95, evidence: [0], summary: "Restocked napkins" }],
+          non_work_lines: [],
+        }),
+      ),
+    );
+
+    const secondTick = await runTick({
+      store,
+      now_ms: 220_000,
+      config: CONFIG,
+      labelClientDeps: { generate: secondGenerate, project: "proj", resolveLocation: () => "global" },
+      sanitizeDeps: { redactBatch: async (texts) => [...texts] },
+    });
+
+    expect(secondTick.devices[0]!.threads_written).toBe(1);
+    const storedAfter = store.storedThreads.get(threadId)!;
+    // Finding 4: label_conflict must survive the merge even though THIS
+    // unit's own evaluation had no conflict at all.
+    expect(storedAfter.label_conflict).toBe(true);
+    // Finding 5 (decision default): a stored OPEN thread stays open on
+    // merge, never silently promoted to fact.
+    expect(storedAfter.status).toBe("open");
+
+    // Its gate question must still be open too (never left stale under a
+    // thread that silently became "fact").
+    const openQuestion = store.writes
+      .flatMap((w) => w.batch.questions)
+      .filter((q) => q.kind === "gate" && q.thread_id === threadId)
+      .at(-1);
+    expect(openQuestion?.status).toBe("open");
+  });
+
+  it("[tech-lead review round 2, finding 6] a failure persisting the failed-unit fallback itself never crashes the tick or skips a later device", async () => {
+    const store = new FakeTickStore();
+    store.devices = [
+      { outlet_id: "o1", device_id: "d1" },
+      { outlet_id: "o1", device_id: "d2" },
+    ];
+    store.segmentsByDevice.set("o1:d1", [makeSegment({ segId: "s1", deviceStartMs: 0, text: "hello" })]);
+    store.segmentsByDevice.set("o1:d2", [makeSegment({ segId: "s1", deviceStartMs: 0, text: "hello" })]);
+
+    // d1's fallback write (the catch-path's own writeUnitResult call)
+    // itself throws; d2's does not.
+    const originalWriteUnitResult = store.writeUnitResult.bind(store);
+    store.writeUnitResult = (outletId, deviceId, batch) => {
+      if (deviceId === "d1") throw new Error("Firestore unavailable");
+      return originalWriteUnitResult(outletId, deviceId, batch);
+    };
+
+    const generate = vi.fn();
+    const result = await runTick({
+      store,
+      now_ms: SERVER_NOW_MS,
+      config: CONFIG,
+      labelClientDeps: {
+        generate,
+        project: "proj",
+        // Every unit hits the unexpected-throw (non-label-call) path.
+        resolveLocation: () => {
+          throw new Error('Model "gemini-3.5-flash-lite" has not been probed yet');
+        },
+      },
+      sanitizeDeps: { redactBatch: async (texts) => [...texts] },
+    });
+
+    // The tick completed for BOTH devices — d1's own persistence failure
+    // never escaped and skipped d2.
+    expect(result.devices).toHaveLength(2);
+    const d1 = result.devices.find((d) => d.device_id === "d1")!;
+    const d2 = result.devices.find((d) => d.device_id === "d2")!;
+
+    expect(d1.failed_units).toBe(1);
+    // The fallback write itself failed, so nothing was actually persisted
+    // for d1 — reported honestly as zero, not a lying "1".
+    expect(d1.questions_written).toBe(0);
+
+    expect(d2.failed_units).toBe(1);
+    expect(d2.questions_written).toBe(1); // d2's fallback write succeeded normally
+  });
+});
+
+describe("mergeThread", () => {
+  it("[tech-lead review round 2, finding 2(c)] dedupes lines by line_id even when the built thread's lines overlap with the stored thread's (defense in depth)", () => {
+    const stored: StoredThread = {
+      thread_id: "t1",
+      category: "ROUTINE_OPS",
+      confidence: 0.9,
+      line_ids: ["s1#0"],
+      evidence_line_ids: ["s1#0"],
+      lines: [{ line_id: "s1#0", start_ms: 0, end_ms: 3000, text: "Checked the oven" }],
+      first_line_start_ms: 0,
+      last_line_end_ms: 3000,
+      summary: "Checked the oven",
+      label_conflict: false,
+      status: "fact",
+      created_at_ms: 1000,
+    };
+    const built: BuiltThread = {
+      thread_id: "t1",
+      category: "ROUTINE_OPS",
+      confidence: 0.9,
+      line_ids: ["s1#0", "s1#1"],
+      evidence_line_ids: ["s1#0", "s1#1"],
+      lines: [
+        { line_id: "s1#0", start_ms: 0, end_ms: 3000, text: "Checked the oven" }, // overlaps with stored
+        { line_id: "s1#1", start_ms: 3000, end_ms: 6000, text: "Wiped the counter" },
+      ],
+      first_line_start_ms: 0,
+      last_line_end_ms: 6000,
+      summary: "Checked the oven",
+      label_conflict: false,
+      continued_from_open: true,
+    };
+
+    const merged = mergeThread(stored, built);
+    expect(merged.lines.map((l) => l.line_id)).toEqual(["s1#0", "s1#1"]);
+  });
+
+  it("carries label_conflict forward with OR semantics (stored || built)", () => {
+    const base: StoredThread = {
+      thread_id: "t1",
+      category: "ROUTINE_OPS",
+      confidence: 0.9,
+      line_ids: ["s1#0"],
+      evidence_line_ids: ["s1#0"],
+      lines: [{ line_id: "s1#0", start_ms: 0, end_ms: 3000, text: "x" }],
+      first_line_start_ms: 0,
+      last_line_end_ms: 3000,
+      summary: "x",
+      label_conflict: true,
+      status: "open",
+      created_at_ms: 1000,
+    };
+    const built: BuiltThread = {
+      thread_id: "t1",
+      category: "ROUTINE_OPS",
+      confidence: 0.9,
+      line_ids: ["s1#1"],
+      evidence_line_ids: ["s1#1"],
+      lines: [{ line_id: "s1#1", start_ms: 3000, end_ms: 6000, text: "y" }],
+      first_line_start_ms: 3000,
+      last_line_end_ms: 6000,
+      summary: "y",
+      label_conflict: false,
+      continued_from_open: true,
+    };
+
+    expect(mergeThread(base, built).label_conflict).toBe(true);
+    expect(mergeThread({ ...base, label_conflict: false }, built).label_conflict).toBe(false);
+    expect(mergeThread(null, built).label_conflict).toBe(false);
   });
 });
