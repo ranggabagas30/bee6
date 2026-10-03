@@ -29,7 +29,14 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
-    await verifyInternalOidcToken(req, { issuerEmail: process.env.TASKS_INVOKER_SA ?? "" });
+    await verifyInternalOidcToken(req, {
+      issuerEmail: process.env.TASKS_INVOKER_SA ?? "",
+      // Fix (tech-lead review round 2, finding 1): the audience must come
+      // from the configured env var, never from the request itself
+      // (`req.url` on Cloud Run is built from HOSTNAME/port, never the
+      // public URL a real Scheduler job hits).
+      audience: process.env.PIPELINE_TICK_AUDIENCE ?? "",
+    });
 
     const result = await runTick({
       store: firestoreTickStore(),

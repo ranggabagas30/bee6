@@ -6,10 +6,17 @@ import { UnauthorizedError } from "@/lib/http/errors";
  * (R-05b Task 6; global constraint in `docs/tasks/R-05b.md`). Every
  * internal route verifies the caller via `google-auth-library`'s
  * `verifyIdToken`, with:
- *  - audience = the exact URL the request hit (what Cloud Scheduler's
- *    own job config must be set to) — never a hard-coded or env-configured
- *    URL, so there is nothing new to keep in sync when the Cloud Run URL
- *    changes;
+ *  - audience = `PIPELINE_TICK_AUDIENCE` (the tick route's own public URL,
+ *    configured as an env var — what Cloud Scheduler's own job config
+ *    must also be set to). **Never derived from the request** (`req.url`,
+ *    `Host`, `x-forwarded-host`, ...) — on Cloud Run, `req.url` is built
+ *    from `HOSTNAME`/port, never the public URL, so every real Scheduler
+ *    tick would 401 if the audience were derived from the request; worse,
+ *    any request header is caller-controlled, so deriving the audience
+ *    from one would let a caller pick its own audience and always pass.
+ *    Fails closed (401) if `PIPELINE_TICK_AUDIENCE` itself isn't
+ *    configured — same discipline as the `TASKS_INVOKER_SA` check below
+ *    (tech-lead review round 2, finding 1);
  *  - issuer email = `TASKS_INVOKER_SA` (the service account Cloud
  *    Scheduler's job is configured to run as).
  *
@@ -30,7 +37,6 @@ export interface VerifyOidcDeps {
 }
 
 export interface MinimalRequest {
-  url: string;
   headers: { get(name: string): string | null };
 }
 
@@ -53,26 +59,23 @@ function extractBearerToken(req: MinimalRequest): string | null {
   return match?.[1]?.trim() ?? null;
 }
 
-/** The request URL with any query string stripped, used as the OIDC audience. */
-function audienceFromUrl(url: string): string {
-  const i = url.indexOf("?");
-  return i === -1 ? url : url.slice(0, i);
-}
-
 /**
  * Verifies the OIDC bearer token on an internal request. Resolves on
  * success; throws `UnauthorizedError` (401) on any failure — missing
  * token, invalid/expired token, wrong audience (checked by
- * `verifyIdToken` itself), or an issuer email that doesn't match
- * `issuerEmail` (`TASKS_INVOKER_SA`).
+ * `verifyIdToken` itself), an issuer email that doesn't match
+ * `issuerEmail` (`TASKS_INVOKER_SA`), or `audience` itself not configured.
  */
 export async function verifyInternalOidcToken(
   req: MinimalRequest,
-  opts: { issuerEmail: string },
+  opts: { issuerEmail: string; audience: string },
   deps: VerifyOidcDeps = {},
 ): Promise<void> {
   if (!opts.issuerEmail) {
     throw new UnauthorizedError("TASKS_INVOKER_SA is not configured");
+  }
+  if (!opts.audience) {
+    throw new UnauthorizedError("PIPELINE_TICK_AUDIENCE is not configured");
   }
 
   const token = extractBearerToken(req);
@@ -80,7 +83,7 @@ export async function verifyInternalOidcToken(
     throw new UnauthorizedError("Missing bearer token");
   }
 
-  const audience = audienceFromUrl(req.url);
+  const audience = opts.audience;
   const verify = deps.verifyIdToken ?? defaultVerifyIdToken;
 
   let payload: OidcPayload;
