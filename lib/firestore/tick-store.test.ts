@@ -363,6 +363,26 @@ describe("firestoreTickStore.acquireLease / releaseLease", () => {
     expect(await store.acquireLease(OUTLET, DEVICE, 200_000, 110_000)).toBe(200_000);
   });
 
+  it("[tech-lead re-review, finding 1] a malformed lock doc is treated as expired (logging only the error class) and gets reacquired instead of permanently blocking the device", async () => {
+    const { db } = fakeDb({
+      [COLLECTIONS.pipelineLocks]: {
+        [`${OUTLET}:${DEVICE}`]: { outlet_id: OUTLET, device_id: DEVICE }, // missing acquired_at_ms/expires_at_ms
+      },
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const store = firestoreTickStore(db);
+
+    const token = await store.acquireLease(OUTLET, DEVICE, 1000, 110_000);
+    expect(token).toBe(1000); // reacquired, not permanently blocked
+
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(errorSpy.mock.calls[0])).not.toMatch(/acquired_at_ms/i);
+    errorSpy.mockRestore();
+
+    // The overwritten lock is now well-formed and genuinely held.
+    expect(await store.acquireLease(OUTLET, DEVICE, 1500, 110_000)).toBeNull();
+  });
+
   it("releaseLease deletes the lease (given its own token) so a later acquire succeeds immediately", async () => {
     const { db } = fakeDb();
     const store = firestoreTickStore(db);

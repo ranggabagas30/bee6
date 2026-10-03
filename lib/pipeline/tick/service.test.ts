@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GenerateContentParameters, GenerateContentResponse } from "@google/genai";
-import { runTick, mergeThread, DEFAULT_MAX_UNITS_PER_DEVICE } from "@/lib/pipeline/tick/service";
+import {
+  runTick,
+  mergeThread,
+  DEFAULT_MAX_UNITS_PER_DEVICE,
+  DEFAULT_RECENT_THREAD_LOOKBACK_MS,
+} from "@/lib/pipeline/tick/service";
 import type {
   ActiveDevice,
   RecentThreadSummary,
@@ -696,6 +701,119 @@ describe("runTick", () => {
       .filter((q) => q.kind === "gate" && q.thread_id === threadId)
       .at(-1);
     expect(openQuestion?.status).toBe("open");
+  });
+
+  it("[tech-lead re-review, finding 1] a device whose processing throws OUTSIDE processOneUnit (e.g. a store read) is caught in runTick, reported with skipped_reason \"error\", logged by class only, and never stops a later device in the same tick", async () => {
+    const store = new FakeTickStore();
+    store.devices = [
+      { outlet_id: "o1", device_id: "d1" },
+      { outlet_id: "o1", device_id: "d2" },
+    ];
+    // d1 is never given segments — its listSegmentsForDevice call itself throws below.
+    store.segmentsByDevice.set("o1:d2", [makeSegment({ segId: "s1", deviceStartMs: 0, text: "hello" })]);
+
+    const originalListSegmentsForDevice = store.listSegmentsForDevice.bind(store);
+    store.listSegmentsForDevice = (outletId: string, deviceId: string) => {
+      if (deviceId === "d1") throw new Error("Firestore unavailable: connection reset");
+      return originalListSegmentsForDevice(outletId, deviceId);
+    };
+
+    const generate = vi.fn().mockResolvedValue(fakeResponse(JSON.stringify(okWire())));
+    const result = await runTick({
+      store,
+      now_ms: SERVER_NOW_MS,
+      config: CONFIG,
+      labelClientDeps: { generate, project: "proj", resolveLocation: () => "global" },
+      sanitizeDeps: { redactBatch: async (texts) => [...texts] },
+    });
+
+    expect(result.devices).toHaveLength(2);
+    const d1 = result.devices.find((d) => d.device_id === "d1")!;
+    const d2 = result.devices.find((d) => d.device_id === "d2")!;
+
+    // d1's unexpected throw became a reported skip, never an unhandled rejection.
+    expect(d1.skipped_reason).toBe("error");
+    expect(d1.units_processed).toBe(0);
+    expect(d1.threads_written).toBe(0);
+    expect(d1.questions_written).toBe(0);
+    expect(d1.failed_units).toBe(0);
+
+    // d2 still ran normally in the same tick.
+    expect(d2.skipped_reason).toBeNull();
+    expect(d2.units_processed).toBeGreaterThanOrEqual(1);
+
+    // Logged {device_id, error_class} only — never the raw error message.
+    const deviceFailureLog = consoleErrorSpy.mock.calls.find(
+      (call) => typeof call[0] === "string" && call[0].includes("device failed unexpectedly"),
+    );
+    expect(deviceFailureLog).toBeDefined();
+    expect(JSON.stringify(deviceFailureLog)).not.toMatch(/connection reset/i);
+    expect(deviceFailureLog?.[1]).toMatchObject({ device_id: "d1", error_class: "Error" });
+
+    // d1's own (never-acquired-then-stuck) lease was released normally —
+    // acquireLease succeeded before the throw, so release still runs via finally.
+    expect(store.leases.has("o1:d1")).toBe(false);
+  });
+
+  it("[tech-lead re-review, finding 3] anchors the recent-thread lookback on the oldest STILL-UNLABELLED unit, not an older already-fully-labelled one", async () => {
+    const store = new FakeTickStore();
+    store.devices = [{ outlet_id: "o1", device_id: "d1" }];
+
+    // Unit A: old (starts at 0), already fully labelled before this tick.
+    // Unit B: far enough away (>=90s gap) to be its own window, and new/unlabelled.
+    store.segmentsByDevice.set("o1:d1", [
+      makeSegment({ segId: "sA", deviceStartMs: 0, text: "old already-labelled line" }),
+      makeSegment({ segId: "sB", deviceStartMs: 500_000, text: "new unlabelled line" }),
+    ]);
+    store.labelledLineIdsByDevice.set("o1:d1", new Set(["sA#0"]));
+
+    const generate = vi.fn().mockResolvedValue(fakeResponse(JSON.stringify(okWire())));
+    const listRecentThreadsSpy = vi.spyOn(store, "listRecentThreads");
+
+    // Comfortably past both windows' own 90s-silence close.
+    const nowMs = 500_000 + 15_000 + 90_000 + 5_000;
+
+    const result = await runTick({
+      store,
+      now_ms: nowMs,
+      config: CONFIG,
+      labelClientDeps: { generate, project: "proj", resolveLocation: () => "global" },
+      sanitizeDeps: { redactBatch: async (texts) => [...texts] },
+    });
+
+    // Only unit B actually got labelled this tick (unit A was already done).
+    expect(result.devices[0]!.units_processed).toBe(1);
+
+    expect(listRecentThreadsSpy).toHaveBeenCalledTimes(1);
+    const sinceMsArg = listRecentThreadsSpy.mock.calls[0]![2];
+    // Anchored on unit B's own start (500_000), NOT unit A's (0) — the old
+    // behaviour would have anchored on 0 - DEFAULT_RECENT_THREAD_LOOKBACK_MS.
+    expect(sinceMsArg).toBe(500_000 - DEFAULT_RECENT_THREAD_LOOKBACK_MS);
+  });
+
+  it("[tech-lead re-review, finding 3] falls back to as_of_ms when every planned unit is already fully labelled", async () => {
+    const store = new FakeTickStore();
+    store.devices = [{ outlet_id: "o1", device_id: "d1" }];
+    store.segmentsByDevice.set("o1:d1", [makeSegment({ segId: "sA", deviceStartMs: 0, text: "old already-labelled line" })]);
+    store.labelledLineIdsByDevice.set("o1:d1", new Set(["sA#0"]));
+
+    const generate = vi.fn();
+    const listRecentThreadsSpy = vi.spyOn(store, "listRecentThreads");
+    const nowMs = 15_000 + 90_000 + 5_000;
+
+    const result = await runTick({
+      store,
+      now_ms: nowMs,
+      config: CONFIG,
+      labelClientDeps: { generate, project: "proj", resolveLocation: () => "global" },
+      sanitizeDeps: { redactBatch: async (texts) => [...texts] },
+    });
+
+    expect(result.devices[0]!.units_processed).toBe(0);
+    expect(generate).not.toHaveBeenCalled();
+    expect(listRecentThreadsSpy).toHaveBeenCalledTimes(1);
+    const sinceMsArg = listRecentThreadsSpy.mock.calls[0]![2];
+    expect(sinceMsArg).toBe(nowMs - DEFAULT_RECENT_THREAD_LOOKBACK_MS);
   });
 
   it("[tech-lead review round 2, finding 6] a failure persisting the failed-unit fallback itself never crashes the tick or skips a later device", async () => {

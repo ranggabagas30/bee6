@@ -77,7 +77,14 @@ export interface RunTickDeps {
 export interface DeviceTickResult {
   outlet_id: string;
   device_id: string;
-  skipped_reason: "lease_held" | "no_segments" | null;
+  /**
+   * Tech-lead re-review, finding 1: `"error"` covers anything that throws
+   * in `processOneDevice` OUTSIDE `processOneUnit`'s own try/catch (lease
+   * acquire on a malformed lock doc, the store reads before the per-unit
+   * loop, or `releaseLease`'s `finally`) — caught in `runTick` so one
+   * device's failure never aborts the whole tick for every later device.
+   */
+  skipped_reason: "lease_held" | "no_segments" | "error" | null;
   units_processed: number;
   threads_written: number;
   questions_written: number;
@@ -551,15 +558,27 @@ async function processOneDevice(
 
     const labelledLineIds = await store.listLabelledLineIds(outlet_id, device_id);
     const staffNames = await store.listStaffScrubNames(outlet_id);
-    // Tech-lead review round 2, finding 3: anchor the lookback on the
-    // OLDEST planned unit's own start time, not the tick's as_of_ms —
-    // on a Monday->Tuesday catch-up (or any tick running long after the
-    // units it's about to process actually happened), as_of_ms can sit
-    // far later than the units themselves, which would push this window
-    // too far forward and miss a still-open thread those units should
-    // continue.
+
+    // Tech-lead re-review, finding 3: filter BEFORE computing the anchor,
+    // not after — `filterUnlabelledLines` is pure/deterministic, so this is
+    // the exact same set the loop below would otherwise re-derive one unit
+    // at a time, just computed once, up front.
+    const survivingUnits = units
+      .map((u) => filterUnlabelledLines(u, labelledLineIds))
+      .filter((u): u is LabelUnit => u !== null);
+
+    // Tech-lead review round 2, finding 3 (re-review, finding 3 again):
+    // anchor the lookback on the OLDEST STILL-UNLABELLED unit's own start
+    // time, not every unit `planLabelUnits` returned (most of which are
+    // already-labelled in steady state) and not the tick's as_of_ms — on a
+    // Monday->Tuesday catch-up (or any tick running long after the units
+    // it's about to process actually happened), as_of_ms can sit far later
+    // than the units themselves, which would push this window too far
+    // forward and miss a still-open thread those units should continue.
+    // Falls back to as_of_ms only when nothing survived filtering (nothing
+    // left to continue a thread for this tick anyway).
     const oldestUnitStartMs =
-      units.length > 0 ? Math.min(...units.map((u) => earliestLineStartMs(u))) : asOf.as_of_ms;
+      survivingUnits.length > 0 ? Math.min(...survivingUnits.map((u) => earliestLineStartMs(u))) : asOf.as_of_ms;
     const openThreadPool = await store.listRecentThreads(
       outlet_id,
       device_id,
@@ -571,10 +590,8 @@ async function processOneDevice(
     let questionsWritten = 0;
     let failedUnits = 0;
 
-    for (const unit of units) {
+    for (const filtered of survivingUnits) {
       if (unitsProcessed >= maxUnitsPerDevice) break;
-      const filtered = filterUnlabelledLines(unit, labelledLineIds);
-      if (!filtered) continue; // already fully labelled; free, doesn't count toward the cap
 
       const result = await processOneUnit({
         unit: filtered,
@@ -621,18 +638,41 @@ export async function runTick(deps: RunTickDeps): Promise<RunTickResult> {
   const results: DeviceTickResult[] = [];
 
   for (const device of devices) {
-    const result = await processOneDevice(device, {
-      store: deps.store,
-      now_ms: deps.now_ms,
-      config,
-      maxUnitsPerDevice,
-      leaseTtlMs,
-      recentThreadLookbackMs,
-      logSkew,
-      labelClientDeps: deps.labelClientDeps,
-      sanitizeDeps: deps.sanitizeDeps,
-    });
-    results.push(result);
+    // Fix (tech-lead re-review, finding 1): a per-device try/catch — a
+    // throw anywhere in `processOneDevice` OUTSIDE `processOneUnit`'s own
+    // handling (e.g. `acquireLease`'s lock-doc parse, the segment/ledger/
+    // staff/thread reads, or the `finally`-block `releaseLease`) must never
+    // propagate out of `runTick` and abort every remaining device. Logged
+    // by class only, same discipline as `classifyUnexpectedError`'s other
+    // callers.
+    try {
+      const result = await processOneDevice(device, {
+        store: deps.store,
+        now_ms: deps.now_ms,
+        config,
+        maxUnitsPerDevice,
+        leaseTtlMs,
+        recentThreadLookbackMs,
+        logSkew,
+        labelClientDeps: deps.labelClientDeps,
+        sanitizeDeps: deps.sanitizeDeps,
+      });
+      results.push(result);
+    } catch (error) {
+      console.error("[pipeline-tick] device failed unexpectedly", {
+        device_id: device.device_id,
+        error_class: classifyUnexpectedError(error),
+      });
+      results.push({
+        outlet_id: device.outlet_id,
+        device_id: device.device_id,
+        skipped_reason: "error",
+        units_processed: 0,
+        threads_written: 0,
+        questions_written: 0,
+        failed_units: 0,
+      });
+    }
   }
 
   return { devices: results };

@@ -213,8 +213,17 @@ export function firestoreTickStore(db: Firestore = adminDb()): TickStore {
       return db.runTransaction(async (tx: Transaction) => {
         const snap = await tx.get(ref);
         if (snap.exists) {
-          const existing = PipelineLockSchema.parse(snap.data());
-          if (existing.expires_at_ms > nowMs) return null; // still held, not expired
+          // Fix (tech-lead re-review, finding 1): a malformed lock doc must
+          // never permanently block this device (it would otherwise throw
+          // on every single tick, forever). `safeParse` + treat as already
+          // expired — proceed to overwrite — same "one bad doc never blocks
+          // the rest" discipline as `logSkippedDoc`'s other callers below.
+          const existing = PipelineLockSchema.safeParse(snap.data());
+          if (existing.success) {
+            if (existing.data.expires_at_ms > nowMs) return null; // still held, not expired
+          } else {
+            logSkippedDoc("pipeline_lock", ref.id);
+          }
         }
         const lock = PipelineLockSchema.parse({
           outlet_id: outletId,
