@@ -67,8 +67,18 @@ export function StatusBanner({ state, queuedCount, micSource }: StatusBannerProp
       <p style={{ fontSize: 18, fontWeight: 600, margin: "4px 0 0", color }}>
         {labelEn}
       </p>
-      <p style={{ fontSize: 16, margin: "8px 0 0" }}>{detail}</p>
+      {state === "listening" ? (
+        <>
+          <p style={{ fontSize: 16, margin: "8px 0 0" }}>Audio sedang diambil</p>
+          <p style={{ fontSize: 14, margin: "2px 0 0" }}>Audio is being captured</p>
+        </>
+      ) : (
+        <p style={{ fontSize: 16, margin: "8px 0 0" }}>{detail}</p>
+      )}
       <p style={{ fontSize: 14, margin: "12px 0 0", color: "#444" }}>
+        Mikrofon: <strong>{micSource}</strong>
+      </p>
+      <p style={{ fontSize: 14, margin: "2px 0 0", color: "#444" }}>
         Microphone: <strong>{micSource}</strong>
       </p>
     </section>

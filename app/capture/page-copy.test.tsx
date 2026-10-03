@@ -86,6 +86,36 @@ describe("CapturePage copy", () => {
     expect(container.textContent).not.toMatch(/available soon/i);
   });
 
+  it("shows the Bahasa line before each English shop-facing label on the outside-hours view", async () => {
+    const { container } = await renderWithPhase("outside_hours");
+    await waitFor(() => expect(container.textContent).toMatch(/outside opening hours/i));
+    expect(screen.getByText("Dengarkan toko")).toBeTruthy();
+    expect(screen.getByText("Shop listening")).toBeTruthy();
+    expect(screen.getByText("Dijeda — di luar jam buka")).toBeTruthy();
+    expect(screen.getByText("Paused — outside opening hours")).toBeTruthy();
+    expect(
+      screen.getByText("Mendengarkan dari 08:00 sampai 20:00 (Asia/Jakarta)."),
+    ).toBeTruthy();
+    expect(screen.getByText("Listening runs from 08:00 to 20:00 (Asia/Jakarta).")).toBeTruthy();
+  });
+
+  it("shows the Bahasa line before each English shop-facing label on the active view", async () => {
+    const { container } = await renderWithPhase("active");
+    await waitFor(() => expect(container.textContent).toMatch(/keep this page open/i));
+    expect(screen.getByText("Dengarkan toko")).toBeTruthy();
+    expect(screen.getByText("Shop listening")).toBeTruthy();
+    expect(
+      screen.getByText("Biarkan halaman ini terbuka, di depan, dan ponsel tetap tercolok."),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Keep this page open, in front, and the phone plugged in."),
+    ).toBeTruthy();
+    expect(container.textContent).toContain("Mikrofon: unknown");
+    expect(container.textContent).toContain("Microphone: unknown");
+    expect(screen.getByText("Audio sedang diambil")).toBeTruthy();
+    expect(screen.getByText("Audio is being captured")).toBeTruthy();
+  });
+
   it("makes no extra privacy claims", async () => {
     const { container } = await renderWithPhase("active");
     await waitFor(() => expect(container.textContent).toMatch(/keep this page open/i));

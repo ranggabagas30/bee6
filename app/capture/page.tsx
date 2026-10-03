@@ -236,7 +236,12 @@ export default function CapturePage() {
 
   return (
     <main style={PAGE_STYLE}>
-      <h1 style={{ fontSize: 22 }}>Shop listening</h1>
+      <h1 style={{ fontSize: 22 }}>
+        <span style={{ display: "block" }}>Dengarkan toko</span>
+        <span style={{ display: "block", fontSize: 16, fontWeight: 400 }}>
+          Shop listening
+        </span>
+      </h1>
 
       {devControlsEnabled ? (
         <DevPanel
@@ -268,7 +273,13 @@ export default function CapturePage() {
 
       {view === "outside_hours" && config ? (
         <section role="status" aria-live="polite">
-          <h2 style={{ fontSize: 18 }}>Paused — outside opening hours</h2>
+          <h2 style={{ fontSize: 18 }}>
+            <span style={{ display: "block" }}>Dijeda — di luar jam buka</span>
+            <span style={{ display: "block", fontSize: 15, fontWeight: 400 }}>
+              Paused — outside opening hours
+            </span>
+          </h2>
+          <p>Mendengarkan dari {config.opening_time} sampai {config.closing_time} ({config.timezone}).</p>
           <p>
             Listening runs from {config.opening_time} to {config.closing_time} (
             {config.timezone}).
@@ -305,6 +316,9 @@ export default function CapturePage() {
             </p>
           ) : null}
           <p style={{ marginTop: 16, fontSize: 14, color: "#444" }}>
+            Biarkan halaman ini terbuka, di depan, dan ponsel tetap tercolok.
+          </p>
+          <p style={{ marginTop: 4, fontSize: 14, color: "#444" }}>
             Keep this page open, in front, and the phone plugged in.
           </p>
           {PRIVACY_NOTE}
