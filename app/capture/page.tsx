@@ -29,6 +29,26 @@ import type { MicSourceClass } from "@/lib/capture/mic-source";
  * status only; a transcript is NEVER displayed (hard rule #2 / spec).
  */
 
+/**
+ * navigator.onLine as a display hint only (it can be true behind a dead
+ * server, so it never decides whether capture runs). Starts true so the first
+ * render makes no "no internet" claim; the real value is read after mount.
+ */
+function useNetworkOnlineHint(): boolean {
+  const [online, setOnline] = useState(true);
+  useEffect(() => {
+    const sync = () => setOnline(navigator.onLine);
+    sync();
+    window.addEventListener("online", sync);
+    window.addEventListener("offline", sync);
+    return () => {
+      window.removeEventListener("online", sync);
+      window.removeEventListener("offline", sync);
+    };
+  }, []);
+  return online;
+}
+
 const PAGE_STYLE: React.CSSProperties = {
   maxWidth: 360,
   margin: "0 auto",
@@ -61,6 +81,7 @@ export default function CapturePage() {
   // runtime toggle a query param could flip.
   const devControlsEnabled = isDevControlsEnabled();
   const router = useRouter();
+  const networkOnline = useNetworkOnlineHint();
   const [view, setView] = useState<View>("loading");
   const [config, setConfig] = useState<CaptureConfigResponse | null>(null);
   // Engine status from the running session only. Null until the first report
@@ -348,6 +369,7 @@ export default function CapturePage() {
             state={sessionRunning ? (status?.state ?? "listening") : "idle"}
             queuedCount={status?.queuedCount ?? 0}
             micSource={micSource}
+            online={networkOnline}
           />
           {sampleRateMsg ? (
             <p role="alert" style={{ color: "#b00020", marginTop: 16 }}>

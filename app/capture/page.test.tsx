@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const replace = vi.fn();
 // One stable router object, like Next's real useRouter: the page's mount effect
@@ -37,7 +37,16 @@ vi.mock("@/lib/capture/browser/client", () => ({
 // own `stop` spy, so a test can assert the exact session a button acted on.
 interface FakeCallbacks {
   onEvent?: (event: { type: string; [key: string]: unknown }) => void;
+  onStatus?: (status: {
+    state: "listening" | "offline" | "mic_error";
+    queuedCount: number;
+    droppedCount: number;
+    micError: string | null;
+  }) => void;
 }
+// The callbacks the most recent fake session was started with, so a test can
+// push engine status transitions (e.g. uploads failing) into the page.
+let lastCallbacks: FakeCallbacks | null = null;
 interface FakeSession {
   stop: ReturnType<typeof vi.fn>;
 }
@@ -50,6 +59,7 @@ const startCaptureSession = vi.fn(
   ): Promise<FakeSession> => {
     const session: FakeSession = { stop: vi.fn(async () => {}) };
     fakeSessions.push(session);
+    lastCallbacks = cb;
     // Simulate the real session reporting one status transition on start,
     // the same way session.ts emits state_changed from its onStatusChange.
     cb.onEvent?.({ type: "state_changed", state: "listening", queuedCount: 0 });
@@ -67,6 +77,8 @@ afterEach(() => {
   readDeviceAuth.mockReturnValue(null);
   resolveCapturePhase.mockReturnValue("no_consent");
   fakeSessions.length = 0;
+  lastCallbacks = null;
+  Object.defineProperty(window.navigator, "onLine", { configurable: true, get: () => true });
 });
 
 async function importCapturePage() {
@@ -158,6 +170,50 @@ describe("CapturePage banner truthfulness (dev mode)", () => {
     await waitFor(() => expect(fakeSessions).toHaveLength(1));
     await waitFor(() => expect(bannerText(container)).toContain("Listening"));
     expect(bannerText(container)).toContain("Mendengarkan");
+  });
+
+  it("reports listening with uploads waiting, not Offline, when uploads fail mid-session", async () => {
+    const { container } = await renderInDevMode();
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(lastCallbacks?.onStatus).toBeDefined());
+
+    act(() => {
+      lastCallbacks?.onStatus?.({
+        state: "offline",
+        queuedCount: 2,
+        droppedCount: 0,
+        micError: null,
+      });
+    });
+    await waitFor(() =>
+      expect(bannerText(container)).toContain("Listening · uploads waiting (2)"),
+    );
+    expect(bannerText(container)).toContain("Mendengarkan · pengiriman tertunda (2 menunggu)");
+    expect(bannerText(container)).not.toContain("Terputus");
+    expect(bannerText(container)).not.toContain("Offline");
+    // The browser reports online here, so the detail must not claim no internet.
+    expect(bannerText(container)).toContain("Server busy, retrying");
+    expect(bannerText(container)).not.toContain("No internet");
+  });
+
+  it("shows No internet only when navigator.onLine reports offline", async () => {
+    const { container } = await renderInDevMode();
+    Object.defineProperty(window.navigator, "onLine", { configurable: true, get: () => false });
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(lastCallbacks?.onStatus).toBeDefined());
+
+    act(() => {
+      lastCallbacks?.onStatus?.({
+        state: "offline",
+        queuedCount: 1,
+        droppedCount: 0,
+        micError: null,
+      });
+      window.dispatchEvent(new Event("offline"));
+    });
+    await waitFor(() => expect(bannerText(container)).toContain("No internet"));
+    expect(bannerText(container)).toContain("Tidak ada internet");
+    expect(bannerText(container)).not.toContain("Server busy");
   });
 
   it("returns to the neutral banner after Pause and never leaves the green state behind", async () => {

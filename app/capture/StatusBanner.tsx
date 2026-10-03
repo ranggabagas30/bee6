@@ -1,10 +1,10 @@
 import type { CaptureState } from "@/lib/capture/browser/engine";
 
 /**
- * Big capture status (web spec §4.1): 🟢 Listening · 🟡 Offline (N waiting) ·
- * 🔴 Mic problem, plus the mic source. No transcript is ever shown. The banner is
- * an aria-live region so a screen reader announces state changes; the emoji is
- * decorative (aria-hidden) with the state conveyed as text too.
+ * Big capture status (web spec §4.1): 🟢 Listening · 🟡 Listening with uploads
+ * waiting (N) · 🔴 Mic problem, plus the mic source. No transcript is ever shown.
+ * The banner is an aria-live region so a screen reader announces state changes;
+ * the emoji is decorative (aria-hidden) with the state conveyed as text too.
  *
  * `"idle"` is the neutral "not started" state the page shows whenever no capture
  * session is actually running (before Start, outside hours, after Stop/Pause).
@@ -18,38 +18,46 @@ interface BilingualLine {
 
 export type StatusBannerState = CaptureState | "idle";
 
+/**
+ * "offline" means the engine's uploads are failing while the session is still
+ * running: capture continues and segments queue up. So its headline says
+ * listening is happening, plus the waiting count. It never says "Terputus" or
+ * "Offline", because that would hide that listening is still going on.
+ */
 const PRESENTATION: Record<
   CaptureState,
   {
     emoji: string;
-    label: string;
-    labelEn: string;
     color: string;
-    detail: ((queuedCount: number) => BilingualLine) | null;
+    headline: (queuedCount: number) => BilingualLine;
+    detail: ((online: boolean) => BilingualLine) | null;
   }
 > = {
   listening: {
     emoji: "🟢",
-    label: "Mendengarkan",
-    labelEn: "Listening",
     color: "#1b5e20",
+    headline: () => ({ id: "Mendengarkan", en: "Listening" }),
     detail: null,
   },
   offline: {
     emoji: "🟡",
-    label: "Terputus, menunggu sambungan",
-    labelEn: "Offline, waiting to reconnect",
     color: "#8d6e00",
-    detail: (queuedCount) => ({
-      id: `${queuedCount} rekaman menunggu dikirim`,
-      en: `${queuedCount} segment${queuedCount === 1 ? "" : "s"} waiting`,
+    headline: (queuedCount) => ({
+      id: `Mendengarkan · pengiriman tertunda (${queuedCount} menunggu)`,
+      en: `Listening · uploads waiting (${queuedCount})`,
     }),
+    // navigator.onLine is only a hint. "Tidak ada internet" is shown only when
+    // the browser itself reports no connection; otherwise the server is the
+    // likely cause, so say that instead.
+    detail: (online) =>
+      online
+        ? { id: "Server sibuk, mencoba lagi", en: "Server busy, retrying" }
+        : { id: "Tidak ada internet", en: "No internet" },
   },
   mic_error: {
     emoji: "🔴",
-    label: "Mikrofon bermasalah",
-    labelEn: "Microphone problem",
     color: "#b00020",
+    headline: () => ({ id: "Mikrofon bermasalah", en: "Microphone problem" }),
     detail: () => ({
       id: "Periksa mikrofon dan koneksi",
       en: "Check the microphone and connection",
@@ -72,9 +80,16 @@ export interface StatusBannerProps {
   state: StatusBannerState;
   queuedCount: number;
   micSource: string;
+  /** navigator.onLine as a hint only; defaults to true (never claims "no internet"). */
+  online?: boolean;
 }
 
-export function StatusBanner({ state, queuedCount, micSource }: StatusBannerProps) {
+export function StatusBanner({
+  state,
+  queuedCount,
+  micSource,
+  online = true,
+}: StatusBannerProps) {
   if (state === "idle") {
     return (
       <StatusFrame
@@ -89,8 +104,9 @@ export function StatusBanner({ state, queuedCount, micSource }: StatusBannerProp
     );
   }
 
-  const { emoji, label, labelEn, color, detail } = PRESENTATION[state];
-  const detailLine = detail ? detail(queuedCount) : null;
+  const { emoji, color, headline, detail } = PRESENTATION[state];
+  const { id: label, en: labelEn } = headline(queuedCount);
+  const detailLine = detail ? detail(online) : null;
 
   return (
     <StatusFrame emoji={emoji} label={label} labelEn={labelEn} color={color}>
