@@ -125,7 +125,8 @@ export interface TickStore {
   /** The full stored thread, for the Decision-4 merge when continuing it. */
   getStoredThread(outletId: string, threadId: string): Promise<StoredThread | null>;
   /**
-   * `create()`-semantics lease acquire. Returns the lease's own
+   * Transactional single-flight lease acquire (overwrites an expired or
+   * malformed lock doc; see `PipelineLockSchema`). Returns the lease's own
    * `acquired_at_ms` (this acquisition's release token) when acquired, or
    * `null` when already held (and not expired).
    *
