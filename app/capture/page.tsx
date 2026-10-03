@@ -36,6 +36,17 @@ const PAGE_STYLE: React.CSSProperties = {
   fontFamily: "system-ui, sans-serif",
 };
 
+// Privacy line shown on the active and closed views. Keep it to exactly what is
+// true today: no "not recorded" / "anonymous" / "private" claims.
+const PRIVACY_NOTE = (
+  <div style={{ marginTop: 16, fontSize: 14, color: "#444" }}>
+    <p style={{ margin: 0 }}>
+      Suara diubah jadi catatan kerja singkat. Rekaman suara tidak disimpan.
+    </p>
+    <p style={{ margin: "4px 0 0" }}>Speech becomes short work notes. Audio is not kept.</p>
+  </div>
+);
+
 type View =
   | "loading"
   | "error"
@@ -260,8 +271,11 @@ export default function CapturePage() {
           <h2 style={{ fontSize: 18 }}>Paused — outside opening hours</h2>
           <p>
             Listening runs from {config.opening_time} to {config.closing_time} (
-            {config.timezone}). It will start again automatically at opening time.
+            {config.timezone}).
           </p>
+          <p>Mulai lagi saat buka berikutnya ({config.opening_time})</p>
+          <p>Resumes at the next opening ({config.opening_time})</p>
+          {PRIVACY_NOTE}
         </section>
       ) : null}
 
@@ -293,6 +307,7 @@ export default function CapturePage() {
           <p style={{ marginTop: 16, fontSize: 14, color: "#444" }}>
             Keep this page open, in front, and the phone plugged in.
           </p>
+          {PRIVACY_NOTE}
           {/* Staff PIN flow ships in R-07; this is a layout stub only. */}
           <button
             type="button"
@@ -300,7 +315,10 @@ export default function CapturePage() {
             aria-disabled="true"
             style={{ marginTop: 16, width: "100%", padding: 12, fontSize: 16 }}
           >
-            Staff (available soon)
+            <span style={{ display: "block" }}>Dibuka otomatis saat tutup</span>
+            <span style={{ display: "block", fontSize: 14 }}>
+              Opens automatically at closing
+            </span>
           </button>
         </>
       ) : null}

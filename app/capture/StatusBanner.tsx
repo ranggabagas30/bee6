@@ -9,11 +9,26 @@ import type { CaptureState } from "@/lib/capture/browser/engine";
 
 const PRESENTATION: Record<
   CaptureState,
-  { emoji: string; label: string; color: string }
+  { emoji: string; label: string; labelEn: string; color: string }
 > = {
-  listening: { emoji: "🟢", label: "Listening", color: "#1b5e20" },
-  offline: { emoji: "🟡", label: "Offline", color: "#8d6e00" },
-  mic_error: { emoji: "🔴", label: "Mic problem", color: "#b00020" },
+  listening: {
+    emoji: "🟢",
+    label: "Mendengarkan",
+    labelEn: "Listening",
+    color: "#1b5e20",
+  },
+  offline: {
+    emoji: "🟡",
+    label: "Terputus, menunggu sambungan",
+    labelEn: "Offline, waiting to reconnect",
+    color: "#8d6e00",
+  },
+  mic_error: {
+    emoji: "🔴",
+    label: "Mikrofon bermasalah",
+    labelEn: "Microphone problem",
+    color: "#b00020",
+  },
 };
 
 export interface StatusBannerProps {
@@ -23,7 +38,7 @@ export interface StatusBannerProps {
 }
 
 export function StatusBanner({ state, queuedCount, micSource }: StatusBannerProps) {
-  const { emoji, label, color } = PRESENTATION[state];
+  const { emoji, label, labelEn, color } = PRESENTATION[state];
   const detail =
     state === "offline"
       ? `${queuedCount} segment${queuedCount === 1 ? "" : "s"} waiting`
@@ -48,6 +63,9 @@ export function StatusBanner({ state, queuedCount, micSource }: StatusBannerProp
       </p>
       <p style={{ fontSize: 28, fontWeight: 700, margin: "8px 0 0", color }}>
         {label}
+      </p>
+      <p style={{ fontSize: 18, fontWeight: 600, margin: "4px 0 0", color }}>
+        {labelEn}
       </p>
       <p style={{ fontSize: 16, margin: "8px 0 0" }}>{detail}</p>
       <p style={{ fontSize: 14, margin: "12px 0 0", color: "#444" }}>
