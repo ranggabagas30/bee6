@@ -312,3 +312,107 @@ describe("CapturePage dev panel manual controls", () => {
     );
   });
 });
+
+describe("CapturePage stale session status (D1)", () => {
+  const micError = {
+    state: "mic_error" as const,
+    queuedCount: 0,
+    droppedCount: 0,
+    micError: "Mic gone",
+  };
+  const listening = {
+    state: "listening" as const,
+    queuedCount: 0,
+    droppedCount: 0,
+    micError: null,
+  };
+
+  function bannerText(container: HTMLElement): string {
+    return container.querySelector('section[role="status"]')?.textContent ?? "";
+  }
+
+  it("dev path: a stopped session's late listening status cannot hide the replacement session's mic problem", async () => {
+    isDevControlsEnabled.mockReturnValue(true);
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    fetchCaptureConfig.mockResolvedValue({
+      consent_complete: false,
+      opening_time: "08:00",
+      closing_time: "20:00",
+      timezone: "Asia/Jakarta",
+    });
+    resolveCapturePhase.mockReturnValue("no_consent");
+    const CapturePage = await importCapturePage();
+    const { container } = render(<CapturePage />);
+    await waitFor(() => expect(fetchCaptureConfig).toHaveBeenCalled());
+
+    // Session 1: start, then keep its callbacks.
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(fakeSessions).toHaveLength(1));
+    const session1Status = lastCallbacks?.onStatus;
+    expect(session1Status).toBeDefined();
+
+    // Pause session 1, then start session 2 which reports a mic problem.
+    fireEvent.click(screen.getByRole("button", { name: /^pause$/i }));
+    await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(fakeSessions).toHaveLength(2));
+    act(() => {
+      lastCallbacks?.onStatus?.(micError);
+    });
+    await waitFor(() => expect(bannerText(container)).toContain("Microphone problem"));
+
+    // A late status from the stopped session 1 must be ignored.
+    act(() => {
+      session1Status?.(listening);
+    });
+    expect(bannerText(container)).toContain("Microphone problem");
+    expect(bannerText(container)).not.toContain("Listening");
+    expect(bannerText(container)).not.toContain("Mendengarkan");
+  });
+
+  it("auto path: a session stopped by the opening-hours gate cannot overwrite the replacement session's status", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      isDevControlsEnabled.mockReturnValue(false);
+      readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+      fetchCaptureConfig.mockResolvedValue({
+        consent_complete: true,
+        opening_time: "08:00",
+        closing_time: "20:00",
+        timezone: "Asia/Jakarta",
+      });
+      resolveCapturePhase.mockReturnValue("active");
+      const CapturePage = await importCapturePage();
+      const { container } = render(<CapturePage />);
+      await waitFor(() => expect(fakeSessions).toHaveLength(1));
+      const session1Status = lastCallbacks?.onStatus;
+      const session1 = fakeSessions[0];
+
+      // Outside hours: the gate stops session 1 on the next 30 s tick.
+      resolveCapturePhase.mockReturnValue("outside_hours");
+      await act(async () => {
+        vi.advanceTimersByTime(30_000);
+      });
+      await waitFor(() => expect(session1?.stop).toHaveBeenCalledTimes(1));
+
+      // Back inside hours: session 2 starts and reports a mic problem.
+      resolveCapturePhase.mockReturnValue("active");
+      await act(async () => {
+        vi.advanceTimersByTime(30_000);
+      });
+      await waitFor(() => expect(fakeSessions).toHaveLength(2));
+      act(() => {
+        lastCallbacks?.onStatus?.(micError);
+      });
+      await waitFor(() => expect(bannerText(container)).toContain("Microphone problem"));
+
+      act(() => {
+        session1Status?.(listening);
+      });
+      expect(bannerText(container)).toContain("Microphone problem");
+      expect(bannerText(container)).not.toContain("Listening");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

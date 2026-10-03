@@ -109,6 +109,12 @@ export default function CapturePage() {
   const devStartingRef = useRef(false);
   const devStopRequestedRef = useRef(false);
 
+  // Session generation guard (D1). Incremented on every start and on every
+  // stop/cleanup. A session's onStatus/onMicSource only apply while its own
+  // generation is still current, so a late callback from a stopped session can
+  // never overwrite the status of the session that replaced it.
+  const sessionGenRef = useRef(0);
+
   // DEV-01 event log: one ring buffer per mount, in-memory only, never
   // persisted. The buffer itself is a mutable, non-reactive object; `events`
   // (state) is the snapshot the render body actually reads, refreshed on
@@ -147,6 +153,7 @@ export default function CapturePage() {
       }
 
       if (phase !== "active") {
+        sessionGenRef.current += 1;
         if (sessionRef.current) {
           await sessionRef.current.stop();
           sessionRef.current = null;
@@ -161,10 +168,16 @@ export default function CapturePage() {
 
       if (sessionRef.current) return; // already capturing
       starting = true;
+      const gen = ++sessionGenRef.current;
+      const isCurrent = () => !cancelled && gen === sessionGenRef.current;
       try {
         const session = await startCaptureSession(auth!, loadedConfig, {
-          onStatus: (s) => !cancelled && setStatus(s),
-          onMicSource: (source) => !cancelled && setMicSource(source),
+          onStatus: (s) => {
+            if (isCurrent()) setStatus(s);
+          },
+          onMicSource: (source) => {
+            if (isCurrent()) setMicSource(source);
+          },
           onUnsupported: () => {
             unsupported = true;
             if (!cancelled) setView("unsupported");
@@ -212,6 +225,7 @@ export default function CapturePage() {
       // tears down (route change / unmount): see devStopRequestedRef below.
       devStopRequestedRef.current = true;
       if (phaseTimer) clearInterval(phaseTimer);
+      sessionGenRef.current += 1;
       const session = sessionRef.current;
       sessionRef.current = null;
       void session?.stop();
@@ -230,11 +244,17 @@ export default function CapturePage() {
     if (!auth || !config || sessionRef.current || devStartingRef.current) return;
     devStartingRef.current = true;
     devStopRequestedRef.current = false;
+    const gen = ++sessionGenRef.current;
+    const isCurrent = () => gen === sessionGenRef.current;
     void (async () => {
       try {
         const session = await startCaptureSession(auth, config, {
-          onStatus: (s) => setStatus(s),
-          onMicSource: (label) => setMicSource(label),
+          onStatus: (s) => {
+            if (isCurrent()) setStatus(s);
+          },
+          onMicSource: (label) => {
+            if (isCurrent()) setMicSource(label);
+          },
           onUnsupported: () => setView("unsupported"),
           onSampleRateRejected: (msg) => setSampleRateMsg(msg),
           onEvent: handleEvent,
@@ -258,6 +278,7 @@ export default function CapturePage() {
 
   const handleDevStop = () => {
     devStopRequestedRef.current = true;
+    sessionGenRef.current += 1;
     const session = sessionRef.current;
     setSessionRunning(false);
     setStatus(null);
