@@ -60,6 +60,11 @@ export interface CaptureStatus {
   queuedCount: number;
   droppedCount: number;
   micError: string | null;
+  /**
+   * Numeric HTTP status of the most recent segment upload, or null when the
+   * last attempt was a network failure (no response) or none has run yet.
+   */
+  lastUploadHttpStatus: number | null;
 }
 
 export interface CaptureSnapshot {
@@ -117,6 +122,7 @@ export class CaptureEngine {
   private pumping = false;
   private connectionOk = true;
   private micError: string | null = null;
+  private lastUploadHttpStatus: number | null = null;
   private uploadDropped = 0;
   private totalFrames = 0;
   private speechFrames = 0;
@@ -212,6 +218,7 @@ export class CaptureEngine {
       queuedCount: this.queue.size,
       droppedCount: this.queue.droppedCount + this.uploadDropped,
       micError: this.micError,
+      lastUploadHttpStatus: this.lastUploadHttpStatus,
     };
   }
 
@@ -307,11 +314,13 @@ export class CaptureEngine {
         this.headAttempt.count += 1;
 
         const status = await this.upload(item);
+        this.lastUploadHttpStatus = status;
         const disposition = classifyUploadResult(status);
         this.emitEvent({
           type: "segment_upload_result",
           seg_id: item.id,
           ok: disposition === "success",
+          http_status: status,
         });
 
         if (disposition === "success") {
