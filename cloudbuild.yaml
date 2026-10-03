@@ -38,7 +38,9 @@ steps:
       - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:${SHORT_SHA}"
 
   - id: deploy
-    name: gcr.io/google-cloud-sdk/slim
+    # Google's current maintained Cloud SDK image path (the old
+    # gcr.io/google-cloud-sdk/slim reference no longer resolves).
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: gcloud
     args:
       - run
