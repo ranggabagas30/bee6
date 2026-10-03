@@ -7,27 +7,47 @@ import type { CaptureState } from "@/lib/capture/browser/engine";
  * decorative (aria-hidden) with the state conveyed as text too.
  */
 
+interface BilingualLine {
+  id: string;
+  en: string;
+}
+
 const PRESENTATION: Record<
   CaptureState,
-  { emoji: string; label: string; labelEn: string; color: string }
+  {
+    emoji: string;
+    label: string;
+    labelEn: string;
+    color: string;
+    detail: ((queuedCount: number) => BilingualLine) | null;
+  }
 > = {
   listening: {
     emoji: "🟢",
     label: "Mendengarkan",
     labelEn: "Listening",
     color: "#1b5e20",
+    detail: null,
   },
   offline: {
     emoji: "🟡",
     label: "Terputus, menunggu sambungan",
     labelEn: "Offline, waiting to reconnect",
     color: "#8d6e00",
+    detail: (queuedCount) => ({
+      id: `${queuedCount} rekaman menunggu dikirim`,
+      en: `${queuedCount} segment${queuedCount === 1 ? "" : "s"} waiting`,
+    }),
   },
   mic_error: {
     emoji: "🔴",
     label: "Mikrofon bermasalah",
     labelEn: "Microphone problem",
     color: "#b00020",
+    detail: () => ({
+      id: "Periksa mikrofon dan koneksi",
+      en: "Check the microphone and connection",
+    }),
   },
 };
 
@@ -38,13 +58,8 @@ export interface StatusBannerProps {
 }
 
 export function StatusBanner({ state, queuedCount, micSource }: StatusBannerProps) {
-  const { emoji, label, labelEn, color } = PRESENTATION[state];
-  const detail =
-    state === "offline"
-      ? `${queuedCount} segment${queuedCount === 1 ? "" : "s"} waiting`
-      : state === "mic_error"
-        ? "Check the microphone and connection"
-        : "Audio is being captured";
+  const { emoji, label, labelEn, color, detail } = PRESENTATION[state];
+  const detailLine = detail ? detail(queuedCount) : null;
 
   return (
     <section
@@ -67,19 +82,19 @@ export function StatusBanner({ state, queuedCount, micSource }: StatusBannerProp
       <p style={{ fontSize: 18, fontWeight: 600, margin: "4px 0 0", color }}>
         {labelEn}
       </p>
-      {state === "listening" ? (
+      {detailLine ? (
+        <>
+          <p style={{ fontSize: 16, margin: "8px 0 0" }}>{detailLine.id}</p>
+          <p style={{ fontSize: 14, margin: "2px 0 0" }}>{detailLine.en}</p>
+        </>
+      ) : (
         <>
           <p style={{ fontSize: 16, margin: "8px 0 0" }}>Audio sedang diambil</p>
           <p style={{ fontSize: 14, margin: "2px 0 0" }}>Audio is being captured</p>
         </>
-      ) : (
-        <p style={{ fontSize: 16, margin: "8px 0 0" }}>{detail}</p>
       )}
       <p style={{ fontSize: 14, margin: "12px 0 0", color: "#444" }}>
-        Mikrofon: <strong>{micSource}</strong>
-      </p>
-      <p style={{ fontSize: 14, margin: "2px 0 0", color: "#444" }}>
-        Microphone: <strong>{micSource}</strong>
+        Mikrofon / Microphone: <strong>{micSource}</strong>
       </p>
     </section>
   );

@@ -237,7 +237,7 @@ export default function CapturePage() {
   return (
     <main style={PAGE_STYLE}>
       <h1 style={{ fontSize: 22 }}>
-        <span style={{ display: "block" }}>Dengarkan toko</span>
+        <span style={{ display: "block" }}>Mendengarkan toko</span>
         <span style={{ display: "block", fontSize: 16, fontWeight: 400 }}>
           Shop listening
         </span>
@@ -252,17 +252,39 @@ export default function CapturePage() {
         />
       ) : null}
 
-      {view === "loading" ? <p>Loading capture settings…</p> : null}
+      {view === "loading" ? (
+        <>
+          <p style={{ margin: 0 }}>Memuat pengaturan…</p>
+          <p style={{ margin: "2px 0 0", fontSize: 14, color: "#444" }}>
+            Loading capture settings…
+          </p>
+        </>
+      ) : null}
 
       {view === "error" ? (
         <p role="alert" style={{ color: "#b00020" }}>
-          Couldn&apos;t load capture settings. Check the connection and reload.
+          <span style={{ display: "block" }}>
+            Pengaturan tidak bisa dimuat. Periksa koneksi lalu muat ulang.
+          </span>
+          <span style={{ display: "block", fontSize: 14 }}>
+            Couldn&apos;t load capture settings. Check the connection and reload.
+          </span>
         </p>
       ) : null}
 
       {view === "no_consent" ? (
         <section role="alert">
-          <h2 style={{ fontSize: 18 }}>Capture is off</h2>
+          <h2 style={{ fontSize: 18 }}>
+            <span style={{ display: "block" }}>Pengambilan audio belum aktif</span>
+            <span style={{ display: "block", fontSize: 15, fontWeight: 400 }}>
+              Capture is off
+            </span>
+          </h2>
+          <p>
+            Outlet ini belum menyelesaikan langkah persetujuan staf, jadi
+            pendengaran belum bisa dimulai. Minta supervisor menyelesaikan
+            persetujuan, lalu muat ulang halaman ini.
+          </p>
           <p>
             This outlet hasn&apos;t completed the staff-consent step yet, so
             listening can&apos;t start. Ask the supervisor to complete consent,
@@ -292,7 +314,13 @@ export default function CapturePage() {
 
       {view === "unsupported" ? (
         <section role="alert">
-          <h2 style={{ fontSize: 18 }}>Browser not supported</h2>
+          <h2 style={{ fontSize: 18 }}>
+            <span style={{ display: "block" }}>Browser tidak didukung</span>
+            <span style={{ display: "block", fontSize: 15, fontWeight: 400 }}>
+              Browser not supported
+            </span>
+          </h2>
+          <p>Gunakan Chrome terbaru di ponsel ini.</p>
           <p>
             This browser can&apos;t encode audio for capture. Use the latest
             Chrome on the shop phone.
