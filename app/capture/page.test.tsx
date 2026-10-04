@@ -37,6 +37,7 @@ vi.mock("@/lib/capture/browser/client", () => ({
 // own `stop` spy, so a test can assert the exact session a button acted on.
 interface FakeCallbacks {
   onEvent?: (event: { type: string; [key: string]: unknown }) => void;
+  onMicSource?: (source: string) => void;
   onStatus?: (status: {
     state: "listening" | "offline" | "mic_error";
     queuedCount: number;
@@ -311,6 +312,38 @@ describe("CapturePage dev panel manual controls", () => {
         container.querySelector('[data-testid="dev-event-log"]')?.textContent,
       ).toMatch(/state_changed/),
     );
+  });
+});
+
+describe("CapturePage mic source between sessions", () => {
+  it("resets the mic source after Pause, so a later session whose mic fails shows unknown, not the old built-in mic", async () => {
+    isDevControlsEnabled.mockReturnValue(true);
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    fetchCaptureConfig.mockResolvedValue({
+      consent_complete: false,
+      opening_time: "08:00",
+      closing_time: "20:00",
+      timezone: "Asia/Jakarta",
+    });
+    resolveCapturePhase.mockReturnValue("no_consent");
+    const CapturePage = await importCapturePage();
+    const { container } = render(<CapturePage />);
+    await waitFor(() => expect(fetchCaptureConfig).toHaveBeenCalled());
+
+    // Session 1 uses the built-in mic.
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
+    act(() => lastCallbacks?.onMicSource?.("built-in"));
+    expect(container.textContent).toMatch(/Microphone: built-in/);
+
+    fireEvent.click(screen.getByRole("button", { name: /^pause$/i }));
+    await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
+
+    // Session 2 starts, but its getUserMedia fails, so no mic source is ever reported.
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(2));
+    expect(container.textContent).not.toMatch(/Microphone: built-in/);
+    expect(container.textContent).toMatch(/Microphone: unknown/);
   });
 });
 

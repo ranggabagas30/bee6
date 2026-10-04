@@ -163,6 +163,8 @@ export default function CapturePage() {
             setStatus(null);
           }
         }
+        // The mic source belongs to the session that just stopped (no session now).
+        if (!cancelled) setMicSource("unknown");
         if (!cancelled) setView(phase);
         return;
       }
@@ -171,6 +173,8 @@ export default function CapturePage() {
       starting = true;
       const gen = ++sessionGenRef.current;
       const isCurrent = () => !cancelled && gen === sessionGenRef.current;
+      // A new session starts with an unknown mic; a previous session's mic must not show.
+      setMicSource("unknown");
       try {
         const session = await startCaptureSession(auth!, loadedConfig, {
           onStatus: (s) => {
@@ -232,6 +236,7 @@ export default function CapturePage() {
       void session?.stop();
       setSessionRunning(false);
       setStatus(null);
+      setMicSource("unknown");
     };
   }, [router, devControlsEnabled]);
 
@@ -247,6 +252,7 @@ export default function CapturePage() {
     devStopRequestedRef.current = false;
     const gen = ++sessionGenRef.current;
     const isCurrent = () => gen === sessionGenRef.current;
+    setMicSource("unknown");
     void (async () => {
       try {
         const session = await startCaptureSession(auth, config, {
@@ -283,6 +289,7 @@ export default function CapturePage() {
     const session = sessionRef.current;
     setSessionRunning(false);
     setStatus(null);
+    setMicSource("unknown");
     if (!session) return;
     sessionRef.current = null;
     void session.stop();
