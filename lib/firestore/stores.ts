@@ -307,6 +307,7 @@ export function firestoreCaptureSessionStore(
       for (;;) {
         const page = await db
           .collection(COLLECTIONS.segments)
+          .where("outlet_id", "==", outletId)
           .where("device_id", "==", key.device_id)
           .where("session_id", "==", key.session_id)
           .limit(DISCARD_DELETE_BATCH_MAX)

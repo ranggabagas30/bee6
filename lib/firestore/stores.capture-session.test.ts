@@ -372,6 +372,23 @@ describe("firestoreCaptureSessionStore.deleteSegments", () => {
     expect(fake.commits.every((n) => n <= DISCARD_DELETE_BATCH_MAX + 1)).toBe(true);
   });
 
+  it("never deletes a segment from another outlet that shares device_id and session_id", async () => {
+    const { fake, store } = fresh();
+    await discardSession(store, {
+      outlet_id: OUTLET, device_id: DEVICE, session_id: S1, cal: CAL, now_ms: T0 + 9_000,
+      started_at_ms: T0, discarded_at_ms: T0 + 8_000,
+    });
+    // Device ids are unique per outlet only: same device_id and session_id, different outlet.
+    fake.seed("segments", `other-outlet:${DEVICE}:${S1}-0`, { outlet_id: "other-outlet", device_id: DEVICE, session_id: S1 });
+    seedSegments(fake, 2);
+    const auditId = `${DEVICE}:${S1}:capture.session_discarded`;
+
+    expect(await store.deleteSegments({ device_id: DEVICE, session_id: S1 }, auditId)).toBe(2);
+
+    expect(fake.docs.has(fake.key("segments", `other-outlet:${DEVICE}:${S1}-0`))).toBe(true);
+    expect(fake.docs.get(fake.key("audit_log", auditId))?.details).toMatchObject({ segments_deleted: 2 });
+  });
+
   it("a retry after the work is done adds nothing and returns 0", async () => {
     const { fake, store } = fresh();
     await discardSession(store, {
