@@ -115,7 +115,7 @@ describe("CapturePage dev panel gating", () => {
     // ...the real blocked state is still shown underneath (not deleted)...
     expect(container.textContent).toMatch(/capture is off/i);
     // ...and the active capture view is no longer blocked by it.
-    expect(container.textContent).toMatch(/keep this page open/i);
+    expect(container.textContent).toMatch(/keep the screen on and this page open/i);
   });
 });
 

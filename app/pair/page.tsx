@@ -1,6 +1,10 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { ShopTopBar } from "@/app/shop/ShopTopBar";
+import { useLang } from "@/lib/i18n/context";
+import { pairErrorKey } from "@/lib/i18n/codes";
+import { t, type DictKey } from "@/lib/i18n/dict";
 
 /**
  * /pair — the shop phone's pairing entry (web spec §3, §4.1). Minimal by design:
@@ -24,9 +28,12 @@ type Status =
   | { kind: "idle" }
   | { kind: "submitting" }
   | { kind: "paired"; outletId: string }
-  | { kind: "error"; message: string };
+  | { kind: "error"; key: DictKey };
+
+const PAGE_STYLE: React.CSSProperties = { maxWidth: 360, margin: "0 auto", padding: 24 };
 
 export default function PairPage() {
+  const { lang } = useLang();
   const [code, setCode] = useState("");
   const [status, setStatus] = useState<Status>({ kind: "idle" });
 
@@ -39,38 +46,42 @@ export default function PairPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code }),
       });
-      const payload = await response.json();
       if (!response.ok) {
-        const message: string =
-          payload?.error?.message ?? "Pairing failed. Check the code and try again.";
-        setStatus({ kind: "error", message });
+        // Map the error code to dictionary copy; the server message is never shown.
+        const payload: { error?: { code?: string } } | null = await response
+          .json()
+          .catch(() => null);
+        setStatus({ kind: "error", key: pairErrorKey(response.status, payload?.error?.code) });
         return;
       }
+      const payload = await response.json();
       const { device_token, device_id, outlet_id } = payload.data;
       window.localStorage.setItem(DEVICE_TOKEN_KEY, device_token);
       window.localStorage.setItem(DEVICE_ID_KEY, device_id);
       window.localStorage.setItem(OUTLET_ID_KEY, outlet_id);
       setStatus({ kind: "paired", outletId: outlet_id });
     } catch {
-      setStatus({ kind: "error", message: "Network error. Try again." });
+      setStatus({ kind: "error", key: "C-pair-net" });
     }
   }
 
   if (status.kind === "paired") {
     return (
-      <main style={{ maxWidth: 360, margin: "0 auto", padding: 24 }}>
-        <h1>Device paired</h1>
-        <p>This phone is now paired to outlet {status.outletId}.</p>
+      <main style={PAGE_STYLE}>
+        <ShopTopBar />
+        <h1>{t(lang, "C-pair-ok-h")}</h1>
+        <p>{t(lang, "C-pair-ok-line", { outlet_id: status.outletId })}</p>
       </main>
     );
   }
 
   return (
-    <main style={{ maxWidth: 360, margin: "0 auto", padding: 24 }}>
-      <h1>Pair this device</h1>
-      <p>Enter the 6-digit pairing code from the setup script.</p>
+    <main style={PAGE_STYLE}>
+      <ShopTopBar />
+      <h1>{t(lang, "C-pair-title")}</h1>
+      <p>{t(lang, "C-pair-help")}</p>
       <form onSubmit={handleSubmit}>
-        <label htmlFor="pairing-code">Pairing code</label>
+        <label htmlFor="pairing-code">{t(lang, "C-pair-label")}</label>
         <input
           id="pairing-code"
           name="pairing-code"
@@ -86,14 +97,14 @@ export default function PairPage() {
         <button
           type="submit"
           disabled={status.kind === "submitting" || code.length !== 6}
-          style={{ marginTop: 16, width: "100%", padding: 12, fontSize: 16 }}
+          style={{ marginTop: 16, width: "100%", minHeight: 48, padding: 12, fontSize: 16 }}
         >
-          {status.kind === "submitting" ? "Pairing…" : "Pair device"}
+          {status.kind === "submitting" ? t(lang, "C-pair-busy") : t(lang, "C-b-pasang")}
         </button>
       </form>
       {status.kind === "error" ? (
         <p role="alert" style={{ color: "#b00020", marginTop: 16 }}>
-          {status.message}
+          {t(lang, status.key)}
         </p>
       ) : null}
     </main>

@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { StatusBanner } from "@/app/capture/StatusBanner";
 import { DevPanel } from "@/app/capture/DevPanel";
+import { ShopTopBar } from "@/app/shop/ShopTopBar";
+import { useLang } from "@/lib/i18n/context";
+import { t } from "@/lib/i18n/dict";
 import {
   fetchCaptureConfig,
   readDeviceAuth,
@@ -50,6 +53,7 @@ export default function CapturePage() {
   // runtime toggle a query param could flip.
   const devControlsEnabled = isDevControlsEnabled();
   const router = useRouter();
+  const { lang } = useLang();
   const [view, setView] = useState<View>("loading");
   const [config, setConfig] = useState<CaptureConfigResponse | null>(null);
   const [status, setStatus] = useState<CaptureStatus>({
@@ -225,7 +229,8 @@ export default function CapturePage() {
 
   return (
     <main style={PAGE_STYLE}>
-      <h1 style={{ fontSize: 22 }}>Shop listening</h1>
+      <ShopTopBar />
+      <h1 style={{ fontSize: 22 }}>{t(lang, "C-cap-title")}</h1>
 
       {devControlsEnabled ? (
         <DevPanel
@@ -236,42 +241,39 @@ export default function CapturePage() {
         />
       ) : null}
 
-      {view === "loading" ? <p>Loading capture settings…</p> : null}
+      {view === "loading" ? <p>{t(lang, "C-h-loading")}</p> : null}
 
       {view === "error" ? (
-        <p role="alert" style={{ color: "#b00020" }}>
-          Couldn&apos;t load capture settings. Check the connection and reload.
-        </p>
+        <section role="alert">
+          <h2 style={{ fontSize: 18, color: "#b00020" }}>{t(lang, "C-h-error")}</h2>
+          <p>{t(lang, "C-h-error-help")}</p>
+        </section>
       ) : null}
 
       {view === "no_consent" ? (
         <section role="alert">
-          <h2 style={{ fontSize: 18 }}>Capture is off</h2>
-          <p>
-            This outlet hasn&apos;t completed the staff-consent step yet, so
-            listening can&apos;t start. Ask the supervisor to complete consent,
-            then reload this page.
-          </p>
+          <h2 style={{ fontSize: 18 }}>{t(lang, "C-cap-noconsent-h")}</h2>
+          <p>{t(lang, "C-cap-noconsent-b")}</p>
         </section>
       ) : null}
 
       {view === "outside_hours" && config ? (
         <section role="status" aria-live="polite">
-          <h2 style={{ fontSize: 18 }}>Paused — outside opening hours</h2>
+          <h2 style={{ fontSize: 18 }}>{t(lang, "C-cap-hours-h")}</h2>
           <p>
-            Listening runs from {config.opening_time} to {config.closing_time} (
-            {config.timezone}). It will start again automatically at opening time.
+            {t(lang, "C-cap-hours-b", {
+              from: config.opening_time,
+              to: config.closing_time,
+              tz: config.timezone,
+            })}
           </p>
         </section>
       ) : null}
 
       {view === "unsupported" ? (
         <section role="alert">
-          <h2 style={{ fontSize: 18 }}>Browser not supported</h2>
-          <p>
-            This browser can&apos;t encode audio for capture. Use the latest
-            Chrome on the shop phone.
-          </p>
+          <h2 style={{ fontSize: 18 }}>{t(lang, "C-h-unsupported")}</h2>
+          <p>{t(lang, "C-h-unsupported-help")}</p>
         </section>
       ) : null}
 
@@ -287,20 +289,20 @@ export default function CapturePage() {
           />
           {sampleRateMsg ? (
             <p role="alert" style={{ color: "#b00020", marginTop: 16 }}>
-              {sampleRateMsg}
+              {t(lang, "C-cap-rate")}
             </p>
           ) : null}
           <p style={{ marginTop: 16, fontSize: 14, color: "#444" }}>
-            Keep this page open, in front, and the phone plugged in.
+            {t(lang, "C-pair-step-2")}
           </p>
           {/* Staff PIN flow ships in R-07; this is a layout stub only. */}
           <button
             type="button"
             disabled
             aria-disabled="true"
-            style={{ marginTop: 16, width: "100%", padding: 12, fontSize: 16 }}
+            style={{ marginTop: 16, width: "100%", minHeight: 48, padding: 12, fontSize: 16 }}
           >
-            Staff (available soon)
+            {t(lang, "C-cap-staff")}
           </button>
         </>
       ) : null}
