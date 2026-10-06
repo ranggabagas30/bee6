@@ -67,20 +67,17 @@ describe("UploadStatusLine success toast (UX-03 §5.7, C-u-toast)", () => {
   });
 
   it("does not show again on the next routine success", () => {
-    const views: UploadView[] = [
-      { phase: "retrying" },
-      { phase: "succeeded" },
-      { phase: "uploading" },
-      { phase: "succeeded" },
-    ];
-    const { container, rerender } = render(<UploadStatusLine view={views[0]} />);
-    rerender(<UploadStatusLine view={views[1]} />);
+    const retrying: UploadView = { phase: "retrying" };
+    const succeeded: UploadView = { phase: "succeeded" };
+    const uploading: UploadView = { phase: "uploading" };
+    const { container, rerender } = render(<UploadStatusLine view={retrying} />);
+    rerender(<UploadStatusLine view={succeeded} />);
     act(() => {
       vi.advanceTimersByTime(3000);
     });
     expect(toastNode(container)).toBeNull();
-    rerender(<UploadStatusLine view={views[2]} />);
-    rerender(<UploadStatusLine view={views[3]} />);
+    rerender(<UploadStatusLine view={uploading} />);
+    rerender(<UploadStatusLine view={succeeded} />);
     expect(toastNode(container)).toBeNull();
   });
 });

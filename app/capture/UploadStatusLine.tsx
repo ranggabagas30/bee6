@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import type { CaptureStatus } from "@/lib/capture/browser/engine";
 
 interface BilingualLine {
@@ -90,8 +91,10 @@ const COLOR: Record<UploadView["phase"], string> = {
   succeeded: "#444",
 };
 
-/** Warning amber for the lost line (row L: warn ▲, bold). */
-const LOST_COLOR = "#8d6e00";
+/** UX-03 §2 `--warn` token (light theme). Used by the lost row (§5.7). */
+export const WARN_TOKEN = "#7A4F00";
+/** Warning colour for the lost line (row L: warn ▲, bold). */
+const LOST_COLOR = WARN_TOKEN;
 const LOST_LINE: BilingualLine = {
   id: "Sebagian suara tidak tercatat",
   en: "Some speech was not captured",
@@ -114,6 +117,40 @@ const RETRY_DETAIL: Record<"online" | "offline", BilingualLine> = {
 };
 
 /**
+ * C-u-toast (UX-03 §6, approved 6 Oct). Shown once, for 3 s, when an upload
+ * recovers from a failure (§5.7). Routine successes never toast.
+ */
+export const UPLOAD_TOAST_MS = 3000;
+const TOAST: BilingualLine = { id: "Unggah berhasil lagi", en: "Upload working again" };
+
+/**
+ * True for UPLOAD_TOAST_MS after a success row (or a lost line cleared) that
+ * follows a failure: a retry row or an open loss. The failure flag survives the
+ * "uploading" phase in between, so a retry → uploading → succeeded run still toasts.
+ */
+function useRecoveryToast(phase: UploadView["phase"] | undefined, lost: boolean): boolean {
+  const [visible, setVisible] = useState(false);
+  const failedSinceSuccessRef = useRef(false);
+  const succeededShown = phase === "succeeded" && !lost;
+
+  useEffect(() => {
+    if (phase === "retrying" || lost) failedSinceSuccessRef.current = true;
+    if (succeededShown && failedSinceSuccessRef.current) {
+      failedSinceSuccessRef.current = false;
+      setVisible(true);
+    }
+  }, [phase, lost, succeededShown]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const timer = setTimeout(() => setVisible(false), UPLOAD_TOAST_MS);
+    return () => clearTimeout(timer);
+  }, [visible]);
+
+  return visible;
+}
+
+/**
  * `online` is the navigator.onLine hint. Omit it to show no connectivity detail.
  * `lost` shows the lost line (row L) first, and hides the succeeded row while it is up.
  */
@@ -126,38 +163,51 @@ export function UploadStatusLine({
   online?: boolean;
   lost?: boolean;
 }) {
-  if (!view && !lost) return null;
+  const toastVisible = useRecoveryToast(view?.phase, lost);
+  if (!view && !lost && !toastVisible) return null;
   const showView = view !== null && !(lost && view.phase === "succeeded");
   const detail =
     showView && view.phase === "retrying" && online !== undefined
       ? RETRY_DETAIL[online ? "online" : "offline"]
       : null;
   const color = showView ? COLOR[view.phase] : "#444";
+  const main =
+    view || lost ? (
+      <div data-testid="upload-status" style={{ marginTop: 12, fontSize: 14, color }}>
+        {lost ? (
+          <>
+            <p style={{ margin: 0, fontWeight: 600, color: LOST_COLOR }}>
+              <span aria-hidden="true">▲ </span>
+              {LOST_LINE.id}
+            </p>
+            <p style={{ margin: "2px 0 0", color: LOST_COLOR }}>{LOST_LINE.en}</p>
+            <p style={{ margin: "2px 0 0" }}>{LOST_HELP.id}</p>
+            <p style={{ margin: "2px 0 0" }}>{LOST_HELP.en}</p>
+          </>
+        ) : null}
+        {showView ? (
+          <>
+            <p style={{ margin: lost ? "8px 0 0" : 0, fontWeight: 600 }}>{uploadLines(view).id}</p>
+            <p style={{ margin: "2px 0 0" }}>{uploadLines(view).en}</p>
+          </>
+        ) : null}
+        {detail ? (
+          <>
+            <p style={{ margin: "2px 0 0" }}>{detail.id}</p>
+            <p style={{ margin: "2px 0 0" }}>{detail.en}</p>
+          </>
+        ) : null}
+      </div>
+    ) : null;
   return (
-    <div data-testid="upload-status" style={{ marginTop: 12, fontSize: 14, color }}>
-      {lost ? (
-        <>
-          <p style={{ margin: 0, fontWeight: 600, color: LOST_COLOR }}>
-            <span aria-hidden="true">▲ </span>
-            {LOST_LINE.id}
-          </p>
-          <p style={{ margin: "2px 0 0", color: LOST_COLOR }}>{LOST_LINE.en}</p>
-          <p style={{ margin: "2px 0 0" }}>{LOST_HELP.id}</p>
-          <p style={{ margin: "2px 0 0" }}>{LOST_HELP.en}</p>
-        </>
+    <>
+      {main}
+      {toastVisible ? (
+        <div role="status" aria-live="polite" style={{ marginTop: 8, fontSize: 14 }}>
+          <p style={{ margin: 0, fontWeight: 600 }}>{TOAST.id}</p>
+          <p style={{ margin: "2px 0 0" }}>{TOAST.en}</p>
+        </div>
       ) : null}
-      {showView ? (
-        <>
-          <p style={{ margin: lost ? "8px 0 0" : 0, fontWeight: 600 }}>{uploadLines(view).id}</p>
-          <p style={{ margin: "2px 0 0" }}>{uploadLines(view).en}</p>
-        </>
-      ) : null}
-      {detail ? (
-        <>
-          <p style={{ margin: "2px 0 0" }}>{detail.id}</p>
-          <p style={{ margin: "2px 0 0" }}>{detail.en}</p>
-        </>
-      ) : null}
-    </div>
+    </>
   );
 }
