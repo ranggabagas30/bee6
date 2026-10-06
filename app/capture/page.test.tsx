@@ -17,8 +17,8 @@ const readDeviceAuth = vi.fn<() => { deviceToken: string; deviceId: string } | n
 );
 const fetchCaptureConfig = vi.fn<(auth: unknown) => Promise<unknown>>();
 const resolveCapturePhase = vi.fn<
-  (config: unknown, now: unknown) => "no_consent" | "outside_hours" | "active"
->(() => "no_consent");
+  (config: unknown, now: unknown) => "outside_hours" | "active"
+>(() => "outside_hours");
 vi.mock("@/lib/capture/browser/client", () => ({
   readDeviceAuth: () => readDeviceAuth(),
   fetchCaptureConfig: (auth: unknown) => fetchCaptureConfig(auth),
@@ -61,8 +61,9 @@ vi.mock("@/lib/capture/browser/session", () => ({
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.useRealTimers();
   readDeviceAuth.mockReturnValue(null);
-  resolveCapturePhase.mockReturnValue("no_consent");
+  resolveCapturePhase.mockReturnValue("outside_hours");
   fakeSessions.length = 0;
 });
 
@@ -70,6 +71,57 @@ async function importCapturePage() {
   const { default: CapturePage } = await import("@/app/capture/page");
   return CapturePage;
 }
+
+/** Strict config shape (web-backend-rbac §6.6.2): no consent key, no opening/closing. */
+function config(weekly: Record<string, { open: string; close: string } | null>) {
+  const closed = { sun: null, mon: null, tue: null, wed: null, thu: null, fri: null, sat: null };
+  return { timezone: "Asia/Jakarta", weekly_hours: { ...closed, ...weekly }, last_ended: null };
+}
+
+/** Pins the clock (Date only, so waitFor and timers keep working). */
+function pinClock(iso: string) {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(iso));
+}
+
+describe("CapturePage hours copy (outside_hours)", () => {
+  it("shows today's hours from weekly_hours on an open day", async () => {
+    // Wed 2026-09-30 06:00 WIB, before the 08:00 opening.
+    pinClock("2026-09-29T23:00:00Z");
+    isDevControlsEnabled.mockReturnValue(false);
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    fetchCaptureConfig.mockResolvedValue(config({ wed: { open: "08:00", close: "22:00" } }));
+    const CapturePage = await importCapturePage();
+    const { container } = render(<CapturePage />);
+    await waitFor(() =>
+      expect(container.textContent).toContain("Listening runs from 08:00 to 22:00 (Asia/Jakarta)."),
+    );
+  });
+
+  it("shows the next open day's hours on a closed day", async () => {
+    // Sun 2026-10-04 10:00 WIB: closed; Mon 2026-10-05 is open 07:00-21:00.
+    pinClock("2026-10-04T03:00:00Z");
+    isDevControlsEnabled.mockReturnValue(false);
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    fetchCaptureConfig.mockResolvedValue(config({ mon: { open: "07:00", close: "21:00" } }));
+    const CapturePage = await importCapturePage();
+    const { container } = render(<CapturePage />);
+    await waitFor(() =>
+      expect(container.textContent).toContain("Listening runs from 07:00 to 21:00 (Asia/Jakarta)."),
+    );
+  });
+
+  it("never renders any no-consent copy", async () => {
+    pinClock("2026-09-29T23:00:00Z");
+    isDevControlsEnabled.mockReturnValue(false);
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    fetchCaptureConfig.mockResolvedValue(config({ wed: { open: "08:00", close: "22:00" } }));
+    const CapturePage = await importCapturePage();
+    const { container } = render(<CapturePage />);
+    await waitFor(() => expect(container.textContent).toContain("Listening runs from"));
+    expect(container.textContent).not.toMatch(/capture is off|consent|persetujuan/i);
+  });
+});
 
 describe("CapturePage dev panel gating", () => {
   it("renders no dev-panel node at all when the flag is unset", async () => {
@@ -80,31 +132,23 @@ describe("CapturePage dev panel gating", () => {
   });
 
   it("still renders no dev-panel node once the real auto-gate resolves a blocking phase", async () => {
+    pinClock("2026-09-29T23:00:00Z");
     isDevControlsEnabled.mockReturnValue(false);
     readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
-    fetchCaptureConfig.mockResolvedValue({
-      consent_complete: false,
-      opening_time: "08:00",
-      closing_time: "20:00",
-      timezone: "Asia/Jakarta",
-    });
-    resolveCapturePhase.mockReturnValue("no_consent");
+    fetchCaptureConfig.mockResolvedValue(config({ wed: { open: "08:00", close: "22:00" } }));
+    resolveCapturePhase.mockReturnValue("outside_hours");
     const CapturePage = await importCapturePage();
     const { container } = render(<CapturePage />);
-    await waitFor(() => expect(container.textContent).toMatch(/capture is off/i));
+    await waitFor(() => expect(container.textContent).toMatch(/outside opening hours/i));
     expect(container.querySelector('[data-testid="dev-panel"]')).toBeNull();
   });
 
-  it("bypasses the no_consent/outside_hours block and shows the active view when the flag is set", async () => {
+  it("bypasses the outside_hours block and shows the active view when the flag is set", async () => {
+    pinClock("2026-09-29T23:00:00Z");
     isDevControlsEnabled.mockReturnValue(true);
     readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
-    fetchCaptureConfig.mockResolvedValue({
-      consent_complete: false,
-      opening_time: "08:00",
-      closing_time: "20:00",
-      timezone: "Asia/Jakarta",
-    });
-    resolveCapturePhase.mockReturnValue("no_consent"); // still a blocking phase
+    fetchCaptureConfig.mockResolvedValue(config({ wed: { open: "08:00", close: "22:00" } }));
+    resolveCapturePhase.mockReturnValue("outside_hours"); // still a blocking phase
     const CapturePage = await importCapturePage();
     const { container } = render(<CapturePage />);
 
@@ -113,7 +157,7 @@ describe("CapturePage dev panel gating", () => {
       expect(container.querySelector('[data-testid="dev-panel"]')).not.toBeNull(),
     );
     // ...the real blocked state is still shown underneath (not deleted)...
-    expect(container.textContent).toMatch(/capture is off/i);
+    expect(container.textContent).toMatch(/outside opening hours/i);
     // ...and the active capture view is no longer blocked by it.
     expect(container.textContent).toMatch(/keep the screen on and this page open/i);
   });
@@ -123,16 +167,11 @@ describe("CapturePage dev panel manual controls", () => {
   async function renderInDevMode() {
     isDevControlsEnabled.mockReturnValue(true);
     readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
-    fetchCaptureConfig.mockResolvedValue({
-      consent_complete: false,
-      opening_time: "08:00",
-      closing_time: "20:00",
-      timezone: "Asia/Jakarta",
-    });
+    fetchCaptureConfig.mockResolvedValue(config({ wed: { open: "08:00", close: "22:00" } }));
     // A blocking phase: proves the manual buttons act independently of the
     // real auto-gate (which would otherwise never call startCaptureSession
     // here at all) rather than coincidentally riding its own auto-start.
-    resolveCapturePhase.mockReturnValue("no_consent");
+    resolveCapturePhase.mockReturnValue("outside_hours");
     const CapturePage = await importCapturePage();
     const result = render(<CapturePage />);
     // Give the auto-gate's fetch effect a tick to settle so its own
