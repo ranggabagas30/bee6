@@ -24,6 +24,29 @@ describe("copy dictionary", () => {
     }
   });
 
+  it("carries the UX-03 upload-help keys in both languages, with the approved text", () => {
+    expect(ID["C-u-retry-help"]).toBe(
+      "Terkirim sendiri saat HP bisa menjangkau server.",
+    );
+    expect(EN["C-u-retry-help"]).toBe(
+      "It sends by itself once the phone can reach the server.",
+    );
+    expect(ID["C-u-server-help"]).toBe(
+      "Akan dicoba lagi sendiri. Tidak perlu tindakan.",
+    );
+    expect(EN["C-u-server-help"]).toBe(
+      "It will try again on its own. No action needed.",
+    );
+  });
+
+  it("keeps each new upload-help line within 59 characters in both languages", () => {
+    const newKeys: DictKey[] = ["C-u-retry-help", "C-u-server-help"];
+    for (const key of newKeys) {
+      expect(ID[key].length, `ID ${key}`).toBeLessThanOrEqual(59);
+      expect(EN[key].length, `EN ${key}`).toBeLessThanOrEqual(59);
+    }
+  });
+
   it("maps each language to its own table", () => {
     expect(DICT.id).toBe(ID);
     expect(DICT.en).toBe(EN);

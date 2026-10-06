@@ -32,7 +32,7 @@ export const ID = {
   "C-pair-net": "Tidak ada koneksi. Coba lagi saat sinyal stabil.",
   "C-pair-ok-h": "HP terpasang",
   "C-pair-ok-line": "Untuk outlet {outlet_id}",
-  "C-pair-srv": "Server belum bisa memproses ini. Coba lagi sebentar.", // PROVISIONAL: not in the copy sheet (server 5xx line)
+  "C-pair-srv": "Server belum bisa memproses ini. Coba lagi sebentar.",
   "C-pair-step-1": "Letakkan HP di tempat tetap dan colokkan charger.",
   "C-pair-step-2": "Layar tetap menyala dan halaman ini tetap terbuka. Menutup halaman berarti tidak mendengarkan.",
   "C-pair-step-3": "Mulai bisa ditekan 01:00 sampai {until}, tiap hari buka.",
@@ -40,7 +40,7 @@ export const ID = {
   "C-b-buka-mendengarkan": "Buka halaman mendengarkan",
 
   // /capture headline, states and helpers
-  "C-cap-title": "Mendengarkan toko", // PROVISIONAL: pending sign-off (HANDOFF)
+  "C-cap-title": "Mendengarkan toko",
   "C-h-loading": "Memuat…",
   "C-h-error": "Jam buka belum termuat",
   "C-h-error-help": "Jam buka belum termuat. Sambung internet sekali, lalu buka.",
@@ -56,8 +56,12 @@ export const ID = {
   "C-cap-staff": "Staf (segera hadir)", // PROVISIONAL
   "C-cap-noconsent-h": "Perekaman belum aktif", // PROVISIONAL: consent gate is removed (CLAUDE.md 7b)
   "C-cap-noconsent-b": "Outlet ini belum menyelesaikan langkah persetujuan staf, jadi perekaman belum bisa mulai. Minta supervisor menyelesaikan persetujuan, lalu muat ulang halaman ini.", // PROVISIONAL
-  "C-cap-hours-h": "Dijeda · di luar jam buka", // PROVISIONAL
-  "C-cap-hours-b": "Mendengarkan berjalan dari pukul {from} sampai {to} ({tz}). Akan mulai lagi otomatis saat jam buka.", // PROVISIONAL
+  "C-cap-hours-h": "Dijeda · di luar jam buka",
+  "C-cap-hours-b": "Mendengarkan berjalan dari pukul {from} sampai {to} ({tz}). Akan mulai lagi otomatis saat jam buka.",
+
+  // Upload block help lines (UX-03 section 6, approved 6 Oct). Under rows 1 and 1a.
+  "C-u-retry-help": "Terkirim sendiri saat HP bisa menjangkau server.",
+  "C-u-server-help": "Akan dicoba lagi sendiri. Tidak perlu tindakan.",
 } as const;
 
 export type DictKey = keyof typeof ID;
@@ -78,14 +82,14 @@ export const EN: Record<DictKey, string> = {
   "C-pair-net": "No connection. Try again when the signal is steady.",
   "C-pair-ok-h": "Phone set up",
   "C-pair-ok-line": "For outlet {outlet_id}",
-  "C-pair-srv": "The server could not finish this. Try again in a moment.", // PROVISIONAL: not in the copy sheet (server 5xx line)
+  "C-pair-srv": "The server could not finish this. Try again in a moment.",
   "C-pair-step-1": "Leave the phone in one fixed place and plug in the charger.",
   "C-pair-step-2": "Keep the screen on and this page open. Closing the page means not listening.",
   "C-pair-step-3": "You can tap Start from 01:00 until {until}, on each open day.",
   "C-pair-step-4": "The End button appears 4 hours after Start.",
   "C-b-buka-mendengarkan": "Open the listening page",
 
-  "C-cap-title": "Shop listening", // PROVISIONAL
+  "C-cap-title": "Shop listening",
   "C-h-loading": "Loading…",
   "C-h-error": "Opening hours not loaded yet",
   "C-h-error-help": "Opening hours have not loaded yet. Connect to the internet once, then reopen.",
@@ -101,8 +105,11 @@ export const EN: Record<DictKey, string> = {
   "C-cap-staff": "Staff (available soon)", // PROVISIONAL
   "C-cap-noconsent-h": "Capture is off", // PROVISIONAL
   "C-cap-noconsent-b": "This outlet hasn’t completed the staff-consent step yet, so listening can’t start. Ask the supervisor to complete consent, then reload this page.", // PROVISIONAL
-  "C-cap-hours-h": "Paused · outside opening hours", // PROVISIONAL
-  "C-cap-hours-b": "Listening runs from {from} to {to} ({tz}). It will start again automatically at opening time.", // PROVISIONAL
+  "C-cap-hours-h": "Paused · outside opening hours",
+  "C-cap-hours-b": "Listening runs from {from} to {to} ({tz}). It will start again automatically at opening time.",
+
+  "C-u-retry-help": "It sends by itself once the phone can reach the server.",
+  "C-u-server-help": "It will try again on its own. No action needed.",
 };
 
 export const DICT: Record<Lang, Record<DictKey, string>> = { id: ID, en: EN };
