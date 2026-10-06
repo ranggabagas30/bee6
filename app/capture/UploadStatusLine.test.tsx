@@ -72,15 +72,15 @@ describe("uploadLines exact strings (both languages)", () => {
 
   it("retrying, with the count when it is known", () => {
     expect(uploadLines({ phase: "retrying", failedAttempts: 1 })).toEqual({
-      id: "Gagal unggah, coba ulang (1x)",
-      en: "Upload failed, retrying (1x)",
+      id: "Belum terkirim · mencoba lagi (1x)",
+      en: "Not sent yet · retrying (1x)",
     });
   });
 
   it("retrying, without a count when the engine does not expose one", () => {
     expect(uploadLines({ phase: "retrying" })).toEqual({
-      id: "Gagal unggah, coba ulang",
-      en: "Upload failed, retrying",
+      id: "Belum terkirim · mencoba lagi",
+      en: "Not sent yet · retrying",
     });
   });
 
@@ -92,6 +92,15 @@ describe("uploadLines exact strings (both languages)", () => {
   });
 });
 
+describe("UploadStatusLine approved retry copy (UX-03 §6 C-u-retry)", () => {
+  it("renders Belum terkirim · mencoba lagi / Not sent yet · retrying in both languages", () => {
+    const { container } = render(<UploadStatusLine view={{ phase: "retrying" }} />);
+    const node = container.querySelector('[data-testid="upload-status"]');
+    const lines = Array.from(node?.querySelectorAll("p") ?? []).map((p) => p.textContent);
+    expect(lines).toEqual(["Belum terkirim · mencoba lagi", "Not sent yet · retrying"]);
+  });
+});
+
 describe("UploadStatusLine rendering", () => {
   it("renders nothing for a null view", () => {
     const { container } = render(<UploadStatusLine view={null} />);
@@ -100,8 +109,8 @@ describe("UploadStatusLine rendering", () => {
 
   it.each([
     [{ phase: "uploading" as const }, ["Mengunggah", "Uploading"]],
-    [{ phase: "retrying" as const, failedAttempts: 1 }, ["Gagal unggah, coba ulang (1x)", "Upload failed, retrying (1x)"]],
-    [{ phase: "retrying" as const }, ["Gagal unggah, coba ulang", "Upload failed, retrying"]],
+    [{ phase: "retrying" as const, failedAttempts: 1 }, ["Belum terkirim · mencoba lagi (1x)", "Not sent yet · retrying (1x)"]],
+    [{ phase: "retrying" as const }, ["Belum terkirim · mencoba lagi", "Not sent yet · retrying"]],
     [{ phase: "succeeded" as const }, ["Unggah berhasil", "Upload succeeded"]],
   ])("renders %j with both the Indonesian and English line", (view, [id, en]) => {
     const { container } = render(<UploadStatusLine view={view} />);
@@ -123,8 +132,8 @@ describe("UploadStatusLine connectivity detail (moved from the banner)", () => {
       <UploadStatusLine view={{ phase: "retrying" }} online={false} />,
     );
     expect(lines(container)).toEqual([
-      "Gagal unggah, coba ulang",
-      "Upload failed, retrying",
+      "Belum terkirim · mencoba lagi",
+      "Not sent yet · retrying",
       "Tidak ada internet",
       "No internet",
     ]);
@@ -135,8 +144,8 @@ describe("UploadStatusLine connectivity detail (moved from the banner)", () => {
       <UploadStatusLine view={{ phase: "retrying" }} online={true} />,
     );
     expect(lines(container)).toEqual([
-      "Gagal unggah, coba ulang",
-      "Upload failed, retrying",
+      "Belum terkirim · mencoba lagi",
+      "Not sent yet · retrying",
       "Server sibuk, mencoba lagi",
       "Server busy, retrying",
     ]);
@@ -144,7 +153,7 @@ describe("UploadStatusLine connectivity detail (moved from the banner)", () => {
 
   it("adds no connectivity detail when the online hint is not supplied", () => {
     const { container } = render(<UploadStatusLine view={{ phase: "retrying" }} />);
-    expect(lines(container)).toEqual(["Gagal unggah, coba ulang", "Upload failed, retrying"]);
+    expect(lines(container)).toEqual(["Belum terkirim · mencoba lagi", "Not sent yet · retrying"]);
   });
 
   it("never adds connectivity detail to non-retrying lines", () => {
@@ -219,7 +228,7 @@ describe("retry count from the engine (UX-03 §5.7 row 1)", () => {
     const { container } = render(<UploadStatusLine view={view} />);
     const node = container.querySelector('[data-testid="upload-status"]');
     expect(node?.textContent).toBe(
-      "Gagal unggah, coba ulang (2x)Upload failed, retrying (2x)",
+      "Belum terkirim · mencoba lagi (2x)Not sent yet · retrying (2x)",
     );
   });
 });

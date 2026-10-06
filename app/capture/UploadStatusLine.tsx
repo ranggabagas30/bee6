@@ -59,7 +59,7 @@ export function deriveUploadView(status: UploadSource | null | undefined): Uploa
 
 const COPY: Record<UploadView["phase"], BilingualLine> = {
   uploading: { id: "Mengunggah", en: "Uploading" },
-  retrying: { id: "Gagal unggah, coba ulang", en: "Upload failed, retrying" },
+  retrying: { id: "Belum terkirim · mencoba lagi", en: "Not sent yet · retrying" },
   succeeded: { id: "Unggah berhasil", en: "Upload succeeded" },
 };
 

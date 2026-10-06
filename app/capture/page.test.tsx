@@ -193,7 +193,7 @@ describe("CapturePage banner truthfulness (dev mode)", () => {
     });
     await waitFor(() =>
       expect(container.querySelector('[data-testid="upload-status"]')?.textContent).toContain(
-        "Gagal unggah, coba ulang" + "Upload failed, retrying",
+        "Belum terkirim · mencoba lagi" + "Not sent yet · retrying",
       ),
     );
     expect(bannerText(container)).toContain("Mendengarkan");
@@ -516,7 +516,7 @@ describe("CapturePage upload status line", () => {
 
     act(() => lastCallbacks?.onStatus?.(status("offline", 1, null)));
     await waitFor(() =>
-      expect(uploadText(container)).toContain("Gagal unggah, coba ulang" + "Upload failed, retrying"),
+      expect(uploadText(container)).toContain("Belum terkirim · mencoba lagi" + "Not sent yet · retrying"),
     );
     expect(bannerText(container)).toContain("Listening");
     expect(bannerText(container)).not.toContain("uploads waiting");
@@ -549,7 +549,7 @@ describe("CapturePage upload status line", () => {
 
       act(() => lastCallbacks?.onStatus?.(status("offline", 1, null)));
       await waitFor(() =>
-        expect(uploadText(container)).toContain("Gagal unggah, coba ulang" + "Upload failed, retrying"),
+        expect(uploadText(container)).toContain("Belum terkirim · mencoba lagi" + "Not sent yet · retrying"),
       );
 
       resolveCapturePhase.mockReturnValue("outside_hours");
@@ -649,6 +649,6 @@ describe("CapturePage lost line and retry count (UX-03 §5.7)", () => {
       }),
     );
     await waitFor(() => expect(uploadText(container)).toContain("(2x)"));
-    expect(uploadText(container)).toContain("Gagal unggah, coba ulang (2x)");
+    expect(uploadText(container)).toContain("Belum terkirim · mencoba lagi (2x)");
   });
 });
