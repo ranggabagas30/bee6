@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isWithinOpeningHours, minutesOfDayInZone } from "@/lib/capture/hours";
+import { isWithinOpeningHours, minutesOfDayInZone, mulaiWindowEnd } from "@/lib/capture/hours";
 
 const JAKARTA = "Asia/Jakarta"; // UTC+7, no DST
 
@@ -75,5 +75,17 @@ describe("isWithinOpeningHours", () => {
     expect(isWithinOpeningHours(new Date("2026-09-30T05:00:00Z"), zero)).toBe(
       false,
     );
+  });
+});
+
+describe("mulaiWindowEnd", () => {
+  it("is the closing time minus the 4 h minimum opening duration", () => {
+    expect(mulaiWindowEnd("21:45")).toBe("17:45");
+    expect(mulaiWindowEnd("09:30")).toBe("05:30");
+  });
+
+  it("wraps past midnight for a close after 01:00", () => {
+    expect(mulaiWindowEnd("01:00")).toBe("21:00");
+    expect(mulaiWindowEnd("02:00")).toBe("22:00");
   });
 });

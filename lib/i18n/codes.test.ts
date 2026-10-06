@@ -12,10 +12,19 @@ describe("pairErrorKey (server error code to copy key)", () => {
     expect(pairErrorKey(409, "CONFLICT")).toBe("C-pair-refused");
   });
 
-  it("maps a missing, unknown or server-side failure to the connection line", () => {
+  it("maps every 5xx server failure to the server line, never the connection line", () => {
+    expect(pairErrorKey(500, "INTERNAL_ERROR")).toBe("C-pair-srv");
+    expect(pairErrorKey(500, undefined)).toBe("C-pair-srv");
+    expect(pairErrorKey(503, "SERVICE_UNAVAILABLE")).toBe("C-pair-srv");
+  });
+
+  it("maps other non-mapped HTTP failures to the server line", () => {
+    expect(pairErrorKey(429, "LOCKED")).toBe("C-pair-srv");
+    expect(pairErrorKey(404, undefined)).toBe("C-pair-srv");
+  });
+
+  it("keeps the connection line only for a failure with no HTTP response", () => {
     expect(pairErrorKey(undefined, undefined)).toBe("C-pair-net");
-    expect(pairErrorKey(500, "INTERNAL_ERROR")).toBe("C-pair-net");
-    expect(pairErrorKey(503, "SERVICE_UNAVAILABLE")).toBe("C-pair-net");
   });
 
   it("only ever returns a key that exists in the dictionary", () => {
@@ -30,6 +39,7 @@ describe("pairErrorKey (server error code to copy key)", () => {
     for (const [status, code] of cases) {
       const key: DictKey = pairErrorKey(status, code);
       expect(DICT.en[key]).toBeTruthy();
+      expect(DICT.id[key]).toBeTruthy();
     }
   });
 });

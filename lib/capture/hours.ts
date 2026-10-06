@@ -46,3 +46,12 @@ export function isWithinOpeningHours(now: Date, hours: OpeningHours): boolean {
   // Equal times → zero-length window: never active.
   return false;
 }
+
+/** The Mulai window closes 4 h before closing (plan.md decision 27): closing minus 240 minutes, wrapping past midnight. */
+export function mulaiWindowEnd(closingTime: string): string {
+  const closeMinutes = parseHm(closingTime);
+  const end = (closeMinutes - 4 * 60 + 24 * 60) % (24 * 60);
+  const hh = String(Math.floor(end / 60)).padStart(2, "0");
+  const mm = String(end % 60).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
