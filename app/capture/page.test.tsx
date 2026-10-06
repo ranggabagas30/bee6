@@ -17,8 +17,8 @@ const readDeviceAuth = vi.fn<() => { deviceToken: string; deviceId: string } | n
 );
 const fetchCaptureConfig = vi.fn<(auth: unknown) => Promise<unknown>>();
 const resolveCapturePhase = vi.fn<
-  (config: unknown, now: unknown) => "no_consent" | "outside_hours" | "active"
->(() => "no_consent");
+  (config: unknown, now: unknown) => "outside_hours" | "active"
+>(() => "outside_hours");
 vi.mock("@/lib/capture/browser/client", () => ({
   readDeviceAuth: () => readDeviceAuth(),
   fetchCaptureConfig: (auth: unknown) => fetchCaptureConfig(auth),
@@ -62,7 +62,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   readDeviceAuth.mockReturnValue(null);
-  resolveCapturePhase.mockReturnValue("no_consent");
+  resolveCapturePhase.mockReturnValue("outside_hours");
   fakeSessions.length = 0;
 });
 
@@ -83,28 +83,26 @@ describe("CapturePage dev panel gating", () => {
     isDevControlsEnabled.mockReturnValue(false);
     readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
     fetchCaptureConfig.mockResolvedValue({
-      consent_complete: false,
       opening_time: "08:00",
       closing_time: "20:00",
       timezone: "Asia/Jakarta",
     });
-    resolveCapturePhase.mockReturnValue("no_consent");
+    resolveCapturePhase.mockReturnValue("outside_hours");
     const CapturePage = await importCapturePage();
     const { container } = render(<CapturePage />);
-    await waitFor(() => expect(container.textContent).toMatch(/capture is off/i));
+    await waitFor(() => expect(container.textContent).toMatch(/not started/i));
     expect(container.querySelector('[data-testid="dev-panel"]')).toBeNull();
   });
 
-  it("bypasses the no_consent/outside_hours block and shows the active view when the flag is set", async () => {
+  it("bypasses the outside_hours block and shows the active view when the flag is set", async () => {
     isDevControlsEnabled.mockReturnValue(true);
     readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
     fetchCaptureConfig.mockResolvedValue({
-      consent_complete: false,
       opening_time: "08:00",
       closing_time: "20:00",
       timezone: "Asia/Jakarta",
     });
-    resolveCapturePhase.mockReturnValue("no_consent"); // still a blocking phase
+    resolveCapturePhase.mockReturnValue("outside_hours");
     const CapturePage = await importCapturePage();
     const { container } = render(<CapturePage />);
 
@@ -113,7 +111,7 @@ describe("CapturePage dev panel gating", () => {
       expect(container.querySelector('[data-testid="dev-panel"]')).not.toBeNull(),
     );
     // ...the real blocked state is still shown underneath (not deleted)...
-    expect(container.textContent).toMatch(/capture is off/i);
+    expect(container.textContent).toMatch(/not started/i);
     // ...and the active capture view is no longer blocked by it.
     expect(container.textContent).toMatch(/keep the screen on and this page open/i);
   });
@@ -124,7 +122,6 @@ describe("CapturePage dev panel manual controls", () => {
     isDevControlsEnabled.mockReturnValue(true);
     readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
     fetchCaptureConfig.mockResolvedValue({
-      consent_complete: false,
       opening_time: "08:00",
       closing_time: "20:00",
       timezone: "Asia/Jakarta",
@@ -132,7 +129,7 @@ describe("CapturePage dev panel manual controls", () => {
     // A blocking phase: proves the manual buttons act independently of the
     // real auto-gate (which would otherwise never call startCaptureSession
     // here at all) rather than coincidentally riding its own auto-start.
-    resolveCapturePhase.mockReturnValue("no_consent");
+    resolveCapturePhase.mockReturnValue("outside_hours");
     const CapturePage = await importCapturePage();
     const result = render(<CapturePage />);
     // Give the auto-gate's fetch effect a tick to settle so its own
@@ -201,5 +198,54 @@ describe("CapturePage dev panel manual controls", () => {
         container.querySelector('[data-testid="dev-event-log"]')?.textContent,
       ).toMatch(/state_changed/),
     );
+  });
+});
+
+describe("CapturePage copy sheet keys (6 Oct)", () => {
+  async function renderPage(lang: "en" | "id", phase: "outside_hours" | "active") {
+    isDevControlsEnabled.mockReturnValue(false);
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    fetchCaptureConfig.mockResolvedValue({
+      opening_time: "08:00",
+      closing_time: "20:00",
+      timezone: "Asia/Jakarta",
+    });
+    resolveCapturePhase.mockReturnValue(phase);
+    const CapturePage = await importCapturePage();
+    const { LangProvider } = await import("@/lib/i18n/context");
+    return render(
+      <LangProvider initial={lang}>
+        <CapturePage />
+      </LangProvider>,
+    );
+  }
+
+  it.each([
+    ["en", "Not started", "Listening runs from 08:00 to 20:00 (Asia/Jakarta)."],
+    ["id", "Belum mulai", "Mendengarkan berjalan dari pukul 08:00 sampai 20:00 (Asia/Jakarta)."],
+  ] as const)("outside hours shows the sheet's not-started headline in %s", async (lang, headline, body) => {
+    const { container } = await renderPage(lang, "outside_hours");
+    await waitFor(() => expect(screen.getByText(headline, { exact: true })).toBeTruthy());
+    expect(container.textContent).toContain(body);
+    expect(container.textContent).not.toContain("Paused");
+    expect(container.textContent).not.toContain("Dijeda");
+  });
+
+  it.each([
+    ["en", "Listening", "Shop listening"],
+    ["id", "Mendengarkan", "Mendengarkan toko"],
+  ] as const)("active capture shows the sheet's listening headline in %s", async (lang, headline, title) => {
+    const { container } = await renderPage(lang, "active");
+    await waitFor(() => expect(screen.getByText(headline, { exact: true })).toBeTruthy());
+    expect(container.querySelector("h1")?.textContent).toBe(title);
+  });
+
+  it.each(["en", "id"] as const)("never renders consent copy in %s, in any phase", async (lang) => {
+    for (const phase of ["outside_hours", "active"] as const) {
+      cleanup();
+      const { container } = await renderPage(lang, phase);
+      await waitFor(() => expect(container.querySelector("h1")).not.toBeNull());
+      expect(container.textContent).not.toMatch(/consent|persetujuan|perekaman belum aktif|capture is off/i);
+    }
   });
 });

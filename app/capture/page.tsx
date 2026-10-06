@@ -26,8 +26,8 @@ import type { MicSourceClass } from "@/lib/capture/mic-source";
 /**
  * /capture — the shop phone's always-on listening screen (web spec §4.1, §5).
  * Runs on the same paired phone as /pair: reads the stored device credential (or
- * redirects to /pair), fetches the outlet's consent + hours, and — only when
- * consent is complete and inside opening hours — starts the capture session
+ * redirects to /pair), fetches the outlet's opening hours, and — only when
+ * inside opening hours — starts the capture session
  * (mic → VAD → segments → upload) with heartbeat + wake lock. It shows a big
  * status only; a transcript is NEVER displayed (hard rule #2 / spec).
  */
@@ -42,7 +42,6 @@ const PAGE_STYLE: React.CSSProperties = {
 type View =
   | "loading"
   | "error"
-  | "no_consent"
   | "outside_hours"
   | "unsupported"
   | "active";
@@ -110,7 +109,7 @@ export default function CapturePage() {
       const phase = resolveCapturePhase(loadedConfig, new Date());
 
       if (devControlsEnabled) {
-        // Dev mode bypasses the opening_hours/consent auto-gate entirely for
+        // Dev mode bypasses the opening_hours auto-gate entirely for
         // this session — manual Start/Pause/Stop below owns the session.
         // Still reflect the real computed phase so it's visible underneath.
         if (!cancelled) setView(phase);
@@ -250,16 +249,9 @@ export default function CapturePage() {
         </section>
       ) : null}
 
-      {view === "no_consent" ? (
-        <section role="alert">
-          <h2 style={{ fontSize: 18 }}>{t(lang, "C-cap-noconsent-h")}</h2>
-          <p>{t(lang, "C-cap-noconsent-b")}</p>
-        </section>
-      ) : null}
-
       {view === "outside_hours" && config ? (
         <section role="status" aria-live="polite">
-          <h2 style={{ fontSize: 18 }}>{t(lang, "C-cap-hours-h")}</h2>
+          <h2 style={{ fontSize: 18 }}>{t(lang, "C-h-idle")}</h2>
           <p>
             {t(lang, "C-cap-hours-b", {
               from: config.opening_time,
@@ -277,7 +269,7 @@ export default function CapturePage() {
         </section>
       ) : null}
 
-      {/* devControlsEnabled bypasses the opening_hours/consent early return so
+      {/* devControlsEnabled bypasses the opening_hours early return so
           this section is visible for manual testing, without deleting the
           real blocked-view sections above (still rendered alongside it). */}
       {view === "active" || devControlsEnabled ? (

@@ -46,6 +46,7 @@ export const ID = {
   "C-h-error-help": "Jam buka belum termuat. Sambung internet sekali, lalu buka.",
   "C-h-unsupported": "Browser ini belum didukung",
   "C-h-unsupported-help": "Buka halaman ini di browser lain, lalu coba lagi.",
+  "C-h-idle": "Belum mulai",
   "C-h-listening": "Mendengarkan",
   "C-h-mic": "Mikrofon bermasalah · tidak mendengarkan",
   "C-h-mic-help": "Cek izin mikrofon di browser, lalu coba lagi.",
@@ -54,9 +55,6 @@ export const ID = {
   "C-cap-mic": "Mikrofon: {source}", // PROVISIONAL (format from HANDOFF)
   "C-cap-rate": "Sample rate mikrofon ini tidak didukung.", // PROVISIONAL
   "C-cap-staff": "Staf (segera hadir)", // PROVISIONAL
-  "C-cap-noconsent-h": "Perekaman belum aktif", // PROVISIONAL: consent gate is removed (CLAUDE.md 7b)
-  "C-cap-noconsent-b": "Outlet ini belum menyelesaikan langkah persetujuan staf, jadi perekaman belum bisa mulai. Minta supervisor menyelesaikan persetujuan, lalu muat ulang halaman ini.", // PROVISIONAL
-  "C-cap-hours-h": "Dijeda · di luar jam buka",
   "C-cap-hours-b": "Mendengarkan berjalan dari pukul {from} sampai {to} ({tz}). Akan mulai lagi otomatis saat jam buka.",
 
   // Upload block help lines (UX-03 section 6, approved 6 Oct). Under rows 1 and 1a.
@@ -95,6 +93,7 @@ export const EN: Record<DictKey, string> = {
   "C-h-error-help": "Opening hours have not loaded yet. Connect to the internet once, then reopen.",
   "C-h-unsupported": "This browser is not supported",
   "C-h-unsupported-help": "Open this page in another browser, then try again.",
+  "C-h-idle": "Not started",
   "C-h-listening": "Listening",
   "C-h-mic": "Microphone problem · not listening",
   "C-h-mic-help": "Check the microphone permission in the browser, then try again.",
@@ -103,9 +102,6 @@ export const EN: Record<DictKey, string> = {
   "C-cap-mic": "Microphone: {source}", // PROVISIONAL
   "C-cap-rate": "This microphone's sample rate is not supported.", // PROVISIONAL
   "C-cap-staff": "Staff (available soon)", // PROVISIONAL
-  "C-cap-noconsent-h": "Capture is off", // PROVISIONAL
-  "C-cap-noconsent-b": "This outlet hasn’t completed the staff-consent step yet, so listening can’t start. Ask the supervisor to complete consent, then reload this page.", // PROVISIONAL
-  "C-cap-hours-h": "Paused · outside opening hours",
   "C-cap-hours-b": "Listening runs from {from} to {to} ({tz}). It will start again automatically at opening time.",
 
   "C-u-retry-help": "It sends by itself once the phone can reach the server.",

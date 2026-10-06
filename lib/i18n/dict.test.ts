@@ -72,3 +72,24 @@ describe("copy dictionary", () => {
     expect(() => t("en", "C-pair-ok-line")).toThrow(/outlet_id/);
   });
 });
+
+describe("copy cleanup (6 Oct decisions)", () => {
+  it("has no consent copy in either language (CLAUDE.md 7b: no consent gate in MVP 1)", () => {
+    for (const key of ["C-cap-noconsent-h", "C-cap-noconsent-b"]) {
+      expect(ID, `ID ${key}`).not.toHaveProperty(key);
+      expect(EN, `EN ${key}`).not.toHaveProperty(key);
+    }
+  });
+
+  it("uses the copy sheet's not-started headline in place of the paused-hours headline", () => {
+    expect(ID).not.toHaveProperty("C-cap-hours-h");
+    expect(EN).not.toHaveProperty("C-cap-hours-h");
+    expect(ID["C-h-idle"]).toBe("Belum mulai");
+    expect(EN["C-h-idle"]).toBe("Not started");
+  });
+
+  it("carries no debrief category labels: category codes are shown as the enum code", () => {
+    const keys = [...Object.keys(ID), ...Object.keys(EN)];
+    expect(keys.filter((k) => /categor|kategori/i.test(k))).toEqual([]);
+  });
+});

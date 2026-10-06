@@ -117,14 +117,13 @@ export function createHeartbeatPoster(
   };
 }
 
-export type CapturePhase = "no_consent" | "outside_hours" | "active";
+export type CapturePhase = "outside_hours" | "active";
 
 /** Decides the capture phase from the outlet config + current time. */
 export function resolveCapturePhase(
   config: CaptureConfigResponse,
   now: Date,
 ): CapturePhase {
-  if (!config.consent_complete) return "no_consent";
   if (!isWithinOpeningHours(now, config)) return "outside_hours";
   return "active";
 }

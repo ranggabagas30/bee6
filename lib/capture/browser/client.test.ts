@@ -59,12 +59,12 @@ describe("resolveCapturePhase", () => {
     timezone: "Asia/Jakarta",
   };
 
-  it("refuses when consent is incomplete", () => {
+  it("has no consent gate in MVP 1 (CLAUDE.md 7b): an incomplete consent flag does not block capture", () => {
     const phase = resolveCapturePhase(
       { ...base, consent_complete: false },
       new Date("2026-09-30T03:00:00Z"), // 10:00 WIB, inside hours
     );
-    expect(phase).toBe("no_consent");
+    expect(phase).toBe("active");
   });
 
   it("pauses outside opening hours (consent complete)", () => {
