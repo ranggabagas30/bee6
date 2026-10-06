@@ -1,8 +1,63 @@
 # SOP Improvement Agent — MVP Specs (v2, 30 Sept 2026, 01:30 WIB)
 
+**Sources of truth:** `docs/plan.md` for sprints; `docs/specs/technical-specification.md` (§8) for
+capture and session rules; `docs/specs/web-backend-rbac.md` (§6.6) for routes and data;
+`docs/tasks/UX-03-journey-design.md` for screens and copy.
+Precedence: `CLAUDE.md` → `docs/plan.md` → `docs/backlog.md` → this spec.
+Reconciled 4 Oct 2026 (tech-lead): A2 goal 2 (off-day cut-off), A4 staff stories, D6, T-004 thread retention,
+T-403 wording.
+
+> **Updated 4 Oct 2026, MVP 1 answer shape (tech-lead, docs only; Rangga, 4 Oct, final; `docs/HANDOFF.md`
+> "Debrief answer shape for MVP 1"). Supersedes the free-text-only answer in the note below.** Each debrief
+> question gets exactly one answer: ***Ya* (YES) or *Tidak* (NO) plus a required reason, or *Lewati*
+> (skip)**. YES reaches T-306's gate as `staff_answer = { question_id, chosen_category: <thread's model
+> category> }` (`staff_confirmed`); NO as `chosen_category: null` (the existing `staff_rejected` branch: the
+> thread is not confirmed and is excluded from evidence, the question is closed as rejected). The reason is
+> required, refused when empty or over 500 characters (never truncated), name-scrubbed and SDP-redacted,
+> stored and shown only; the gate never reads it. Category-revising free text is post-MVP 1. Changed: T-306
+> (one AC line), T-402, T-403 (one line).
+
+> **Updated 4 Oct 2026, final (tech-lead, docs only): debrief answer shape (Rangga, 4 Oct, final;
+> `docs/HANDOFF.md` "Debrief answer shape").** A debrief answer is **one free-text WHY explanation**, not
+> *Ya* / *Tidak* / *Bukan ini* and not a choice list (reason chips withdrawn). Empty or whitespace-only is
+> not an answer; the cap is 500 characters, refused, never truncated; the staff-name scrub and Sensitive
+> Data Protection run on it before storage. An accepted explanation on a question with a thread feeds
+> T-306's gate as the unchanged `staff_confirmed` input (the thread's model category); the gate never reads
+> the text. Supervisors do not answer device questions; a fully answered debrief does not release Mulai
+> early. Changed: T-306 (one AC line), T-402, T-403 (one line).
+
+> **Updated 4 Oct 2026, late (tech-lead, docs only): role-agnostic questions and multi-device (Rangga, 4
+> Oct, final; `docs/HANDOFF.md`).** A debrief question never depends on who answers: every question asks
+> whether the SOP step was done properly and, if not, why. Answers store the answering device id and
+> timestamps only, no `answered_by` role. Each device's open questions expire at that device's own debrief
+> end; the insight run merges all devices (technical spec §8.15). Changed: T-306 (expiry scope), T-402.
+
+> **Updated 4 Oct 2026 (tech-lead, docs only): sign-in and consent (Rangga, 4 Oct, final; `docs/HANDOFF.md`).**
+> Owner and supervisor keep Google sign-in; staff need no sign-in. **Consent is not collected in the app:**
+> it is covered by the paper contract between bee6 and Proofed, and bee6 emails the consent, the updated
+> privacy policy and the TnC to all users. The in-app consent gate (consent flag, "no consent" view,
+> staff-consent step) is **removed from MVP 1**; T-901's "capture refuses to start for an outlet whose
+> consent flag is false" is struck. Revocation stays manual (within 7 working days) with no in-app
+> revoked-consent state. The phone's privacy line stays as an in-app notice, not consent collection.
+> Changed: §A3 (non-goals), E9 T-901.
+
+> **Updated 4 Oct 2026 (tech-lead, docs only): MVP 1 device model (Rangga, 4 Oct, final).** No staff
+> sign-in in MVP 1 (no name, no PIN): staff only pair a device, the system tracks the device id only, and
+> every session rule runs per device. Mode (one active paired device = "room", more = "wearable") is a
+> derived label only. The debrief shows each device the questions it heard; answers are stored as "a
+> staff member" plus the device id. Staff PIN sign-in is post-MVP 1. Changed: A3 (wearable), A4 (staff
+> story, judge), T-005/T-006, T-402. Rule detail: `docs/specs/web-backend-rbac.md` §2a.
+
+> **Updated 4 Oct 2026 (tech-lead, docs only; Rangga's decision D3):** every open question expires as
+> "unverified" at the end of the debrief, whether or not it was picked for that debrief; the earlier
+> 7-day question expiry (T-306) is superseded. Detail: `docs/specs/technical-specification.md`
+> §8.10.
+
+> **Updated 3 Oct 2026 (aligned with `docs/plan.md` v5):** dates re-dated to the Mon 12 Oct pilot go-live (one-step go-live after internal testing Tue 6 – Sun 11 and Rangga's written sign-off Sun 11 18:00; real evidence Mon 12 – Wed 14; first real insight run Thu 15, Fri 16 fallback; submit Fri 16; pilot review Wed 21 Oct, after submission, so the closed loop is shown on the demo outlet only). Capture is staff-tapped Mulai/Selesai with a hard auto-stop 60 min after closing, not unattended; the tap debrief opens after Selesai / auto-stop; R-16 is "if time".
+
 **What this doc is:** Part A is the MVP-level PRD. Part B specs each epic with acceptance criteria.
-**How it fits:** web app, capture, backend, login and roles are specced in `docs/specs/web-backend-rbac.md`; this doc covers the rest (pipeline, debrief, agents, approvals, demo outlet, evidence, consent). Dates and hours: `docs/plan.md`. Steps per task: `docs/backlog.md`. Product behaviour source: `docs/product-spec.md`.
-**v2 changes (30 Sept):** web app instead of Android · Gemini 3.5 Transcribe for all speech (no Flash-Lite first pass, no escalation) · one Cloud Run service · demo outlet inside the same app (no separate playground site) · weekday demo story · new dates (go-live Mon 5, SOP v2 Sat 10, review Wed 14) · task IDs mapped to R-xx. Items marked **(P1)** are built only if time allows. Decision history: `docs/adr/ADR-001-lean-gemini-architecture.md`.
+**How it fits:** web app, capture, backend, login and roles are specced in `docs/specs/web-backend-rbac.md`; this doc covers the rest (pipeline, debrief, agents, approvals, demo outlet, evidence, consent). Dates and hours: `docs/plan.md`. Steps per task: `docs/backlog.md`. Product behaviour source: `docs/product-spec.md`. Engineering-level detail for the pipeline as built (exact algorithms, edge cases, leak boundaries, file:line citations): `docs/specs/technical-specification.md`.
+**v2 changes (30 Sept):** web app instead of Android · Gemini 3.5 Transcribe for all speech (no Flash-Lite first pass, no escalation) · one Cloud Run service · demo outlet inside the same app (no separate playground site) · weekday demo story · new dates (go-live Mon 5, SOP v2 Sat 10, review Wed 14; superseded by plan v5: go-live Mon 12, SOP v2 Thu 15, pilot review Wed 21 Oct) · task IDs mapped to R-xx. Items marked **(P1)** are built only if time allows. Decision history: `docs/adr/ADR-001-lean-gemini-architecture.md`.
 
 ---
 
@@ -12,24 +67,24 @@
 Small F&B outlets like Proofed repeat the same operational mistakes (stockouts, missed steps, inconsistent complaint handling) because nobody records *why* they happen, and SOPs never change on evidence. Current tools check whether today's SOP was followed. None of them changes the SOP and checks whether the change worked. Without that loop, the outlet keeps discussing the same mistakes in weekly meetings with no structured record of causes.
 
 ## A2. Goals (by Fri 16 Oct)
-1. **One real loop closed at Proofed on real dates:** weekday evidence (Mon 5 – Thu 8) → proposal (Fri 9) → supervisor review (a real rejection with reason if it happens) → owner approval → **SOP v2 (Sat 10)** → review on **Wed 14** → outcome in memory.
-2. **Capture that runs unattended:** ≥ 90% of opening hours covered by device heartbeat from Mon 5, with no staff action to start or stop.
+1. **One real proposal loop at Proofed on real dates:** weekday evidence (Mon 12 – Wed 14) → first real insight run and proposal (Thu 15; fallback run Fri 16) → supervisor review (a real rejection with reason if it happens) → owner approval → **SOP v2 (Thu 15)** with a set review date → pilot review on **Wed 21 Oct, after submission** → outcome in memory. Before submission the review verdict and outcome memory are shown on the demo outlet only (fast-forward, labelled simulated).
+2. **Capture with manual sessions:** ≥ 90% of planned opening hours covered on days with a session (session time minus capture gaps) from Mon 12; staff press Mulai and Selesai only. The only automatic stop is the hard auto-stop 60 min after closing; a day with no Mulai by the end of its Mulai window (close − 4 h, technical spec §8.3) is recorded as off / closed, with no gap alarm. Measured by capture phase plan P5's coverage function.
 3. **Measured label quality:** per-category precision/recall on a gold set of ≥ 60 real episodes, shown as a confusion matrix.
 4. **A judge can operate it:** the demo outlet's judge path works in a fresh browser in ≤ 4 minutes, on phone and laptop.
 5. **A defensible cost number:** measured cost per outlet-day from the per-call token and audio logs, plus Transcribe quality on 20 real clips.
 
 ## A3. Non-goals (this window)
-- **Full DPIA:** after submission (GATI, 29 Sept). The README states it as the next priority. *Consent and signage are not deferred.*
+- **Full DPIA:** after submission (GATI, 29 Sept). The README states it as the next priority. *Consent and signage are not deferred.* *(4 Oct: consent by the bee6–Proofed paper contract plus an emailed notice to all users, not collected in the app.)*
 - **Native Android app:** replaced by the web capture page.
 - **Streaming transcription / live captions:** not a product need, and 2–3× the product price at production volume. The only real-time part is the voice debrief.
 - **Cheaper transcription path** (Flash-Lite first pass): a slide labelled "modelled", not built.
 - **A separate demo architecture:** the demo outlet uses the same app and endpoints; only input (recorded clips), data (fictional) and clock (fast-forward, labelled simulated) differ.
-- **Wearable mode, second mic, photo and reminder lanes, event cards, POS API adapters.**
+- **Wearable hardware features, second mic, photo and reminder lanes, event cards, POS API adapters.** (4 Oct device model: pairing more than one phone works with the same session rules and is labelled "wearable mode", but nothing wearable-specific is built: no per-person routing, no cross-device de-duplication.)
 
 ## A4. Personas and user stories
 **Staff (front desk and kitchen)**
-- As a staff member, I want the system to work without me pressing anything, so capture doesn't depend on remembering.
-- As a staff member at close, I want at most five short questions about my own episodes, asked about the step and not about me, so answering honestly carries no penalty.
+- As a staff member, I want to tap Mulai once when work starts and Selesai once when it ends (the phone stops on its own an hour after closing if I forget), so capture needs no other action from me. (technical spec §8.3; a forgotten Mulai means the day counts as off.)
+- As a staff member after Selesai (or the auto-stop), I want at most five short questions about the episodes my paired device heard, asked about the step and not about me, with no sign-in, so answering honestly carries no penalty. (MVP 1 device model; per-person "my own episodes" needs staff sign-in, post-MVP 1.)
 
 **Supervisor (two at the pilot shop)**
 - As a supervisor, I want to see the day as a timeline of labelled threads with evidence lines, so I can check what happened without listening to audio.
@@ -42,7 +97,7 @@ Small F&B outlets like Proofed repeat the same operational mistakes (stockouts, 
 
 **Judge**
 - As a judge who doesn't speak Bahasa, I want an English panel showing the category, evidence and the runner-up category with the reason it lost.
-- As a judge, I want to try the app as each role (Owner, Supervisor, Staff) from one link, without creating an account.
+- As a judge, I want to try the app as each role (Owner, Supervisor, Staff) from one link, without creating an account. (MVP 1: "Staff" is a demo paired-device session, since staff do not sign in.)
 - As a judge, I want to fast-forward to the review date and see the outcome, clearly marked as simulated time.
 
 **Edge cases:** the shop phone reboots overnight · Wi-Fi drops for 10 min during the rush · an external mic dies mid-shift · a hypothetical ("kalau nanti … habis…") must not become an incident · a proposal with only one evidence item must be refused · a staff member talks non-stop for 3 minutes (segment cap).
@@ -53,36 +108,36 @@ Small F&B outlets like Proofed repeat the same operational mistakes (stockouts, 
 - **D2 No escalation:** every segment goes to Transcribe (GATI, 29 Sept). Confidence comes from the label call plus debrief answers.
 - **D3 Regions:** services + Firestore in Jakarta; each model's location from the probe (Jakarta → Singapore → global), logged per call.
 - **D4 Capture inputs:** built-in mic (default), USB or Bluetooth via the browser's input picker; sources below 16 kHz refused.
-- **D5 Two-step go-live:** capture + transcription Mon 5; labels + day record Tue 6 (Monday's redacted text, held ≤ 48 h, is reprocessed).
-- **D6 One Cloud Run service** (`web`); async steps via Cloud Tasks; Live API only for the evening debrief.
+- **D5 One-step go-live (v5):** capture, transcription, labels, day record and tap debrief all go live together on Mon 12, after internal testing (Tue 6 – Sun 11, test outlet in the pilot project) and Rangga's written sign-off (Sun 11, 18:00).
+- **D6 One Cloud Run service** (`web`); async steps via Cloud Tasks; Live API only for the voice debrief (R-16, "if time"), which like the tap debrief starts at Selesai or the auto-stop (technical spec §8.3).
 - **Cost:** ~$24 / $30 / $37 per outlet-month at 15 / 20 / 25% speech. Full detail: the web spec §7.
 
 ## A6. Success metrics
 | Metric | Type | Target (success / stretch) | Measured by |
 |---|---|---|---|
-| Heartbeat coverage of opening hours | Leading | ≥ 90% / ≥ 97% | `devices/{id}/heartbeats` |
+| Coverage of planned opening hours on days with a session | Leading | ≥ 90% / ≥ 97% | capture phase plan P5 coverage (sessions minus capture gaps) |
 | Speech share of the day | Leading | Measured and reported (expected 15–25%) | Heartbeat stats |
 | Transcript latency (segment end → text stored) | Leading | p95 ≤ 20 s / ≤ 10 s | Timestamps in `segments` |
-| Debrief questions answered per close | Leading | ≥ 60% / ≥ 80% | `questions` |
+| Debrief questions answered per debrief | Leading | ≥ 60% / ≥ 80% | `questions` |
 | Label precision/recall on the gold set | Lagging | Macro-F1 per category; ≥ 0.75 on the 4 most frequent | R-13 |
 | Proposals suppressed by the gate | Leading | Logged; ≥ 1 shown in the video | `proposals.status=suppressed` |
-| Loop closure | Lagging | Outcome recorded Wed 14 | `outcomes` |
+| Loop closure | Lagging | Outcome recorded on the demo outlet before submission; pilot outcome after the Wed 21 Oct review | `outcomes` |
 | Cost per outlet-day | Lagging | Measured from call logs | Token + audio-second logs |
 
 ## A7. Open questions
 | # | Question | Owner | Needed by |
 |---|---|---|---|
 | Q1 | Which models answer in Jakarta / Singapore / only global? | Rangga (R-01 probe) | Wed 30 |
-| Q2 | Does the shop phone keep capturing 14 h with the page open and the screen on? | Rangga | Thu 1 |
+| Q2 | Does the shop phone keep capturing 14 h with the page open and the screen on? | Rangga | Internal testing (Tue 6 – Sun 11) |
 | Q3 | Is Transcribe good enough on Bahasa + Javanese in rush noise? `id-ID`/`jv-ID` or auto-detect? | Rangga (R-04, R-13) | Sun 4 (first look) |
-| Q4 | Does the Live API speak and understand Indonesian well enough? | Rangga (R-16) | Sun 11 (tap fallback exists) |
+| Q4 | Does the Live API speak and understand Indonesian well enough? | Rangga (R-16) | If time (R-16 is "if time"; tap fallback exists) |
 | Q5 | Does Sensitive Data Protection catch Indonesian phone numbers (+62 / 08…)? If not, add a custom regex | Rangga (R-04) | Sun 4 |
-| Q6 | Which weekday problem is the demo story? | Tiffany with Proofed | Wed 7 |
+| Q6 | Which weekday problem is the demo story? | Tiffany with Proofed | Wed 14 (evening) |
 | Q7 | Does GATI qualify for the $300 Google Cloud credit? | GATI | Before billing grows |
-| Q8 | Launch price: stay at Rp300k or test Rp450–500k with 3–30-outlet operators? | GATI | Deck (Thu 15) |
+| Q8 | Launch price: stay at Rp300k or test Rp450–500k with 3–30-outlet operators? | GATI | Deck (Fri 16, midday) |
 
 ## A8. Timeline
-Go-live step 1 Mon 5 · step 2 Tue 6 · tap debrief Wed 7 · first proposal Fri 9 · **SOP v2 Sat 10** · review **Wed 14** · freeze Thu 15 · **submit Fri 16** · platform deadline Sun 18.
+Pilot deploy (test outlet) Mon 5 · internal testing Tue 6 – Sun 11 · **Rangga's written sign-off Sun 11, 18:00** · **pilot go-live Mon 12** (first tap debrief after Selesai / auto-stop) · real evidence Mon 12 – Wed 14 · **first real insight run + SOP v2 Thu 15** (fallback run Fri 16) · freeze Fri 16 midday · **submit Fri 16** · platform deadline Sun 18 · pilot review **Wed 21 Oct** (after submission).
 
 ---
 
@@ -119,14 +174,14 @@ Format: **What** · **Acceptance criteria (AC)** · **Notes**. Each task shows t
 **T-004 Firestore schema v0:** as the web spec §6.4.
 - AC:
   - [ ] TTL on `segments.expire_at` deletes redacted segments after 48 h.
-  - [ ] `threads` hold category, fields, summary, evidence line refs, confidence and runner-up, never the full transcript.
+  - [ ] `threads` hold category, fields, summary, evidence line refs, confidence and runner-up, plus their own already-redacted work-line text (never raw or unredacted text, never audio, never NON_WORK lines). This is a deliberate retention category: it outlives the 48 h segment TTL so that R-08 proposals and the pilot review (Wed 21 Oct) can still cite days-old evidence. Source: `docs/tasks/R-05a.md` Decision 3. *(4 Oct, capture phase plan P4: bounded to `retention_days`, default 14, via `expires_at` + a Firestore TTL policy, technical spec §8.15; CLAUDE.md §2 #7a changes in the same PR as P4.)*
   - [ ] Names appear only in `staff`.
 
-**T-005/T-006 Login, roles, seed script, pairing, staff PIN:** as the web spec §2–§3.
+**T-005/T-006 Login, roles, seed script, pairing, staff PIN:** as the web spec §2–§3. MVP 1: the staff PIN is built (R-02) but dormant and its route is off; staff only pair a device (web spec §2a).
 
 ## E1 — Web capture (R-03)
 Specced in the web spec §4.1 and §5 (capture page, VAD, segments, Opus, upload, in-memory queue, heartbeat, acceptance checks).
-**T-110 Keep the pilot running (from Mon 5):** a daily 09:00 look at heartbeat coverage, speech share and yesterday's debrief completion; fix or raise it the same day. AC: coverage ≥ 90% on weekdays Mon 5 – Tue 13.
+**T-110 Keep the pilot running (from Mon 12):** a daily 09:00 look at session coverage, speech share and yesterday's debrief completion; fix or raise it the same day. AC: coverage ≥ 90% of planned hours on weekdays with a session, Mon 12 – Fri 16 (days recorded as off / closed are skipped, not counted as gaps).
 
 ## E2 — Segment transcription (R-04)
 Specced in the web spec §6.2–§6.3. Additional AC:
@@ -178,23 +233,32 @@ Specced in the web spec §6.2–§6.3. Additional AC:
 - Rule: a label becomes a **fact** only if confidence ≥ the category threshold (0.9 until calibrated) **and** it has ≥ 1 evidence line **and** it isn't COMPLAINT, CORRECTION, SAFETY, SECURITY or DISRUPTION (those always need supervisor confirmation). Everything else → `questions`.
 - AC:
   - [ ] Every gate decision is logged with the rule that fired.
-  - [ ] Questions expire as "unverified" after 7 days and never become facts.
+  - [ ] Open questions expire as "unverified" at the end of the debrief of the device that heard them
+    (every open question of that device created before its debrief ended, picked for it or not; per
+    device, Rangga 4 Oct multi-device; Rangga D3, 4 Oct, supersedes the earlier 7-day
+    expiry; technical spec §8.10) and never become facts.
   - [ ] SECURITY_INCIDENT text never contains a person's name.
+  - [ ] *(4 Oct, MVP 1 final)* A debrief answer reaches the gate only as `staff_answer = { question_id,
+    chosen_category }`: a YES passes the thread's model category (`staff_confirmed`), a NO passes `null`
+    (`staff_rejected`, checked first: verdict `question`, thread `excluded_from_evidence: true`, no new
+    question created) (R-07 notes §4b.1); the gate never receives or reads the reason text.
 
 ## E4 — Day record and debrief (R-06, R-07, R-16)
 
 **T-401a Day record (R-06):** see the web spec §4.3–§4.4. AC: a 14-hour day loads in < 2 s on a phone; filter by category; Bahasa/English labels; owner view has summaries only.
 
 **T-402 Tap debrief (R-07)**
-- [ ] At close (default 21:45), the top 5 questions (uncertain + incident first) are shown on the shop phone after staff PIN login.
-- [ ] Questions are about the step, never the person ("Apakah restock jam 15:00 dilakukan?").
-- [ ] Answers: *Iya* / *Bukan, itu…* + optional typed fix. Each answer writes a `correction` (reused as a few-shot example) and updates the thread; stored as "a staff member".
+- [ ] After Selesai (or the hard auto-stop) on a paired device, the top 5 of **that device's** open questions (uncertain + incident first) are shown on it, with no sign-in (MVP 1 device model; staff PIN login is post-MVP 1).
+- [ ] Questions are about the step, never the person, and never depend on who answers (role-agnostic, Rangga 4 Oct): each asks whether the SOP step was done properly and, if not, why. *(4 Oct, MVP 1; wording is a tech-lead default flagged for Rangga)* Two parts: the *Ya* / *Tidak* headline asks whether the labelled step happened ("Sekitar pukul 15:00 ada restock. Benar?"), and the SOP question is the reason prompt after *Ya* ("Sudah sesuai SOP? Kalau belum, kenapa?"), so a *Tidak* never means "not done properly".
+- [ ] Answers (Rangga, 4 Oct, MVP 1 final): **exactly one per question: *Ya* (YES) or *Tidak* (NO) plus a required reason typed in the staff member's own words, or *Lewati* (skip, sends nothing; the question stays open)**. No *Bukan ini*, no reason chips, no category choice; free text that revises the category is post-MVP 1. A body without `answer: "yes" | "no"` is refused (400 `invalid_body`); an empty or whitespace-only reason is not an answer (400 `reason_empty`, on YES and NO); a reason over 500 characters is refused, never truncated (400 `reason_too_long`; the phone's field cannot exceed it); the staff-name scrub and then Sensitive Data Protection run on the reason before any write or log (503 and nothing stored if redaction fails). A refused answer leaves the question open, and it expires as unverified at the debrief end. Each accepted answer writes a `correction` with `answer` and the redacted `reason_text`, sets the question `status: "answered"` + `answer`, and updates the thread via the gate: YES passes `chosen_category` = the thread's model category (`staff_confirmed`); NO passes `null` (`staff_rejected`: thread not confirmed, `excluded_from_evidence: true`, question closed as rejected, no new question). The reason is never read to decide a category, a verdict or a gate input. The few-shot reuse takes the thread's lines with its confirmed category, never the reason as a label, and never a NO-rejected thread. It stores the answering device id and timestamps only, no role and no name (4 Oct, late: `answered_by` dropped); supervisors see "a staff member answered Yes / No" with the reason and never the device id; owners see summaries only.
+- [ ] Supervisors do not answer device questions (Rangga, 4 Oct, final): the answer route is device-only (403 otherwise); supervisors confirm or override labels on the thread side.
+- [ ] A fully answered debrief does not release Mulai early: the 1-hour timeout always applies (Rangga, 4 Oct, final).
 - [ ] Answers on COMPLAINT, CORRECTION and incident threads wait for supervisor confirmation.
 
 **T-403 Voice debrief (R-16)**
-- [ ] **One shared Live API session per close**; the agent speaks first in Bahasa; ≤ 5 questions; system context ≤ 1.5k tokens; hard stop at 4 min.
+- [ ] **One shared Live API session per debrief** (on the device, inside its 1-hour debrief window, technical spec §8.10–§8.11); the agent speaks first in Bahasa; ≤ 5 questions; system context ≤ 1.5k tokens; hard stop at 4 min.
 - [ ] If the session drops, the same questions continue in tap mode (answers keyed by `question_id`, never counted twice).
-- [ ] The answer text is stored; the audio is not.
+- [ ] The answer text is stored; the audio is not. *(4 Oct, MVP 1 final: the spoken answer becomes the same *Ya* / *Tidak* + reason with the same rules as T-402: empty reason is not an answer, 500-character cap, name scrub and Sensitive Data Protection before storage. Mapping speech to YES / NO is left to R-16's own plan.)*
 
 ## E5 — Improvement loop (R-08, R-09, R-10, R-11, R-15)
 
@@ -212,7 +276,7 @@ Specced in the web spec §6.2–§6.3. Additional AC:
 - [ ] Too little evidence → no proposal; a debrief question is created; the suppression is logged with its reason.
 - [ ] Runs by a supervisor's "Generate proposal" button (a daily schedule is optional).
 
-**T-505 CriticAgent (R-15):** checks each proposal with the gate as a tool (`check_evidence(proposal)`); only passing proposals reach the supervisor. AC: a seeded weak proposal (1 evidence item) is blocked with its reason. (The first real proposal on Fri 9 comes before the Critic exists; the revised one goes through it.)
+**T-505 CriticAgent (R-15):** checks each proposal with the gate as a tool (`check_evidence(proposal)`); only passing proposals reach the supervisor. AC: a seeded weak proposal (1 evidence item) is blocked with its reason. (v5: the Critic is built Sat 10, so the first real proposal on Thu 15 goes through it.)
 
 **T-506 Approval screens (R-09)**
 - Supervisor: *Feasible* / *Reject* (reason required). Owner: *Approve* / *Reject* (reason required), shown only after the supervisor says feasible.
@@ -223,7 +287,7 @@ Specced in the web spec §6.2–§6.3. Additional AC:
 
 **T-508 Versioning (R-10):** immutable `sop_versions`; v2 = v1 + an approved change; diff view (added / changed / removed steps) with metric, failure condition and review date. AC: the pipeline reads the active version from the next morning.
 
-**T-509 ReviewAgent + scheduler (R-11):** a Cloud Scheduler job on the review date (**Wed 14, 09:00 WIB**) calls the review route → compares the metric before (weekdays Mon 5 – Fri 9) and after (weekdays Mon 12 – Tue 13), stated plainly as a short window → proposes *worked / revise / revert* → supervisor + owner confirm → `outcomes`. AC: fires without anyone remembering; an unconfirmed outcome is stored as "unknown" and kept out of memory.
+**T-509 ReviewAgent + scheduler (R-11):** a Cloud Scheduler job on the review date (pilot: **Wed 21 Oct, 09:00 WIB**, after submission) calls the review route → compares the metric before (weekdays Mon 12 – Wed 14, under v1) and after (weekdays from SOP v2's ship date to the review date), stated plainly as a short window → proposes *worked / revise / revert* → supervisor + owner confirm → `outcomes`. AC: fires without anyone remembering; an unconfirmed outcome is stored as "unknown" and kept out of memory.
 
 **T-510 Review screen (R-11):** before/after numbers, verdict buttons, reason field.
 
@@ -244,7 +308,7 @@ Specced in the web spec §6.2–§6.3. Additional AC:
 **T-708 Demo guards:** 2 h role sessions; per-IP rate limits; daily token cap; project quota cap; refusal for inputs that try to change instructions.
 
 ## E8 — Evidence and submission (R-13, R-14 + Tiffany)
-**T-802 Gold set:** Tiffany and the supervisors label episodes (redacted lines) in a Google Sheet: correct category + fields. AC: ≥ 60 episodes by Tue 13 (target 100); 10 episodes labelled by both supervisors to check agreement.
+**T-802 Gold set:** Tiffany and the supervisors label episodes (redacted lines) in a Google Sheet: correct category + fields. AC: ≥ 60 episodes by Wed 14, from Mon 12 – Tue 13 real data (target 100); 10 episodes labelled by both supervisors to check agreement.
 **T-803 B-roll (Tiffany):** the shop and team at work; no customer faces, no SOP document or franchise material on screen; written OK from staff.
 **T-804 Eval (R-13):** script → confusion matrix, per-category precision/recall, macro-F1; rush-hour subset shown separately. AC: reproducible from a pinned snapshot of the sheet.
 **T-805 Cost per outlet-day:** computed from the per-call logs for the deck (the owner's cost tile is P1).
@@ -253,7 +317,7 @@ Specced in the web spec §6.2–§6.3. Additional AC:
 **T-815 – T-818 (R-14 + Tiffany):** tag v1.0, freeze, quota caps, incognito checklist, uptime alert for 19 Oct – 6 Nov, submit.
 
 ## E9 — Consent and privacy (Tiffany)
-**T-901 Consent (not deferred):** Bahasa staff consent form (ambient transcription, what is kept — work notes — and what isn't — audio, how to object), counter signage for customers, staff briefing, signatures before any real audio (**Thu 1**). AC: signed forms kept offline by GATI; capture refuses to start for an outlet whose consent flag is false.
+**T-901 Consent (not deferred; revised 4 Oct, Rangga final):** consent is covered by the **paper contract between bee6 and Proofed**, and bee6 **emails the consent, the updated privacy policy and the TnC to all users** (owner, supervisors, staff) before any real audio. The emailed text keeps the original content: ambient transcription, what is kept (work notes) and what isn't (audio), how long, and how to object or withdraw (by email or under the contract). Counter signage for customers and the staff briefing stay. **No in-app consent step:** there is no consent flag, no "no consent" view and no revoked-consent state in MVP 1. The `/capture` privacy line is an in-app notice, not consent collection. Revocation: handled manually, acknowledgement and complete removal within 7 working days (technical spec §8.16). AC: the signed contract and a record of the sent emails kept offline by GATI (never in the repo); ~~capture refuses to start for an outlet whose consent flag is false~~ *(removed from MVP 1, 4 Oct; may return post-MVP 1 if in-app consent is added)*. *Original (30 Sept): Bahasa staff consent form, counter signage, staff briefing, signatures before any real audio (Thu 1).*
 **T-902 Data-flow one-pager (P2):** what's kept, where it runs (from `regions.yaml`), retention, "next: DPIA under PP 33/2026".
 **After submission:** full DPIA, per-site privacy profiles, per-model residency table.
 

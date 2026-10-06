@@ -29,7 +29,7 @@ Cloud Run service "web" (Next.js, asia-southeast2 Jakarta)
 | Transcriber | Model call | Speech → text | Gemini 3.5 Transcribe |
 | Labeller | Model call | Threads, category, evidence, work vs private | Gemini 3.5 Flash-Lite |
 | Evidence Gate | **Plain code** | Decides fact vs question; blocks weak proposals | — |
-| DebriefAgent | ADK agent | Evening questions (voice, agent speaks first; tap fallback) | Live API model |
+| DebriefAgent | ADK agent | Debrief questions after Selesai or the auto-stop, 1 h window (voice, agent speaks first; tap fallback; technical spec §8.10–§8.11) | Live API model |
 | ProposalAgent | ADK agent | Picks an intervention from the library, cites rubric + ≥ 2 dated evidence items | Gemini 3.5 Flash |
 | CriticAgent | ADK agent | Checks proposals using the Evidence Gate as a tool | Gemini 3.5 Flash |
 | ReviewAgent | ADK agent + Scheduler | On the review date: worked / revise / revert | Gemini 3.5 Flash |
@@ -42,7 +42,7 @@ Cloud Run service "web" (Next.js, asia-southeast2 Jakarta)
 5. Names only in `staff`; everything else stores roles.
 
 ## Roles (summary)
-Owner (Google sign-in, summaries + approvals) · Supervisor (Google sign-in, full day record + reviews + settings) · Staff (name + PIN on the shop phone only, own questions) · Shop device (pairing token, uploads only) · Judge (demo outlet, picks a role). Full matrix: `specs/web-backend-rbac.md` §2.
+Owner (Google sign-in, summaries + approvals) · Supervisor (Google sign-in, full day record + reviews + settings) · Staff (no sign-in in MVP 1: whoever holds a paired device answers that device's questions; name + PIN is post-MVP 1, `specs/web-backend-rbac.md` §2a) · Shop device (pairing token, uploads only) · Judge (demo outlet, picks a role). Full matrix: `specs/web-backend-rbac.md` §2.
 
 ## Cost (model spend per outlet per month)
 - As built (Transcribe for all speech): **~$24 / $30 / $37** at 15 / 20 / 25% of the day being speech.
