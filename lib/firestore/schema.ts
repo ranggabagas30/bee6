@@ -25,15 +25,109 @@ const isoDateTime = z.iso.datetime();
 /** Fields shared by (almost) every document. */
 const withOutlet = { outlet_id: z.string().min(1) };
 
+// ── day calendar (PROD-01 §3.1, §4.0) ─────────────────────────────────────────
+export const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+export type Weekday = (typeof WEEKDAYS)[number];
+/** Auto-stop is this long after the planned close (PROD-01 §4.8). */
+export const AUTO_STOP_AFTER_CLOSE_MIN = 60;
+/** Mulai window ends this long before close; also the Selesai delay (§4.0). */
+export const MULAI_CUTOFF_BEFORE_CLOSE_MIN = 240;
+/** The Mulai window opens at 01:00 on the business day (§4.0 rule 1). */
+export const MULAI_WINDOW_OPEN_MIN = 60;
+/** Latest close, minutes from the business day's midnight (01:00 next day). */
+export const MAX_CLOSE_ABS_MIN = 1500;
+
+/** "HH:MM" to minutes since midnight. Inline so this module has no cycle. */
+export function parseHmToMinutes(hm: string): number {
+  const parts = hm.split(":").map(Number);
+  return (parts[0] ?? 0) * 60 + (parts[1] ?? 0);
+}
+
+/** Close in minutes from the business day's midnight (next day when close <= open). */
+export function closeAbsMinutes(d: { open: string; close: string }): number {
+  return parseHmToMinutes(d.close) + (d.close <= d.open ? 1440 : 0);
+}
+
+const hmString = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/); // 00:00-23:59 only
+
+/** One weekday's opening hours (outlet-local). `close <= open` means it ends next day. */
+export const DayHoursSchema = z
+  .object({
+    open: hmString, // "07:00"
+    close: hmString, // "21:45"
+  })
+  .strict()
+  .refine((d) => d.open !== d.close, "zero-length day is a data error; closed is null")
+  .refine(
+    (d) => parseHmToMinutes(d.open) >= MULAI_WINDOW_OPEN_MIN,
+    "opening is at or after 01:00",
+  )
+  .refine(
+    (d) => closeAbsMinutes(d) <= MAX_CLOSE_ABS_MIN,
+    "close is at most 01:00 the next day",
+  )
+  .refine(
+    (d) => closeAbsMinutes(d) - parseHmToMinutes(d.open) >= MULAI_CUTOFF_BEFORE_CLOSE_MIN,
+    "open at least 4 h",
+  )
+  .refine(
+    (d) => closeAbsMinutes(d) - MULAI_CUTOFF_BEFORE_CLOSE_MIN > 180,
+    "the Mulai window ends after 03:00",
+  );
+export type DayHours = z.infer<typeof DayHoursSchema>;
+
+/**
+ * A day's auto-stop must not pass the next day's opening (§3.1). Pure; exported
+ * for tests. Stop = close + AUTO_STOP_AFTER_CLOSE_MIN, from the day's midnight.
+ */
+export function noStopPastNextOpen(w: WeeklyHours): boolean {
+  return WEEKDAYS.every((day, i) => {
+    const d = w[day];
+    if (!d) return true;
+    const stopMin = closeAbsMinutes(d) + AUTO_STOP_AFTER_CLOSE_MIN;
+    if (stopMin <= 1440) return true;
+    const nextKey = WEEKDAYS[(i + 1) % WEEKDAYS.length];
+    const next = nextKey ? w[nextKey] : null;
+    if (!next) return true;
+    return stopMin - 1440 <= parseHmToMinutes(next.open);
+  });
+}
+
+/** Null = closed weekday (no Mulai window, no session; §4.0 rule 11). */
+const WeeklyHoursObject = z
+  .object({
+    mon: DayHoursSchema.nullable(),
+    tue: DayHoursSchema.nullable(),
+    wed: DayHoursSchema.nullable(),
+    thu: DayHoursSchema.nullable(),
+    fri: DayHoursSchema.nullable(),
+    sat: DayHoursSchema.nullable(),
+    sun: DayHoursSchema.nullable(),
+  })
+  .strict();
+export type WeeklyHours = z.infer<typeof WeeklyHoursObject>;
+
+export const WeeklyHoursSchema = WeeklyHoursObject
+  .refine((w) => WEEKDAYS.some((day) => w[day] !== null), "at least one open weekday")
+  .refine(noStopPastNextOpen, "a day's auto-stop must not pass the next day's opening");
+
 // ── outlets ──────────────────────────────────────────────────────────────────
 export const OutletSchema = z
   .object({
     ...withOutlet,
     name: z.string().min(1),
     project_kind: z.enum(["pilot", "demo"]),
-    /** Capture refuses to start unless consent is marked complete (R-03). */
-    consent_complete: z.boolean(),
+    /**
+     * Legacy, not read (consent by contract, 4 Oct 2026, PROD-01 A19). Kept
+     * optional so existing outlet docs still parse; nothing writes or reads it.
+     */
+    consent_complete: z.boolean().optional(),
     timezone: z.string().min(1), // e.g. "Asia/Jakarta"
+    /**
+     * Weekly opening hours (technical spec §8.2). Optional so outlet docs seeded before
+     * weekly hours existed still parse; `resolveWeeklyHours` falls back to opening/closing.
+     */
+    weekly_hours: WeeklyHoursSchema.optional(),
     opening_time: z.string().regex(/^\d{2}:\d{2}$/), // "07:00"
     closing_time: z.string().regex(/^\d{2}:\d{2}$/), // "21:45"
     created_at: isoDateTime,
@@ -78,6 +172,47 @@ export const StaffSchema = z
   .strict();
 export type Staff = z.infer<typeof StaffSchema>;
 
+// ── capture sessions (PROD-01 §3.2, §4.2, §4.12) ──────────────────────────────
+const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+export const SessionEndReasonSchema = z.enum(["selesai", "auto_stop", "lost", "discarded"]);
+export type SessionEndReason = z.infer<typeof SessionEndReasonSchema>;
+
+/** Per-device "last ended business day" (PROD-01 §4.13 section 5). */
+export const LastEndedSchema = z
+  .object({
+    business_date: dateString,
+    end_reason: SessionEndReasonSchema,
+    ended_at_ms: z.number().int().min(0),
+    debrief_ends_at_ms: z.number().int().min(0).nullable(),
+  })
+  .strict();
+export type LastEnded = z.infer<typeof LastEndedSchema>;
+
+/** `capture_sessions/{device_id}:{session_id}`. Timestamps and ids only, no actor. */
+export const CaptureSessionSchema = z
+  .object({
+    ...withOutlet,
+    device_id: z.string().min(1),
+    session_id: z.string().uuid(),
+    started_at_ms: z.number().int().min(0),
+    ended_at_ms: z.number().int().min(0).nullable(),
+    end_reason: SessionEndReasonSchema.nullable(),
+    local_date: dateString,
+    auto_stop_at_ms: z.number().int().min(0),
+    debrief_ends_at_ms: z.number().int().min(0).nullable(),
+    /** Server time the start arrived (ISO, §3.2). */
+    received_start_at: isoDateTime,
+    /** Server time the end or discard arrived (ISO); null while open. */
+    received_end_at: isoDateTime.nullable(),
+    cleanup_done_at_ms: z.number().int().min(0).nullable().optional(),
+  })
+  .strict()
+  .refine((s) => s.ended_at_ms === null || s.ended_at_ms >= s.started_at_ms, {
+    message: "ended_at_ms is before started_at_ms",
+  });
+export type CaptureSession = z.infer<typeof CaptureSessionSchema>;
+
 // ── devices (the shop phone) ─────────────────────────────────────────────────
 export const DeviceSchema = z
   .object({
@@ -86,6 +221,8 @@ export const DeviceSchema = z
     label: z.string().min(1),
     /** bcrypt hash of the long-lived device token; null until paired. */
     token_hash: z.string().min(1).nullable(),
+    /** This device's latest ended business day (PROD-01 §4.13). Optional for old docs. */
+    last_ended: LastEndedSchema.optional(),
     paired_at: isoDateTime.nullable(),
     revoked: z.boolean(),
     /** 6-digit pairing code (plaintext, single-use); null when not pairing. */

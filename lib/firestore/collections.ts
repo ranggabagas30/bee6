@@ -14,6 +14,8 @@ export const COLLECTIONS = {
   /** Subcollection of a device: devices/{device_id}/heartbeats/{ts}. */
   heartbeats: "heartbeats",
   segments: "segments",
+  /** `capture_sessions/{device_id}:{session_id}` (web spec §6.6.3). */
+  captureSessions: "capture_sessions",
   windows: "windows",
   threads: "threads",
   questions: "questions",
