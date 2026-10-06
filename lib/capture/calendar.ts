@@ -109,6 +109,22 @@ export function hoursOn(localDate: string, weekly: WeeklyHours): Hours | null {
   return weekly[weekdayOf(localDate)];
 }
 
+/**
+ * The first open day on or after `localDate`, searching 7 days (phone copy on a
+ * closed day, D1 of R-P1). null when no weekday is open.
+ */
+export function nextOpenDay(
+  localDate: string,
+  weekly: WeeklyHours,
+): { local_date: string; hours: Hours } | null {
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(localDate, i);
+    const hours = hoursOn(d, weekly);
+    if (hours) return { local_date: d, hours };
+  }
+  return null;
+}
+
 /** Planned close instant of D (next local day when close <= open). null = closed. */
 export function closeMs(localDate: string, weekly: WeeklyHours, tz: string): number | null {
   const h = hoursOn(localDate, weekly);
