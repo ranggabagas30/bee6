@@ -8,12 +8,19 @@ import { buildLangCookie, type Lang } from "@/lib/i18n/lang";
 /**
  * The ID | EN switch (UX-03 section 5.12). Two native buttons in one group, 48 px
  * targets. The visible text is the code, which does not change with language.
- * The accessible name is the endonym, which does not change either. The group
- * name is in the current language. A tap on the pressed option does nothing.
+ * The accessible name starts with that same code and ends with the endonym
+ * (WCAG 2.5.3, label in name), so a voice user saying "click EN" matches. The
+ * endonym is spoken in its own language. The group name is in the current
+ * language. A tap on the pressed option does nothing.
  * A separate polite live region speaks one line in the new language.
  */
 
 const OPTIONS: readonly Lang[] = ["id", "en"];
+
+const OPTION_TEXT: Record<Lang, { code: string; endonym: string }> = {
+  id: { code: "ID", endonym: "Bahasa Indonesia" },
+  en: { code: "EN", endonym: "English" },
+};
 
 const BUTTON_BASE: React.CSSProperties = {
   minWidth: 48,
@@ -62,7 +69,6 @@ export function LangSwitch() {
             <button
               key={option}
               type="button"
-              aria-label={option === "id" ? t(lang, "C-lang-id") : t(lang, "C-lang-en")}
               aria-pressed={pressed}
               onClick={() => choose(option)}
               style={{
@@ -73,7 +79,11 @@ export function LangSwitch() {
                 border: pressed ? "2px solid #14532d" : "2px solid #6b7280",
               }}
             >
-              {option === "id" ? "ID" : "EN"}
+              {OPTION_TEXT[option].code}
+              {" "}
+              <span style={VISUALLY_HIDDEN} lang={option}>
+                {OPTION_TEXT[option].endonym}
+              </span>
             </button>
           );
         })}
