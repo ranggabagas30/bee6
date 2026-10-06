@@ -4,7 +4,15 @@ import {
   ForbiddenError,
   PayloadTooLargeError,
 } from "@/lib/http/errors";
-import { HeartbeatSchema, OutletSchema, type Heartbeat } from "@/lib/firestore/schema";
+import {
+  HeartbeatSchema,
+  LastEndedSchema,
+  WeeklyHoursSchema,
+  type Heartbeat,
+  type LastEnded,
+  type Outlet,
+  type WeeklyHours,
+} from "@/lib/firestore/schema";
 import type { CustomClaims } from "@/lib/auth/roles";
 import { classifyMicSource } from "@/lib/capture/mic-source";
 
@@ -166,31 +174,55 @@ export function toHeartbeat(
 // ── GET /api/v1/capture/config response ──────────────────────────────────────
 
 /**
- * Strict allowlist subset of the outlet doc returned to the capture page. Never
- * the whole outlet document (keeps the browser off Firestore, hard rule #6, and
- * leaks nothing extra). Derived from `OutletSchema` so field types stay in sync;
- * `.pick` on a strict object stays strict, so extra fields are rejected.
+ * The outlet's weekly hours, always resolved (technical spec §8.2). A stored table wins;
+ * an outlet doc seeded before weekly hours existed falls back to its single
+ * opening/closing pair on every weekday (the only fallback).
  */
-export const CaptureConfigResponseSchema = OutletSchema.pick({
-  consent_complete: true,
-  opening_time: true,
-  closing_time: true,
-  timezone: true,
-});
+export function resolveWeeklyHours(
+  outlet: Pick<Outlet, "weekly_hours" | "opening_time" | "closing_time">,
+): WeeklyHours {
+  if (outlet.weekly_hours) return outlet.weekly_hours;
+  const day = { open: outlet.opening_time, close: outlet.closing_time };
+  return { mon: day, tue: day, wed: day, thu: day, fri: day, sat: day, sun: day };
+}
+
+/**
+ * Strict allowlist returned to the capture page (web spec §6.6.2). Never the whole
+ * outlet or device doc (hard rule #6). No consent key: consent is collected outside
+ * the product (hard rule #7b). `last_ended` is this device's own, without its
+ * ended_at_ms, and carries no identity.
+ */
+export const CaptureConfigResponseSchema = z
+  .object({
+    timezone: z.string().min(1),
+    weekly_hours: WeeklyHoursSchema,
+    last_ended: LastEndedSchema.pick({
+      business_date: true,
+      end_reason: true,
+      debrief_ends_at_ms: true,
+    }).nullable(),
+  })
+  .strict();
 export type CaptureConfigResponse = z.infer<typeof CaptureConfigResponseSchema>;
 
 /**
- * Projects a full outlet doc down to the capture-config allowlist. Fields are
- * selected explicitly (not spread) so a future outlet field can never leak
- * through, and the result is validated against the strict subset schema.
+ * Projects an outlet doc and this device's `last_ended` (null when none) down to the
+ * config allowlist. Fields are selected explicitly, never spread, and the result is
+ * validated against the strict schema.
  */
 export function toCaptureConfig(
-  outlet: z.infer<typeof OutletSchema>,
+  outlet: Outlet,
+  lastEnded: LastEnded | null,
 ): CaptureConfigResponse {
   return CaptureConfigResponseSchema.parse({
-    consent_complete: outlet.consent_complete,
-    opening_time: outlet.opening_time,
-    closing_time: outlet.closing_time,
     timezone: outlet.timezone,
+    weekly_hours: resolveWeeklyHours(outlet),
+    last_ended: lastEnded
+      ? {
+          business_date: lastEnded.business_date,
+          end_reason: lastEnded.end_reason,
+          debrief_ends_at_ms: lastEnded.debrief_ends_at_ms,
+        }
+      : null,
   });
 }
