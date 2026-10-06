@@ -11,6 +11,12 @@ import {
   deriveUploadView,
 } from "@/app/capture/UploadStatusLine";
 import {
+  NO_RETAINED_UPLOAD,
+  beginSessionRetention,
+  retainEngineStatus,
+  type RetainedUpload,
+} from "@/app/capture/upload-retention";
+import {
   fetchCaptureConfig,
   readDeviceAuth,
   resolveCapturePhase,
@@ -95,6 +101,10 @@ export default function CapturePage() {
   // Last engine status from any session, kept across a stop (UX-03 §5.7): the
   // lost line and the retry row stay up until the next 2xx. Never reset on stop.
   const [lastUploadStatus, setLastUploadStatus] = useState<CaptureStatus | null>(null);
+  // Same upload state as a ref, so engine callbacks fold each report in order
+  // (including reports from a stopped engine) and a new session can carry an
+  // unresolved loss into its first report (decision B). See upload-retention.ts.
+  const retainedUploadRef = useRef<RetainedUpload>(NO_RETAINED_UPLOAD);
   // True exactly while sessionRef holds a started, not-yet-stopped session.
   // The banner reads this, not the engine's default state, so it never says
   // "Listening" when no capture is actually running.
@@ -182,13 +192,15 @@ export default function CapturePage() {
       const isCurrent = () => !cancelled && gen === sessionGenRef.current;
       // A new session starts with an unknown mic; a previous session's mic must not show.
       setMicSource("unknown");
+      retainedUploadRef.current = beginSessionRetention(retainedUploadRef.current);
       try {
         const session = await startCaptureSession(auth!, loadedConfig, {
           onStatus: (s) => {
-            if (isCurrent()) {
-              setStatus(s);
-              setLastUploadStatus(s);
-            }
+            // Upload results are kept even after a stop (UX-03 §5.7); only the
+            // live headline status is limited to the current session.
+            retainedUploadRef.current = retainEngineStatus(retainedUploadRef.current, s);
+            setLastUploadStatus(retainedUploadRef.current.status);
+            if (isCurrent()) setStatus(s);
           },
           onMicSource: (source) => {
             if (isCurrent()) setMicSource(source);
@@ -263,14 +275,16 @@ export default function CapturePage() {
     const gen = ++sessionGenRef.current;
     const isCurrent = () => gen === sessionGenRef.current;
     setMicSource("unknown");
+    retainedUploadRef.current = beginSessionRetention(retainedUploadRef.current);
     void (async () => {
       try {
         const session = await startCaptureSession(auth, config, {
           onStatus: (s) => {
-            if (isCurrent()) {
-              setStatus(s);
-              setLastUploadStatus(s);
-            }
+            // Upload results are kept even after a stop (UX-03 §5.7); only the
+            // live headline status is limited to the current session.
+            retainedUploadRef.current = retainEngineStatus(retainedUploadRef.current, s);
+            setLastUploadStatus(retainedUploadRef.current.status);
+            if (isCurrent()) setStatus(s);
           },
           onMicSource: (label) => {
             if (isCurrent()) setMicSource(label);

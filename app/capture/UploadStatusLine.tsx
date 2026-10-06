@@ -143,11 +143,16 @@ const TOAST: BilingualLine = { id: "Unggah berhasil lagi", en: "Upload working a
 function useRecoveryToast(phase: UploadView["phase"] | undefined, lost: boolean): boolean {
   const [visible, setVisible] = useState(false);
   const failedSinceSuccessRef = useRef(false);
+  const wasLostRef = useRef(lost);
   const succeededShown = phase === "succeeded" && !lost;
 
   useEffect(() => {
+    // A 2xx that clears the lost line also recovers the upload, even when no
+    // succeeded row is shown (after a stop the succeeded row is not carried).
+    const lossCleared = wasLostRef.current && !lost;
+    wasLostRef.current = lost;
     if (phase === "retrying" || lost) failedSinceSuccessRef.current = true;
-    if (succeededShown && failedSinceSuccessRef.current) {
+    if ((succeededShown || lossCleared) && failedSinceSuccessRef.current) {
       failedSinceSuccessRef.current = false;
       setVisible(true);
     }
