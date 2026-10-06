@@ -4,6 +4,70 @@ Loaded automatically at session start by a hook. The PM updates it at the end of
 and after every merge (`CLAUDE.md` §10 rule 9). Keep it short and current; history lives in git, plans
 in `docs/tasks/`, decisions in memory and `docs/`.
 
+## Next implementation steps (from 6 Oct)
+**Read before starting work:** developer, developer-junior, uiux, tech-lead, qa, dev-ops, security-reviewer
+(step 9), and the PM. Rules: technical spec §8. Routes and data: web spec §6.6. Tests and QA rows: backlog §3a.
+Screens and copy: UX-03 §6 rev 5. "Gate" = tech-lead PASS + independent QA SHIP (CLAUDE.md §10 rule 7), lint
+clean before push (rule 12). Branch state below was read from git on 6 Oct against `origin/main`. The sections
+after this one predate 6 Oct; check them against `docs/plan.md` before acting on them.
+
+**Calendar slip (needs Rangga).** Plan §5 put the P1 finish and the pilot deploy on Mon 5. Neither happened.
+The §5 overrun rule says the deploy moves, the testing window shrinks, and go-live Mon 12 stays. Tue 6 now
+holds Mon 5's 6.5 h plus Tue 6's 6.5 h in a 4 h day. Rangga to re-date Tue 6 – Sat 10.
+
+1. **Status-truth branch.** Owner: developer (fixes); tech-lead + qa re-review. Entry: `feat/capture-live-state-truth-r2`
+   (tip `90d26d0`, 9 commits). The last QA DO-NOT-SHIP was the mic label. Its fix `916d501` is on `feat/prod-01-p1`,
+   not here. Where it lands: needs Rangga. Done when: gate on the tip, then Rangga merges.
+2. **Upload-toast branch.** Owner: developer; tech-lead + qa. Entry: step 1 merged (stacked on truth-r2; tip `fc9087f`,
+   14 commits on top). Remaining: re-review of every fix after `a96121e`, incl. the plan §11 headline rule (a cap prune
+   keeps the headline green and shows the lost line). C10 toast is open (Q-U12). Done when: gate, merged.
+3. **Rebase P1.** Owner: developer. Entry: steps 1–2 merged. `feat/prod-01-p1` (tip `8cb67af`) lacks the toast commits.
+   Both edit `app/capture/page.tsx` and `page.test.tsx`, so expect conflicts there. Done when: pre-push hook green.
+4. **P1 server side (session routes, Firestore session store).** Owner: developer-junior for routes, the Firestore
+   `CaptureSessionStore`, discard route, `last_ended`, config field, seed `weekly_hours`; developer for the segment-route
+   `X-Session-Id` transaction (backlog §3a routing). Already on the branch: calendar, reducer, session service, schema.
+   Done when: §3a session/route, Cancel-A route, audit-count, schema and segment-route tests pass. Gate.
+5. **P1 page rewrite: Mulai / Selesai / Batalkan.** Owner: developer; uiux checks against UX-03 §5.2–§5.7. Entry:
+   step 4. Scope: §3a "P1 steps" (start/stop only on taps, disabled Mulai + notes, Selesai at Mulai + 4 h, two-step
+   cancel, auto-stop, tab lock, `blocked`, DevPanel readouts). Done when: §3a page, auto-stop, upload-line, history
+   and four cancel-page tests pass; QA drives plan §5e P1 rows at 360 px. Gate.
+6. **Language toggle (Tue 6, 2.5 h).** Owner: developer (root-layout `bee6_lang` read, TL-L1 option a; typed `id`/`en`
+   dictionary; top-bar `ID | EN`); developer-junior may move the UX-03 §6 copy into it. Entry: none, but before R-07;
+   page files overlap step 5, tech-lead sets the order. Done when: §3a language tests pass. Gate.
+7. **Pilot deploy (dev-ops, only on Rangga's go).** Entry: steps 1–5 merged. Same steps as demo ("Where we are"),
+   `--project project-a10437b4-b198-402e-97e` confirmed; revision A (pre-P1) and B (P1) at 100%; test outlet with
+   fictional past-midnight hours. Done when: health 200, tick 401 unauthenticated and 200 from Scheduler, recorded in
+   `docs/tasks/R-01-gcp-state.md`; QA smoke rows U1–U3 on the live URL.
+8. **R-06 day record + P4 retention.** Owner: developer (R-06); developer-junior + dev-ops (P4, TTL in both projects).
+   Done when: R-06 done-when (14-h day < 2 s on a phone, owner view no quoted lines); §3a P4 tests; TTL live and
+   backfill run. Gate. Supervisor and owner copy goes into the step 6 dictionary.
+9. **R-07 tap debrief.** Owner: tech-lead writes `docs/tasks/R-07.md` first (rule 11), then developer; security-reviewer
+   on the answer route. Entry: steps 4–5 and R-06 merged. Proposed order (the R-07 plan confirms): gate.ts expiry
+   (§10 #45, notes §4c) → answer route (web spec §6.6.6, notes §4b.2) → debrief clock and resume → answer cache and
+   upload → screens (notes §3.1, §4.1–§4.3; UX-03 §5.8). Done when: §3a R-07 tests; rows D2, K1, K2, S8, S10, MD2,
+   MD4, A1–A9. Gate.
+10. **R-08 → R-09 → R-10 (Thu 8 – Sat 10), then Cancel-B and P5 (Sun 11).** Owner: developer. Each: backlog done-when
+    and gate. Cancel-B merges before the sign-off (until then dev-ops cleans discarded sessions by hand). P5 is the
+    only cut left.
+11. **Internal testing window (pilot deploy → Sun 11).** Owner: qa (browser rows), Rangga + Tiffany (real-phone items
+    1–14). Test outlet only; nothing counts as evidence. Done when: mandatory rows M1–M6, W1–W4, D1–D4, K1–K2, C1–C8,
+    E1–E10, S1–S12, MD1, MD2, MD4 pass, at least one night past 03:00 (backlog §3a).
+12. **Sun 11 checkpoint.** dev-ops deletes test-outlet data, seeds the Proofed outlet from the private seed (real hours;
+    loader strict once Rangga cleans `consent_complete`), re-pairs the phone. 18:00: Rangga's written sign-off, recorded
+    here (plan §5c: results, hours, dev-ops checks, privacy line, contract and emails, P3 OFF). Tiffany briefs staff.
+13. **Mon 12 go-live checkpoint.** 08:00–09:30 one loop Mulai → speak → Selesai → "Unggah berhasil" → segments seen by
+    dev-ops. 09:30 go/no-go; on failure dev-ops switches to revision A. ~10:00 staff tap Mulai. Fixes deploy only after
+    that night's debrief ends (plan §5a #7, §6).
+
+**Blocked on Rangga.** (a) Re-date Tue 6 – Sat 10. (b) Where the mic-label fix lands (step 1). (c) Go for the pilot
+deploy (step 7). (d) Copy sign-off of UX-03 §6: Q14 upload line (Q-U4 "Belum terkirim", Q-U11 lost-line helpers), Q26
+cancel copy, Mulai notes, confirm sentences, banners, the EN column (Q-U22); Q-U23 ID category labels; C10 / Q-U12
+toast. (e) Privacy line: the final line reaches the pilot only through the Sun 11 sign-off and never before P4 is
+live; the approved line stays until then. (f) Q29 emailed notice (with Tiffany) and the signed contract before Sun 11.
+(g) Clean `consent_complete` from the private seed and enter real weekly hours before Sun 11. (h) Still open in
+technical spec §8.19: Q4b checkpoint grace, the "Try again" control, Q3 (P3 only). UX-03 §12 rows not marked
+"Confirmed" run on the design default until answered. (i) Plan §10 #6 weekday problem (Wed 14) and #9 credit (GATI).
+
 ## Where we are
 - **Demo project (`bee6-playground`) is live and wired.** Cloud Run `web` at
   https://web-33uzb53tza-et.a.run.app (revision built from `main` at `2f07781`, includes PR #9 and #10).
