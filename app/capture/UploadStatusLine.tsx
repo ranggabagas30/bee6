@@ -96,6 +96,11 @@ const LOST_LINE: BilingualLine = {
   id: "Sebagian suara tidak tercatat",
   en: "Some speech was not captured",
 };
+/** C-u-lost-help (UX-03 copy keys): shown under the lost value, only while it shows. */
+const LOST_HELP: BilingualLine = {
+  id: "Catatan itu jadi tidak lengkap. Tidak bisa dipulihkan.",
+  en: "That note is now incomplete. It cannot be recovered.",
+};
 
 /**
  * Connectivity detail for a retrying upload. navigator.onLine is only a hint, so
@@ -137,6 +142,8 @@ export function UploadStatusLine({
             {LOST_LINE.id}
           </p>
           <p style={{ margin: "2px 0 0", color: LOST_COLOR }}>{LOST_LINE.en}</p>
+          <p style={{ margin: "2px 0 0" }}>{LOST_HELP.id}</p>
+          <p style={{ margin: "2px 0 0" }}>{LOST_HELP.en}</p>
         </>
       ) : null}
       {showView ? (

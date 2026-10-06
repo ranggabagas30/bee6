@@ -185,6 +185,8 @@ describe("lost line (UX-03 §5.7 row L)", () => {
     expect(lines(container)).toEqual([
       expect.stringContaining("Sebagian suara tidak tercatat"),
       expect.stringContaining("Some speech was not captured"),
+      "Catatan itu jadi tidak lengkap. Tidak bisa dipulihkan.",
+      "That note is now incomplete. It cannot be recovered.",
       "Mengunggah",
       "Uploading",
     ]);
@@ -198,12 +200,14 @@ describe("lost line (UX-03 §5.7 row L)", () => {
     expect(lines(container)).toEqual([
       expect.stringContaining("Sebagian suara tidak tercatat"),
       expect.stringContaining("Some speech was not captured"),
+      "Catatan itu jadi tidak lengkap. Tidak bisa dipulihkan.",
+      "That note is now incomplete. It cannot be recovered.",
     ]);
   });
 
   it("shows the lost line even with no upload view", () => {
     const { container } = render(<UploadStatusLine view={null} lost />);
-    expect(lines(container)).toHaveLength(2);
+    expect(lines(container)).toHaveLength(4);
   });
 
   it("renders nothing when there is no view and nothing lost", () => {
@@ -230,5 +234,55 @@ describe("retry count from the engine (UX-03 §5.7 row 1)", () => {
     expect(node?.textContent).toBe(
       "Belum terkirim · mencoba lagi (2x)Not sent yet · retrying (2x)",
     );
+  });
+});
+
+describe("lost help line (UX-03 copy key C-u-lost-help, section 5.7 row L)", () => {
+  const HELP_ID = "Catatan itu jadi tidak lengkap. Tidak bisa dipulihkan.";
+  const HELP_EN = "That note is now incomplete. It cannot be recovered.";
+
+  function lines(container: HTMLElement): string[] {
+    const node = container.querySelector('[data-testid="upload-status"]');
+    return Array.from(node?.querySelectorAll("p") ?? []).map((p) => p.textContent ?? "");
+  }
+
+  it("renders the helper under the lost value, in both languages", () => {
+    const { container } = render(<UploadStatusLine view={{ phase: "uploading" }} lost />);
+    expect(lines(container)).toEqual([
+      expect.stringContaining("Sebagian suara tidak tercatat"),
+      expect.stringContaining("Some speech was not captured"),
+      HELP_ID,
+      HELP_EN,
+      "Mengunggah",
+      "Uploading",
+    ]);
+  });
+
+  it("renders the helper when there is no upload view but a loss is open", () => {
+    const { container } = render(<UploadStatusLine view={null} lost />);
+    expect(lines(container)).toEqual([
+      expect.stringContaining("Sebagian suara tidak tercatat"),
+      expect.stringContaining("Some speech was not captured"),
+      HELP_ID,
+      HELP_EN,
+    ]);
+  });
+
+  it("is absent when no loss is open", () => {
+    const { container } = render(<UploadStatusLine view={{ phase: "uploading" }} lost={false} />);
+    expect(lines(container)).toEqual(["Mengunggah", "Uploading"]);
+    expect(container.textContent).not.toContain(HELP_ID);
+    expect(container.textContent).not.toContain(HELP_EN);
+  });
+
+  it("clears on the next success, when the loss is cleared by a 2xx upload", () => {
+    const { container, rerender } = render(
+      <UploadStatusLine view={{ phase: "succeeded" }} lost />,
+    );
+    expect(container.textContent).toContain(HELP_ID);
+    rerender(<UploadStatusLine view={{ phase: "succeeded" }} lost={false} />);
+    expect(lines(container)).toEqual(["Unggah berhasil", "Upload succeeded"]);
+    expect(container.textContent).not.toContain(HELP_ID);
+    expect(container.textContent).not.toContain(HELP_EN);
   });
 });
