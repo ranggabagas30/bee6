@@ -99,6 +99,13 @@ describe("UploadStatusLine success toast (UX-03 §5.7, C-u-toast)", () => {
     expect(toastNode(container)).toBeNull();
   });
 
+  it("shows when a 2xx clears an open loss even with no succeeded view (post-stop recovery)", () => {
+    const { container, rerender } = render(<UploadStatusLine view={null} lost />);
+    expect(toastNode(container)).toBeNull();
+    rerender(<UploadStatusLine view={null} lost={false} />);
+    expect(toastNode(container)?.textContent).toBe(`${TOAST_ID}${TOAST_EN}`);
+  });
+
   it("does not show on a 2xx with no earlier failure", () => {
     const { container, rerender } = render(<UploadStatusLine view={{ phase: "uploading" }} />);
     rerender(<UploadStatusLine view={{ phase: "succeeded" }} />);

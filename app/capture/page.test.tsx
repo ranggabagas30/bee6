@@ -603,6 +603,131 @@ describe("CapturePage upload status survives a stop (UX-03 §5.7)", () => {
   });
 });
 
+describe("CapturePage upload status across stop and restart (UX-03 §5.7, decision B)", () => {
+  const LOST = "Sebagian suara tidak tercatat";
+  const LOST_EN = "Some speech was not captured";
+  const HELP_ID = "Catatan itu jadi tidak lengkap";
+  const HELP_EN = "That note is now incomplete";
+  const TOAST_ID = "Unggah berhasil lagi";
+  function uploadText(container: HTMLElement): string {
+    return container.querySelector('[data-testid="upload-status"]')?.textContent ?? "";
+  }
+  function bannerText(container: HTMLElement): string {
+    return container.querySelector('section[role="status"]')?.textContent ?? "";
+  }
+  function toastText(container: HTMLElement): string | null {
+    return container.querySelector('[data-testid="upload-toast"]')?.textContent ?? null;
+  }
+  async function renderInDevMode() {
+    isDevControlsEnabled.mockReturnValue(true);
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    fetchCaptureConfig.mockResolvedValue({
+      consent_complete: true,
+      opening_time: "08:00",
+      closing_time: "20:00",
+      timezone: "Asia/Jakarta",
+    });
+    resolveCapturePhase.mockReturnValue("active");
+    const CapturePage = await importCapturePage();
+    const rendered = render(<CapturePage />);
+    await waitFor(() => expect(fetchCaptureConfig).toHaveBeenCalled());
+    return rendered;
+  }
+
+  it("D1: a 2xx from the stopped engine clears the lost line and helper, shows the toast, and the headline stays Not started", async () => {
+    const { container } = await renderInDevMode();
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(fakeSessions).toHaveLength(1));
+    act(() =>
+      lastCallbacks?.onStatus?.({
+        state: "listening",
+        queuedCount: 0,
+        droppedCount: 1,
+        micError: null,
+        lastUploadHttpStatus: 400,
+        lostSinceSuccess: true,
+      }),
+    );
+    await waitFor(() => expect(uploadText(container)).toContain(LOST));
+    const stoppedCallbacks = lastCallbacks;
+
+    fireEvent.click(screen.getByRole("button", { name: /^pause$/i }));
+    await waitFor(() => expect(bannerText(container)).toContain("Not started"));
+
+    act(() =>
+      stoppedCallbacks?.onStatus?.({
+        state: "listening",
+        queuedCount: 0,
+        droppedCount: 1,
+        micError: null,
+        lastUploadHttpStatus: 200,
+        lostSinceSuccess: false,
+      }),
+    );
+    await waitFor(() => expect(uploadText(container)).not.toContain(LOST));
+    expect(uploadText(container)).not.toContain(LOST_EN);
+    expect(uploadText(container)).not.toContain(HELP_ID);
+    expect(uploadText(container)).not.toContain(HELP_EN);
+    expect(toastText(container)).toContain(TOAST_ID);
+    expect(bannerText(container)).toContain("Not started");
+    expect(bannerText(container)).not.toContain("Listening");
+  });
+
+  it("D2: a new session does not clear the lost line before a 2xx; the next 2xx clears it and toasts", async () => {
+    const { container } = await renderInDevMode();
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(fakeSessions).toHaveLength(1));
+    act(() =>
+      lastCallbacks?.onStatus?.({
+        state: "listening",
+        queuedCount: 0,
+        droppedCount: 1,
+        micError: null,
+        lastUploadHttpStatus: 400,
+        lostSinceSuccess: true,
+      }),
+    );
+    await waitFor(() => expect(uploadText(container)).toContain(LOST));
+
+    fireEvent.click(screen.getByRole("button", { name: /^pause$/i }));
+    await waitFor(() => expect(bannerText(container)).toContain("Not started"));
+
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(fakeSessions).toHaveLength(2));
+    // The new engine's first report: nothing dropped yet in this engine, no upload.
+    act(() =>
+      lastCallbacks?.onStatus?.({
+        state: "listening",
+        queuedCount: 0,
+        droppedCount: 0,
+        micError: null,
+        lastUploadHttpStatus: null,
+        lostSinceSuccess: false,
+      }),
+    );
+    await waitFor(() => expect(bannerText(container)).toContain("Listening"));
+    expect(uploadText(container)).toContain(LOST);
+    expect(uploadText(container)).toContain(LOST_EN);
+    expect(uploadText(container)).toContain(HELP_ID);
+    expect(uploadText(container)).toContain(HELP_EN);
+
+    act(() =>
+      lastCallbacks?.onStatus?.({
+        state: "listening",
+        queuedCount: 0,
+        droppedCount: 0,
+        micError: null,
+        lastUploadHttpStatus: 200,
+        lostSinceSuccess: false,
+      }),
+    );
+    await waitFor(() => expect(uploadText(container)).not.toContain(LOST));
+    expect(uploadText(container)).not.toContain(HELP_ID);
+    expect(toastText(container)).toContain(TOAST_ID);
+    expect(bannerText(container)).toContain("Listening");
+  });
+});
+
 describe("CapturePage upload status line", () => {
   function uploadText(container: HTMLElement): string | null {
     return container.querySelector('[data-testid="upload-status"]')?.textContent ?? null;
