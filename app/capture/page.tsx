@@ -4,7 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { StatusBanner } from "@/app/capture/StatusBanner";
 import { DevPanel } from "@/app/capture/DevPanel";
-import { UploadStatusLine, deriveUploadView } from "@/app/capture/UploadStatusLine";
+import {
+  UploadStatusLine,
+  deriveLostLine,
+  deriveUploadView,
+} from "@/app/capture/UploadStatusLine";
 import {
   fetchCaptureConfig,
   readDeviceAuth,
@@ -17,7 +21,7 @@ import {
   type LoggedCaptureEvent,
 } from "@/lib/capture/browser/event-log";
 import { isDevControlsEnabled } from "@/lib/capture/dev-mode";
-import type { CaptureConfigResponse } from "@/lib/capture/contract";
+import type { CaptureConfigClient } from "@/lib/capture/browser/client";
 import type { CaptureStatus } from "@/lib/capture/browser/engine";
 import type { MicSourceClass } from "@/lib/capture/mic-source";
 
@@ -83,7 +87,7 @@ export default function CapturePage() {
   const router = useRouter();
   const networkOnline = useNetworkOnlineHint();
   const [view, setView] = useState<View>("loading");
-  const [config, setConfig] = useState<CaptureConfigResponse | null>(null);
+  const [config, setConfig] = useState<CaptureConfigClient | null>(null);
   // Engine status from the running session only. Null until the first report
   // and reset on stop, so nothing from a previous session is ever shown.
   const [status, setStatus] = useState<CaptureStatus | null>(null);
@@ -138,7 +142,7 @@ export default function CapturePage() {
     let unsupported = false;
     let starting = false;
     let phaseTimer: ReturnType<typeof setInterval> | null = null;
-    let loadedConfig: CaptureConfigResponse | null = null;
+    let loadedConfig: CaptureConfigClient | null = null;
 
     async function applyPhase() {
       if (cancelled || starting || unsupported || !loadedConfig) return;
@@ -379,7 +383,11 @@ export default function CapturePage() {
           {/* Upload results (retrying, no internet) live only on this line: shown only
               while a session runs. The banner headline never changes for them. */}
           {sessionRunning ? (
-            <UploadStatusLine view={deriveUploadView(status)} online={networkOnline} />
+            <UploadStatusLine
+              view={deriveUploadView(status)}
+              lost={deriveLostLine(status)}
+              online={networkOnline}
+            />
           ) : null}
           {sampleRateMsg ? (
             <p role="alert" style={{ color: "#b00020", marginTop: 16 }}>

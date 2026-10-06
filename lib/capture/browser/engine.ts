@@ -65,6 +65,18 @@ export interface CaptureStatus {
    * last attempt was a network failure (no response) or none has run yet.
    */
   lastUploadHttpStatus: number | null;
+  /**
+   * True while at least one segment has been dropped (queue prune, server
+   * refusal, 4xx, or server-error give-up) and no 2xx upload has happened since.
+   * Drives the "some speech was not captured" line (UX-03 §5.7 row L). The
+   * headline never reads this.
+   */
+  lostSinceSuccess: boolean;
+  /**
+   * Failed attempts so far for the current queue head (0 when nothing is
+   * queued or the head has not failed yet). Drives the "(Nx)" retry count.
+   */
+  headFailedAttempts: number;
 }
 
 export interface CaptureSnapshot {
@@ -117,13 +129,20 @@ export class CaptureEngine {
    * so a long offline stretch can't consume the server-error budget and get
    * a segment dropped on its first 5xx right after reconnecting (B-4).
    */
-  private headAttempt: { id: string; count: number; serverErrorCount: number } | null =
-    null;
+  private headAttempt: {
+    id: string;
+    count: number;
+    serverErrorCount: number;
+    /** Transient failures of this head (network, 429, 5xx). Feeds the retry count. */
+    failed: number;
+  } | null = null;
   private pumping = false;
   private connectionOk = true;
   private micError: string | null = null;
   private lastUploadHttpStatus: number | null = null;
   private uploadDropped = 0;
+  /** Total drops (prune + upload drops) as of the last 2xx; see `lostSinceSuccess`. */
+  private droppedAtLastSuccess = 0;
   private totalFrames = 0;
   private speechFrames = 0;
   /** Serialises segment handling so ordering holds and tests can `drain()`. */
@@ -216,9 +235,11 @@ export class CaptureEngine {
     return {
       state,
       queuedCount: this.queue.size,
-      droppedCount: this.queue.droppedCount + this.uploadDropped,
+      droppedCount: this.totalDropped(),
       micError: this.micError,
       lastUploadHttpStatus: this.lastUploadHttpStatus,
+      lostSinceSuccess: this.totalDropped() > this.droppedAtLastSuccess,
+      headFailedAttempts: this.headAttempt?.failed ?? 0,
     };
   }
 
@@ -237,7 +258,7 @@ export class CaptureEngine {
     this.speechFrames = 0;
     return {
       queuedCount: this.queue.size,
-      droppedCount: this.queue.droppedCount + this.uploadDropped,
+      droppedCount: this.totalDropped(),
       speechPct,
     };
   }
@@ -309,7 +330,7 @@ export class CaptureEngine {
         if (!item) break;
 
         if (this.headAttempt?.id !== item.id) {
-          this.headAttempt = { id: item.id, count: 0, serverErrorCount: 0 };
+          this.headAttempt = { id: item.id, count: 0, serverErrorCount: 0, failed: 0 };
         }
         this.headAttempt.count += 1;
 
@@ -327,6 +348,7 @@ export class CaptureEngine {
           this.queue.confirmUploaded(item.id);
           this.headAttempt = null;
           this.connectionOk = true;
+          this.droppedAtLastSuccess = this.totalDropped();
           this.emitStatus();
           continue;
         }
@@ -347,6 +369,7 @@ export class CaptureEngine {
           this.dropHead(item.id);
           continue;
         }
+        this.headAttempt.failed += 1;
         this.connectionOk = false;
         this.emitStatus();
         // On a graceful stop, don't wait/retry a failed upload — leave remaining
@@ -370,6 +393,11 @@ export class CaptureEngine {
     this.headAttempt = null;
     this.uploadDropped += 1;
     this.emitStatus();
+  }
+
+  /** Every segment this session has given up on: queue prune plus upload drops. */
+  private totalDropped(): number {
+    return this.queue.droppedCount + this.uploadDropped;
   }
 
   /** Waits `ms`, but resolves immediately if `abort()` is called meanwhile. */

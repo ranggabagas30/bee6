@@ -1,6 +1,6 @@
+import { z } from "zod";
 import {
   CaptureConfigResponseSchema,
-  type CaptureConfigResponse,
   type HeartbeatRequest,
 } from "@/lib/capture/contract";
 import { isWithinOpeningHours } from "@/lib/capture/hours";
@@ -88,16 +88,27 @@ export function createSegmentUploader(auth: DeviceAuth): UploadFn {
   };
 }
 
+/**
+ * What the capture page needs from the config: the opening hours. Consent is not
+ * a gate in MVP 1 (CLAUDE.md §2 rule 7b), so `consent_complete` is neither
+ * required nor read here. Unknown keys are stripped rather than rejected, so the
+ * response shape can drop or keep that field without breaking the page.
+ */
+export const CaptureConfigClientSchema = CaptureConfigResponseSchema.omit({
+  consent_complete: true,
+}).strip();
+export type CaptureConfigClient = z.infer<typeof CaptureConfigClientSchema>;
+
 /** Fetches + validates the capture config (server output boundary → zod). */
 export async function fetchCaptureConfig(
   auth: DeviceAuth,
-): Promise<CaptureConfigResponse> {
+): Promise<CaptureConfigClient> {
   const res = await fetch("/api/v1/capture/config", {
     headers: deviceAuthHeaders(auth),
   });
   if (!res.ok) throw new Error(`capture/config failed: ${res.status}`);
   const payload = await res.json();
-  return CaptureConfigResponseSchema.parse(payload?.data);
+  return CaptureConfigClientSchema.parse(payload?.data);
 }
 
 /** Posts a heartbeat (best-effort; failures are swallowed). */
@@ -125,7 +136,7 @@ export type CapturePhase = "outside_hours" | "active";
  * outside the product, so it never blocks capture here.
  */
 export function resolveCapturePhase(
-  config: CaptureConfigResponse,
+  config: CaptureConfigClient,
   now: Date,
 ): CapturePhase {
   if (!isWithinOpeningHours(now, config)) return "outside_hours";

@@ -44,6 +44,8 @@ interface FakeCallbacks {
     droppedCount: number;
     micError: string | null;
     lastUploadHttpStatus?: number | null;
+    lostSinceSuccess?: boolean;
+    headFailedAttempts?: number;
   }) => void;
 }
 // The callbacks the most recent fake session was started with, so a test can
@@ -558,5 +560,95 @@ describe("CapturePage upload status line", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("CapturePage lost line and retry count (UX-03 §5.7)", () => {
+  function uploadText(container: HTMLElement): string | null {
+    return container.querySelector('[data-testid="upload-status"]')?.textContent ?? null;
+  }
+  function bannerText(container: HTMLElement): string {
+    return container.querySelector('section[role="status"]')?.textContent ?? "";
+  }
+
+  it("shows the lost line after a dropped segment, keeps the headline green, and clears on the next 2xx", async () => {
+    isDevControlsEnabled.mockReturnValue(true);
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    fetchCaptureConfig.mockResolvedValue({
+      consent_complete: true,
+      opening_time: "08:00",
+      closing_time: "20:00",
+      timezone: "Asia/Jakarta",
+    });
+    resolveCapturePhase.mockReturnValue("active");
+    const CapturePage = await importCapturePage();
+    const { container } = render(<CapturePage />);
+    await waitFor(() => expect(fetchCaptureConfig).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(fakeSessions).toHaveLength(1));
+
+    act(() =>
+      lastCallbacks?.onStatus?.({
+        state: "listening",
+        queuedCount: 0,
+        droppedCount: 1,
+        micError: null,
+        lastUploadHttpStatus: 400,
+        lostSinceSuccess: true,
+      }),
+    );
+    await waitFor(() =>
+      expect(uploadText(container)).toContain("Sebagian suara tidak tercatat"),
+    );
+    expect(uploadText(container)).toContain("Some speech was not captured");
+    expect(bannerText(container)).toContain("Listening");
+
+    act(() =>
+      lastCallbacks?.onStatus?.({
+        state: "listening",
+        queuedCount: 0,
+        droppedCount: 1,
+        micError: null,
+        lastUploadHttpStatus: 200,
+        lostSinceSuccess: false,
+      }),
+    );
+    await waitFor(() =>
+      expect(uploadText(container)).not.toContain("Sebagian suara tidak tercatat"),
+    );
+    expect(uploadText(container)).toContain("Unggah berhasil");
+    expect(bannerText(container)).toContain("Listening");
+  });
+
+  it("shows the retry count (2x) after two failed attempts on the head segment", async () => {
+    isDevControlsEnabled.mockReturnValue(true);
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    fetchCaptureConfig.mockResolvedValue({
+      consent_complete: true,
+      opening_time: "08:00",
+      closing_time: "20:00",
+      timezone: "Asia/Jakarta",
+    });
+    resolveCapturePhase.mockReturnValue("active");
+    const CapturePage = await importCapturePage();
+    const { container } = render(<CapturePage />);
+    await waitFor(() => expect(fetchCaptureConfig).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(fakeSessions).toHaveLength(1));
+
+    act(() =>
+      lastCallbacks?.onStatus?.({
+        state: "offline",
+        queuedCount: 1,
+        droppedCount: 0,
+        micError: null,
+        lastUploadHttpStatus: null,
+        headFailedAttempts: 2,
+      }),
+    );
+    await waitFor(() => expect(uploadText(container)).toContain("(2x)"));
+    expect(uploadText(container)).toContain("Gagal unggah, coba ulang (2x)");
   });
 });

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import {
   UploadStatusLine,
+  deriveLostLine,
   deriveUploadView,
   uploadLines,
   type UploadSource,
@@ -149,5 +150,76 @@ describe("UploadStatusLine connectivity detail (moved from the banner)", () => {
   it("never adds connectivity detail to non-retrying lines", () => {
     const { container } = render(<UploadStatusLine view={{ phase: "uploading" }} online={false} />);
     expect(lines(container)).toEqual(["Mengunggah", "Uploading"]);
+  });
+});
+
+describe("lost line (UX-03 §5.7 row L)", () => {
+  function lines(container: HTMLElement): string[] {
+    const node = container.querySelector('[data-testid="upload-status"]');
+    return Array.from(node?.querySelectorAll("p") ?? []).map((p) => p.textContent ?? "");
+  }
+
+  it("deriveLostLine is true only while a dropped segment is not yet cleared by a 2xx", () => {
+    expect(deriveLostLine(src({ lostSinceSuccess: true }))).toBe(true);
+    expect(deriveLostLine(src({ lostSinceSuccess: false }))).toBe(false);
+    expect(deriveLostLine(src({}))).toBe(false);
+    expect(deriveLostLine(null)).toBe(false);
+  });
+
+  it("renders the lost line first, with the warning mark, when a segment was dropped", () => {
+    const { container } = render(
+      <UploadStatusLine view={{ phase: "uploading" }} lost />,
+    );
+    const [first, second] = lines(container);
+    expect(first).toContain("Sebagian suara tidak tercatat");
+    expect(second).toContain("Some speech was not captured");
+    expect(lines(container)).toEqual([
+      expect.stringContaining("Sebagian suara tidak tercatat"),
+      expect.stringContaining("Some speech was not captured"),
+      "Mengunggah",
+      "Uploading",
+    ]);
+    expect(container.querySelector('[data-testid="upload-status"]')?.textContent).toContain("▲");
+  });
+
+  it("shows the lost line alone (no succeeded row) while it is up", () => {
+    const { container } = render(
+      <UploadStatusLine view={{ phase: "succeeded" }} lost />,
+    );
+    expect(lines(container)).toEqual([
+      expect.stringContaining("Sebagian suara tidak tercatat"),
+      expect.stringContaining("Some speech was not captured"),
+    ]);
+  });
+
+  it("shows the lost line even with no upload view", () => {
+    const { container } = render(<UploadStatusLine view={null} lost />);
+    expect(lines(container)).toHaveLength(2);
+  });
+
+  it("renders nothing when there is no view and nothing lost", () => {
+    const { container } = render(<UploadStatusLine view={null} lost={false} />);
+    expect(container.querySelector('[data-testid="upload-status"]')).toBeNull();
+  });
+});
+
+describe("retry count from the engine (UX-03 §5.7 row 1)", () => {
+  it("deriveUploadView passes the head's failed attempt count to the retrying view", () => {
+    expect(
+      deriveUploadView(
+        src({ state: "offline", queuedCount: 1, lastUploadHttpStatus: null, headFailedAttempts: 2 }),
+      ),
+    ).toEqual({ phase: "retrying", failedAttempts: 2 });
+  });
+
+  it("after two failures the retry line shows (2x)", () => {
+    const view = deriveUploadView(
+      src({ state: "offline", queuedCount: 1, lastUploadHttpStatus: 503, headFailedAttempts: 2 }),
+    );
+    const { container } = render(<UploadStatusLine view={view} />);
+    const node = container.querySelector('[data-testid="upload-status"]');
+    expect(node?.textContent).toBe(
+      "Gagal unggah, coba ulang (2x)Upload failed, retrying (2x)",
+    );
   });
 });
