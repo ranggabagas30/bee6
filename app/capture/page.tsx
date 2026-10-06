@@ -198,7 +198,7 @@ export default function CapturePage() {
           onStatus: (s) => {
             // Upload results are kept even after a stop (UX-03 §5.7); only the
             // live headline status is limited to the current session.
-            retainedUploadRef.current = retainEngineStatus(retainedUploadRef.current, s);
+            retainedUploadRef.current = retainEngineStatus(retainedUploadRef.current, s, gen);
             setLastUploadStatus(retainedUploadRef.current.status);
             if (isCurrent()) setStatus(s);
           },
@@ -282,7 +282,7 @@ export default function CapturePage() {
           onStatus: (s) => {
             // Upload results are kept even after a stop (UX-03 §5.7); only the
             // live headline status is limited to the current session.
-            retainedUploadRef.current = retainEngineStatus(retainedUploadRef.current, s);
+            retainedUploadRef.current = retainEngineStatus(retainedUploadRef.current, s, gen);
             setLastUploadStatus(retainedUploadRef.current.status);
             if (isCurrent()) setStatus(s);
           },

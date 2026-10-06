@@ -726,6 +726,57 @@ describe("CapturePage upload status across stop and restart (UX-03 §5.7, decisi
     expect(toastText(container)).toContain(TOAST_ID);
     expect(bannerText(container)).toContain("Listening");
   });
+
+  it("stale generation: a stopped engine's late non-2xx drop after the new engine's 2xx shows no lost line", async () => {
+    const { container } = await renderInDevMode();
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(fakeSessions).toHaveLength(1));
+    act(() =>
+      lastCallbacks?.onStatus?.({
+        state: "listening",
+        queuedCount: 0,
+        droppedCount: 1,
+        micError: null,
+        lastUploadHttpStatus: 400,
+        lostSinceSuccess: true,
+      }),
+    );
+    await waitFor(() => expect(uploadText(container)).toContain(LOST));
+    const engineA = lastCallbacks;
+
+    fireEvent.click(screen.getByRole("button", { name: /^pause$/i }));
+    await waitFor(() => expect(bannerText(container)).toContain("Not started"));
+
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(fakeSessions).toHaveLength(2));
+    act(() =>
+      lastCallbacks?.onStatus?.({
+        state: "listening",
+        queuedCount: 0,
+        droppedCount: 0,
+        micError: null,
+        lastUploadHttpStatus: 200,
+        lostSinceSuccess: false,
+      }),
+    );
+    await waitFor(() => expect(uploadText(container)).not.toContain(LOST));
+
+    // Engine A (stopped, older generation) reports late after B's 2xx.
+    act(() =>
+      engineA?.onStatus?.({
+        state: "listening",
+        queuedCount: 0,
+        droppedCount: 1,
+        micError: null,
+        lastUploadHttpStatus: 400,
+        lostSinceSuccess: true,
+      }),
+    );
+    expect(uploadText(container)).not.toContain(LOST);
+    expect(uploadText(container)).not.toContain(LOST_EN);
+    expect(uploadText(container)).not.toContain(HELP_ID);
+    expect(bannerText(container)).toContain("Listening");
+  });
 });
 
 describe("CapturePage upload status line", () => {
