@@ -1,115 +1,103 @@
 # CLAUDE.md: SOP Improvement Agent (GATI × Google Cloud AI Builder Cup 2026)
 
-You are helping **Rangga** (the only engineer) build this product with an agentic workflow. Rangga gives the goal, approves plans, and reviews every change. **When anything is unclear, ask Rangga. Never invent requirements.**
+You help **Rangga** (the only engineer) build this product. Rangga sets the goal, approves plans and reviews every change. **When anything is unclear, ask Rangga. Never invent requirements.**
 
-## 1. What we are building (one paragraph)
-A web app that listens to a small F&B shop's day through one phone, turns speech into short work notes (never keeping audio), asks staff *why* gaps happened in a short evening debrief, and proposes changes to the shop's SOP. A supervisor checks each proposal, the owner approves it, it ships as a new SOP version, and the system checks on a set date whether it worked. Pilot shop: Proofed (Indonesia). Judges try it through a demo outlet in the same app.
+## 1. What we are building
+A web app that listens to a small F&B shop's day through a paired phone and turns speech into short work notes (audio is never stored in the cloud). Staff tap **Mulai** to start and **Selesai** to end the day; capture also stops by itself 1 h after closing (the auto-stop). A 1-hour debrief starts at Selesai or the auto-stop and asks staff whether flagged moments happened and why. The system proposes SOP changes; a supervisor checks each one, the owner approves it, it ships as a new SOP version, and it is reviewed on a set date. Pilot shop: Proofed (Indonesia). Judges use a demo outlet in the same app.
 
-Read `docs/README.md` for the doc map. **If two docs disagree, the order is:** this file → `docs/plan.md` → `docs/backlog.md` → `docs/specs/web-backend-rbac.md` → `docs/architecture.md` → `docs/specs/pipeline-and-agents.md` → `docs/product-spec.md` → `docs/adr/` (history only).
+**Detail lives in the revised docs:** session, capture, debrief, offline queue, retention and privacy rules in `docs/specs/technical-specification.md` §8; routes and data in `docs/specs/web-backend-rbac.md` §6.6; sprints and phases in `docs/plan.md`; screens and copy in `docs/tasks/UX-03-journey-design.md`. Doc map: `docs/README.md`.
+**If two docs disagree:** this file → `docs/specs/technical-specification.md` → `docs/plan.md` → `docs/backlog.md` → `docs/specs/web-backend-rbac.md` → `docs/architecture.md` → `docs/specs/pipeline-and-agents.md` → `docs/product-spec.md` → `docs/adr/` (history only). Within dated notes, the newest wins. **UI vs functional:** UX decisions (UX-03) win on how a screen looks, reads or is worded; the technical specification wins on functional and technical behaviour (sessions, queue, routes, data, retention, consent, privacy). English is the default UI language; Bahasa is the second column.
 
 ## 2. Hard rules (never break these)
-1. **The product uses only Google Cloud and Google AI.** Gemini models on Google Cloud (Agent Platform, formerly Vertex AI) via the `@google/genai` SDK; Cloud Run; Firestore; Firebase Auth; Cloud Tasks; Cloud Scheduler; Secret Manager; Sensitive Data Protection. **No other AI provider, SDK, or API key in the product code**, even for tests or fallbacks.
-2. **Never store audio in the cloud.** Audio arrives in the segment request, is transcribed in memory, and is dropped. No Cloud Storage writes, no audio or base64 in logs, errors, traces or Firestore.
-3. **Redact before storing text.** Run Sensitive Data Protection on transcript lines before they are written anywhere.
-4. **Real data only on paid Google Cloud.** Never use AI Studio free keys or free quota with real shop data. All model calls go through the Google Cloud project with a service account.
-5. **Regions:** services and data in `asia-southeast2` (Jakarta). Each model's location comes from `config/regions.yaml` (Jakarta → Singapore → global, filled by the region probe). Never hard-code a location.
-6. **Browsers never talk to Firestore directly.** Every read and write goes through our API, which checks the user's `outlet_id` and `role` on the server.
-7. **People data:** staff names live only in the `staff` collection (used to route questions). Threads, proposals, answers, outcomes and audit logs store **roles**, never names. Supervisors see "a staff member answered", never who.
-8. **The public repo must never contain:** the shop's real SOP, franchise documents, real transcripts, real staff or customer data, `.env` files, keys, or audio files. Demo data is fictional.
+1. **Google only.** Gemini on Google Cloud (Vertex) via `@google/genai`; Cloud Run, Firestore, Firebase Auth, Cloud Tasks, Cloud Scheduler, Secret Manager, Sensitive Data Protection. **No other AI provider, SDK or API key in product code**, not even for tests or fallbacks.
+2. **Never store audio in the cloud.** Audio arrives in the segment request, is transcribed in memory and dropped. No Cloud Storage writes; no audio or base64 in logs, errors, traces or Firestore.
+   - **2a. On-device queue (capture phase P3).** Only on the paired phone, audio may wait in browser storage (IndexedDB), encrypted with AES-GCM under a non-extractable key, until its upload is confirmed or 24 h pass; then it is deleted (the purge runs when the page next runs). It never goes to any cloud storage. P3 stays OFF on the pilot (`NEXT_PUBLIC_DEVICE_AUDIO_QUEUE=false`) until Rangga's explicit written sign-off for P3. Debrief answers also wait only on that phone until uploaded, at most 14 days.
+3. **Redact before storing text.** Sensitive Data Protection runs on transcript lines, and on debrief reasons after the staff-name scrub, before anything is written.
+4. **Real data only on paid Google Cloud.** No AI Studio free keys or free quota with real shop data. All model calls use the Google Cloud project's service account.
+5. **Regions.** Services and data in `asia-southeast2`. Each model's location comes from `config/regions.yaml`. Never hard-code a location.
+6. **Browsers never talk to Firestore.** Every read and write goes through our API, which checks `outlet_id` and `role` on the server.
+7. **People data.** Staff names live only in `staff`, used only for the name scrub and transcription vocabulary. Threads, questions, answers, proposals, outcomes and audit logs never store a name or staff id. Questions are role-agnostic. **An answer stores only the answering device id and timestamps: no role, no `answered_by`.** Where an actor must be recorded (proposals, approvals, audit logs) it is a role. Device docs hold no person's name; no supervisor or owner screen or route shows a device id. Supervisors see "a staff member answered", never who.
+   - **7a. Thread text retention: 14 days.** Threads keep their own already-redacted work-line text (never raw text, audio or NON_WORK lines) for `retention_days` (default 14) after the last line, then Firestore TTL deletes it. Capture phase P4 applies this in code (`expires_at`, TTL policy, backfill); until P4 ships, threads have no expiry. Any staff-name scrub must cover thread line text, not only summaries.
+   - **7b. Consent is collected outside the app** (bee6–shop paper contract plus emailed consent, privacy policy and TnC). No consent gate, flag or revoked state in MVP 1; revocation is manual (technical specification §8, consent). The `/capture` privacy line is a notice, not consent.
+8. **The public repo never contains** the shop's real SOP, franchise documents, real transcripts, real staff or customer data, `.env` files, keys or audio. Demo data is fictional.
 9. **SOP changes only through proposals** (evidence → supervisor → owner). No endpoint edits the SOP directly.
 10. **The evidence gate is plain code, not AI.** A label becomes a fact only if the gate's rules pass; otherwise it becomes a debrief question.
-11. **Commit small and often.** The git history is our proof the code was written during the hackathon.
+11. **Commit small and often.** The git history proves the code was written during the hackathon.
 
 ## 3. Stack
-- **App:** Next.js (App Router) + TypeScript (strict), one Cloud Run service `web` in `asia-southeast2`: screens + API routes + pipeline handlers + agents.
-- **Async work:** Cloud Tasks → internal API routes (`/api/internal/*`, verified with the Cloud Tasks OIDC token). Cloud Scheduler for opening/closing, debrief time and review dates.
-- **Data:** Firestore (Native mode, `asia-southeast2`).
-- **Auth:** Firebase Authentication: Google sign-in for owner and supervisors; custom tokens for the shop device and for staff PIN sessions; custom claims `{ outlet_id, role, staff_id?, device_id? }`.
-- **AI:** `@google/genai` against Google Cloud (Vertex mode). Models:
-  - `gemini-3.5-transcribe`: all transcription (verbatim mode, custom vocabulary ≤ 100 terms, no diarization, no word timestamps)
-  - `gemini-3.5-flash-lite`: windows → threads → labels (structured output with enum schemas)
-  - `gemini-3.5-flash`: ProposalAgent, CriticAgent, ReviewAgent
-  - a Live API model for the voice debrief (which one is decided by the region probe)
-- **Agents:** Google's Agent Development Kit (ADK) for TypeScript. Check the current package name and docs before R-08; ask Rangga if ADK blocks you for more than 2 hours (the fallback is a plain state machine calling Gemini).
-- **Browser capture:** `getUserMedia` + AudioWorklet (16 kHz) + Silero VAD in the browser (ONNX Runtime Web; check the licence of any wrapper library) + WebCodecs Opus encoding + Screen Wake Lock.
-- **Validation:** zod for every API input and every model output.
-- **Tests:** unit tests for the gate, thread builder, windowing, role checks and schemas; one end-to-end smoke test per milestone using a **fictional** audio clip.
+- **App:** Next.js (App Router) + TypeScript strict; one Cloud Run service `web` in `asia-southeast2` (screens, API, pipeline, agents).
+- **Async:** Cloud Tasks → `/api/internal/*` (Cloud Tasks OIDC verified). **Cloud Scheduler runs the pipeline tick and the review dates only.** The debrief has no Scheduler job: it starts on the phone at Selesai or the auto-stop.
+- **Data:** Firestore (Native, `asia-southeast2`).
+- **Auth:** Firebase Auth. Google sign-in for owner and supervisors; a custom token per paired device; claims `{ outlet_id, role, device_id? }`. No staff sign-in in MVP 1.
+- **AI** (`@google/genai`, Vertex mode): `gemini-3.5-transcribe-preview` for all transcription (`global` only, sync, verbatim, ≤ 100 vocabulary terms; the id without `-preview` 404s); `gemini-3.5-flash-lite` for windows → threads → labels; `gemini-3.5-flash` for Proposal/Critic/Review agents; a Live API model only for R-16 ("if time").
+- **Agents:** Google ADK for TypeScript. Check the package and docs before R-08; ask Rangga if blocked > 2 h (fallback: plain state machine calling Gemini).
+- **Browser capture:** `getUserMedia` + AudioWorklet (16 kHz) + Silero VAD (ONNX Runtime Web; check any wrapper's licence) + WebCodecs Opus + Screen Wake Lock; P3 adds IndexedDB + WebCrypto AES-GCM.
+- **Validation:** zod on every API input and every model output.
+- **Tests:** unit tests for the gate, thread builder, windowing, role checks and schemas; one smoke test per milestone with a **fictional** clip.
 
-## 4. How we work (agentic SDLC)
-For every task (R-01 … R-16 in `docs/plan.md`; steps, dependencies and "done when" in `docs/backlog.md`):
-1. **Read** the task in `docs/plan.md` and its spec section. List anything unclear and **ask Rangga before coding**.
-2. **Plan:** write a short plan (files to touch, data changes, tests, risks) in `docs/tasks/R-xx.md`. Wait for Rangga's "go".
-3. **Build** in small commits (conventional commits: `feat:`, `fix:`, `test:`, `docs:`, `chore:`).
-4. **Test:** unit tests pass; lint and type-check clean; run the smoke test if the task touches the pipeline.
-5. **Self-review** against the checklist below, then open a PR with: what changed, how it was tested, screenshots for UI, known gaps.
-6. **Rangga reviews and merges.** Deploy to Cloud Run and check the task's acceptance criteria on the live URL.
-7. Update `docs/tasks/R-xx.md` with the result and anything left for later.
+## 4. How we work
+For every task (`docs/plan.md`; steps and "done when" in `docs/backlog.md`):
+1. **Read** the task and its spec section. Ask Rangga about anything unclear **before coding**.
+2. **Plan** in `docs/tasks/R-xx.md` (files, data changes, tests, risks). Consider extending `/capture`'s dev mode (`docs/tasks/DEV-01-capture-dev-mode.md`) if the stage is hard to observe. Wait for Rangga's "go".
+3. **Build** in small conventional commits (`feat:`, `fix:`, `test:`, `docs:`, `chore:`).
+4. **Test:** unit tests, lint and typecheck clean; smoke test if the pipeline is touched.
+5. **Self-review** (checklist below), then open a PR: what changed, how tested, screenshots for UI, known gaps.
+6. **Rangga reviews and merges**; deploy and check the acceptance criteria on the live URL.
+7. Update `docs/tasks/R-xx.md` with the result and leftovers.
 
-**Skills:** before writing code for a task, read `docs/skills-policy.md` and load the DAILY skill(s) that match the task (via the Skill tool). It lists which installed skills to use for this repo, which to ignore, and that `claude-api` is suppressed (the product uses Gemini only). This applies to every session, including spawned sub-agents.
+**Skills:** load the matching skill(s) via the Skill tool before coding (`/ecc-guide` if unsure; mapping in `docs/pm-playbook.md` §10 rule 11). Never use `claude-api` (the product uses Gemini only).
 
 **Self-review checklist (every PR):**
 - [ ] No non-Google AI calls; no secrets; no audio persisted or logged
 - [ ] Every API route checks role + outlet on the server
 - [ ] Model outputs validated with zod; failures handled (retry or become a question)
-- [ ] Names never stored outside `staff`
+- [ ] Names never stored outside `staff`; answers carry the device id only
 - [ ] Model location read from `config/regions.yaml`
 - [ ] Works on a 360 px-wide phone screen
-- [ ] Tests added or updated; acceptance criteria listed in the PR are met
+- [ ] Tests added or updated; the PR's acceptance criteria are met
+- [ ] Developer-mode support considered (extended, or explicitly skipped)
 
-## 5. Task list and dates (from `docs/plan.md`)
-Rangga works ~4 h on weekdays and ~8 h on weekends.
-
-| ID | Task | Est | Target | Spec |
-|---|---|---|---|---|
-| R-01 | GCP projects, billing caps, **region probe script**, repo, Cloud Build → Cloud Run, Next.js skeleton | 4 h | Wed 30 Sep | plan §4 |
-| R-02 | Firestore schema v0; Google sign-in + roles; shop device token + staff PIN via seed script | 5 h | Thu 1 – Fri 2 | web spec §2, §3, §6.4 |
-| R-03 | `/capture` page: mic + input picker, browser VAD, 15 s segments, Opus, upload + in-memory retry, wake lock, heartbeat, status | 8 h | Fri 2 – Sat 3 | web spec §4.1, §5 |
-| R-04 | Segment API → Gemini 3.5 Transcribe → redaction → store (no audio saved) | 4 h | Sun 4 | web spec §6.2–6.3 |
-| — | **Go-live step 1 at Proofed** (capture + transcription) | | **Mon 5 Oct** | |
-| R-05 | Windowing + thread builder + evidence gate as plain code (Sun 4), then the label call (Mon 5) | 7 h | Sun 4 – Mon 5 | pipeline spec E3 |
-| R-06 | Day record screen (supervisor full, owner summaries) | 3 h | Tue 6 | web spec §4.3–4.4 |
-| R-07 | Tap debrief on the shop device (PIN → ≤ 5 questions → answer) | 3 h | Wed 7 | pipeline spec T-402, web spec §4.2 |
-| R-08 | ProposalAgent (ADK) with evidence rule + suppression | 5 h | Wed 7 – Thu 8 | pipeline spec T-504 |
-| R-09 | Approval screens (supervisor reason → permanent constraint; owner approve) | 4 h | Fri 9 | pipeline spec T-506/T-507 |
-| R-10 | SOP versions + simple v1→v2 diff | 2 h | Sat 10 | pipeline spec T-508 |
-| R-15 | CriticAgent (uses the evidence gate as a tool) | 3 h | Sat 10 | pipeline spec T-505 |
-| R-16 | Voice debrief (Live API, one shared session per close, agent speaks first; tap fallback) | 6 h | Sun 11 | pipeline spec T-403 |
-| R-11 | ReviewAgent + Scheduler (Wed 14, 09:00 WIB) + verdict screen + outcome memory | 4 h | Mon 12 | pipeline spec T-509/T-510 |
-| R-12 | Demo outlet: seed via the real segment API, "Try as …", rate limits, fast-forward (labelled simulated) | 4 h | Tue 13 | web spec §4.5 |
-| R-13 | Eval script: confusion matrix from the gold-set sheet + Transcribe quality on 20 clips | 2 h | Wed 14 | pipeline spec T-804, T-207 |
-| R-14 | README, tag v1.0, uptime check, incognito test of every link | 3 h | Thu 15 | pipeline spec T-814–T-818 |
-
-Key dates: go-live Mon 5 Oct · first proposal Fri 9 · SOP v2 Sat 10 · review Wed 14 · freeze Thu 15 · **submit Fri 16 Oct**.
-
-## 6. Commands (fill in during R-01)
+## 5. Commands
 ```
 npm run dev         # local dev
 npm run lint        # eslint
 npm run typecheck   # tsc --noEmit
 npm test            # unit tests
-npm run smoke       # end-to-end smoke with a fictional clip
+npm run smoke       # end-to-end smoke with a fictional clip (R-13)
 npm run probe       # region probe → config/regions.yaml
-npm run seed        # create outlet, users, device token, staff PINs (pilot or demo)
+npm run seed        # outlet, users, device pairing code, staff names (PINs dormant)
 # deploy: Cloud Build trigger on main → Cloud Run (asia-southeast2)
 ```
 
-## 7. Environment (names only; values live in Secret Manager or .env.local, never committed)
-`GOOGLE_CLOUD_PROJECT` · `APP_REGION=asia-southeast2` · `FIREBASE_*` (web config) · `CLOUD_TASKS_QUEUE` · `TASKS_INVOKER_SA` · `DEMO_MODE` (true only in the demo project) · `DAILY_TOKEN_CEILING`
+## 6. Environment (names only; values in Secret Manager or .env.local, never committed)
+`GOOGLE_CLOUD_PROJECT` · `APP_REGION=asia-southeast2` · `FIREBASE_*` · `CLOUD_TASKS_QUEUE` · `TASKS_INVOKER_SA` · `DEMO_MODE` (demo project only) · `DAILY_TOKEN_CEILING` · `PIPELINE_TICK_AUDIENCE` (the tick route's own URL, the expected OIDC audience; never derived from the request) · `NEXT_PUBLIC_DEVICE_AUDIO_QUEUE` (P3; `false` on the pilot)
 
-## 8. Cost guards
+## 7. Cost guards
 - Log input/output tokens and audio seconds per call, per outlet, per day.
-- Stop non-essential model calls for an outlet when `DAILY_TOKEN_CEILING` is reached (capture keeps queuing; nothing is lost).
+- At `DAILY_TOKEN_CEILING`, stop non-essential model calls for that outlet (capture keeps queuing).
 - Demo project: per-IP rate limits and a daily cap on live calls.
 
-## 9. Known gaps (state them honestly in the README)
-- DPIA under Indonesia's PP 33/2026 is the **next priority after submission**.
-- Gemini 3.5 Transcribe is in preview.
-- Some models may run on the global endpoint if they aren't offered in Jakarta or Singapore (see `config/regions.yaml`).
-- Browser capture needs the shop phone plugged in with the capture page open and the screen on.
-- Transcription with Transcribe only costs ~$24–37 per outlet per month; a cheaper first-pass path is modelled, not built.
+## 8. Known gaps (state them honestly in the README)
+DPIA under PP 33/2026 is next after submission · Transcribe is in preview · some models may run on `global` · capture needs the page open, screen on, phone plugged in · consent is outside the app, revocation manual within 7 working days · a forgotten Mulai looks like a day off · Firestore TTL deletion lags. Full list: `docs/specs/technical-specification.md` §8.
 
-## 10. Credits line for the README
+## 9. README credits line
 "Built with Claude Code. Runs entirely on Google Cloud and Gemini."
+
+## 10. PM working rules (Rangga; detail and history in `docs/pm-playbook.md`)
+1. The PM always dispatches an agent; it never edits product files, reviews diffs, runs QA, researches, or debugs infra/GCP itself (infra goes to `dev-ops`). It edits only this file, memory, `docs/HANDOFF.md`, `docs/tasks/R-xx.md`, `.claude/agents/*.md`.
+2. Check real state every check-in (`git log`, working tree, tasks); stop agents once their result is verified.
+3. An open PR gates the next task: tell Rangga and stop.
+4. Dispatch one-shot agents unnamed; name one only for a real back-and-forth. Task tools are not a reporting channel.
+5. Inspect diffs with `git`; `gh` only for what git can't do.
+6. Argue feasibility against `docs/plan.md` first; standard+ scope gets a tech-lead design pass; a behaviour-changing fix gets a quick-win and an ultimate option.
+7. Tech-lead review AND independent QA are both mandatory before "ready". QA has zero tolerance: any reproduced defect is DO-NOT-SHIP unless Rangga accepts it explicitly. The PM re-checks QA's evidence.
+8. If a developer misreads a task, pair it with tech-lead (both named).
+9. Update `docs/HANDOFF.md` every session and merge. **When a decision is made, close the matching open item in `docs/plan.md` §10 in the same change.**
+10. No agent runs a git command that mutates the shared tree (`reset`, `checkout -- <path>`, `stash`, `clean`, switching refs); use read-only git or a worktree.
+11. Load the matching skill per activity and name it in every brief; verify libraries via context7. New idea: tech-lead writes the deep plan in `docs/tasks/R-xx.md` → PM brainstorms edge cases only → `developer`/`developer-junior` builds it literally. `security-reviewer` on demand only.
+12. Before pushing, the PM runs `npm run lint`; issues go back to the developer. Once both gates pass and lint is clean, push and open the PR (merge stays Rangga's).
+13. Token economy: opus only for hard reasoning; compact at logical breakpoints (before ~150k context).
+14. `developer-junior` (haiku) only for mechanical slices; the gate, threads, windowing, label merging, Gemini/ADK agents and RBAC go to `developer` (sonnet). Same gates for both.
 
 <!-- BEGIN:nextjs-agent-rules -->
 

@@ -1,0 +1,296 @@
+# HANDOFF — read this first (updated Sat 3 Oct 2026, late session)
+
+Loaded automatically at session start by a hook. The PM updates it at the end of every work session
+and after every merge (`CLAUDE.md` §10 rule 9). Keep it short and current; history lives in git, plans
+in `docs/tasks/`, decisions in memory and `docs/`.
+
+## Next implementation steps (from 6 Oct)
+**Read before starting work:** developer, developer-junior, uiux, tech-lead, qa, dev-ops, security-reviewer
+(step 9), and the PM. Rules: technical spec §8. Routes and data: web spec §6.6. Tests and QA rows: backlog §3a.
+Screens and copy: UX-03 §6 rev 5. "Gate" = tech-lead PASS + independent QA SHIP (CLAUDE.md §10 rule 7), lint
+clean before push (rule 12). Branch state below was read from git on 6 Oct against `origin/main`. The sections
+after this one predate 6 Oct; check them against `docs/plan.md` before acting on them.
+
+**Calendar slip (needs Rangga).** Plan §5 put the P1 finish and the pilot deploy on Mon 5. Neither happened.
+The §5 overrun rule says the deploy moves, the testing window shrinks, and go-live Mon 12 stays. Tue 6 now
+holds Mon 5's 6.5 h plus Tue 6's 6.5 h in a 4 h day. Rangga to re-date Tue 6 – Sat 10.
+
+1. **Status-truth branch.** Owner: developer (fixes); tech-lead + qa re-review. Entry: `feat/capture-live-state-truth-r2`
+   (tip `90d26d0`, 9 commits). The last QA DO-NOT-SHIP was the mic label. Its fix `916d501` is on `feat/prod-01-p1`,
+   not here. Where it lands: needs Rangga. Done when: gate on the tip, then Rangga merges.
+2. **Upload-toast branch.** Owner: developer; tech-lead + qa. Entry: step 1 merged (stacked on truth-r2; tip `fc9087f`,
+   14 commits on top). Remaining: re-review of every fix after `a96121e`, incl. the plan §11 headline rule (a cap prune
+   keeps the headline green and shows the lost line). C10 toast is open (Q-U12). Done when: gate, merged.
+3. **Rebase P1.** Owner: developer. Entry: steps 1–2 merged. `feat/prod-01-p1` (tip `8cb67af`) lacks the toast commits.
+   Both edit `app/capture/page.tsx` and `page.test.tsx`, so expect conflicts there. Done when: pre-push hook green.
+4. **P1 server side (session routes, Firestore session store).** Owner: developer-junior for routes, the Firestore
+   `CaptureSessionStore`, discard route, `last_ended`, config field, seed `weekly_hours`; developer for the segment-route
+   `X-Session-Id` transaction (backlog §3a routing). Already on the branch: calendar, reducer, session service, schema.
+   Done when: §3a session/route, Cancel-A route, audit-count, schema and segment-route tests pass. Gate.
+5. **P1 page rewrite: Mulai / Selesai / Batalkan.** Owner: developer; uiux checks against UX-03 §5.2–§5.7. Entry:
+   step 4. Scope: §3a "P1 steps" (start/stop only on taps, disabled Mulai + notes, Selesai at Mulai + 4 h, two-step
+   cancel, auto-stop, tab lock, `blocked`, DevPanel readouts). Done when: §3a page, auto-stop, upload-line, history
+   and four cancel-page tests pass; QA drives plan §5e P1 rows at 360 px. Gate.
+6. **Language toggle (Tue 6, 2.5 h).** Owner: developer (root-layout `bee6_lang` read, TL-L1 option a; typed `id`/`en`
+   dictionary; top-bar `ID | EN`); developer-junior may move the UX-03 §6 copy into it. Entry: none, but before R-07;
+   page files overlap step 5, tech-lead sets the order. Done when: §3a language tests pass. Gate.
+7. **Pilot deploy (dev-ops, only on Rangga's go).** Entry: steps 1–5 merged. Same steps as demo ("Where we are"),
+   `--project project-a10437b4-b198-402e-97e` confirmed; revision A (pre-P1) and B (P1) at 100%; test outlet with
+   fictional past-midnight hours. Done when: health 200, tick 401 unauthenticated and 200 from Scheduler, recorded in
+   `docs/tasks/R-01-gcp-state.md`; QA smoke rows U1–U3 on the live URL.
+8. **R-06 day record + P4 retention.** Owner: developer (R-06); developer-junior + dev-ops (P4, TTL in both projects).
+   Done when: R-06 done-when (14-h day < 2 s on a phone, owner view no quoted lines); §3a P4 tests; TTL live and
+   backfill run. Gate. Supervisor and owner copy goes into the step 6 dictionary.
+9. **R-07 tap debrief.** Owner: tech-lead writes `docs/tasks/R-07.md` first (rule 11), then developer; security-reviewer
+   on the answer route. Entry: steps 4–5 and R-06 merged. Proposed order (the R-07 plan confirms): gate.ts expiry
+   (§10 #45, notes §4c) → answer route (web spec §6.6.6, notes §4b.2) → debrief clock and resume → answer cache and
+   upload → screens (notes §3.1, §4.1–§4.3; UX-03 §5.8). Done when: §3a R-07 tests; rows D2, K1, K2, S8, S10, MD2,
+   MD4, A1–A9. Gate.
+10. **R-08 → R-09 → R-10 (Thu 8 – Sat 10), then Cancel-B and P5 (Sun 11).** Owner: developer. Each: backlog done-when
+    and gate. Cancel-B merges before the sign-off (until then dev-ops cleans discarded sessions by hand). P5 is the
+    only cut left.
+11. **Internal testing window (pilot deploy → Sun 11).** Owner: qa (browser rows), Rangga + Tiffany (real-phone items
+    1–14). Test outlet only; nothing counts as evidence. Done when: mandatory rows M1–M6, W1–W4, D1–D4, K1–K2, C1–C8,
+    E1–E10, S1–S12, MD1, MD2, MD4 pass, at least one night past 03:00 (backlog §3a).
+12. **Sun 11 checkpoint.** dev-ops deletes test-outlet data, seeds the Proofed outlet from the private seed (real hours;
+    loader strict once Rangga cleans `consent_complete`), re-pairs the phone. 18:00: Rangga's written sign-off, recorded
+    here (plan §5c: results, hours, dev-ops checks, privacy line, contract and emails, P3 OFF). Tiffany briefs staff.
+13. **Mon 12 go-live checkpoint.** 08:00–09:30 one loop Mulai → speak → Selesai → "Unggah berhasil" → segments seen by
+    dev-ops. 09:30 go/no-go; on failure dev-ops switches to revision A. ~10:00 staff tap Mulai. Fixes deploy only after
+    that night's debrief ends (plan §5a #7, §6).
+
+**Blocked on Rangga.** (a) Re-date Tue 6 – Sat 10. (b) Where the mic-label fix lands (step 1). (c) Go for the pilot
+deploy (step 7). (d) Copy sign-off of UX-03 §6: Q14 upload line (Q-U4 "Belum terkirim", Q-U11 lost-line helpers), Q26
+cancel copy, Mulai notes, confirm sentences, banners, the EN column (Q-U22); Q-U23 ID category labels; C10 / Q-U12
+toast. (e) Privacy line: the final line reaches the pilot only through the Sun 11 sign-off and never before P4 is
+live; the approved line stays until then. (f) Q29 emailed notice (with Tiffany) and the signed contract before Sun 11.
+(g) Clean `consent_complete` from the private seed and enter real weekly hours before Sun 11. (h) Still open in
+technical spec §8.19: Q4b checkpoint grace, the "Try again" control, Q3 (P3 only). UX-03 §12 rows not marked
+"Confirmed" run on the design default until answered. (i) Plan §10 #6 weekday problem (Wed 14) and #9 credit (GATI).
+
+## Where we are
+- **Demo project (`bee6-playground`) is live and wired.** Cloud Run `web` at
+  https://web-33uzb53tza-et.a.run.app (revision built from `main` at `2f07781`, includes PR #9 and #10).
+  Timeout 1800s, env vars `PIPELINE_TICK_AUDIENCE` and `TASKS_INVOKER_SA` set, `tasks-invoker` and
+  `allUsers` have `run.invoker`. Cloud Scheduler job `pipeline-tick` (every 2 min, OIDC as
+  `tasks-invoker`, audience = tick route URL) is ENABLED. First tick returned 200. Response body not yet
+  confirmed. Health `/api/health` returns 200. Tick route with no token returns 401 (fails closed).
+- **Pilot project (`project-a10437b4-b198-402e-97e`) is NOT deployed yet.** Same steps as demo still
+  to do: Cloud Build trigger, service URL, timeout, env vars, invoker bindings, Scheduler job. Note the
+  Cloud Build trigger wiring that worked on demo: 2nd-gen connection `bee6-github`, repository `bee6`,
+  Console trigger with the compute default SA. Pilot go-live is Monday 5 Oct.
+- **PR #9** (R-05b PR2, tick route) MERGED. **PR #10** (cloudbuild deploy image path) MERGED.
+- **Pending merges / branches:**
+  - `feat/capture-bilingual-copy` (d9f5d1f) and the bilingual follow-ups (`944b732` and the
+    worktree branches). Superseded by `feat/capture-live-state-truth`. Do not merge the older ones alone.
+  - `feat/capture-live-state-truth` (4 commits, from 944b732): neutral "not started" banner, offline
+    state says listening with uploads waiting, numeric HTTP status on the upload event. Review round 1:
+    tech-lead CHANGES REQUESTED. Open finding: a stopped session's late status callback can overwrite
+    the next session's status (dev path), showing a false "Listening" or a stale waiting count. Fix: a
+    per-session generation guard, plus a test. Minor: show "Server busy" only for a real server error,
+    not for a network failure. QA browser verdict on this commit was still pending at handoff.
+  - Still unverified: `npm run build` in the feature worktree (no node_modules there). Needs
+    `npm ci --ignore-scripts` in that worktree, or a run from a checkout with deps.
+- **Copy and wording still needing your sign-off in the product:** "Belum mulai / Not started",
+  "Pengambilan audio belum berjalan", "Server sibuk, mencoba lagi", the "·" separator in the offline
+  headline, and the reading "Mendengarkan toko" for the page title. Also the mic line is now one line,
+  "Mikrofon / Microphone: <source>", with the value untranslated.
+- **Privacy line (approved by Proofed, final):** "Suara diubah jadi catatan kerja singkat. Rekaman suara
+  tidak disimpan." / "Speech becomes short work notes. Audio is not kept." Proofed knows that redacted
+  transcript is kept for debugging and audit only for now.
+
+## Product direction decided (Rangga, 3 Oct) — supersedes automatic hours gating
+- **Manual session boundaries:** staff press Mulai (start of work, before opening, for prep) and Selesai
+  (operations ended, ready for debrief). No automatic start or stop by opening hours.
+- **Opening hours per day** (Mon–Sun, from Google Maps as reference, entered manually). Used only as
+  checkpoints: "opening time, no session started" and "closing time, session still running".
+- **Offline-first:** encrypted on-device audio queue is allowed. Gap ledger records any interruption
+  (device off, reboot, battery, call, network, server error, mic lost) with timestamps and category only.
+- **Redacted work text retention:** 14 days default, customizable later (storage allocation).
+- **Insights:** on-demand button over a chosen date range, from saved redacted text. Weekly proposal is a
+  reminder only and runs a plain-code sufficiency check first; proposes only on sufficient evidence.
+- **Provider abstraction:** after MVP 1, not now.
+- **Open, must be confirmed before planning:** (a) the approved privacy line says "Audio is not kept",
+  which an encrypted on-device audio queue contradicts. Proofed's consent and the DPIA need to cover the
+  new wording. (b) Mulai/Selesai on the live pilot phone before Monday 5 Oct changes the capture path that
+  is running now. Decide whether it lands before go-live or after it is verified.
+- Docs to correct: `docs/specs/web-backend-rbac.md:103`, `docs/specs/pipeline-and-agents.md:16`,
+  `docs/specs/technical-specification.md:54`, `docs/backlog.md` T-101 and the closing-time trigger.
+
+## In flight at compaction (4 Oct, late)
+- **P1 build** on branch `feat/prod-01-p1` (stacked on `feat/capture-live-state-truth-r2`). Done: mic-label
+  fix, consent-gate removal, weekly-hours schema. Next, in order: calendar.ts + tests, session-state.ts,
+  session routes, the page (Mulai/Selesai), Cancel-A, then the 30 s checkpoint and DevPanel readouts.
+  Do NOT deploy this branch yet; the page still auto-starts from the clock. Do NOT merge until the
+  status-truth branch passes review (page files overlap).
+- **Status-truth branch** `feat/capture-live-state-truth-r2`: QA DO-NOT-SHIP earlier for the mic label
+  (now fixed on the P1 branch). Needs tech-lead and QA re-review before it merges.
+- **Upload-toast branch** `feat/capture-upload-toast` (a96121e): tech-lead CHANGES REQUESTED, one fix
+  (use pointer events, pause on mouse only). QA browser verdict pending.
+- **Spec corrections approved, not yet applied:** fix the two hours-validation examples in the revised technical spec §8 (PROD-01 is removed, 6 Oct)
+  (the 20:00–02:00 example is impossible; the 03:00–06:30 example fails the 4 h rule, not the other one).
+- **Seed:** keep the loader tolerant of `consent_complete` until the private seed file is cleaned, then
+  make it strict before the Sun 11 deploy (Rangga to clean the private file).
+- **Consent text test:** keep the negative check (no consent text on the capture page).
+- **CLAUDE.md** edits applied: §2 rule 7 and 7b, §3 auth, §5 seed comment, §8 capture and consent lines.
+
+## Approved plan (Rangga, latest)
+- **Plan v5 approved:** `docs/plan.md` (PROD-01 removed 6 Oct; its rules moved into the revised docs).
+  Sprint load 92% accepted, cut order R-15, then R-10 as a plain list, then P5.
+- **R-16 (voice debrief) moves to "if time"**, Rangga confirmed.
+- **Sufficiency thresholds confirmed:** 3 days, 60% coverage, 2 facts on 2 dates, at least 1 day with answers.
+- **Revocation response time:** within 7 working days (Rangga confirmed).
+- **Business day:** work is counted by the session's business date. A session started Wednesday that
+  closes Thursday 01:00 belongs to Wednesday. Confirmed.
+- **Revocation:** acknowledgement and complete removal are both within 7 working days. Confirmed.
+- **Cancel button (new, Rangga):** staff can discard a running session that was started by mistake.
+  Allowed at any time while the session is running, with a two-step confirmation. Semantics in the plan.
+- **Mulai eligibility (Rangga):** once a business day has ended (Selesai or auto-stop), its Mulai is not
+  offered again. The next business day's Mulai is offered only from 01:00 the calendar day after the
+  ended business day's date, never earlier, even if the shop's previous close was 21:00 or 22:00.
+- **Answer decisions approved (Rangga, 4 Oct):** (1) the headline is "Sekitar pukul HH:MM ada <langkah>.
+  Benar?" and the SOP question moves into the reason label after YES ("Sudah sesuai SOP? Kalau belum, kenapa?"),
+  with "Kenapa tidak?" after NO; (2) the reason is required on YES and on NO; (3) NO on a sensitive category
+  (complaint, correction, safety, security, disruption) excludes that thread like any other NO. Sprint load
+  is 82.75 of 84 h (99%). R-07 is 4.75 h.
+- **Debrief answer shape for MVP 1 (Rangga, 4 Oct, final, supersedes the free-text-only shape):** the
+  answer is YES / NO with a required reason. Yes confirms the thread's category; No rejects it (the existing
+  `staff_rejected` gate branch). The reason is required, redacted and name-scrubbed, capped at 500 characters.
+  Free text revising the category is post-MVP 1 (too hard for now). Lewati (skip) and the other decisions
+  from the previous note stand.
+- **Debrief answer shape (Rangga, 4 Oct, earlier):** a debrief answer is a free-text WHY explanation, not a
+  yes/no. Staff explain why the SOP step was or was not implemented properly. Redaction and the name scrub
+  run on it before storage; add a length cap. Supervisors do NOT answer device questions (no). A fully
+  answered debrief does NOT release Mulai early: the full 1 h timeout applies (no, for simplicity).
+- **Mulai and previous debrief (Rangga, 4 Oct, final, supersedes D2 and D2a):** Mulai is NOT shown until
+  the previous business day's debrief is completed within its timeout, UNLESS the previous day is an
+  off-day (weekend or weekday off). Reading A confirmed.
+- **No undo (Q28):** accepted for MVP 1.
+- **Multi-device (Rangga, 4 Oct, final):** sessions can start simultaneously on multiple devices in the
+  outlet, and each device runs its own debrief. Debrief expiry is per DEVICE, not per outlet. Each device's
+  answers are uploaded and merged later, so the system can generate comprehensive insights from all devices.
+- **Debrief questions are role-agnostic (Rangga, 4 Oct, final):** a question does not depend on who
+  answers it. It asks whether the SOP was implemented properly, and if not, why.
+- **Sign-in and consent (Rangga, 4 Oct, final):** owner and supervisor keep Google sign-in. Staff need no
+  sign-in. Consent is NOT collected inside the app; it is covered by the paper contract between bee6 and
+  Proofed. bee6 emails the consent and the updated privacy policy and TnC to all users. The in-app
+  consent gate (consent_complete, the "no consent" view) is removed from MVP 1.
+- **MVP 1 device model (Rangga, 4 Oct, final):** staff sign-in (name + PIN) is NOT needed for MVP 1.
+  Staff only pair the device with the system. The system does not distinguish a shop device from a staff
+  phone; it tracks the device id only. The session runs uniformly regardless of mode or device. Mode is
+  derived: exactly one paired device = "room mode"; more than one = "wearable mode". This supersedes the
+  staff-PIN sign-in in the earlier device model and touches R-07, the RBAC table, and CLAUDE.md §2 rule 7
+  (staff identity on debrief answers). Roles and no-names rules still stand for stored data.
+- **Decisions D1–D5 (Rangga, 4 Oct, final):**
+  - D1: Selesai shows at start + 4 h (the minimum opening duration), not at close. Example: Mulai 01:00
+    shows Selesai about 05:00; Mulai 21:00 shows Selesai at 01:00. Cancel is allowed until close is triggered.
+  - D2: Mulai is always shown from 01:00, even if the previous day's debrief does not exist.
+  - D3: every open question expires at the end of the debrief.
+  - D4: no Mulai at all on closed weekdays.
+  - D5: the paired shop phone itself uploads the cached debrief answers.
+- **Session model (Rangga, final):**
+  - Mulai window for business day D: from 01:00 on D until (close − 4 h) on D. Close time is a const 4 h
+    minimum opening assumption. Mulai allowed during the closing hour.
+  - No Mulai by the window end = off-day.
+  - Maximum close setting: 01:00 (next day). Auto-stop is 1 h after close, so max 02:00.
+  - Selesai shows at close time; auto-stop at the latest at close + 1 h.
+  - Debrief starts after Selesai or auto-stop. It lasts 1 h from its start, regardless of activity.
+    Answers tapped are saved first; unanswered questions expire as unverified.
+  - Interrupted debrief resumes from its original start; a reload cannot extend it.
+  - Answer cache on the phone: kept until uploaded, then removed; in any case removed after 14 days
+    (accepted loss if offline longer). Roles only, no names.
+  - Next business day's Mulai is offered from the later of 01:00 on D+1 and the end of D's debrief.
+    If D's debrief ends at 03:00 Thu, Mulai shows on Thu and marks Thu's session (D+1) running.
+  - Business-day boundary is 01:00: a Mulai at 01:30 belongs to the day that opened at 01:00.
+
+## Decisions (Rangga, latest) no change needed; the test-outlet hours stay as they are.
+- **Debrief:** assumed around 01:00 to 02:00 after closing; adjustable.
+- **Test outlet:** uses the same past-midnight hours (09:30 to 01:00), adjustable freely.
+- **Off-hours Mulai:** no 1-hour cap. Rangga corrected this; the earlier "1 hour" wording is void.
+- **Written sign-off:** Rangga's signature alone.
+- **Internal testing:** test outlet in the pilot project.
+- **Pilot review:** Wed 21 Oct, after submission.
+- **Long off-hours run accepted** (Mulai at Sat 23:30 runs to Mon 23:00 unless Selesai is tapped).
+- **Proofed hours (private seed, not in the public repo):** Mon–Sun 09:30 to 01:00 the next day. Closing
+  crosses midnight: the hard auto-stop is 02:00 the next day. Plan must confirm midnight handling.
+- **Upload-line copy (sample, PM-generated, Rangga will supply final copy later if available):**
+  - Uploading: "Mengunggah / Uploading"
+  - Retrying: "Gagal unggah, coba ulang (1x) / Upload failed, retrying (1x)", counting up (2x, 3x)
+  - Skipped: "Gagal unggah, dilewati / Upload failed, skipped"
+  - Succeeded: "Unggah berhasil / Upload succeeded"
+  - Hints: "Server sibuk / Server busy", "Hubungi supervisor / Contact supervisor"
+
+## Decisions (Rangga, latest)
+- **Pilot go-live postponed from Mon 5 Oct to Mon 12 Oct** (Owner not ready). Time for adjustment and
+  internal testing by Tiffany and Rangga. Plan and sprint schedule must be re-dated accordingly.
+- **Proofed "informed" is only a verbal ack, not sign-off.** Live testing on the pilot still needs Rangga's
+  formal sign-off. The encrypted on-device queue (P3) is NOT enabled on the pilot until that sign-off.
+- **Overlapping insight date ranges are allowed as separate runs.**
+- **Off-hours Mulai:** a session started outside the planned window runs for at most 1 hour, then stops
+  automatically. Explain this clearly in the plan (what staff see, why it is bounded).
+- **Holiday / closed day:** if nobody presses Mulai before the stop time, the day is treated as off or
+  closed. No gap alarm for that day.
+- **Consent revocation is NOT handled in-session.** A revocation request goes to Rangga or Tiffany, who
+  stop capture and remove the data manually for now.
+
+## Decisions (Rangga, 3 Oct, final)
+- **Listening vs upload are separate:** green "Listening" means capture is running and audio will be
+  kept, regardless of upload result. Add a separate upload status in every mode: "Mengunggah / Uploading",
+  "Gagal unggah, coba ulang (1x) / Upload failed, retrying (1x)", "Unggah berhasil / Upload succeeded".
+- **Mulai/Selesai goes ahead.** Go-live trial is realistic at 10:00, after 08:00 opening, because staff
+  are not ready at opening. Sprint plan to be adjusted with known risks.
+- **Hard auto-stop:** Selesai is forced 1 hour after the set closing time, by default.
+- **Insights:** supervisor and owner can run them; runs are idempotent (no duplicate run for the same range).
+- **Reminder timing:** the plan must explain exactly how reminders work.
+- **Privacy wording:** generated in the plan (§12), Proofed informed of TnC changes.
+
+## Accepted risks (Rangga, explicit, 3 Oct)
+- **Silent green banner on a 401 (revoked or re-paired device):** the shop phone can show
+  "Mendengarkan / Listening" while every segment is discarded. Accepted for the Monday pilot. Revisit
+  after go-live: the engine status must reflect dropped uploads, and the supervisor view should alert
+  when a device has heartbeats but no new segments.
+
+## Planned, not built
+- **UX-02 auth and navigation plan**: `docs/tasks/UX-02-auth-nav-refinement.md`. PR-A (sign-in,
+  session cookie, gated owner and supervisor pages) can start after go-live. PR-B (gating `/capture`
+  for the shop phone, device session upgrade) waits until Monday's go-live is verified on the real phone.
+  Open questions for Rangga remain: session length (7 days proposed for pilot), the paired-phone landing
+  on `/`, the placeholder `/today` before R-06, public landing names (proposed: "by GATI" yes, Proofed no),
+  and timing of PR-B.
+- **TSD rewritten** to the standard template: `docs/specs/technical-specification.md` (379 lines, concept
+  level, uncommitted per the docs commit rule). The old 952-line code-level version was never in git;
+  a copy is at `/tmp/bee6-technical-specification-v1-code-level-2026-10-03.md`, which can be cleared.
+  Decision needed: where the old version lives durably. Repoint references in `docs/tasks/R-05b.md`,
+  `docs/specs/pipeline-and-agents.md`, and `docs/tasks/R-03-fixes.md`.
+- **Deferred, tracked in `docs/tasks/R-05b.md`:** R-06/R-07 must switch the `q_thread_*` question write
+  off blind `tx.set`, so an answered question is not reopened on merge.
+- **Known gaps for the README/known-gaps list:** the scheduled tick's worst-case lease is 30 minutes;
+  the ledger has no TTL (pilot scale acceptable); the staff-name scrub on long-lived thread text is still
+  planned; the daily token ceiling enforcement is not built.
+
+## Process and team rules (3 Oct)
+- **Always dispatch dev-ops for any gcloud, IAM, or infra diagnosis or fix.** The PM does not troubleshoot
+  infra in chat (CLAUDE.md §10 rule 1, memory `feedback_always_dispatch_devops_infra`).
+- **tech-lead owns the deep implementation plan** (`docs/tasks/R-xx.md`). Developers follow it literally.
+  developer-junior (haiku) is for mechanical slices only.
+- **Browser testing split:** Playwright (scripted, headless) for repeatable checks; Claude in Chrome
+  (extension, interactive) for exploratory or real-profile checks. QA loads browser tools via ToolSearch
+  first; the extension was verified working on 3 Oct (one browser connected).
+- **Truthful UI rule (Rangga, 3 Oct):** any label must match real system state. "Listening" means capture
+  is running. "Offline" must never hide that listening continues.
+- **Cost:** `/usage` on 3 Oct showed sonnet-driven subagents were the largest line item (developer 24%),
+  and long sessions (>150k context) drove most spend. PM compacts at logical breakpoints, not at capacity.
+
+## Waiting on Rangga
+1. Decide on the status-truth fix round: confirm the two wording items above, and say whether to ship the
+   branch before Monday.
+2. Pilot deployment: the same steps as demo, run through dev-ops on your go-ahead.
+3. Answers to the UX-02 open questions (session length, landing, `/today` placeholder, names, PR-B timing).
+4. Where the old TSD copy lives durably, and approval to repoint the three references.
+5. `npm run build` in the feature worktree, or approval for dev-ops to run it there.
+
+## Next actions
+1. QA's browser verdict on `feat/capture-live-state-truth` lands. Then the fix round: the generation
+   guard, plus the "Server busy" wording fix, both with tests. Tech-lead and QA re-check.
+2. Pilot go-live: dev-ops runs the pilot setup on your go-ahead, same steps as demo.
+3. After go-live is verified on the real phone: PR-A of the UX-02 auth plan.

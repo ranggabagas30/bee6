@@ -1,19 +1,24 @@
 # Product spec: SOP Improvement Agent
 
+> **Reconciled 4 Oct 2026 (tech-lead).** Session model and staff journey:
+> `docs/specs/technical-specification.md` §8 (rules) and `docs/specs/web-backend-rbac.md` §6.6 (routes and
+> data) are the source of truth and override this file. Changed here: capture is manual (Mulai/Selesai), the debrief follows Selesai or the auto-stop and lasts
+> 1 h, questions expire per device at the debrief end, supervisors do not answer device questions.
+
 ## 1. The product in one sentence
 A system that holds a small F&B outlet's SOP as a machine-checkable spec, listens to the day, asks staff *why* gaps happened, and proposes versioned SOP improvements that a supervisor and the owner approve, then checks on a scheduled date whether the change worked.
 
 It is not a transcription tool, not a checklist app, and not an SOP writer. It is a **closed improvement loop**: the model stays frozen; the outlet's procedure improves.
 
 ## 2. The loop
-Listen (ambient, no button) → **Day record** (one timeline) → **Ask why** (evening debrief, ≤ 5 questions, Bahasa Indonesia) → **Pattern + cause** → **Propose** (intervention from the library + rubric criterion + ≥ 2 dated evidence items + known constraints) → **Supervisor check** (feasible? reason required on rejection) → **Owner approves** (cost and brand) → **Ship SOP vN+1** (metric, failure condition, review date) → **Review on date** (worked / revise / revert) → **Outcome memory**.
+Listen (staff tap Mulai, then ambient until Selesai or the auto-stop) → **Day record** (one timeline) → **Ask why** (1-hour debrief after Selesai or the auto-stop, ≤ 5 questions per device, Bahasa Indonesia) → **Pattern + cause** → **Propose** (intervention from the library + rubric criterion + ≥ 2 dated evidence items + known constraints) → **Supervisor check** (feasible? reason required on rejection) → **Owner approves** (cost and brand) → **Ship SOP vN+1** (metric, failure condition, review date) → **Review on date** (worked / revise / revert) → **Outcome memory**.
 - The new SOP version is the spec the next day is judged against.
 - Outcome memory and rejection reasons feed future proposals.
 
 Hackathon scope: the ambient lane only (photo evidence and reminder lanes come later).
 
 ## 3. Rules that shape the code
-- **Capture is ambient.** Nobody starts or stops recording. The only taps are the evening debrief answers.
+- **Capture is ambient between two taps.** Staff tap Mulai when work starts and Selesai when it ends (the hard auto-stop at close + 1 h is the only automatic stop; technical spec §8.3). Between them nobody touches the phone; the other taps are the debrief answers.
 - **We don't keep recordings.** Transcribe, keep work notes, drop audio. Work vs private can only be decided *after* transcription; say it in that order.
 - **A low-confidence fragment never becomes a fact.** It becomes a debrief question.
 - **Proposals need evidence:** ≥ 1 rubric criterion **and** ≥ 2 dated evidence items, or no proposal (log the suppression).
@@ -68,7 +73,7 @@ Example:
 ## 6. Review cadence
 | What | Who | When | If skipped |
 |---|---|---|---|
-| Uncertain labels (debrief questions) | Staff answer about their own episodes; supervisors can answer any and override | Daily at close, ≤ 5 questions | Expire "unverified" after 7 days; never become facts |
+| Uncertain labels (debrief questions) | Whoever holds the paired device answers that device's questions (*Ya* / *Tidak* + reason, or *Lewati*); supervisors do not answer, they confirm or override on the thread side | In the 1-hour debrief after Selesai or the auto-stop, ≤ 5 questions | Expire "unverified" at that device's debrief end; never become facts (technical spec §8.10) |
 | Proposals | Supervisor, then owner | As they come (target within a day) | Stay pending; archived after ~14 days |
 | Shipped change at review date | Supervisor + owner | On the date (Cloud Scheduler) | Change stays; outcome "unknown", excluded from memory |
 
