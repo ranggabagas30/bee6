@@ -55,8 +55,8 @@ export class NotFoundError extends AppError {
 
 /** 409 — state conflict (e.g. already paired, pairing code used). */
 export class ConflictError extends AppError {
-  constructor(message = "Conflict") {
-    super(message, "CONFLICT", 409);
+  constructor(message = "Conflict", code = "CONFLICT") {
+    super(message, code, 409);
   }
 }
 
