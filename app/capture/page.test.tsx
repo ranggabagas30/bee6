@@ -20,8 +20,8 @@ const readDeviceAuth = vi.fn<() => { deviceToken: string; deviceId: string } | n
 );
 const fetchCaptureConfig = vi.fn<(auth: unknown) => Promise<unknown>>();
 const resolveCapturePhase = vi.fn<
-  (config: unknown, now: unknown) => "no_consent" | "outside_hours" | "active"
->(() => "no_consent");
+  (config: unknown, now: unknown) => "outside_hours" | "active"
+>(() => "outside_hours");
 vi.mock("@/lib/capture/browser/client", () => ({
   readDeviceAuth: () => readDeviceAuth(),
   fetchCaptureConfig: (auth: unknown) => fetchCaptureConfig(auth),
@@ -77,7 +77,9 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   readDeviceAuth.mockReturnValue(null);
-  resolveCapturePhase.mockReturnValue("no_consent");
+  // "active" (not a blocking phase): dev-mode tests read the first
+  // section[role="status"], which the outside-hours block also renders.
+  resolveCapturePhase.mockReturnValue("active");
   fakeSessions.length = 0;
   lastCallbacks = null;
   Object.defineProperty(window.navigator, "onLine", { configurable: true, get: () => true });
@@ -105,14 +107,14 @@ describe("CapturePage dev panel gating", () => {
       closing_time: "20:00",
       timezone: "Asia/Jakarta",
     });
-    resolveCapturePhase.mockReturnValue("no_consent");
+    resolveCapturePhase.mockReturnValue("outside_hours");
     const CapturePage = await importCapturePage();
     const { container } = render(<CapturePage />);
-    await waitFor(() => expect(container.textContent).toMatch(/capture is off/i));
+    await waitFor(() => expect(container.textContent).toMatch(/outside opening hours/i));
     expect(container.querySelector('[data-testid="dev-panel"]')).toBeNull();
   });
 
-  it("bypasses the no_consent/outside_hours block and shows the active view when the flag is set", async () => {
+  it("bypasses the outside_hours block and shows the active view when the dev flag is set", async () => {
     isDevControlsEnabled.mockReturnValue(true);
     readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
     fetchCaptureConfig.mockResolvedValue({
@@ -121,7 +123,7 @@ describe("CapturePage dev panel gating", () => {
       closing_time: "20:00",
       timezone: "Asia/Jakarta",
     });
-    resolveCapturePhase.mockReturnValue("no_consent"); // still a blocking phase
+    resolveCapturePhase.mockReturnValue("outside_hours"); // still a blocking phase
     const CapturePage = await importCapturePage();
     const { container } = render(<CapturePage />);
 
@@ -130,7 +132,7 @@ describe("CapturePage dev panel gating", () => {
       expect(container.querySelector('[data-testid="dev-panel"]')).not.toBeNull(),
     );
     // ...the real blocked state is still shown underneath (not deleted)...
-    expect(container.textContent).toMatch(/capture is off/i);
+    expect(container.textContent).toMatch(/outside opening hours/i);
     // ...and the active capture view is no longer blocked by it.
     expect(container.textContent).toMatch(/keep this page open/i);
   });
@@ -146,7 +148,7 @@ describe("CapturePage banner truthfulness (dev mode)", () => {
       closing_time: "20:00",
       timezone: "Asia/Jakarta",
     });
-    resolveCapturePhase.mockReturnValue("no_consent");
+    resolveCapturePhase.mockReturnValue("active");
     const CapturePage = await importCapturePage();
     const result = render(<CapturePage />);
     await waitFor(() => expect(fetchCaptureConfig).toHaveBeenCalled());
@@ -174,7 +176,7 @@ describe("CapturePage banner truthfulness (dev mode)", () => {
     expect(bannerText(container)).toContain("Mendengarkan");
   });
 
-  it("reports listening with uploads waiting, not Offline, when uploads fail mid-session", async () => {
+  it("a failing upload leaves the headline green Listening, never uploads-waiting or Offline", async () => {
     const { container } = await renderInDevMode();
     fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
     await waitFor(() => expect(lastCallbacks?.onStatus).toBeDefined());
@@ -188,17 +190,21 @@ describe("CapturePage banner truthfulness (dev mode)", () => {
       });
     });
     await waitFor(() =>
-      expect(bannerText(container)).toContain("Listening · uploads waiting (2)"),
+      expect(container.querySelector('[data-testid="upload-status"]')?.textContent).toContain(
+        "Gagal unggah, coba ulang" + "Upload failed, retrying",
+      ),
     );
-    expect(bannerText(container)).toContain("Mendengarkan · pengiriman tertunda (2 menunggu)");
+    expect(bannerText(container)).toContain("Mendengarkan");
+    expect(bannerText(container)).toContain("Listening");
+    expect(bannerText(container)).toContain("🟢");
+    expect(bannerText(container)).not.toContain("uploads waiting");
+    expect(bannerText(container)).not.toContain("pengiriman tertunda");
     expect(bannerText(container)).not.toContain("Terputus");
     expect(bannerText(container)).not.toContain("Offline");
-    // The browser reports online here, so the detail must not claim no internet.
-    expect(bannerText(container)).toContain("Server busy, retrying");
-    expect(bannerText(container)).not.toContain("No internet");
+    expect(bannerText(container)).not.toContain("Microphone problem");
   });
 
-  it("shows No internet only when navigator.onLine reports offline", async () => {
+  it("shows the connectivity detail on the upload line, not the banner, when navigator reports offline", async () => {
     const { container } = await renderInDevMode();
     Object.defineProperty(window.navigator, "onLine", { configurable: true, get: () => false });
     fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
@@ -213,9 +219,27 @@ describe("CapturePage banner truthfulness (dev mode)", () => {
       });
       window.dispatchEvent(new Event("offline"));
     });
-    await waitFor(() => expect(bannerText(container)).toContain("No internet"));
-    expect(bannerText(container)).toContain("Tidak ada internet");
-    expect(bannerText(container)).not.toContain("Server busy");
+    const uploadLine = () => container.querySelector('[data-testid="upload-status"]')?.textContent ?? "";
+    await waitFor(() => expect(uploadLine()).toContain("No internet"));
+    expect(uploadLine()).toContain("Tidak ada internet");
+    expect(uploadLine()).not.toContain("Server busy");
+    expect(bannerText(container)).not.toContain("No internet");
+    expect(bannerText(container)).toContain("Listening");
+  });
+
+  it("shows Server busy on the upload line when navigator reports online and uploads fail", async () => {
+    const { container } = await renderInDevMode();
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(lastCallbacks?.onStatus).toBeDefined());
+    act(() => {
+      lastCallbacks?.onStatus?.({ state: "offline", queuedCount: 2, droppedCount: 0, micError: null });
+    });
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="upload-status"]')?.textContent).toContain(
+        "Server busy, retrying",
+      ),
+    );
+    expect(container.textContent).not.toContain("No internet");
   });
 
   it("returns to the neutral banner after Pause and never leaves the green state behind", async () => {
@@ -243,7 +267,7 @@ describe("CapturePage dev panel manual controls", () => {
     // A blocking phase: proves the manual buttons act independently of the
     // real auto-gate (which would otherwise never call startCaptureSession
     // here at all) rather than coincidentally riding its own auto-start.
-    resolveCapturePhase.mockReturnValue("no_consent");
+    resolveCapturePhase.mockReturnValue("active");
     const CapturePage = await importCapturePage();
     const result = render(<CapturePage />);
     // Give the auto-gate's fetch effect a tick to settle so its own
@@ -325,7 +349,7 @@ describe("CapturePage mic source between sessions", () => {
       closing_time: "20:00",
       timezone: "Asia/Jakarta",
     });
-    resolveCapturePhase.mockReturnValue("no_consent");
+    resolveCapturePhase.mockReturnValue("active");
     const CapturePage = await importCapturePage();
     const { container } = render(<CapturePage />);
     await waitFor(() => expect(fetchCaptureConfig).toHaveBeenCalled());
@@ -374,7 +398,7 @@ describe("CapturePage stale session status (D1)", () => {
       closing_time: "20:00",
       timezone: "Asia/Jakarta",
     });
-    resolveCapturePhase.mockReturnValue("no_consent");
+    resolveCapturePhase.mockReturnValue("active");
     const CapturePage = await importCapturePage();
     const { container } = render(<CapturePage />);
     await waitFor(() => expect(fetchCaptureConfig).toHaveBeenCalled());
@@ -473,7 +497,7 @@ describe("CapturePage upload status line", () => {
       closing_time: "20:00",
       timezone: "Asia/Jakarta",
     });
-    resolveCapturePhase.mockReturnValue("no_consent");
+    resolveCapturePhase.mockReturnValue("active");
     const CapturePage = await importCapturePage();
     const { container } = render(<CapturePage />);
     await waitFor(() => expect(fetchCaptureConfig).toHaveBeenCalled());
@@ -490,9 +514,10 @@ describe("CapturePage upload status line", () => {
 
     act(() => lastCallbacks?.onStatus?.(status("offline", 1, null)));
     await waitFor(() =>
-      expect(uploadText(container)).toBe("Gagal unggah, coba ulang" + "Upload failed, retrying"),
+      expect(uploadText(container)).toContain("Gagal unggah, coba ulang" + "Upload failed, retrying"),
     );
-    expect(bannerText(container)).toContain("Listening · uploads waiting (1)");
+    expect(bannerText(container)).toContain("Listening");
+    expect(bannerText(container)).not.toContain("uploads waiting");
 
     act(() => lastCallbacks?.onStatus?.(status("listening", 0, 200)));
     await waitFor(() => expect(uploadText(container)).toBe("Unggah berhasil" + "Upload succeeded"));
@@ -522,7 +547,7 @@ describe("CapturePage upload status line", () => {
 
       act(() => lastCallbacks?.onStatus?.(status("offline", 1, null)));
       await waitFor(() =>
-        expect(uploadText(container)).toBe("Gagal unggah, coba ulang" + "Upload failed, retrying"),
+        expect(uploadText(container)).toContain("Gagal unggah, coba ulang" + "Upload failed, retrying"),
       );
 
       resolveCapturePhase.mockReturnValue("outside_hours");

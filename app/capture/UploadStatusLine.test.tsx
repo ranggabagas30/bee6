@@ -110,3 +110,44 @@ describe("UploadStatusLine rendering", () => {
     expect(lines).toEqual([id, en]);
   });
 });
+
+describe("UploadStatusLine connectivity detail (moved from the banner)", () => {
+  function lines(container: HTMLElement): string[] {
+    const node = container.querySelector('[data-testid="upload-status"]');
+    return Array.from(node?.querySelectorAll("p") ?? []).map((p) => p.textContent ?? "");
+  }
+
+  it("shows No internet / Tidak ada internet on a retrying line when the browser reports offline", () => {
+    const { container } = render(
+      <UploadStatusLine view={{ phase: "retrying" }} online={false} />,
+    );
+    expect(lines(container)).toEqual([
+      "Gagal unggah, coba ulang",
+      "Upload failed, retrying",
+      "Tidak ada internet",
+      "No internet",
+    ]);
+  });
+
+  it("shows Server busy / Server sibuk on a retrying line when the browser reports online", () => {
+    const { container } = render(
+      <UploadStatusLine view={{ phase: "retrying" }} online={true} />,
+    );
+    expect(lines(container)).toEqual([
+      "Gagal unggah, coba ulang",
+      "Upload failed, retrying",
+      "Server sibuk, mencoba lagi",
+      "Server busy, retrying",
+    ]);
+  });
+
+  it("adds no connectivity detail when the online hint is not supplied", () => {
+    const { container } = render(<UploadStatusLine view={{ phase: "retrying" }} />);
+    expect(lines(container)).toEqual(["Gagal unggah, coba ulang", "Upload failed, retrying"]);
+  });
+
+  it("never adds connectivity detail to non-retrying lines", () => {
+    const { container } = render(<UploadStatusLine view={{ phase: "uploading" }} online={false} />);
+    expect(lines(container)).toEqual(["Mengunggah", "Uploading"]);
+  });
+});

@@ -19,8 +19,8 @@ const readDeviceAuth = vi.fn<() => { deviceToken: string; deviceId: string } | n
 );
 const fetchCaptureConfig = vi.fn<(auth: unknown) => Promise<unknown>>();
 const resolveCapturePhase = vi.fn<
-  (config: unknown, now: unknown) => "no_consent" | "outside_hours" | "active"
->(() => "no_consent");
+  (config: unknown, now: unknown) => "outside_hours" | "active"
+>(() => "outside_hours");
 vi.mock("@/lib/capture/browser/client", () => ({
   readDeviceAuth: () => readDeviceAuth(),
   fetchCaptureConfig: (auth: unknown) => fetchCaptureConfig(auth),
@@ -54,7 +54,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-async function renderWithPhase(phase: "active" | "outside_hours" | "no_consent") {
+async function renderWithPhase(phase: "active" | "outside_hours") {
   readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
   fetchCaptureConfig.mockResolvedValue(CONFIG);
   resolveCapturePhase.mockReturnValue(phase);
@@ -131,20 +131,32 @@ describe("CapturePage copy", () => {
     expect(container.textContent).not.toMatch(/not recorded|anonymous|private conversation/i);
   });
 
-  it("shows the Bahasa and English no-consent heading and body", async () => {
-    await renderWithPhase("no_consent");
-    expect(await screen.findByText("Pengambilan audio belum aktif")).toBeTruthy();
-    expect(screen.getByText("Capture is off")).toBeTruthy();
-    expect(
-      screen.getByText(
-        "Outlet ini belum menyelesaikan langkah persetujuan staf, jadi pengambilan audio belum bisa dimulai. Minta supervisor menyelesaikan persetujuan, lalu muat ulang halaman ini.",
-      ),
-    ).toBeTruthy();
-    expect(
-      screen.getByText(
-        "This outlet hasn't completed the staff-consent step yet, so listening can't start. Ask the supervisor to complete consent, then reload this page.",
-      ),
-    ).toBeTruthy();
+  it("has no consent view: incomplete consent in hours renders the active view, not a block", async () => {
+    // Real resolver (not the mock) so the page exercises the actual phase logic.
+    // Fixed clock: 10:00 WIB, inside the 07:00-21:45 hours below.
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date("2026-09-30T03:00:00Z") });
+    try {
+      const actual = await vi.importActual<typeof import("@/lib/capture/browser/client")>(
+        "@/lib/capture/browser/client",
+      );
+      resolveCapturePhase.mockImplementation((config, now) =>
+        actual.resolveCapturePhase(
+          config as Parameters<typeof actual.resolveCapturePhase>[0],
+          now as Date,
+        ),
+      );
+      readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+      fetchCaptureConfig.mockResolvedValue({ ...CONFIG, consent_complete: false, opening_time: "07:00", closing_time: "21:45" });
+      const { default: CapturePage } = await import("@/app/capture/page");
+      const { container } = render(<CapturePage />);
+      await waitFor(() => expect(container.textContent).toMatch(/keep this page open/i));
+      expect(container.textContent).not.toMatch(/capture is off/i);
+      expect(container.textContent).not.toContain("Pengambilan audio belum aktif");
+      expect(container.textContent).not.toMatch(/consent|persetujuan/i);
+      expect(screen.getByText(PRIVACY_BAHASA)).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows the Bahasa and English loading line before settings resolve", async () => {

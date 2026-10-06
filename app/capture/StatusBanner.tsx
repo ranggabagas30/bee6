@@ -1,14 +1,18 @@
 import type { CaptureState } from "@/lib/capture/browser/engine";
 
 /**
- * Big capture status (web spec §4.1): 🟢 Listening · 🟡 Listening with uploads
- * waiting (N) · 🔴 Mic problem, plus the mic source. No transcript is ever shown.
+ * Big capture status (web spec §4.1, UX-03 §0 and §5): 🟢 Listening, plus the mic
+ * source. 🔴 Mic problem when the mic fails. No transcript is ever shown.
  * The banner is an aria-live region so a screen reader announces state changes;
  * the emoji is decorative (aria-hidden) with the state conveyed as text too.
  *
  * `"idle"` is the neutral "not started" state the page shows whenever no capture
  * session is actually running (before Start, outside hours, after Stop/Pause).
  * It never says "Listening": the label must match what the system is doing.
+ *
+ * Upload results (retrying, no internet, uploads waiting) never change this
+ * headline. They are shown only on the upload line (UploadStatusLine), so
+ * while a session runs the headline stays green for every upload result.
  */
 
 interface BilingualLine {
@@ -18,50 +22,42 @@ interface BilingualLine {
 
 export type StatusBannerState = CaptureState | "idle";
 
+const LISTENING: BilingualLine = { id: "Mendengarkan", en: "Listening" };
+
 /**
  * "offline" means the engine's uploads are failing while the session is still
- * running: capture continues and segments queue up. So its headline says
- * listening is happening, plus the waiting count. It never says "Terputus" or
- * "Offline", because that would hide that listening is still going on.
+ * running. Capture continues and segments queue up, so it presents exactly like
+ * "listening". The failure is reported on the upload line instead.
  */
 const PRESENTATION: Record<
   CaptureState,
   {
     emoji: string;
     color: string;
-    headline: (queuedCount: number) => BilingualLine;
-    detail: ((online: boolean) => BilingualLine) | null;
+    headline: BilingualLine;
+    detail: BilingualLine | null;
   }
 > = {
   listening: {
     emoji: "🟢",
     color: "#1b5e20",
-    headline: () => ({ id: "Mendengarkan", en: "Listening" }),
+    headline: LISTENING,
     detail: null,
   },
   offline: {
-    emoji: "🟡",
-    color: "#8d6e00",
-    headline: (queuedCount) => ({
-      id: `Mendengarkan · pengiriman tertunda (${queuedCount} menunggu)`,
-      en: `Listening · uploads waiting (${queuedCount})`,
-    }),
-    // navigator.onLine is only a hint. "Tidak ada internet" is shown only when
-    // the browser itself reports no connection; otherwise the server is the
-    // likely cause, so say that instead.
-    detail: (online) =>
-      online
-        ? { id: "Server sibuk, mencoba lagi", en: "Server busy, retrying" }
-        : { id: "Tidak ada internet", en: "No internet" },
+    emoji: "🟢",
+    color: "#1b5e20",
+    headline: LISTENING,
+    detail: null,
   },
   mic_error: {
     emoji: "🔴",
     color: "#b00020",
-    headline: () => ({ id: "Mikrofon bermasalah", en: "Microphone problem" }),
-    detail: () => ({
+    headline: { id: "Mikrofon bermasalah", en: "Microphone problem" },
+    detail: {
       id: "Periksa mikrofon dan koneksi",
       en: "Check the microphone and connection",
-    }),
+    },
   },
 };
 
@@ -78,18 +74,10 @@ const IDLE_PRESENTATION = {
 
 export interface StatusBannerProps {
   state: StatusBannerState;
-  queuedCount: number;
   micSource: string;
-  /** navigator.onLine as a hint only; defaults to true (never claims "no internet"). */
-  online?: boolean;
 }
 
-export function StatusBanner({
-  state,
-  queuedCount,
-  micSource,
-  online = true,
-}: StatusBannerProps) {
+export function StatusBanner({ state, micSource }: StatusBannerProps) {
   if (state === "idle") {
     return (
       <StatusFrame
@@ -105,15 +93,13 @@ export function StatusBanner({
   }
 
   const { emoji, color, headline, detail } = PRESENTATION[state];
-  const { id: label, en: labelEn } = headline(queuedCount);
-  const detailLine = detail ? detail(online) : null;
 
   return (
-    <StatusFrame emoji={emoji} label={label} labelEn={labelEn} color={color}>
-      {detailLine ? (
+    <StatusFrame emoji={emoji} label={headline.id} labelEn={headline.en} color={color}>
+      {detail ? (
         <>
-          <p style={{ fontSize: 16, margin: "8px 0 0" }}>{detailLine.id}</p>
-          <p style={{ fontSize: 14, margin: "2px 0 0" }}>{detailLine.en}</p>
+          <p style={{ fontSize: 16, margin: "8px 0 0" }}>{detail.id}</p>
+          <p style={{ fontSize: 14, margin: "2px 0 0" }}>{detail.en}</p>
         </>
       ) : (
         <>

@@ -24,8 +24,8 @@ import type { MicSourceClass } from "@/lib/capture/mic-source";
 /**
  * /capture — the shop phone's always-on listening screen (web spec §4.1, §5).
  * Runs on the same paired phone as /pair: reads the stored device credential (or
- * redirects to /pair), fetches the outlet's consent + hours, and — only when
- * consent is complete and inside opening hours — starts the capture session
+ * redirects to /pair), fetches the outlet's opening hours, and — only when
+ * inside opening hours — starts the capture session
  * (mic → VAD → segments → upload) with heartbeat + wake lock. It shows a big
  * status only; a transcript is NEVER displayed (hard rule #2 / spec).
  */
@@ -71,7 +71,6 @@ const PRIVACY_NOTE = (
 type View =
   | "loading"
   | "error"
-  | "no_consent"
   | "outside_hours"
   | "unsupported"
   | "active";
@@ -146,7 +145,7 @@ export default function CapturePage() {
       const phase = resolveCapturePhase(loadedConfig, new Date());
 
       if (devControlsEnabled) {
-        // Dev mode bypasses the opening_hours/consent auto-gate entirely for
+        // Dev mode bypasses the opening_hours auto-gate entirely for
         // this session — manual Start/Pause/Stop below owns the session.
         // Still reflect the real computed phase so it's visible underneath.
         if (!cancelled) setView(phase);
@@ -333,27 +332,6 @@ export default function CapturePage() {
         </p>
       ) : null}
 
-      {view === "no_consent" ? (
-        <section role="alert">
-          <h2 style={{ fontSize: 18 }}>
-            <span style={{ display: "block" }}>Pengambilan audio belum aktif</span>
-            <span style={{ display: "block", fontSize: 15, fontWeight: 400 }}>
-              Capture is off
-            </span>
-          </h2>
-          <p>
-            Outlet ini belum menyelesaikan langkah persetujuan staf, jadi
-            pengambilan audio belum bisa dimulai. Minta supervisor menyelesaikan
-            persetujuan, lalu muat ulang halaman ini.
-          </p>
-          <p>
-            This outlet hasn&apos;t completed the staff-consent step yet, so
-            listening can&apos;t start. Ask the supervisor to complete consent,
-            then reload this page.
-          </p>
-        </section>
-      ) : null}
-
       {view === "outside_hours" && config ? (
         <section role="status" aria-live="polite">
           <h2 style={{ fontSize: 18 }}>
@@ -389,19 +367,20 @@ export default function CapturePage() {
         </section>
       ) : null}
 
-      {/* devControlsEnabled bypasses the opening_hours/consent early return so
+      {/* devControlsEnabled bypasses the opening_hours early return so
           this section is visible for manual testing, without deleting the
           real blocked-view sections above (still rendered alongside it). */}
       {view === "active" || devControlsEnabled ? (
         <>
           <StatusBanner
             state={sessionRunning ? (status?.state ?? "listening") : "idle"}
-            queuedCount={status?.queuedCount ?? 0}
             micSource={micSource}
-            online={networkOnline}
           />
-          {/* Upload status is a separate line: shown only while a session runs. */}
-          {sessionRunning ? <UploadStatusLine view={deriveUploadView(status)} /> : null}
+          {/* Upload results (retrying, no internet) live only on this line: shown only
+              while a session runs. The banner headline never changes for them. */}
+          {sessionRunning ? (
+            <UploadStatusLine view={deriveUploadView(status)} online={networkOnline} />
+          ) : null}
           {sampleRateMsg ? (
             <p role="alert" style={{ color: "#b00020", marginTop: 16 }}>
               {sampleRateMsg}

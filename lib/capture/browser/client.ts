@@ -117,14 +117,17 @@ export function createHeartbeatPoster(
   };
 }
 
-export type CapturePhase = "no_consent" | "outside_hours" | "active";
+export type CapturePhase = "outside_hours" | "active";
 
-/** Decides the capture phase from the outlet config + current time. */
+/**
+ * Decides the capture phase from the outlet's opening hours + current time.
+ * There is no consent gate in MVP 1 (CLAUDE.md §2 rule 7b): consent is collected
+ * outside the product, so it never blocks capture here.
+ */
 export function resolveCapturePhase(
   config: CaptureConfigResponse,
   now: Date,
 ): CapturePhase {
-  if (!config.consent_complete) return "no_consent";
   if (!isWithinOpeningHours(now, config)) return "outside_hours";
   return "active";
 }

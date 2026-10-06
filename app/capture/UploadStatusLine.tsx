@@ -1,5 +1,10 @@
 import type { CaptureStatus } from "@/lib/capture/browser/engine";
 
+interface BilingualLine {
+  id: string;
+  en: string;
+}
+
 /**
  * Upload status, shown as a second line under the capture banner (presentation
  * only). It is separate from the headline: green "Listening" still means capture
@@ -48,11 +53,6 @@ export function deriveUploadView(status: UploadSource | null | undefined): Uploa
   return null;
 }
 
-interface BilingualLine {
-  id: string;
-  en: string;
-}
-
 const COPY: Record<UploadView["phase"], BilingualLine> = {
   uploading: { id: "Mengunggah", en: "Uploading" },
   retrying: { id: "Gagal unggah, coba ulang", en: "Upload failed, retrying" },
@@ -78,9 +78,33 @@ const COLOR: Record<UploadView["phase"], string> = {
   succeeded: "#444",
 };
 
-export function UploadStatusLine({ view }: { view: UploadView | null }) {
+/**
+ * Connectivity detail for a retrying upload. navigator.onLine is only a hint, so
+ * "Tidak ada internet" is shown only when the browser itself reports no
+ * connection; otherwise the server is the likely cause, so say that instead.
+ * This moved here from the big banner, which stays green while uploads fail.
+ */
+const RETRY_DETAIL: Record<"online" | "offline", BilingualLine> = {
+  online: { id: "Server sibuk, mencoba lagi", en: "Server busy, retrying" },
+  offline: { id: "Tidak ada internet", en: "No internet" },
+};
+
+/**
+ * `online` is the navigator.onLine hint. Omit it to show no connectivity detail.
+ */
+export function UploadStatusLine({
+  view,
+  online,
+}: {
+  view: UploadView | null;
+  online?: boolean;
+}) {
   if (!view) return null;
   const { id, en } = uploadLines(view);
+  const detail =
+    view.phase === "retrying" && online !== undefined
+      ? RETRY_DETAIL[online ? "online" : "offline"]
+      : null;
   return (
     <div
       data-testid="upload-status"
@@ -88,6 +112,12 @@ export function UploadStatusLine({ view }: { view: UploadView | null }) {
     >
       <p style={{ margin: 0, fontWeight: 600 }}>{id}</p>
       <p style={{ margin: "2px 0 0" }}>{en}</p>
+      {detail ? (
+        <>
+          <p style={{ margin: "2px 0 0" }}>{detail.id}</p>
+          <p style={{ margin: "2px 0 0" }}>{detail.en}</p>
+        </>
+      ) : null}
     </div>
   );
 }
