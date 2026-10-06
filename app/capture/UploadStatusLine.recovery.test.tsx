@@ -16,8 +16,52 @@ afterEach(() => {
 });
 
 function toastNode(container: HTMLElement): HTMLElement | null {
-  return container.querySelector('[role="status"][aria-live="polite"]');
+  // The block is also a polite status region now (UX-03 §5.7); the toast is the
+  // polite region that is NOT the block.
+  return (
+    Array.from(container.querySelectorAll<HTMLElement>('[role="status"][aria-live="polite"]')).find(
+      (el) => el.getAttribute("data-testid") !== "upload-status",
+    ) ?? null
+  );
 }
+
+describe("UploadStatusLine live region (UX-03 §5.7, §7)", () => {
+  function block(container: HTMLElement): HTMLElement | null {
+    return container.querySelector<HTMLElement>('[data-testid="upload-status"]');
+  }
+
+  it("the block container is a polite live region", () => {
+    const { container } = render(<UploadStatusLine view={{ phase: "retrying" }} />);
+    expect(block(container)?.getAttribute("role")).toBe("status");
+    expect(block(container)?.getAttribute("aria-live")).toBe("polite");
+  });
+
+  it("the block is a live region even when it has nothing to show yet", () => {
+    const { container } = render(<UploadStatusLine view={null} />);
+    expect(block(container)?.getAttribute("role")).toBe("status");
+    expect(block(container)?.getAttribute("aria-live")).toBe("polite");
+  });
+
+  it("the rows inside the block carry no role of their own", () => {
+    const { container } = render(<UploadStatusLine view={{ phase: "retrying" }} lost />);
+    const rows = Array.from(block(container)?.querySelectorAll("p") ?? []);
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.getAttribute("role")).toBeNull();
+      expect(row.getAttribute("aria-live")).toBeNull();
+    }
+  });
+
+  it("the success toast sits outside the block, with its own polite status role", () => {
+    const { container, rerender } = render(<UploadStatusLine view={{ phase: "retrying" }} />);
+    rerender(<UploadStatusLine view={{ phase: "succeeded" }} />);
+    const toast = toastNode(container);
+    expect(toast).not.toBeNull();
+    expect(toast?.getAttribute("role")).toBe("status");
+    expect(toast?.getAttribute("aria-live")).toBe("polite");
+    expect(block(container)?.contains(toast as HTMLElement)).toBe(false);
+  });
+});
 
 describe("UploadStatusLine success toast (UX-03 §5.7, C-u-toast)", () => {
   it("shows after a 2xx that recovers from a retry", () => {

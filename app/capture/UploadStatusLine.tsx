@@ -72,6 +72,17 @@ export function deriveLostLine(status: UploadSource | null | undefined): boolean
   return status?.lostSinceSuccess === true;
 }
 
+/**
+ * The view to keep showing after a session stops (UX-03 §5.7: the lost line and
+ * the retry row survive a stop until the next 2xx). Only a retry row is carried:
+ * an "uploading" row is not in flight once the session has stopped, and the
+ * succeeded row is not carried past a stop.
+ */
+export function deriveRetainedUploadView(status: UploadSource | null | undefined): UploadView | null {
+  const view = deriveUploadView(status);
+  return view?.phase === "retrying" ? view : null;
+}
+
 /** Exact bilingual strings for a view, including the "(Nx)" suffix when known. */
 export function uploadLines(view: UploadView): BilingualLine {
   const base = COPY[view.phase];
@@ -113,7 +124,7 @@ const LOST_HELP: BilingualLine = {
  * This moved here from the big banner, which stays green while uploads fail.
  */
 const RETRY_DETAIL: Record<"online" | "offline", BilingualLine> = {
-  online: { id: "Server sibuk, mencoba lagi", en: "Server busy, retrying" },
+  online: { id: "Server sibuk", en: "Server busy" },
   offline: { id: "Tidak ada internet", en: "No internet" },
 };
 
@@ -165,16 +176,24 @@ export function UploadStatusLine({
   lost?: boolean;
 }) {
   const toastVisible = useRecoveryToast(view?.phase, lost);
-  if (!view && !lost && !toastVisible) return null;
+  const hasContent = Boolean(view || lost);
   const showView = view !== null && !(lost && view.phase === "succeeded");
   const detail =
     showView && view.phase === "retrying" && online !== undefined
       ? RETRY_DETAIL[online ? "online" : "offline"]
       : null;
   const color = showView ? COLOR[view.phase] : "#444";
-  const main =
-    view || lost ? (
-      <div data-testid="upload-status" style={{ marginTop: 12, fontSize: 14, color }}>
+  // The block is always rendered, so its live region exists before any row
+  // appears and is announced once on first appearance, then updated in place
+  // (UX-03 §5.7, §7). The toast is a sibling, never inside the block.
+  return (
+    <>
+      <div
+        data-testid="upload-status"
+        role="status"
+        aria-live="polite"
+        style={hasContent ? { marginTop: 12, fontSize: 14, color } : undefined}
+      >
         {lost ? (
           <>
             <p style={{ margin: 0, fontWeight: 600, color: LOST_COLOR }}>
@@ -199,12 +218,13 @@ export function UploadStatusLine({
           </>
         ) : null}
       </div>
-    ) : null;
-  return (
-    <>
-      {main}
       {toastVisible ? (
-        <div role="status" aria-live="polite" style={{ marginTop: 8, fontSize: 14 }}>
+        <div
+          data-testid="upload-toast"
+          role="status"
+          aria-live="polite"
+          style={{ marginTop: 8, fontSize: 14 }}
+        >
           <p style={{ margin: 0, fontWeight: 600 }}>{TOAST.id}</p>
           <p style={{ margin: "2px 0 0" }}>{TOAST.en}</p>
         </div>

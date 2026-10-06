@@ -4,6 +4,7 @@ import { cleanup, render } from "@testing-library/react";
 import {
   UploadStatusLine,
   deriveLostLine,
+  deriveRetainedUploadView,
   deriveUploadView,
   uploadLines,
   type UploadSource,
@@ -92,6 +93,27 @@ describe("uploadLines exact strings (both languages)", () => {
   });
 });
 
+describe("deriveRetainedUploadView (UX-03 §5.7 stop rule)", () => {
+  it("keeps the retry row after a stop, while the last upload failed", () => {
+    expect(deriveRetainedUploadView(src({ state: "offline", queuedCount: 1, headFailedAttempts: 2 }))).toEqual({
+      phase: "retrying",
+      failedAttempts: 2,
+    });
+  });
+
+  it("does not carry an uploading row past a stop (nothing is in flight after stop)", () => {
+    expect(deriveRetainedUploadView(src({ state: "listening", queuedCount: 2, lastUploadHttpStatus: 200 }))).toBeNull();
+  });
+
+  it("does not carry the succeeded row past a stop", () => {
+    expect(deriveRetainedUploadView(src({ state: "listening", queuedCount: 0, lastUploadHttpStatus: 200 }))).toBeNull();
+  });
+
+  it("returns null for no status", () => {
+    expect(deriveRetainedUploadView(null)).toBeNull();
+  });
+});
+
 describe("UploadStatusLine approved retry copy (UX-03 §6 C-u-retry)", () => {
   it("renders Belum terkirim · mencoba lagi / Not sent yet · retrying in both languages", () => {
     const { container } = render(<UploadStatusLine view={{ phase: "retrying" }} />);
@@ -102,9 +124,11 @@ describe("UploadStatusLine approved retry copy (UX-03 §6 C-u-retry)", () => {
 });
 
 describe("UploadStatusLine rendering", () => {
-  it("renders nothing for a null view", () => {
+  it("renders the block (empty) for a null view, so it is in every mode (UX-03 §5.7)", () => {
     const { container } = render(<UploadStatusLine view={null} />);
-    expect(container.querySelector('[data-testid="upload-status"]')).toBeNull();
+    const node = container.querySelector('[data-testid="upload-status"]');
+    expect(node).not.toBeNull();
+    expect(node?.querySelectorAll("p")).toHaveLength(0);
   });
 
   it.each([
@@ -146,8 +170,8 @@ describe("UploadStatusLine connectivity detail (moved from the banner)", () => {
     expect(lines(container)).toEqual([
       "Belum terkirim · mencoba lagi",
       "Not sent yet · retrying",
-      "Server sibuk, mencoba lagi",
-      "Server busy, retrying",
+      "Server sibuk",
+      "Server busy",
     ]);
   });
 
@@ -210,9 +234,9 @@ describe("lost line (UX-03 §5.7 row L)", () => {
     expect(lines(container)).toHaveLength(4);
   });
 
-  it("renders nothing when there is no view and nothing lost", () => {
+  it("renders no rows when there is no view and nothing lost", () => {
     const { container } = render(<UploadStatusLine view={null} lost={false} />);
-    expect(container.querySelector('[data-testid="upload-status"]')).toBeNull();
+    expect(container.querySelector('[data-testid="upload-status"]')?.querySelectorAll("p")).toHaveLength(0);
   });
 });
 

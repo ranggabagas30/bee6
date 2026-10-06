@@ -238,7 +238,7 @@ describe("CapturePage banner truthfulness (dev mode)", () => {
     });
     await waitFor(() =>
       expect(container.querySelector('[data-testid="upload-status"]')?.textContent).toContain(
-        "Server busy, retrying",
+        "Server sibuk" + "Server busy",
       ),
     );
     expect(container.textContent).not.toContain("No internet");
@@ -477,6 +477,132 @@ describe("CapturePage stale session status (D1)", () => {
   });
 });
 
+describe("CapturePage upload status survives a stop (UX-03 §5.7)", () => {
+  function uploadText(container: HTMLElement): string | null {
+    return container.querySelector('[data-testid="upload-status"]')?.textContent ?? null;
+  }
+  function bannerText(container: HTMLElement): string {
+    return container.querySelector('section[role="status"]')?.textContent ?? "";
+  }
+  async function renderInDevMode() {
+    isDevControlsEnabled.mockReturnValue(true);
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    fetchCaptureConfig.mockResolvedValue({
+      consent_complete: true,
+      opening_time: "08:00",
+      closing_time: "20:00",
+      timezone: "Asia/Jakarta",
+    });
+    resolveCapturePhase.mockReturnValue("active");
+    const CapturePage = await importCapturePage();
+    const rendered = render(<CapturePage />);
+    await waitFor(() => expect(fetchCaptureConfig).toHaveBeenCalled());
+    return rendered;
+  }
+
+  it("shows the block in idle, before any session has started", async () => {
+    const { container } = await renderInDevMode();
+    expect(container.querySelector('[data-testid="upload-status"]')).not.toBeNull();
+    expect(uploadText(container)).toBe("");
+    expect(bannerText(container)).toContain("Not started");
+  });
+
+  it("keeps the lost line visible after Pause, and the headline still follows its own rule", async () => {
+    const { container } = await renderInDevMode();
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(fakeSessions).toHaveLength(1));
+    act(() =>
+      lastCallbacks?.onStatus?.({
+        state: "listening",
+        queuedCount: 0,
+        droppedCount: 1,
+        micError: null,
+        lastUploadHttpStatus: 400,
+        lostSinceSuccess: true,
+      }),
+    );
+    await waitFor(() => expect(uploadText(container)).toContain("Sebagian suara tidak tercatat"));
+
+    fireEvent.click(screen.getByRole("button", { name: /^pause$/i }));
+    await waitFor(() => expect(bannerText(container)).toContain("Not started"));
+    expect(bannerText(container)).not.toContain("Listening");
+    expect(uploadText(container)).toContain("Sebagian suara tidak tercatat");
+    expect(uploadText(container)).toContain("Some speech was not captured");
+  });
+
+  it("keeps the retry row through a stop, and a non-2xx on the next session does not clear the lost line", async () => {
+    const { container } = await renderInDevMode();
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(fakeSessions).toHaveLength(1));
+    act(() =>
+      lastCallbacks?.onStatus?.({
+        state: "offline",
+        queuedCount: 1,
+        droppedCount: 0,
+        micError: null,
+        lastUploadHttpStatus: null,
+        lostSinceSuccess: true,
+      }),
+    );
+    await waitFor(() => expect(uploadText(container)).toContain("Belum terkirim · mencoba lagi"));
+
+    fireEvent.click(screen.getByRole("button", { name: /^pause$/i }));
+    await waitFor(() => expect(bannerText(container)).toContain("Not started"));
+    expect(uploadText(container)).toContain("Belum terkirim · mencoba lagi");
+    expect(uploadText(container)).toContain("Sebagian suara tidak tercatat");
+
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(fakeSessions).toHaveLength(2));
+    act(() =>
+      lastCallbacks?.onStatus?.({
+        state: "offline",
+        queuedCount: 1,
+        droppedCount: 0,
+        micError: null,
+        lastUploadHttpStatus: 503,
+        lostSinceSuccess: true,
+      }),
+    );
+    await waitFor(() => expect(uploadText(container)).toContain("Belum terkirim · mencoba lagi"));
+    expect(uploadText(container)).toContain("Sebagian suara tidak tercatat");
+  });
+
+  it("clears the lost line on the next 2xx after a stop", async () => {
+    const { container } = await renderInDevMode();
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(fakeSessions).toHaveLength(1));
+    act(() =>
+      lastCallbacks?.onStatus?.({
+        state: "listening",
+        queuedCount: 0,
+        droppedCount: 1,
+        micError: null,
+        lastUploadHttpStatus: 400,
+        lostSinceSuccess: true,
+      }),
+    );
+    await waitFor(() => expect(uploadText(container)).toContain("Sebagian suara tidak tercatat"));
+    fireEvent.click(screen.getByRole("button", { name: /^pause$/i }));
+    await waitFor(() => expect(bannerText(container)).toContain("Not started"));
+
+    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(fakeSessions).toHaveLength(2));
+    act(() =>
+      lastCallbacks?.onStatus?.({
+        state: "listening",
+        queuedCount: 0,
+        droppedCount: 1,
+        micError: null,
+        lastUploadHttpStatus: 200,
+        lostSinceSuccess: false,
+      }),
+    );
+    await waitFor(() => expect(uploadText(container)).not.toContain("Sebagian suara tidak tercatat"));
+    expect(uploadText(container)).toContain("Unggah berhasil");
+    expect(bannerText(container)).toContain("Listening");
+  });
+});
+
 describe("CapturePage upload status line", () => {
   function uploadText(container: HTMLElement): string | null {
     return container.querySelector('[data-testid="upload-status"]')?.textContent ?? null;
@@ -504,8 +630,8 @@ describe("CapturePage upload status line", () => {
     const { container } = render(<CapturePage />);
     await waitFor(() => expect(fetchCaptureConfig).toHaveBeenCalled());
 
-    // No session yet: no upload line at all.
-    expect(uploadText(container)).toBeNull();
+    // No session yet: the block is present (live region) but has no rows.
+    expect(uploadText(container)).toBe("");
 
     fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
     await waitFor(() => expect(fakeSessions).toHaveLength(1));
@@ -525,9 +651,9 @@ describe("CapturePage upload status line", () => {
     await waitFor(() => expect(uploadText(container)).toBe("Unggah berhasil" + "Upload succeeded"));
     expect(bannerText(container)).toContain("Listening");
 
-    // Pause: no session running, so the upload line disappears with the banner state.
+    // Pause: no session running. A succeeded row is not carried past a stop, so no rows remain.
     fireEvent.click(screen.getByRole("button", { name: /^pause$/i }));
-    await waitFor(() => expect(uploadText(container)).toBeNull());
+    await waitFor(() => expect(uploadText(container)).toBe(""));
     expect(bannerText(container)).toContain("Not started");
   });
 
@@ -552,11 +678,13 @@ describe("CapturePage upload status line", () => {
         expect(uploadText(container)).toContain("Belum terkirim · mencoba lagi" + "Not sent yet · retrying"),
       );
 
+      // The retry row survives the auto-stop (UX-03 §5.7): it stays until a 2xx.
       resolveCapturePhase.mockReturnValue("outside_hours");
       await act(async () => {
         vi.advanceTimersByTime(30_000);
       });
-      await waitFor(() => expect(uploadText(container)).toBeNull());
+      await waitFor(() => expect(bannerText(container)).toContain("Paused"));
+      expect(uploadText(container)).toContain("Belum terkirim · mencoba lagi");
     } finally {
       vi.useRealTimers();
     }

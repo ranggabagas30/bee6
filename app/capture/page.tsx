@@ -7,6 +7,7 @@ import { DevPanel } from "@/app/capture/DevPanel";
 import {
   UploadStatusLine,
   deriveLostLine,
+  deriveRetainedUploadView,
   deriveUploadView,
 } from "@/app/capture/UploadStatusLine";
 import {
@@ -91,6 +92,9 @@ export default function CapturePage() {
   // Engine status from the running session only. Null until the first report
   // and reset on stop, so nothing from a previous session is ever shown.
   const [status, setStatus] = useState<CaptureStatus | null>(null);
+  // Last engine status from any session, kept across a stop (UX-03 §5.7): the
+  // lost line and the retry row stay up until the next 2xx. Never reset on stop.
+  const [lastUploadStatus, setLastUploadStatus] = useState<CaptureStatus | null>(null);
   // True exactly while sessionRef holds a started, not-yet-stopped session.
   // The banner reads this, not the engine's default state, so it never says
   // "Listening" when no capture is actually running.
@@ -181,7 +185,10 @@ export default function CapturePage() {
       try {
         const session = await startCaptureSession(auth!, loadedConfig, {
           onStatus: (s) => {
-            if (isCurrent()) setStatus(s);
+            if (isCurrent()) {
+              setStatus(s);
+              setLastUploadStatus(s);
+            }
           },
           onMicSource: (source) => {
             if (isCurrent()) setMicSource(source);
@@ -260,7 +267,10 @@ export default function CapturePage() {
       try {
         const session = await startCaptureSession(auth, config, {
           onStatus: (s) => {
-            if (isCurrent()) setStatus(s);
+            if (isCurrent()) {
+              setStatus(s);
+              setLastUploadStatus(s);
+            }
           },
           onMicSource: (label) => {
             if (isCurrent()) setMicSource(label);
@@ -380,15 +390,6 @@ export default function CapturePage() {
             state={sessionRunning ? (status?.state ?? "listening") : "idle"}
             micSource={micSource}
           />
-          {/* Upload results (retrying, no internet) live only on this line: shown only
-              while a session runs. The banner headline never changes for them. */}
-          {sessionRunning ? (
-            <UploadStatusLine
-              view={deriveUploadView(status)}
-              lost={deriveLostLine(status)}
-              online={networkOnline}
-            />
-          ) : null}
           {sampleRateMsg ? (
             <p role="alert" style={{ color: "#b00020", marginTop: 16 }}>
               {sampleRateMsg}
@@ -415,6 +416,19 @@ export default function CapturePage() {
           </button>
         </>
       ) : null}
+      {/* Upload block (UX-03 §5.7): shown in every mode, including idle, ended and
+          stopped. While a session runs it follows the live status; after a stop it
+          keeps only the lost line and the retry row, until the next 2xx. It never
+          changes the headline. */}
+      <UploadStatusLine
+        view={
+          sessionRunning
+            ? deriveUploadView(status)
+            : deriveRetainedUploadView(lastUploadStatus)
+        }
+        lost={deriveLostLine(lastUploadStatus)}
+        online={networkOnline}
+      />
     </main>
   );
 }
