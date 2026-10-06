@@ -82,17 +82,18 @@ export function uploadLines(view: UploadView): BilingualLine {
   return base;
 }
 
+/** UX-03 §2 `--warn` token (light theme). Used by the retry row and the lost row (§5.7). */
+export const WARN_TOKEN = "#7A4F00";
+
 // Neutral text colours on purpose: green is reserved for the headline's
-// "capture is running" meaning. Retrying uses the same amber as the offline
-// headline, so "uploads waiting" reads the same in both places.
+// "capture is running" meaning. Retrying uses the --warn token (UX-03 §2),
+// the same as the lost line.
 const COLOR: Record<UploadView["phase"], string> = {
   uploading: "#444",
-  retrying: "#8d6e00",
+  retrying: WARN_TOKEN,
   succeeded: "#444",
 };
 
-/** UX-03 §2 `--warn` token (light theme). Used by the lost row (§5.7). */
-export const WARN_TOKEN = "#7A4F00";
 /** Warning colour for the lost line (row L: warn ▲, bold). */
 const LOST_COLOR = WARN_TOKEN;
 const LOST_LINE: BilingualLine = {

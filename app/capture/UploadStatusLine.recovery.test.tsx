@@ -82,6 +82,16 @@ describe("UploadStatusLine success toast (UX-03 §5.7, C-u-toast)", () => {
   });
 });
 
+describe("UploadStatusLine retry-row colour (UX-03 §2, --warn)", () => {
+  it("renders the retry row in the --warn token #7A4F00", () => {
+    const { container } = render(<UploadStatusLine view={{ phase: "retrying" }} />);
+    const row = container.querySelector<HTMLElement>('[data-testid="upload-status"]');
+    expect(row?.textContent).toContain("Belum terkirim");
+    // jsdom normalises hex inline colours to rgb().
+    expect(row?.style.color).toBe("rgb(122, 79, 0)");
+  });
+});
+
 describe("UploadStatusLine lost-line colour (UX-03 §5.7, --warn)", () => {
   it("renders the lost row mark and text in the --warn token #7A4F00", () => {
     const { container } = render(<UploadStatusLine view={null} lost />);
