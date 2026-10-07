@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { CustomClaimsSchema, type CustomClaims } from "@/lib/auth/roles";
-import { UnauthorizedError } from "@/lib/http/errors";
+import { ForbiddenError, UnauthorizedError } from "@/lib/http/errors";
 import { authorize, type Permission } from "@/lib/auth/rbac";
 import { verifyIdToken } from "@/lib/firebase/admin";
 import { authenticateDeviceToken } from "@/lib/auth/services";
@@ -50,14 +50,37 @@ export async function requirePermission(
 }
 
 /**
- * Authenticates the shop device via its opaque token (`Authorization: Bearer`)
- * plus the `X-Device-Id` header. Returns device claims. Used by the staff PIN
- * route and, later, segment/heartbeat uploads.
+ * True when the bearer is a Firebase ID token that verifies (owner / supervisor /
+ * staff session). Any verification failure, including the opaque device token
+ * (which is not a JWT), returns false.
+ */
+async function isVerifiedUserToken(token: string): Promise<boolean> {
+  try {
+    await verifyIdToken(token);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Authenticates the shop device (web spec §6.6.1). Order matters:
+ * 1. The bearer is checked first. A verified Firebase ID token is a non-device
+ *    principal → 403. A bad or missing bearer → 401.
+ * 2. Only then is the opaque device token checked against the device named by
+ *    `X-Device-Id`. The device token is stored as a bcrypt hash, so it cannot be
+ *    verified without its device id: a missing header yields the same 401 as a
+ *    bad token.
+ * Returns device claims. Used by the staff PIN route, the capture session routes,
+ * the config and heartbeat routes, and segment uploads.
  */
 export async function requireDevice(req: NextRequest): Promise<CustomClaims> {
   const token = extractBearerToken(req);
+  if (await isVerifiedUserToken(token)) {
+    throw new ForbiddenError("A device credential is required");
+  }
   const deviceId = req.headers.get(DEVICE_ID_HEADER)?.trim();
-  if (!deviceId) throw new UnauthorizedError("Missing device id");
+  if (!deviceId) throw new UnauthorizedError("Invalid device token");
   return authenticateDeviceToken(
     { devices: firestoreDeviceStore() },
     { device_id: deviceId, token },
