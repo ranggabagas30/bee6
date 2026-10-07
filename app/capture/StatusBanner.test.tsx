@@ -81,6 +81,47 @@ describe("StatusBanner: after the planned close (UX-03 5.2)", () => {
     expect(container.textContent).not.toMatch(/Not started|Listening/);
   });
 
+  it("ended shows the Ended headline and the Mulai note, never Listening (R-P1 Selesai)", () => {
+    const { container } = render(
+      <LangProvider initial="en">
+        <StatusBanner state="ended" micSource="built-in" note="You can tap Start again Thu 15 Oct at 02:10." />
+      </LangProvider>,
+    );
+    expect(screen.getByText("Ended")).toBeTruthy();
+    expect(screen.getByText("You can tap Start again Thu 15 Oct at 02:10.")).toBeTruthy();
+    expect(container.textContent).not.toMatch(/Listening|Not started|automatically/);
+  });
+
+  it("ended in ID is Bahasa only", () => {
+    render(
+      <LangProvider initial="id">
+        <StatusBanner state="ended" micSource="built-in" note="Mulai bisa ditekan lagi Kam 15 Okt pukul 02:10." />
+      </LangProvider>,
+    );
+    expect(screen.getByText("Selesai")).toBeTruthy();
+    expect(screen.getByText("Mulai bisa ditekan lagi Kam 15 Okt pukul 02:10.")).toBeTruthy();
+  });
+
+  it("discarded shows the Session cancelled headline and the Mulai note (R-P1 Batalkan)", () => {
+    const { container } = render(
+      <LangProvider initial="en">
+        <StatusBanner state="discarded" micSource="built-in" note="You can tap Start again Thu 15 Oct at 01:00." />
+      </LangProvider>,
+    );
+    expect(screen.getByText("Session cancelled")).toBeTruthy();
+    expect(screen.getByText("You can tap Start again Thu 15 Oct at 01:00.")).toBeTruthy();
+    expect(container.textContent).not.toMatch(/Listening|Not started|Ended\b/);
+  });
+
+  it("discarded in ID is Bahasa only", () => {
+    render(
+      <LangProvider initial="id">
+        <StatusBanner state="discarded" micSource="built-in" note={null} />
+      </LangProvider>,
+    );
+    expect(screen.getByText("Sesi dibatalkan")).toBeTruthy();
+  });
+
   it("ended_auto in ID is Bahasa only", () => {
     const { container } = render(
       <LangProvider initial="id">

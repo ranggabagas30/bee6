@@ -48,11 +48,14 @@ export interface SegmentPutRequest {
 /**
  * Builds the segment PUT. The path device_id is the *authenticated* device id
  * (matches `assertDeviceMatch` server-side); metadata rides in headers; the audio
- * is only the body — never the URL or a header.
+ * is only the body — never the URL or a header. `sessionId` is the optional
+ * `X-Session-Id` header (web spec §6.6.4): omitted or undefined means no session
+ * (a pre-P1 bundle shape), never sent as an empty string.
  */
 export function buildSegmentPut(
   segment: QueuedSegment,
   auth: DeviceAuth,
+  sessionId?: string,
 ): SegmentPutRequest {
   return {
     url: `/api/v1/segments/${auth.deviceId}:${segment.seg_id}`,
@@ -63,16 +66,22 @@ export function buildSegmentPut(
       "X-Segment-Start-Ms": String(segment.start_ms),
       "X-Segment-End-Ms": String(segment.end_ms),
       "X-Segment-Sample-Rate": String(segment.sample_rate),
+      ...(sessionId ? { "X-Session-Id": sessionId } : {}),
     },
     body: segment.bytes,
   };
 }
 
-/** Creates the engine's UploadFn: PUTs a segment, returns status or null. */
-export function createSegmentUploader(auth: DeviceAuth): UploadFn {
+/**
+ * Creates the engine's UploadFn: PUTs a segment, returns status or null.
+ * `sessionId` stamps every segment with the Mulai session it belongs to
+ * (release gate, web spec §6.6.4): without it, a Batalkan discard deletes 0
+ * segments while telling staff "removed".
+ */
+export function createSegmentUploader(auth: DeviceAuth, sessionId?: string): UploadFn {
   return async (segment) => {
     try {
-      const req = buildSegmentPut(segment, auth);
+      const req = buildSegmentPut(segment, auth, sessionId);
       const res = await fetch(req.url, {
         method: req.method,
         headers: req.headers,
@@ -115,6 +124,73 @@ export function createHeartbeatPoster(
       // Heartbeat is telemetry only; never interrupt capture on failure.
     }
   };
+}
+
+// ── Mulai / Selesai / Batalkan session routes (web spec §6.6.3-§6.6.5) ───────
+
+/**
+ * Outcome of a session route POST. Never throws: a network failure (no HTTP
+ * response at all) is `{ ok: false, status: undefined, code: undefined }`,
+ * indistinguishable in shape from a mapped failure — the caller picks the
+ * copy key with `sessionErrorKey` either way. The server's own `error.message`
+ * is never read or shown (hard rule: no raw server text on screen).
+ */
+export type SessionRouteResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; status: number | undefined; code: string | undefined };
+
+async function postSessionRoute<T>(
+  url: string,
+  auth: DeviceAuth,
+  body: unknown,
+): Promise<SessionRouteResult<T>> {
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { ...deviceAuthHeaders(auth), "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const payload: { error?: { code?: string } } | null = await res
+        .json()
+        .catch(() => null);
+      return { ok: false, status: res.status, code: payload?.error?.code };
+    }
+    const payload: { data: T } = await res.json();
+    return { ok: true, data: payload.data };
+  } catch {
+    return { ok: false, status: undefined, code: undefined };
+  }
+}
+
+/** POST /api/v1/capture/sessions (Mulai). */
+export function postSessionStart(
+  auth: DeviceAuth,
+  body: { session_id: string; started_at_ms: number },
+): Promise<SessionRouteResult<{ ok: true }>> {
+  return postSessionRoute("/api/v1/capture/sessions", auth, body);
+}
+
+/** POST /api/v1/capture/sessions/{session_id}/end (Selesai, or a lost/auto_stop close). */
+export function postSessionEnd(
+  auth: DeviceAuth,
+  sessionId: string,
+  body: {
+    started_at_ms: number;
+    ended_at_ms: number;
+    end_reason: "selesai" | "lost" | "auto_stop";
+  },
+): Promise<SessionRouteResult<{ ok: true }>> {
+  return postSessionRoute(`/api/v1/capture/sessions/${sessionId}/end`, auth, body);
+}
+
+/** POST /api/v1/capture/sessions/{session_id}/discard (Batalkan). 200 or 202 are both success. */
+export function postSessionDiscard(
+  auth: DeviceAuth,
+  sessionId: string,
+  body: { started_at_ms: number; discarded_at_ms: number },
+): Promise<SessionRouteResult<{ ok: true; cleanup: "pending" | "done" }>> {
+  return postSessionRoute(`/api/v1/capture/sessions/${sessionId}/discard`, auth, body);
 }
 
 export type CapturePhase = "outside_hours" | "active";

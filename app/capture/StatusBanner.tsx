@@ -17,7 +17,13 @@ import { t, type DictKey } from "@/lib/i18n/dict";
  * session is actually running (before Start, outside hours, after Stop or Pause).
  * It never says "Listening": the label must match what the system is doing.
  */
-export type StatusBannerState = "listening" | "mic_error" | "idle" | "ended_auto";
+export type StatusBannerState =
+  | "listening"
+  | "mic_error"
+  | "idle"
+  | "ended_auto"
+  | "ended"
+  | "discarded";
 
 /**
  * The headline state for an engine state (UX-03 decision A). The headline takes
@@ -34,6 +40,8 @@ const PRESENTATION: Record<StatusBannerState, { emoji: string; label: DictKey; c
   mic_error: { emoji: "🔴", label: "C-h-mic", color: "#b00020" },
   idle: { emoji: "⚪", label: "C-h-idle", color: "#444" },
   ended_auto: { emoji: "■", label: "C-h-ended-auto", color: "#444" },
+  ended: { emoji: "■", label: "C-h-ended", color: "#444" },
+  discarded: { emoji: "⚪", label: "C-h-discarded", color: "#444" },
 };
 
 export interface StatusBannerProps {
@@ -51,7 +59,7 @@ export function StatusBanner({ state, micSource, note = null, endedAt = "" }: St
   const headline =
     state === "ended_auto" ? t(lang, label, { time: endedAt }) : t(lang, label);
   const detail =
-    state === "idle" || state === "ended_auto"
+    state === "idle" || state === "ended_auto" || state === "ended" || state === "discarded"
       ? note
       : state === "mic_error"
         ? t(lang, "C-h-mic-help")

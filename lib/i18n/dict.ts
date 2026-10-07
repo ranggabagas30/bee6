@@ -68,10 +68,41 @@ export const ID = {
   "C-u-lost-help": "Catatan itu jadi tidak lengkap. Tidak bisa dipulihkan.", // lost-line helper, in the copy sheet (UX-03 copy keys; UX-03 section 5.7 row L, decision F)
   "C-u-toast": "Unggah berhasil lagi",
   "C-h-idle": "Belum mulai",
+  "C-h-idle-help": "Ketuk Mulai untuk memulai sesi hari ini.", // shown only when Mulai is offered (UX-03 5.2)
   "C-h-ended-auto": "Selesai otomatis pukul {time}",
+  "C-h-ended": "Selesai",
+  "C-h-discarded": "Sesi dibatalkan",
   "C-m-closed": "Hari ini tutup. Mulai berikutnya {date} pukul 01:00.",
   "C-m-window-passed": "Batas Mulai hari ini sudah lewat pukul {time}. Hari ini dicatat libur. Mulai lagi {date} pukul 01:00.",
+  "C-m-day-ended": "Hari operasional {endedDate} sudah selesai. Mulai bisa ditekan lagi {date} pukul {time}.",
+  "C-m-debrief": "Debrief berlangsung sampai pukul {debriefUntil}. Mulai bisa ditekan lagi {date} pukul {time}.",
   "C-notice-pilot": "Suara diubah jadi catatan kerja singkat. Rekaman suara tidak disimpan.", // capture privacy notice, pilot (UX-03 §5.10)
+
+  // Mulai / Selesai / Batalkan (UX-03 sections 5.4-5.6, copy sheet section 6; R-P1).
+  "C-b-mulai": "Mulai",
+  "C-b-mulai-busy": "Memulai…",
+  "C-b-selesai": "Selesai",
+  "C-n-selesai-from": "Selesai bisa ditekan mulai pukul {time}.",
+  "C-c-selesai-h": "Akhiri operasional hari ini?",
+  "C-c-selesai-b": "Debrief 1 jam dimulai sekarang. Tidak bisa dikembalikan. Mulai baru bisa ditekan lagi {date} pukul {time}.",
+  "C-b-belum-lanjut": "Belum, lanjut",
+  "C-b-ya-selesai": "Ya, selesai",
+  "C-b-batalkan": "Batalkan sesi",
+  "C-c-cancel-h": "Batalkan sesi yang dimulai pukul {time}?",
+  "C-c-cancel-b": "Suara dan catatan sesi ini akan dihapus. Tidak bisa dikembalikan. Hari ini tidak dihitung. Mulai baru bisa ditekan lagi {date} pukul 01:00.",
+  "C-c-cancel-b-now": "Suara dan catatan sesi ini akan dihapus. Tidak bisa dikembalikan. Hari ini tidak dihitung. Mulai baru bisa ditekan segera.",
+  "C-b-tetap-simpan": "Tetap simpan sesi",
+  "C-b-ya-hapus": "Ya, hapus sesi",
+  "C-c-autoclose": "Panel ditutup. Tidak ada yang berubah.",
+  "C-srv-pending": "Menghapus dari server…",
+  "C-srv-offline": "Akan dihapus saat online",
+  "C-srv-done": "Sudah dihapus",
+  // PROVISIONAL: no approved row exists in the UX-03 copy sheet for a Mulai/
+  // Selesai rejection or a Batalkan-after-ended race. Needed so the server's
+  // raw error.message is never rendered (hard rule, lib/i18n/codes.ts); needs
+  // UI/UX sign-off.
+  "C-sess-err": "Tidak bisa memproses itu. Coba lagi.",
+  "C-c-discard-failed": "Sesi ini sudah berakhir. Muat ulang halaman.",
 } as const;
 
 export type DictKey = keyof typeof ID;
@@ -126,10 +157,36 @@ export const EN: Record<DictKey, string> = {
   "C-u-lost-help": "That note is now incomplete. It cannot be recovered.", // lost-line helper, in the copy sheet (UX-03 copy keys; UX-03 section 5.7 row L, decision F)
   "C-u-toast": "Upload working again",
   "C-h-idle": "Not started",
+  "C-h-idle-help": "Tap Start to begin today's session.", // shown only when Mulai is offered (UX-03 5.2)
   "C-h-ended-auto": "Ended automatically at {time}",
+  "C-h-ended": "Ended",
+  "C-h-discarded": "Session cancelled",
   "C-m-closed": "Closed today. Next Start {date} at 01:00.",
   "C-m-window-passed": "The Start cut-off today passed at {time}. Today is recorded as a day off. Next Start {date} at 01:00.",
+  "C-m-day-ended": "The business day {endedDate} has ended. You can tap Start again {date} at {time}.",
+  "C-m-debrief": "The debrief runs until {debriefUntil}. You can tap Start again {date} at {time}.",
   "C-notice-pilot": "Speech becomes short work notes. Audio is not kept.", // capture privacy notice, pilot (UX-03 §5.10)
+
+  "C-b-mulai": "Start",
+  "C-b-mulai-busy": "Starting…",
+  "C-b-selesai": "End",
+  "C-n-selesai-from": "You can tap End from {time}.",
+  "C-c-selesai-h": "End today's operations?",
+  "C-c-selesai-b": "The 1-hour debrief starts now. This cannot be undone. You can tap Start again {date} at {time}.",
+  "C-b-belum-lanjut": "Not yet, keep going",
+  "C-b-ya-selesai": "Yes, end",
+  "C-b-batalkan": "Cancel session",
+  "C-c-cancel-h": "Cancel the session started at {time}?",
+  "C-c-cancel-b": "Its audio and notes will be deleted. This cannot be undone. Today does not count. You can tap Start again {date} at 01:00.",
+  "C-c-cancel-b-now": "Its audio and notes will be deleted. This cannot be undone. Today does not count. You can tap Start again straight away.",
+  "C-b-tetap-simpan": "Keep the session",
+  "C-b-ya-hapus": "Yes, delete session",
+  "C-c-autoclose": "The panel closed. Nothing has changed.",
+  "C-srv-pending": "Removing from server…",
+  "C-srv-offline": "Will be removed when online",
+  "C-srv-done": "Removed",
+  "C-sess-err": "Could not process that. Try again.",
+  "C-c-discard-failed": "This session has already ended. Reload the page.",
 };
 
 export const DICT: Record<Lang, Record<DictKey, string>> = { id: ID, en: EN };
