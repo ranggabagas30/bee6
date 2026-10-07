@@ -100,6 +100,49 @@ describe("idleViewFor: the Mulai button's headline and note (UX-03 5.4)", () => 
     });
   });
 
+  it("T2: closed day after a manual Selesai keeps the Ended headline, never 'Not started' (UX-03 5.2)", () => {
+    // Sat 10 Oct ended; Sun 11 Oct is closed (CONFIG); next open day is Mon 12 Oct 01:00.
+    const config: CaptureConfigResponse = {
+      ...CONFIG,
+      last_ended: { business_date: "2026-10-10", end_reason: "selesai", debrief_ends_at_ms: null },
+    };
+    const SUN_1000_JKT = Date.UTC(2026, 9, 11, 3, 0); // Sun 10:00 WIB
+    expect(idleViewFor({ config, nowMs: SUN_1000_JKT, lang: "en" })).toEqual({
+      headline: "ended",
+      offered: false,
+      note: "The business day Sat 10 Oct has ended. You can tap Start again Mon 12 Oct at 01:00.",
+      endedAt: null,
+    });
+  });
+
+  it("T2: closed day after an auto-stop keeps the Ended-automatically headline with its time", () => {
+    const config: CaptureConfigResponse = {
+      ...CONFIG,
+      last_ended: { business_date: "2026-10-10", end_reason: "auto_stop", debrief_ends_at_ms: null },
+    };
+    const SUN_1000_JKT = Date.UTC(2026, 9, 11, 3, 0); // Sun 10:00 WIB
+    expect(idleViewFor({ config, nowMs: SUN_1000_JKT, lang: "en" })).toEqual({
+      headline: "ended_auto",
+      offered: false,
+      note: "The business day Sat 10 Oct has ended. You can tap Start again Mon 12 Oct at 01:00.",
+      endedAt: "23:00", // close(Sat) 22:00 + 1h auto-stop
+    });
+  });
+
+  it("T2: closed day after a cancel keeps the Session-cancelled headline, no time", () => {
+    const config: CaptureConfigResponse = {
+      ...CONFIG,
+      last_ended: { business_date: "2026-10-10", end_reason: "discarded", debrief_ends_at_ms: null },
+    };
+    const SUN_1000_JKT = Date.UTC(2026, 9, 11, 3, 0); // Sun 10:00 WIB
+    expect(idleViewFor({ config, nowMs: SUN_1000_JKT, lang: "en" })).toEqual({
+      headline: "discarded",
+      offered: false,
+      note: "The business day Sat 10 Oct has ended. You can tap Start again Mon 12 Oct at 01:00.",
+      endedAt: null,
+    });
+  });
+
   it("is Bahasa only in ID (window_passed)", () => {
     const { note } = idleViewFor({ config: CONFIG, nowMs: MON_2330_JKT, lang: "id" });
     expect(note).toBe(

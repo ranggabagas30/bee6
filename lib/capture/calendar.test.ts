@@ -268,6 +268,72 @@ describe("mulaiAvailability (PROD-01 4.0 rule 6, 4.13)", () => {
   });
 });
 
+describe("mulaiAvailability: day_ended persists through a closed day (R-P1 fix, UX-03 5.2)", () => {
+  const base = { weekly: TEST_OUTLET, tz: JKT, session_open: false };
+  const D = "2026-10-14"; // Wed, open in TEST_OUTLET
+  const D1 = addDays(D, 1); // Thu
+  const D2 = addDays(D, 2); // Fri
+  const D3 = addDays(D, 3); // Sat
+
+  it("T1 (regression): open day after — day_ended at 00:30, offered at 01:00", () => {
+    const last = { business_date: D, debrief_ends_at_ms: null };
+    const before = mulaiAvailability({ ...base, last_ended: last, now_ms: wib(`${D1}T00:30:00`) });
+    expect(before.reason).toBe("day_ended");
+    const at = mulaiAvailability({ ...base, last_ended: last, now_ms: wib(`${D1}T01:00:00`) });
+    expect(at).toEqual({ offered: true, reason: "offered", business_date: D1, next_offer_ms: null });
+  });
+
+  it("T2 (the fix): closed day after — stays day_ended, next offer skips to the day after the closed one", () => {
+    const weekly = { ...TEST_OUTLET, thu: null };
+    const last = { business_date: D, debrief_ends_at_ms: null };
+    const r = mulaiAvailability({ ...base, weekly, last_ended: last, now_ms: wib(`${D1}T10:00:00`) });
+    expect(r.reason).toBe("day_ended");
+    expect(r.offered).toBe(false);
+    expect(r.next_offer_ms).toBe(wib(`${D2}T01:00:00`));
+  });
+
+  it("T3: two closed days after — still day_ended through both, enabled the day after", () => {
+    const weekly = { ...TEST_OUTLET, thu: null, fri: null };
+    const last = { business_date: D, debrief_ends_at_ms: null };
+    const r = mulaiAvailability({ ...base, weekly, last_ended: last, now_ms: wib(`${D2}T12:00:00`) });
+    expect(r.reason).toBe("day_ended");
+    expect(r.next_offer_ms).toBe(wib(`${D3}T01:00:00`));
+  });
+
+  it("T4: a stale last_ended (two open days already passed since) is closed_day, not day_ended", () => {
+    const weekly = { ...TEST_OUTLET, wed: null }; // D (Wed) closed; D-1 (Tue) and D-2 (Mon) open
+    const last = { business_date: "2026-10-11", debrief_ends_at_ms: null }; // Sun, 3 days before D
+    const r = mulaiAvailability({ ...base, weekly, last_ended: last, now_ms: wib(`${D}T10:00:00`) });
+    expect(r.reason).toBe("closed_day");
+  });
+
+  it("T5: no last_ended at all on a closed day is closed_day", () => {
+    const weekly = { ...TEST_OUTLET, wed: null };
+    const r = mulaiAvailability({ ...base, weekly, last_ended: null, now_ms: wib(`${D}T10:00:00`) });
+    expect(r.reason).toBe("closed_day");
+  });
+
+  it("T6: debrief running past 01:00 into a closed day, then day_ended once it ends", () => {
+    const weekly = { ...TEST_OUTLET, thu: null };
+    const last = { business_date: D, debrief_ends_at_ms: wib(`${D1}T02:10:00`) };
+    const during = mulaiAvailability({ ...base, weekly, last_ended: last, now_ms: wib(`${D1}T01:30:00`) });
+    expect(during.reason).toBe("debrief_running");
+    const after = mulaiAvailability({ ...base, weekly, last_ended: last, now_ms: wib(`${D1}T02:10:00`) });
+    expect(after.reason).toBe("day_ended");
+  });
+
+  it("T7: every day closed never throws, is closed_day with no next offer", () => {
+    const r = mulaiAvailability({ ...base, weekly: everyDay(null), last_ended: null, now_ms: wib(`${D}T10:00:00`) });
+    expect(r).toEqual({ offered: false, reason: "closed_day", business_date: null, next_offer_ms: null });
+  });
+
+  it("T8 (regression): last ended the day before, today open, now past today's window end — window_passed", () => {
+    const last = { business_date: addDays(D, -1), debrief_ends_at_ms: null };
+    const r = mulaiAvailability({ ...base, last_ended: last, now_ms: wib(`${D}T21:00:01`) });
+    expect(r.reason).toBe("window_passed");
+  });
+});
+
 describe("evaluateCheckpoint", () => {
   const offered = (now: number) =>
     mulaiAvailability({
