@@ -45,6 +45,7 @@ import {
   businessDateOf,
   localDateOf,
   mulaiWindowDateOf,
+  nextOpenDay,
   zonedTimeToEpochMs,
   DEBRIEF_DURATION_MS,
 } from "@/lib/capture/calendar";
@@ -92,6 +93,20 @@ const PANEL_STYLE: React.CSSProperties = {
 };
 
 type View = "loading" | "error" | "unsupported" | "ready";
+
+/**
+ * The next OPEN business day strictly after `localDate` — never the closed
+ * weekday immediately following it (technical spec §8.7: the Selesai/Batalkan
+ * confirm panels must name a day Mulai is actually offered again). Falls back
+ * to the naive next calendar day only if `nextOpenDay` finds no open weekday
+ * within its 7-day search.
+ */
+function nextOpenLocalDate(
+  localDate: string,
+  weekly: CaptureConfigResponse["weekly_hours"],
+): string {
+  return nextOpenDay(addDays(localDate, 1), weekly)?.local_date ?? addDays(localDate, 1);
+}
 
 /** The local session this device is tracking (R-P1: in-memory only — lost on reload). */
 interface LocalSession {
@@ -533,7 +548,7 @@ export default function CapturePage() {
     if (!session || !config || nowMs === null) return null;
     const tz = config.timezone;
     const now = nowMs;
-    const nextDay = addDays(session.local_date, 1);
+    const nextDay = nextOpenLocalDate(session.local_date, config.weekly_hours);
     const nextMulaiMs = Math.max(
       zonedTimeToEpochMs(nextDay, "01:00", tz),
       now + 60 * 60_000,
@@ -580,7 +595,9 @@ export default function CapturePage() {
     const armed = isDiscardArmed(batalkanOpenedAtMs, now);
     const body = nextMulaiIsNow(session.local_date, now, tz)
       ? t(lang, "C-c-cancel-b-now")
-      : t(lang, "C-c-cancel-b", { date: dayLabel(addDays(session.local_date, 1), lang) });
+      : t(lang, "C-c-cancel-b", {
+          date: dayLabel(nextOpenLocalDate(session.local_date, config.weekly_hours), lang),
+        });
     return (
       <div
         role="group"

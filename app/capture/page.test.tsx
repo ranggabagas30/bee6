@@ -288,6 +288,23 @@ describe("CapturePage running state: Selesai (UX-03 §5.5, technical spec §8.3 
     await waitFor(() => expect(screen.getByText("Ended")).toBeTruthy());
     expect(screen.queryByText("Listening")).toBeNull();
   });
+
+  it("the confirm panel's next-Start date skips a closed weekday (technical spec §8.7)", async () => {
+    // Mon session, Tue closed, Wed open: the next-day note must say Wed, not Tue.
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date("2026-10-12T01:00:00Z")); // Mon 08:00 WIB
+    fetchCaptureConfig.mockResolvedValue(
+      config({ sun: null, mon: { open: "08:00", close: "22:00" }, tue: null, wed: { open: "08:00", close: "22:00" } }),
+    );
+    await renderReady();
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+    fireEvent.click(screen.getByRole("button", { name: "End" }));
+    expect(
+      screen.getByText("The 1-hour debrief starts now. This cannot be undone. You can tap Start again Wed 14 Oct at 01:00."),
+    ).toBeTruthy();
+  });
 });
 
 describe("CapturePage running state: Batalkan (UX-03 §5.6, technical spec §8.9)", () => {
@@ -352,6 +369,23 @@ describe("CapturePage running state: Batalkan (UX-03 §5.6, technical spec §8.9
     await vi.advanceTimersByTimeAsync(1_000);
     fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
     await waitFor(() => expect(screen.getByText("Session cancelled")).toBeTruthy());
+  });
+
+  it("the cancel panel's next-Start date skips a closed weekday (technical spec §8.7)", async () => {
+    // Mon session, Tue closed, Wed open: the body text must say Wed, not Tue.
+    pinClock("2026-10-12T01:00:00Z"); // Mon 08:00 WIB
+    fetchCaptureConfig.mockResolvedValue(
+      config({ sun: null, mon: { open: "08:00", close: "22:00" }, tue: null, wed: { open: "08:00", close: "22:00" } }),
+    );
+    await renderReady();
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
+    expect(
+      screen.getByText(
+        "Its audio and notes will be deleted. This cannot be undone. Today does not count. You can tap Start again Wed 14 Oct at 01:00.",
+      ),
+    ).toBeTruthy();
   });
 });
 
