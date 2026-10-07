@@ -90,3 +90,25 @@ describe("copy dictionary", () => {
     }
   });
 });
+
+describe("copy for the status banner after the planned close (UX-03 sections 5.2, 5.4, 6)", () => {
+  it("carries the ended-automatically headline and the two Mulai notes", () => {
+    const cases: Array<[DictKey, string, string]> = [
+      ["C-h-ended-auto", "Selesai otomatis pukul {time}", "Ended automatically at {time}"],
+      [
+        "C-m-closed",
+        "Hari ini tutup. Mulai berikutnya {date} pukul 01:00.",
+        "Closed today. Next Start {date} at 01:00.",
+      ],
+      [
+        "C-m-window-passed",
+        "Batas Mulai hari ini sudah lewat pukul {time}. Hari ini dicatat libur. Mulai lagi {date} pukul 01:00.",
+        "The Start cut-off today passed at {time}. Today is recorded as a day off. Next Start {date} at 01:00.",
+      ],
+    ];
+    for (const [key, id, en] of cases) {
+      expect(ID[key], `ID ${key}`).toBe(id);
+      expect(EN[key], `EN ${key}`).toBe(en);
+    }
+  });
+});
