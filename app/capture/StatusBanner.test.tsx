@@ -59,3 +59,35 @@ describe("headlineStateFor: the headline never shows an upload result", () => {
     expect(headlineStateFor("mic_error")).toBe("mic_error");
   });
 });
+
+describe("StatusBanner: after the planned close (UX-03 5.2)", () => {
+  it("idle shows the Mulai note under Not started", () => {
+    render(
+      <LangProvider initial="en">
+        <StatusBanner state="idle" micSource="built-in" note="Closed today. Next Start Mon 12 Oct at 01:00." />
+      </LangProvider>,
+    );
+    expect(screen.getByText("Not started")).toBeTruthy();
+    expect(screen.getByText("Closed today. Next Start Mon 12 Oct at 01:00.")).toBeTruthy();
+  });
+
+  it("ended_auto shows Ended automatically with the time, never Not started", () => {
+    const { container } = render(
+      <LangProvider initial="en">
+        <StatusBanner state="ended_auto" micSource="built-in" endedAt="23:00" />
+      </LangProvider>,
+    );
+    expect(screen.getByText("Ended automatically at 23:00")).toBeTruthy();
+    expect(container.textContent).not.toMatch(/Not started|Listening/);
+  });
+
+  it("ended_auto in ID is Bahasa only", () => {
+    const { container } = render(
+      <LangProvider initial="id">
+        <StatusBanner state="ended_auto" micSource="built-in" endedAt="23:00" />
+      </LangProvider>,
+    );
+    expect(screen.getByText("Selesai otomatis pukul 23:00")).toBeTruthy();
+    expect(container.textContent).not.toMatch(/Ended|Not started/);
+  });
+});
