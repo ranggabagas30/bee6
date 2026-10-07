@@ -167,14 +167,14 @@ describe("startSession (PROD-01 4.2)", () => {
     expect(f.session?.local_date).toBe("2026-10-15");
   });
 
-  it("rejects a start more than 5 min in the future (400)", async () => {
+  it("rejects a start more than 5 min in the future (422)", async () => {
     const f = fakeStore();
     await expect(
       startSession(f.store, { ...base, started_at_ms: NOW + 5 * 60_000 + 1 }),
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
-  it("rejects a start older than 7 days (400)", async () => {
+  it("rejects a start older than 7 days (422)", async () => {
     const f = fakeStore();
     await expect(
       startSession(f.store, { ...base, started_at_ms: NOW - 7 * 86_400_000 - 1 }),
@@ -250,7 +250,7 @@ describe("endSession (PROD-01 4.2, 4.13 section 5)", () => {
     expect(f2.session?.debrief_ends_at_ms).toBe(wib("2026-10-15T02:00:00") + 3_600_000);
   });
 
-  it("rejects ended before started (400)", async () => {
+  it("rejects ended before started (422)", async () => {
     const f = fakeStore();
     await expect(
       endSession(f.store, { ...base, started_at_ms: started, ended_at_ms: started - 1, end_reason: "selesai" }),
