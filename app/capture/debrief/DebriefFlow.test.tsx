@@ -279,24 +279,49 @@ describe("DebriefFlow: Lanjut commit order and persistence", () => {
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
   });
 
-  it("the typed reason never appears in any storage write except the answer cache entry", async () => {
-    const { fn } = makeFetch({
-      list: () => ({ status: 200, body: listResponse([q("q1")]) }),
-      answer: () => ({ status: 200 }),
+  describe("the typed reason never leaks into any storage write", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
     });
-    const storage = new FakeStorage();
-    render(<Harness fetchFn={fn} storage={storage} />);
-    await openCard();
-    fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "rahasia dapur" } });
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    await waitFor(() => expect(screen.getByText("Debrief complete. Thank you.")).toBeTruthy());
-    for (const call of storage.calls) {
-      if (call.op !== "setItem") continue;
-      if (call.value.includes("rahasia dapur")) {
-        expect(call.key).toBe(ANSWER_CACHE_KEY);
+
+    it("writes it only under the answer cache key, and only after Lanjut", async () => {
+      const { fn } = makeFetch({
+        list: () => ({ status: 200, body: listResponse([q("q1")]) }),
+        answer: () => ({ status: 200 }),
+      });
+      // tech-lead finding 6: `vi.spyOn(Storage.prototype, "setItem")` is the
+      // prescribed way to scan every write regardless of which storage
+      // object/key receives it. It does not work in this repo's jsdom test
+      // environment, verified directly: `window.localStorage` is undefined
+      // here (jsdom needs `--localstorage-file`, which this project does not
+      // configure) and `window.sessionStorage`'s setItem is implemented via a
+      // jsdom-internal Proxy that ignores a prototype- or instance-level
+      // `vi.spyOn` override entirely (ask Rangga/tech-lead to confirm this is
+      // accepted; see the handback report). `vi.spyOn` on the plain
+      // FakeStorage instance itself does work, uses real spy/mock
+      // assertions (not the ad hoc `calls` array), and is still the exact
+      // object `effectiveStorage` resolves to, so it still catches every
+      // write this component makes under any key.
+      const storage = new FakeStorage();
+      const setItemSpy = vi.spyOn(storage, "setItem");
+      render(<Harness fetchFn={fn} storage={storage} />);
+      await openCard();
+      fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
+      fireEvent.change(screen.getByRole("textbox"), { target: { value: "rahasia dapur" } });
+      // Nothing written to any storage key yet, choice and reason typed but Lanjut not tapped.
+      expect(setItemSpy).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole("button", { name: "Next" }));
+      await waitFor(() => expect(screen.getByText("Debrief complete. Thank you.")).toBeTruthy());
+
+      const writesWithReason = setItemSpy.mock.calls.filter(
+        ([, value]) => typeof value === "string" && value.includes("rahasia dapur"),
+      );
+      expect(writesWithReason.length).toBeGreaterThan(0);
+      for (const [key] of writesWithReason) {
+        expect(key).toBe(ANSWER_CACHE_KEY);
       }
-    }
+    });
   });
 });
 
@@ -413,7 +438,7 @@ function LangSwitchButton() {
 }
 
 describe("DebriefFlow: language toggle mid-question", () => {
-  it("keeps the choice and reason when the language actually changes", async () => {
+  it("keeps the choice, the reason and focus on the toggle when the language actually changes", async () => {
     const { fn } = makeFetch({ list: () => ({ status: 200, body: listResponse([q("q1")]) }) });
     const storage = new FakeStorage();
 
@@ -422,7 +447,11 @@ describe("DebriefFlow: language toggle mid-question", () => {
         <LangSwitchButton />
         <DebriefFlow
           auth={AUTH}
-          endsAtMs={60 * 60_000}
+          // Date is frozen at 2026-10-07 (file-level beforeEach); a relative
+          // offset here, not the fixed literal `60 * 60_000` (1970-01-01
+          // 01:00), so `nowMs` (also relative to the frozen `Date.now()`)
+          // never accidentally starts past `endsAtMs`.
+          endsAtMs={Date.now() + HOUR_MS}
           nowMs={0}
           tz="Asia/Jakarta"
           nextMulaiText={null}
@@ -434,10 +463,17 @@ describe("DebriefFlow: language toggle mid-question", () => {
     await openCard();
     fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "masih sama" } });
-    fireEvent.click(screen.getByTestId("switch-lang"));
+    const switchBtn = screen.getByTestId("switch-lang");
+    switchBtn.focus();
+    fireEvent.click(switchBtn);
     // The label is now Bahasa ("Ya"), but the choice and the typed text survive.
     await waitFor(() => expect(screen.getByRole("radio", { name: "Ya" })).toBeTruthy());
     expect(screen.getByRole("radio", { name: "Ya" }).getAttribute("aria-checked")).toBe("true");
     expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("masih sama");
+    // The plan requires the language toggle to keep its own focus — nothing
+    // in QuestionScreen's two focus effects (heading on a new index, the
+    // alert on save_error) fires on a lang change, so this proves neither
+    // one steals it.
+    expect(document.activeElement).toBe(switchBtn);
   });
 });
