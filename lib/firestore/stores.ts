@@ -11,7 +11,7 @@ import type {
   UserRecord,
   UserStore,
 } from "@/lib/auth/services";
-import type { DeviceReader, HeartbeatWriter, OutletReader } from "@/lib/capture/services";
+import type { DeviceCounter, DeviceReader, HeartbeatWriter, OutletReader } from "@/lib/capture/services";
 import type { CaptureSessionStore, AuditDraft } from "@/lib/capture/session-service";
 import { DISCARD_DELETE_BATCH_MAX } from "@/lib/capture/session-service";
 import {
@@ -154,7 +154,7 @@ export function deviceDocId(outletId: string, deviceId: string): string {
  * `${outlet_id}:${device_id}` (see scripts/seed.ts), and heartbeats live in its
  * `heartbeats` subcollection keyed by timestamp.
  */
-export function firestoreCaptureStore(): OutletReader & DeviceReader & HeartbeatWriter {
+export function firestoreCaptureStore(): OutletReader & DeviceReader & HeartbeatWriter & DeviceCounter {
   const db = adminDb();
   return {
     async getOutlet(outletId) {
@@ -175,6 +175,18 @@ export function firestoreCaptureStore(): OutletReader & DeviceReader & Heartbeat
         .collection(COLLECTIONS.heartbeats)
         .doc(heartbeat.ts)
         .set(heartbeat);
+    },
+    async countPairedDevices(outletId) {
+      // Single outlet_id-scoped query, filtered in memory — avoids asking
+      // Firestore for a new composite index for a display-only field
+      // (R-07 Task 8).
+      const snap = await db.collection(COLLECTIONS.devices).where("outlet_id", "==", outletId).get();
+      let count = 0;
+      for (const doc of snap.docs) {
+        const data = DeviceSchema.parse(doc.data());
+        if (data.paired_at !== null && data.revoked !== true) count += 1;
+      }
+      return count;
     },
   };
 }
