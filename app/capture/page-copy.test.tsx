@@ -49,6 +49,7 @@ vi.mock("@/lib/capture/browser/session", () => ({
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.useRealTimers();
   document.cookie = "bee6_lang=; Path=/; Max-Age=0";
 });
 
@@ -203,4 +204,134 @@ describe("capture page: one language per render", () => {
     const body = container.querySelector("main")?.textContent ?? "";
     expect(body).not.toMatch(/Some speech|Not sent yet|Server busy|Microphone:|Listening|Audio is being/);
   });
+});
+
+// Monday 2026-10-12 23:30 in Asia/Jakarta: after the 22:00 close and the 18:00 Start cut-off.
+const MON_2330_JKT = new Date("2026-10-12T16:30:00Z");
+
+describe("capture page: the status banner after the planned close (UX-03 decision 7 Oct)", () => {
+  it("after a time-based close with no session today: Not started and the Mulai note; the hours section is not the only content", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(MON_2330_JKT);
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    fetchCaptureConfig.mockResolvedValue(CONFIG);
+    resolveCapturePhase.mockReturnValue("outside_hours");
+    const { container } = await renderPage("en");
+    await waitFor(() => expect(screen.getByText("Not started")).toBeTruthy());
+    expect(
+      screen.getByText(
+        "The Start cut-off today passed at 18:00. Today is recorded as a day off. Next Start Tue 13 Oct at 01:00.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("Paused · outside opening hours")).toBeTruthy();
+    expect(container.querySelector("main")?.textContent).not.toMatch(/Ended automatically/);
+  });
+
+  it("a session that auto-stopped today (server last_ended) shows Ended automatically, not Not started", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(MON_2330_JKT);
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    fetchCaptureConfig.mockResolvedValue({
+      ...CONFIG,
+      last_ended: { business_date: "2026-10-12", end_reason: "auto_stop", debrief_ends_at_ms: null },
+    });
+    resolveCapturePhase.mockReturnValue("outside_hours");
+    await renderPage("en");
+    await waitFor(() => expect(screen.getByText("Ended automatically at 23:00")).toBeTruthy());
+    expect(screen.queryByText("Not started")).toBeNull();
+  });
+
+  it("a session that this page saw auto-stop at the close shows Ended automatically on the next tick", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(MON_2330_JKT);
+    // Capture the page's 30 s phase tick instead of faking timers (fake timers also stop
+    // testing-library's waitFor polling). Every other interval is passed through.
+    const realSetInterval = globalThis.setInterval;
+    const realSetTimeout = globalThis.setTimeout;
+    let phaseTick: (() => void) | null = null;
+    const spy = vi.spyOn(globalThis, "setInterval").mockImplementation(((
+      fn: () => void,
+      ms?: number,
+      ...rest: unknown[]
+    ) => {
+      if (ms === 30_000) {
+        phaseTick = fn;
+        return 0 as unknown as ReturnType<typeof setInterval>;
+      }
+      return realSetInterval(fn, ms, ...rest);
+    }) as typeof setInterval);
+    try {
+      readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+      fetchCaptureConfig.mockResolvedValue(CONFIG);
+      resolveCapturePhase.mockReturnValue("active");
+      await renderPage("en");
+      await waitFor(() => expect(screen.getByText("Some speech was not captured")).toBeTruthy());
+      resolveCapturePhase.mockReturnValue("outside_hours");
+      phaseTick?.();
+      await new Promise((resolve) => realSetTimeout(resolve, 50));
+      expect(screen.getByText("Ended automatically at 23:00")).toBeTruthy();
+      expect(screen.queryByText("Not started")).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("the heading and the banner stay on the page after the close", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(MON_2330_JKT);
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    fetchCaptureConfig.mockResolvedValue(CONFIG);
+    resolveCapturePhase.mockReturnValue("outside_hours");
+    await renderPage("id");
+    await waitFor(() => expect(screen.getByText("Belum mulai")).toBeTruthy());
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("HP toko");
+  });
+});
+
+// Bahasa and English words that must never appear on the other language's screen. The
+// top-bar switch names both languages by design, so those two labels are removed first.
+const SWITCH_LABELS = /Bahasa Indonesia|English/g;
+const ID_WORDS = /\b(Mendengarkan|Belum|Selesai|Mulai|Hari|Jam|Dijeda|Tutup|Mikrofon|Sudah|Memuat|Batas|Mengunggah|Sebagian|Server sibuk|Tidak|Suara|Rekaman|Pilih|Lanjutkan|Tekan|Ketuk)\b/;
+const EN_WORDS = /\b(Listening|Shop|Not started|Ended|Start|Closed|Next|Paused|Opening|Loading|Microphone|Uploading|Some speech|Server busy|Choose|Recording|Today|Tap|Continue|hours)\b/;
+
+describe("capture page: no Bahasa text on an EN screen, no English on an ID screen", () => {
+  const SCENARIOS: Array<{ name: string; phase: "active" | "outside_hours"; config: unknown }> = [
+    { name: "outside hours after a close", phase: "outside_hours", config: CONFIG },
+    {
+      name: "auto-stopped today",
+      phase: "outside_hours",
+      config: { ...CONFIG, last_ended: { business_date: "2026-10-12", end_reason: "auto_stop", debrief_ends_at_ms: null } },
+    },
+    { name: "listening with a lost segment", phase: "active", config: CONFIG },
+  ];
+
+  for (const scenario of SCENARIOS) {
+    it(`${scenario.name}: EN is English only`, async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(MON_2330_JKT);
+      readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+      fetchCaptureConfig.mockResolvedValue(scenario.config);
+      resolveCapturePhase.mockReturnValue(scenario.phase);
+      const { container } = await renderPage("en");
+      await waitFor(() => expect(screen.getByRole("heading", { level: 1 })).toBeTruthy());
+      await waitFor(() => expect(container.querySelector("[data-testid='upload-status']")).toBeTruthy());
+      const body = (container.querySelector("main")?.textContent ?? "").replace(SWITCH_LABELS, "");
+      expect(body).toContain("Shop phone");
+      expect(body).not.toMatch(ID_WORDS);
+    });
+
+    it(`${scenario.name}: ID is Bahasa only`, async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(MON_2330_JKT);
+      readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+      fetchCaptureConfig.mockResolvedValue(scenario.config);
+      resolveCapturePhase.mockReturnValue(scenario.phase);
+      const { container } = await renderPage("id");
+      await waitFor(() => expect(screen.getByRole("heading", { level: 1 })).toBeTruthy());
+      await waitFor(() => expect(container.querySelector("[data-testid='upload-status']")).toBeTruthy());
+      const body = (container.querySelector("main")?.textContent ?? "").replace(SWITCH_LABELS, "");
+      expect(body).toContain("HP toko");
+      expect(body).not.toMatch(EN_WORDS);
+    });
+  }
 });
