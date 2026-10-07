@@ -19,6 +19,11 @@ function withLang(lang: Lang, ui: ReactElement) {
 
 afterEach(() => cleanup());
 
+// The count sits in an aria-hidden span, so the row's full text is matched on its <p>.
+function rowByText(text: string) {
+  return screen.getByText((_, el) => el?.tagName === "P" && el.textContent === text);
+}
+
 describe("deriveUploadView (pure, language-free)", () => {
   it("maps an offline engine with failed attempts to a retry row with the count", () => {
     expect(
@@ -69,7 +74,7 @@ describe("UploadStatusLine server-busy hint is gated on a real server error (UX-
     const { container } = render(
       withLang("en", <UploadStatusLine view={{ phase: "retrying", failedAttempts: 1 }} online={true} httpStatus={null} />),
     );
-    expect(screen.getByText("Not sent yet · retrying (1x)")).toBeTruthy();
+    expect(rowByText("Not sent yet · retrying (1x)")).toBeTruthy();
     expect(container.textContent).not.toMatch(/Server busy/);
   });
 
@@ -105,7 +110,7 @@ describe("UploadStatusLine renders one language per render", () => {
         <UploadStatusLine view={{ phase: "retrying", failedAttempts: 2 }} online={true} httpStatus={503} />
       )),
     );
-    expect(screen.getByText("Not sent yet · retrying (2x)")).toBeTruthy();
+    expect(rowByText("Not sent yet · retrying (2x)")).toBeTruthy();
     expect(screen.getByText("Server busy")).toBeTruthy();
     expect(container.textContent).not.toMatch(/Belum|sibuk|mencoba|Mengunggah/);
   });
@@ -116,7 +121,7 @@ describe("UploadStatusLine renders one language per render", () => {
         <UploadStatusLine view={{ phase: "retrying", failedAttempts: 2 }} online={true} httpStatus={503} />
       )),
     );
-    expect(screen.getByText("Belum terkirim · mencoba lagi (2x)")).toBeTruthy();
+    expect(rowByText("Belum terkirim · mencoba lagi (2x)")).toBeTruthy();
     expect(screen.getByText("Server sibuk")).toBeTruthy();
     expect(container.textContent).not.toMatch(/Not sent|Server busy|retrying/);
   });
@@ -135,7 +140,7 @@ describe("UploadStatusLine renders one language per render", () => {
       withLang("id", <UploadStatusLine view={{ phase: "retrying", failedAttempts: 2 }} online={false} />),
     );
     expect(screen.getByText("Tidak ada internet. Sambungkan agar antrean terkirim.")).toBeTruthy();
-    expect(screen.getByText("Belum terkirim · mencoba lagi (2x)")).toBeTruthy();
+    expect(rowByText("Belum terkirim · mencoba lagi (2x)")).toBeTruthy();
     expect(container.textContent).not.toMatch(/No internet|Server busy|Server sibuk/);
   });
 
@@ -159,12 +164,6 @@ describe("UploadStatusLine renders one language per render", () => {
     expect(container.textContent).not.toMatch(/Some speech|incomplete/);
   });
 
-  it("the lost-line helper is not inside a live region (copy keys: not announced)", () => {
-    render(withLang("en", <UploadStatusLine view={{ phase: "retrying", failedAttempts: 2 }} online={false} lost={true} />));
-    const helper = screen.getByText("That note is now incomplete. It cannot be recovered.");
-    expect(helper.closest('[role="status"], [aria-live]')).toBeNull();
-  });
-
   it("the lost value stays inside the polite live region, and the helper sits right under it", () => {
     render(withLang("en", <UploadStatusLine view={{ phase: "retrying", failedAttempts: 2 }} online={false} lost={true} />));
     const lostValue = screen.getByText("Some speech was not captured");
@@ -172,10 +171,65 @@ describe("UploadStatusLine renders one language per render", () => {
     expect(region).not.toBeNull();
     expect(region?.getAttribute("role")).toBe("status");
     const helper = screen.getByText("That note is now incomplete. It cannot be recovered.");
-    const retryRow = screen.getByText("Not sent yet · retrying (2x)");
+    const retryRow = rowByText("Not sent yet · retrying (2x)");
     // Visual order (lost value, helper, retry row) is unchanged: the helper follows the lost value and precedes the retry row.
     expect(lostValue.compareDocumentPosition(helper) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(helper.compareDocumentPosition(retryRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("the whole block is ONE role=status aria-live=polite region holding the lost value and the retry row", () => {
+    const { container } = render(
+      withLang("en", <UploadStatusLine view={{ phase: "retrying", failedAttempts: 2 }} online={false} lost={true} />),
+    );
+    const live = container.querySelectorAll("[aria-live]");
+    expect(live.length).toBe(1);
+    expect(live[0].getAttribute("role")).toBe("status");
+    expect(live[0].getAttribute("aria-live")).toBe("polite");
+    expect(container.querySelectorAll('[role="status"]').length).toBe(1);
+    expect(live[0].textContent).toContain("Some speech was not captured");
+    expect(live[0].textContent).toContain("That note is now incomplete. It cannot be recovered.");
+    expect(live[0].textContent).toContain("Not sent yet · retrying");
+    expect(live[0].textContent).toBe(
+      "▲ Some speech was not captured" +
+        "That note is now incomplete. It cannot be recovered." +
+        "Not sent yet · retrying (2x)" +
+        "No internet. Connect so the queued items can send.",
+    );
+  });
+
+  it("the lost-line helper is inside that region and is not aria-hidden", () => {
+    render(withLang("en", <UploadStatusLine view={{ phase: "retrying", failedAttempts: 2 }} online={false} lost={true} />));
+    const region = screen.getByTestId("upload-status");
+    const helper = screen.getByText("That note is now incomplete. It cannot be recovered.");
+    expect(region.contains(helper)).toBe(true);
+    expect(helper.closest('[aria-hidden="true"]')).toBeNull();
+  });
+
+  it("the retry count is inside an aria-hidden element; the row's words are not", () => {
+    render(withLang("en", <UploadStatusLine view={{ phase: "retrying", failedAttempts: 2 }} online={true} httpStatus={503} />));
+    const count = screen.getByText("(2x)");
+    expect(count.getAttribute("aria-hidden")).toBe("true");
+    const words = screen.getByText("Not sent yet · retrying");
+    expect(words.closest('[aria-hidden="true"]')).toBeNull();
+    expect(screen.getByTestId("upload-status").contains(words)).toBe(true);
+  });
+
+  it("the recovery toast sits outside the block, with its own role=status", () => {
+    vi.useFakeTimers();
+    try {
+      const { rerender } = render(
+        withLang("en", <UploadStatusLine view={{ phase: "retrying", failedAttempts: 1 }} online={true} />),
+      );
+      rerender(withLang("en", <UploadStatusLine view={{ phase: "succeeded" }} />));
+      const toast = screen.getByTestId("upload-toast");
+      const block = screen.getByTestId("upload-status");
+      expect(toast.getAttribute("role")).toBe("status");
+      expect(block.contains(toast)).toBe(false);
+      expect(toast.contains(block)).toBe(false);
+      expect(block.textContent).not.toContain("Upload working again");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("hides the succeeded row while the lost line is up", () => {
