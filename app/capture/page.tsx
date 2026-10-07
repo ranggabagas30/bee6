@@ -367,10 +367,6 @@ export default function CapturePage() {
           <StatusBanner
             state={sessionRunning ? headlineStateFor(status?.state ?? "listening") : "idle"}
             micSource={micSource}
-            // No Mulai control exists on this page yet (start is opening-hours
-            // gated); the dev panel's Start is the only start control, so the
-            // idle helper follows it. See report: no mulai-available state yet.
-            startOffered={devControlsEnabled && !sessionRunning}
           />
           {sampleRateMsg ? (
             <p role="alert" style={{ color: "#b00020", marginTop: 16 }}>

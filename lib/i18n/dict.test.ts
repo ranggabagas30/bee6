@@ -66,17 +66,17 @@ describe("copy dictionary", () => {
     }
   });
 
+  it("has no idle-helper key: it has no approved row in UX-03 section 5.2 and no defined condition", () => {
+    expect(Object.keys(ID)).not.toContain("C-h-idle-help");
+    expect(Object.keys(EN)).not.toContain("C-h-idle-help");
+  });
+
   it("carries the copy keys added 7 Oct (UX-03 copy sheet, section 6)", () => {
     const cases: Array<[DictKey, string, string]> = [
       [
         "C-u-inet",
         "Tidak ada internet. Sambungkan agar antrean terkirim.",
         "No internet. Connect so the queued items can send.",
-      ],
-      [
-        "C-h-idle-help",
-        "Ketuk Mulai untuk memulai sesi hari ini.",
-        "Tap Start to begin today's session.",
       ],
       [
         "C-notice-pilot",

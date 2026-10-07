@@ -38,25 +38,13 @@ const PRESENTATION: Record<StatusBannerState, { emoji: string; label: DictKey; c
 export interface StatusBannerProps {
   state: StatusBannerState;
   micSource: string;
-  /**
-   * True only when the page offers Mulai (UX-03 §5.2). The idle helper
-   * (C-h-idle-help) shows only then. When Mulai is not offered the banner says
-   * nothing under "Not started"; the Mulai reason note belongs to the page.
-   */
-  startOffered?: boolean;
 }
 
-export function StatusBanner({ state, micSource, startOffered = false }: StatusBannerProps) {
+export function StatusBanner({ state, micSource }: StatusBannerProps) {
   const { lang } = useLang();
   const { emoji, label, color } = PRESENTATION[state];
   const detail =
-    state === "idle"
-      ? startOffered
-        ? t(lang, "C-h-idle-help")
-        : null
-      : state === "mic_error"
-          ? t(lang, "C-h-mic-help")
-          : t(lang, "C-cap-capturing");
+    state === "idle" ? null : state === "mic_error" ? t(lang, "C-h-mic-help") : t(lang, "C-cap-capturing");
 
   return (
     <section
