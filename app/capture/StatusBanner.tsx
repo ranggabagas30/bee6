@@ -12,26 +12,35 @@ import { t, type DictKey } from "@/lib/i18n/dict";
  * captures, so its headline is "Listening" and the waiting count is the detail.
  */
 
+/**
+ * `"idle"` is the neutral "not started" state the page shows whenever no capture
+ * session is actually running (before Start, outside hours, after Stop or Pause).
+ * It never says "Listening": the label must match what the system is doing.
+ */
+export type StatusBannerState = CaptureState | "idle";
+
 const PRESENTATION: Record<
-  CaptureState,
-  { emoji: string; label: DictKey; color: string }
+  StatusBannerState,
+  { emoji: string; label: DictKey; color: string; detail: DictKey | null }
 > = {
-  listening: { emoji: "🟢", label: "C-h-listening", color: "#1b5e20" },
-  offline: { emoji: "🟡", label: "C-h-listening", color: "#8d6e00" },
-  mic_error: { emoji: "🔴", label: "C-h-mic", color: "#b00020" },
+  listening: { emoji: "🟢", label: "C-h-listening", color: "#1b5e20", detail: null },
+  offline: { emoji: "🟡", label: "C-h-listening", color: "#8d6e00", detail: null },
+  mic_error: { emoji: "🔴", label: "C-h-mic", color: "#b00020", detail: null },
+  idle: { emoji: "⚪", label: "C-h-idle", color: "#444", detail: "C-h-idle-help" },
 };
 
 export interface StatusBannerProps {
-  state: CaptureState;
+  state: StatusBannerState;
   queuedCount: number;
   micSource: string;
 }
 
 export function StatusBanner({ state, queuedCount, micSource }: StatusBannerProps) {
   const { lang } = useLang();
-  const { emoji, label, color } = PRESENTATION[state];
-  const detail =
-    state === "offline"
+  const { emoji, label, color, detail: detailKey } = PRESENTATION[state];
+  const detail = detailKey
+    ? t(lang, detailKey)
+    : state === "offline"
       ? t(lang, "C-cap-waiting", { N: queuedCount })
       : state === "mic_error"
         ? t(lang, "C-h-mic-help")
