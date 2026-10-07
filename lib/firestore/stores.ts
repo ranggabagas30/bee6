@@ -154,8 +154,9 @@ export function deviceDocId(outletId: string, deviceId: string): string {
  * `${outlet_id}:${device_id}` (see scripts/seed.ts), and heartbeats live in its
  * `heartbeats` subcollection keyed by timestamp.
  */
-export function firestoreCaptureStore(): OutletReader & DeviceReader & HeartbeatWriter & DeviceCounter {
-  const db = adminDb();
+export function firestoreCaptureStore(
+  db: Firestore = adminDb(),
+): OutletReader & DeviceReader & HeartbeatWriter & DeviceCounter {
   return {
     async getOutlet(outletId) {
       const doc = await db.collection(COLLECTIONS.outlets).doc(outletId).get();
@@ -183,8 +184,12 @@ export function firestoreCaptureStore(): OutletReader & DeviceReader & Heartbeat
       const snap = await db.collection(COLLECTIONS.devices).where("outlet_id", "==", outletId).get();
       let count = 0;
       for (const doc of snap.docs) {
-        const data = DeviceSchema.parse(doc.data());
-        if (data.paired_at !== null && data.revoked !== true) count += 1;
+        // safeParse, not parse: a malformed sibling doc (old pairing doc, manual
+        // console edit) must not fail this count — it is skipped, not thrown,
+        // so one bad doc can't 500 every phone's capture config in the outlet.
+        const result = DeviceSchema.safeParse(doc.data());
+        if (!result.success) continue;
+        if (result.data.paired_at !== null && result.data.revoked !== true) count += 1;
       }
       return count;
     },
