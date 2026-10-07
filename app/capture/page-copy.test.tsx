@@ -248,14 +248,14 @@ describe("capture page: the status banner after the planned close (UX-03 decisio
     // testing-library's waitFor polling). Every other interval is passed through.
     const realSetInterval = globalThis.setInterval;
     const realSetTimeout = globalThis.setTimeout;
-    let phaseTick: (() => void) | null = null;
+    const phaseTicks: Array<() => void> = [];
     const spy = vi.spyOn(globalThis, "setInterval").mockImplementation(((
       fn: () => void,
       ms?: number,
       ...rest: unknown[]
     ) => {
       if (ms === 30_000) {
-        phaseTick = fn;
+        phaseTicks.push(fn);
         return 0 as unknown as ReturnType<typeof setInterval>;
       }
       return realSetInterval(fn, ms, ...rest);
@@ -267,7 +267,7 @@ describe("capture page: the status banner after the planned close (UX-03 decisio
       await renderPage("en");
       await waitFor(() => expect(screen.getByText("Some speech was not captured")).toBeTruthy());
       resolveCapturePhase.mockReturnValue("outside_hours");
-      phaseTick?.();
+      phaseTicks[0]?.();
       await new Promise((resolve) => realSetTimeout(resolve, 50));
       expect(screen.getByText("Ended automatically at 23:00")).toBeTruthy();
       expect(screen.queryByText("Not started")).toBeNull();
