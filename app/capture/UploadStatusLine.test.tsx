@@ -183,13 +183,14 @@ describe("UploadStatusLine renders one language per render", () => {
     );
     const live = container.querySelectorAll("[aria-live]");
     expect(live.length).toBe(1);
-    expect(live[0].getAttribute("role")).toBe("status");
-    expect(live[0].getAttribute("aria-live")).toBe("polite");
+    const block = live[0] as HTMLElement;
+    expect(block.getAttribute("role")).toBe("status");
+    expect(block.getAttribute("aria-live")).toBe("polite");
     expect(container.querySelectorAll('[role="status"]').length).toBe(1);
-    expect(live[0].textContent).toContain("Some speech was not captured");
-    expect(live[0].textContent).toContain("That note is now incomplete. It cannot be recovered.");
-    expect(live[0].textContent).toContain("Not sent yet · retrying");
-    expect(live[0].textContent).toBe(
+    expect(block.textContent).toContain("Some speech was not captured");
+    expect(block.textContent).toContain("That note is now incomplete. It cannot be recovered.");
+    expect(block.textContent).toContain("Not sent yet · retrying");
+    expect(block.textContent).toBe(
       "▲ Some speech was not captured" +
         "That note is now incomplete. It cannot be recovered." +
         "Not sent yet · retrying (2x)" +
