@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useReducer, useState } from "react";
-import { reduceDebrief, type DebriefState } from "@/lib/debrief/flow";
+import { canCommit, reduceDebrief, type DebriefState } from "@/lib/debrief/flow";
 import { DebriefListResponseSchema } from "@/lib/debrief/contract";
 import { appendAnswer, CacheWriteError, cachedIds, pendingSummary, purgeNow, readCache } from "@/lib/debrief/answer-cache";
 import { createAnswerUploader, type AnswerUploader, type Disposition } from "@/lib/debrief/answer-uploader";
@@ -168,6 +168,10 @@ export function DebriefFlow({ auth, endsAtMs, nowMs, tz, nextMulaiText, fetchFn,
       dispatch({ type: "TICK", now_ms: now });
       return;
     }
+    // Defensive: the disabled Lanjut button is the only UI guard against an
+    // incomplete answer; this stops a stray call (e.g. a test or a future
+    // caller) from committing one regardless.
+    if (!canCommit(state.view)) return;
     const question = state.view.list[state.view.index];
     if (!question || state.view.choice === null || !effectiveStorage) return;
     const entry = {
