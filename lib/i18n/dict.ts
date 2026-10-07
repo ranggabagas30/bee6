@@ -40,7 +40,7 @@ export const ID = {
   "C-b-buka-mendengarkan": "Buka halaman mendengarkan",
 
   // /capture headline, states and helpers
-  "C-cap-title": "Mendengarkan toko", // PROVISIONAL: pending sign-off (HANDOFF)
+  "C-cap-title": "HP toko", // one fixed neutral heading on every state (UX-03, 7 Oct)
   "C-h-loading": "Memuat…",
   "C-h-error": "Jam buka belum termuat",
   "C-h-error-help": "Jam buka belum termuat. Sambung internet sekali, lalu buka.",
@@ -98,7 +98,7 @@ export const EN: Record<DictKey, string> = {
   "C-pair-step-4": "The End button appears 4 hours after Start.",
   "C-b-buka-mendengarkan": "Open the listening page",
 
-  "C-cap-title": "Shop listening", // PROVISIONAL
+  "C-cap-title": "Shop phone", // one fixed neutral heading on every state (UX-03, 7 Oct)
   "C-h-loading": "Loading…",
   "C-h-error": "Opening hours not loaded yet",
   "C-h-error-help": "Opening hours have not loaded yet. Connect to the internet once, then reopen.",
