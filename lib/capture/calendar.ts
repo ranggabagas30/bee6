@@ -236,6 +236,20 @@ export interface LastEndedInput {
   debrief_ends_at_ms: number | null;
 }
 
+/**
+ * Walking back from `localDate` (1 to 7 days), the first day with hours, or
+ * null if none of the 7 preceding days has any (§4.13, R-P1 fix: tells a
+ * closed day apart from a day that only looks closed because the shop has
+ * never been open, so a stale `last_ended` isn't mistaken for a live one).
+ */
+function previousOpenDay(localDate: string, weekly: WeeklyHours): string | null {
+  for (let i = 1; i <= 7; i++) {
+    const d = addDays(localDate, -i);
+    if (hoursOn(d, weekly)) return d;
+  }
+  return null;
+}
+
 /** First instant >= now at which Mulai is offered, searching up to 8 days ahead. */
 function nextOfferMs(
   now: number,
@@ -274,10 +288,13 @@ export function mulaiAvailability(input: {
     business_date: null,
     next_offer_ms: nextOfferMs(now, weekly, tz, d, last),
   });
-  if (!w) return blocked("closed_day");
   if (last && d <= last.business_date) return blocked("day_ended");
   if (last?.debrief_ends_at_ms != null && now < last.debrief_ends_at_ms) {
     return blocked("debrief_running");
+  }
+  if (!w) {
+    const p = previousOpenDay(d, weekly);
+    return blocked(last && p !== null && p <= last.business_date ? "day_ended" : "closed_day");
   }
   if (now > w.end_ms) return blocked("window_passed");
   return { offered: true, reason: "offered", business_date: d, next_offer_ms: null };
