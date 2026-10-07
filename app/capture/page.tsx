@@ -528,37 +528,24 @@ export default function CapturePage() {
   };
 
   // ── idle view (no session open) ─────────────────────────────────────────────
-  function renderDebriefFlow() {
-    // nowMs is set by the mount-time tick effect before any debrief can
-    // exist (debriefEndsAtMs only comes from a real Selesai/auto-stop, both
-    // of which require config/nowMs already loaded), so the `nowMs === null`
-    // arm is defensive only.
-    if (debriefEndsAtMs === null || nowMs === null || !effectiveConfig) return null;
-    const auth = readDeviceAuth();
-    if (!auth) return null;
-    return (
-      <DebriefFlow
-        key={debriefEndsAtMs}
-        auth={auth}
-        endsAtMs={debriefEndsAtMs}
-        nowMs={nowMs}
-        tz={effectiveConfig.timezone}
-        nextMulaiText={nextMulaiText}
-      />
-    );
-  }
-
+  // The debrief card sits above the primary slot (UX-03 §5.2 / plan §7.5),
+  // and while a question is open it must replace the idle section entirely —
+  // no headline, no Mulai, no `C-h-idle-help` underneath (tech-lead ruling,
+  // UX-03 §5.8). `DebriefFlow` owns that placement via its `headline`/
+  // `primary` slots; `renderIdle` only builds the two pieces and decides
+  // whether a debrief exists to hand them to.
   function renderIdle() {
     if (!idle) return null;
-    return (
+    const headline = (
+      <StatusBanner
+        state={idle.headline}
+        micSource={micSource}
+        note={idle.note}
+        endedAt={idle.endedAt ?? undefined}
+      />
+    );
+    const primary = (
       <>
-        {renderDebriefFlow()}
-        <StatusBanner
-          state={idle.headline}
-          micSource={micSource}
-          note={idle.note}
-          endedAt={idle.endedAt ?? undefined}
-        />
         <button
           type="button"
           style={PRIMARY_BUTTON_STYLE}
@@ -575,6 +562,32 @@ export default function CapturePage() {
           </p>
         ) : null}
       </>
+    );
+
+    // nowMs is set by the mount-time tick effect before any debrief can
+    // exist (debriefEndsAtMs only comes from a real Selesai/auto-stop, both
+    // of which require config/nowMs already loaded), so the `nowMs === null`
+    // arm is defensive only.
+    const auth = debriefEndsAtMs !== null && nowMs !== null && effectiveConfig ? readDeviceAuth() : null;
+    if (debriefEndsAtMs === null || nowMs === null || !effectiveConfig || !auth) {
+      return (
+        <>
+          {headline}
+          {primary}
+        </>
+      );
+    }
+    return (
+      <DebriefFlow
+        key={debriefEndsAtMs}
+        auth={auth}
+        endsAtMs={debriefEndsAtMs}
+        nowMs={nowMs}
+        tz={effectiveConfig.timezone}
+        nextMulaiText={nextMulaiText}
+        headline={headline}
+        primary={primary}
+      />
     );
   }
 

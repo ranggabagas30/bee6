@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { DebriefFlow } from "@/app/capture/debrief/DebriefFlow";
@@ -104,11 +104,16 @@ function Harness({
   storage,
   endsAtMs,
   nowMs,
+  headline,
+  primary,
 }: {
   fetchFn: typeof fetch;
   storage: Storage;
   endsAtMs?: number;
   nowMs?: number;
+  /** Tech-lead finding 3: proves these are only shown for `closed`/`timed_out`. */
+  headline?: ReactNode;
+  primary?: ReactNode;
 }) {
   // Date is frozen per-test (see the file-level beforeEach), so these
   // Date.now()-relative defaults are stable across this render and every
@@ -129,6 +134,8 @@ function Harness({
         nextMulaiText={null}
         fetchFn={fetchFn}
         storage={storage}
+        headline={headline}
+        primary={primary}
       />
     </LangProvider>
   );
@@ -156,6 +163,49 @@ describe("DebriefFlow: list loading", () => {
     expect(screen.getByText("Questions could not load yet.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(fn).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe("DebriefFlow: headline/primary slots (tech-lead finding 3)", () => {
+  it("the headline and the Mulai section show on the entry card but not while a question is open", async () => {
+    const { fn } = makeFetch({ list: () => ({ status: 200, body: listResponse([q("q1")]) }) });
+    const storage = new FakeStorage();
+    render(
+      <Harness
+        fetchFn={fn}
+        storage={storage}
+        headline={<p>Headline</p>}
+        primary={<button type="button">Start</button>}
+      />,
+    );
+    expect(screen.getByText("Headline")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start" })).toBeTruthy();
+    await openCard();
+    expect(screen.queryByText("Headline")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+  });
+
+  it("the headline and the Mulai section show again on the timeout screen", async () => {
+    const endsAtMs = Date.now() + 5_000;
+    const { fn } = makeFetch({ list: () => ({ status: 200, body: listResponse([q("q1")], "2026-10-07", endsAtMs) }) });
+    const storage = new FakeStorage();
+    render(
+      <Harness
+        fetchFn={fn}
+        storage={storage}
+        endsAtMs={endsAtMs}
+        nowMs={Date.now()}
+        headline={<p>Headline</p>}
+        primary={<button type="button">Start</button>}
+      />,
+    );
+    await openCard();
+    expect(screen.queryByText("Headline")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+    fireEvent.click(screen.getByTestId("advance-now"));
+    await waitFor(() => expect(screen.getByText(/The debrief time ran out/)).toBeTruthy());
+    expect(screen.getByText("Headline")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start" })).toBeTruthy();
   });
 });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useReducer, useState, type ReactNode } from "react";
 import { canCommit, reduceDebrief, type DebriefState } from "@/lib/debrief/flow";
 import { DebriefListResponseSchema } from "@/lib/debrief/contract";
 import { appendAnswer, CacheWriteError, cachedIds, pendingSummary, purgeNow, readCache } from "@/lib/debrief/answer-cache";
@@ -30,6 +30,16 @@ export interface DebriefFlowProps {
   nowMs: number;
   tz: string;
   nextMulaiText: { day: string; hm: string } | null;
+  /**
+   * The StatusBanner headline, rendered above the card (`closed`) or the
+   * timeout block (`timed_out`) — never alongside loading/load_error/empty/
+   * question/done, which replace the idle section entirely (tech-lead
+   * ruling, UX-03 §5.8: one screen at a time, no Mulai underneath an open
+   * question).
+   */
+  headline?: ReactNode;
+  /** The Mulai button + its help line + any Mulai error, rendered below the card or the timeout block only (see `headline`). */
+  primary?: ReactNode;
   /** Test seam only; defaults to the global fetch. */
   fetchFn?: typeof fetch;
   /** Test seam only; defaults to window.localStorage. */
@@ -42,7 +52,17 @@ function uploadNoteFor(disposition: Disposition | null): "offline" | "refused" |
   return null;
 }
 
-export function DebriefFlow({ auth, endsAtMs, nowMs, tz, nextMulaiText, fetchFn, storage }: DebriefFlowProps) {
+export function DebriefFlow({
+  auth,
+  endsAtMs,
+  nowMs,
+  tz,
+  nextMulaiText,
+  headline,
+  primary,
+  fetchFn,
+  storage,
+}: DebriefFlowProps) {
   const { lang } = useLang();
   const effectiveFetch = fetchFn ?? fetch;
   const effectiveStorage = storage ?? (typeof window !== "undefined" ? window.localStorage : undefined);
@@ -211,11 +231,21 @@ export function DebriefFlow({ auth, endsAtMs, nowMs, tz, nextMulaiText, fetchFn,
   }
 
   switch (state.view.kind) {
-    case "closed":
-      if (nowMs >= endsAtMs) return null;
+    case "closed": {
+      // Past `endsAtMs` with the flow never opened: the card itself
+      // disappears silently (there is nothing to resume), but the headline
+      // and the Mulai section are not this component's to hide — they stay.
+      const expired = nowMs >= endsAtMs;
       return (
-        <DebriefEntryCard endsAtMs={endsAtMs} nowMs={nowMs} nextMulaiText={nextMulaiText} onOpen={handleOpen} />
+        <>
+          {headline}
+          {!expired ? (
+            <DebriefEntryCard endsAtMs={endsAtMs} nowMs={nowMs} nextMulaiText={nextMulaiText} onOpen={handleOpen} />
+          ) : null}
+          {primary}
+        </>
       );
+    }
 
     case "loading":
       return (
@@ -265,6 +295,15 @@ export function DebriefFlow({ auth, endsAtMs, nowMs, tz, nextMulaiText, fetchFn,
       );
 
     case "timed_out":
-      return <DebriefTimeout endedAtMs={state.view.ended_at_ms} tz={tz} onBack={handleBack} />;
+      // Shown inline on /capture in place of the card (plan §7.5), not as a
+      // replacement for the whole idle section — the headline and Mulai
+      // stay, same placement as `closed`.
+      return (
+        <>
+          {headline}
+          <DebriefTimeout endedAtMs={state.view.ended_at_ms} tz={tz} onBack={handleBack} />
+          {primary}
+        </>
+      );
   }
 }
