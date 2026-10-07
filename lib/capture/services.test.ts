@@ -14,7 +14,6 @@ const outlet: Outlet = {
   outlet_id: "outlet-1",
   name: "Proofed",
   project_kind: "pilot",
-  consent_complete: true,
   timezone: "Asia/Jakarta",
   opening_time: "07:00",
   closing_time: "21:45",
@@ -125,12 +124,11 @@ describe("getCaptureConfig", () => {
     });
   });
 
-  it("never returns consent_complete, the outlet name, project_kind or ids", async () => {
+  it("never returns the outlet name, project_kind or ids", async () => {
     const config = await getCaptureConfig(reader(outlet, device), {
       outlet_id: "outlet-1",
       device_id: "dev-1",
     });
-    expect(config).not.toHaveProperty("consent_complete");
     expect(config).not.toHaveProperty("name");
     expect(config).not.toHaveProperty("project_kind");
     expect(config).not.toHaveProperty("outlet_id");
