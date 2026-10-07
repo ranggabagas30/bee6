@@ -64,13 +64,14 @@ export const ID = {
   "C-u-retry": "Belum terkirim · mencoba lagi",
   "C-u-count": "({N}x)", // count suffix for C-u-retry; the sheet row shows it as "({N}x)"
   "C-u-server": "Server sibuk",
-  "C-u-inet": "Tidak ada internet", // PROVISIONAL: not in the copy sheet (shown only when navigator.onLine is false)
+  "C-u-inet": "Tidak ada internet. Sambungkan agar antrean terkirim.", // shown only when navigator.onLine is false
   "C-u-ok": "Unggah berhasil",
   "C-u-lost": "Sebagian suara tidak tercatat",
   "C-u-lost-help": "Catatan itu jadi tidak lengkap. Tidak bisa dipulihkan.", // PROVISIONAL: not in the copy sheet (lost-line helper; C-u-lost-drop / C-u-lost-qfull-act are the sheet's cause helpers)
   "C-u-toast": "Unggah berhasil lagi",
   "C-h-idle": "Belum mulai",
-  "C-h-idle-help": "Pengambilan audio belum berjalan", // PROVISIONAL: not in the copy sheet
+  "C-h-idle-help": "Ketuk Mulai untuk memulai sesi hari ini.", // shown only when Mulai is offered
+  "C-notice-pilot": "Suara diubah jadi catatan kerja singkat. Rekaman suara tidak disimpan.", // capture privacy notice, pilot (UX-03 §5.10)
 } as const;
 
 export type DictKey = keyof typeof ID;
@@ -121,13 +122,14 @@ export const EN: Record<DictKey, string> = {
   "C-u-retry": "Not sent yet · retrying",
   "C-u-count": "({N}x)",
   "C-u-server": "Server busy",
-  "C-u-inet": "No internet", // PROVISIONAL: not in the copy sheet
+  "C-u-inet": "No internet. Connect so the queued items can send.", // shown only when navigator.onLine is false
   "C-u-ok": "Upload succeeded",
   "C-u-lost": "Some speech was not captured",
   "C-u-lost-help": "That note is now incomplete. It cannot be recovered.", // PROVISIONAL: not in the copy sheet
   "C-u-toast": "Upload working again",
   "C-h-idle": "Not started",
-  "C-h-idle-help": "Audio capture is not running", // PROVISIONAL: not in the copy sheet
+  "C-h-idle-help": "Tap Start to begin today's session.", // shown only when Mulai is offered
+  "C-notice-pilot": "Speech becomes short work notes. Audio is not kept.", // capture privacy notice, pilot (UX-03 §5.10)
 };
 
 export const DICT: Record<Lang, Record<DictKey, string>> = { id: ID, en: EN };
