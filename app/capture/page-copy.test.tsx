@@ -75,6 +75,11 @@ const CONFIG = {
   last_ended: null,
 };
 
+// The "(Nx)" count sits in an aria-hidden span, so the row is matched on its <p> text.
+function rowByText(text: string) {
+  return screen.getByText((_, el) => el?.tagName === "P" && el.textContent === text);
+}
+
 describe("capture page: one language per render", () => {
   it("EN is the default when the cookie is missing: headline and hours in English only", async () => {
     readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
@@ -144,7 +149,7 @@ describe("capture page: one language per render", () => {
     expect(container.textContent).toContain("🟢");
     expect(container.textContent).not.toContain("🟡");
     // The retry state stays in the upload block.
-    expect(screen.getByText("Not sent yet · retrying (2x)")).toBeTruthy();
+    expect(rowByText("Not sent yet · retrying (2x)")).toBeTruthy();
   });
 
   it("active with a lost segment: the lost line and retry row are Bahasa only under id", async () => {
@@ -155,7 +160,7 @@ describe("capture page: one language per render", () => {
     await waitFor(() =>
       expect(screen.getByText("Sebagian suara tidak tercatat")).toBeTruthy(),
     );
-    expect(screen.getByText("Belum terkirim · mencoba lagi (2x)")).toBeTruthy();
+    expect(rowByText("Belum terkirim · mencoba lagi (2x)")).toBeTruthy();
     expect(screen.getByText("Server sibuk")).toBeTruthy();
     const body = container.querySelector("main")?.textContent ?? "";
     expect(body).not.toMatch(/Some speech|Not sent yet|Server busy|Microphone:|Listening|Audio is being/);
