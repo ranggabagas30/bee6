@@ -126,6 +126,12 @@ export const OutletSchema = z
     weekly_hours: WeeklyHoursSchema.optional(),
     opening_time: z.string().regex(/^\d{2}:\d{2}$/), // "07:00"
     closing_time: z.string().regex(/^\d{2}:\d{2}$/), // "21:45"
+    /**
+     * How long a correction/evidence doc is kept (web spec §6.6.2). Optional
+     * so existing outlet docs still parse; callers default to 14 when
+     * absent (`lib/firestore/debrief-store.ts`'s `getOutletCalendar`).
+     */
+    retention_days: z.number().int().min(1).max(90).optional(),
     created_at: isoDateTime,
   })
   .strict();

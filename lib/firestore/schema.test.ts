@@ -48,6 +48,15 @@ describe("OutletSchema", () => {
     expect(OutletSchema.safeParse({ ...good, project_kind: "prod" }).success).toBe(false);
   });
 
+  it("accepts an explicit retention_days (web spec §6.6.2)", () => {
+    expect(OutletSchema.safeParse({ ...good, retention_days: 30 }).success).toBe(true);
+  });
+
+  it("rejects a retention_days outside 1-90", () => {
+    expect(OutletSchema.safeParse({ ...good, retention_days: 0 }).success).toBe(false);
+    expect(OutletSchema.safeParse({ ...good, retention_days: 91 }).success).toBe(false);
+  });
+
   it("rejects a missing outlet_id", () => {
     const { outlet_id: _drop, ...rest } = good;
     expect(OutletSchema.safeParse(rest).success).toBe(false);
