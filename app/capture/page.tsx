@@ -16,14 +16,20 @@ import {
   retainEngineStatus,
   type RetainedUpload,
 } from "@/app/capture/upload-retention";
-import { offHoursBanner } from "@/app/capture/off-hours-banner";
+import { idleViewFor } from "@/app/capture/idle-view";
+import { selesaiViewFor } from "@/app/capture/selesai-view";
+import { isDiscardArmed, nextMulaiIsNow, shouldAutoClosePanel } from "@/app/capture/batalkan-panel";
 import { ShopTopBar } from "@/app/shop/ShopTopBar";
 import { useLang } from "@/lib/i18n/context";
-import { t } from "@/lib/i18n/dict";
+import { t, type DictKey } from "@/lib/i18n/dict";
+import { clockLabel, dayLabel } from "@/lib/i18n/format";
+import { sessionErrorKey } from "@/lib/i18n/codes";
 import {
   fetchCaptureConfig,
+  postSessionDiscard,
+  postSessionEnd,
+  postSessionStart,
   readDeviceAuth,
-  resolveCapturePhase,
 } from "@/lib/capture/browser/client";
 import { startCaptureSession, type CaptureSession } from "@/lib/capture/browser/session";
 import {
@@ -33,17 +39,25 @@ import {
 } from "@/lib/capture/browser/event-log";
 import { isDevControlsEnabled } from "@/lib/capture/dev-mode";
 import type { CaptureConfigResponse } from "@/lib/capture/contract";
-import { businessDateOf, nextOpenDay } from "@/lib/capture/calendar";
+import {
+  addDays,
+  businessDateOf,
+  localDateOf,
+  mulaiWindowDateOf,
+  zonedTimeToEpochMs,
+  DEBRIEF_DURATION_MS,
+} from "@/lib/capture/calendar";
 import type { CaptureStatus } from "@/lib/capture/browser/engine";
 import type { MicSourceClass } from "@/lib/capture/mic-source";
 
 /**
- * /capture — the shop phone's always-on listening screen (web spec §4.1, §5).
- * Runs on the same paired phone as /pair: reads the stored device credential (or
- * redirects to /pair), fetches the outlet's timezone and weekly hours, and — only
- * inside the planned hours — starts the capture session (mic → VAD → segments →
- * upload) with heartbeat + wake lock. It shows a big status only; a transcript is
- * NEVER displayed (hard rule #2 / spec).
+ * /capture — the shop phone's always-on listening screen (technical spec §8,
+ * UX-03 §5.2-§5.6). A session only ever starts on a Mulai tap and only ever
+ * stops on Selesai, Batalkan or the deadline-driven auto-stop (not yet built
+ * in this slice — see the handoff report). Reads the stored device
+ * credential (or redirects to /pair), fetches the outlet's timezone/weekly
+ * hours/last_ended, and shows a big status only; a transcript is NEVER
+ * displayed (hard rule #2).
  */
 
 const PAGE_STYLE: React.CSSProperties = {
@@ -53,19 +67,37 @@ const PAGE_STYLE: React.CSSProperties = {
   fontFamily: "system-ui, sans-serif",
 };
 
-type View = "loading" | "error" | "outside_hours" | "unsupported" | "active";
+const PRIMARY_BUTTON_STYLE: React.CSSProperties = {
+  marginTop: 16,
+  width: "100%",
+  minHeight: 56,
+  padding: 12,
+  fontSize: 18,
+  fontWeight: 700,
+};
 
-/**
- * The hours line on a paused phone: today's weekly hours, or the next open day's
- * hours on a closed day (R-P1, strict config shape). null only if no day is open.
- */
-function hoursToShow(
-  config: CaptureConfigResponse,
-  now: Date,
-): { from: string; to: string; tz: string } | null {
-  const tz = config.timezone;
-  const next = nextOpenDay(businessDateOf(now.getTime(), tz), config.weekly_hours);
-  return next ? { from: next.hours.open, to: next.hours.close, tz } : null;
+const SECONDARY_BUTTON_STYLE: React.CSSProperties = {
+  marginTop: 12,
+  width: "100%",
+  minHeight: 48,
+  padding: 12,
+  fontSize: 16,
+};
+
+const PANEL_STYLE: React.CSSProperties = {
+  marginTop: 16,
+  border: "1px solid #ccc",
+  borderRadius: 12,
+  padding: 16,
+};
+
+type View = "loading" | "error" | "unsupported" | "ready";
+
+/** The local session this device is tracking (R-P1: in-memory only — lost on reload). */
+interface LocalSession {
+  session_id: string;
+  started_at_ms: number;
+  local_date: string;
 }
 
 /**
@@ -89,61 +121,55 @@ function useNetworkOnlineHint(): boolean {
 }
 
 export default function CapturePage() {
-  // Build-time flag (lib/capture/dev-mode.ts): off in every real build, so
-  // this branch and the <DevPanel /> below are never rendered there — not a
-  // runtime toggle a query param could flip.
   const devControlsEnabled = isDevControlsEnabled();
   const router = useRouter();
   const { lang } = useLang();
   const networkOnline = useNetworkOnlineHint();
+
   const [view, setView] = useState<View>("loading");
   const [config, setConfig] = useState<CaptureConfigResponse | null>(null);
-  const [hours, setHours] = useState<{ from: string; to: string; tz: string } | null>(null);
-  // Clock of the last phase check outside hours, so the banner's day and times
-  // follow the same tick as the hours line. Null until the first check.
-  const [clockMs, setClockMs] = useState<number | null>(null);
-  // Business date on which this page saw a live session stop at the planned close
-  // (UX-03 decision 7 Oct: "Ended automatically", never "Not started", that day).
-  const [autoStoppedOn, setAutoStoppedOn] = useState<string | null>(null);
-  // Engine status from the running session only. Null until the first report
-  // and reset on stop, so nothing from a previous session is ever shown.
-  const [status, setStatus] = useState<CaptureStatus | null>(null);
-  // Last engine status from any session, kept across a stop (UX-03 §5.7): the
-  // lost line and the retry row stay up until the next 2xx. Never reset on stop.
-  const [lastUploadStatus, setLastUploadStatus] = useState<CaptureStatus | null>(null);
-  // Same upload state as a ref, so engine callbacks fold each report in order
-  // (including reports from a stopped engine). See upload-retention.ts.
-  const retainedUploadRef = useRef<RetainedUpload>(NO_RETAINED_UPLOAD);
-  // True exactly while sessionRef holds a started, not-yet-stopped session. The
-  // banner reads this, not the engine's default state, so it never says
-  // "Listening" when no capture is actually running.
-  const [sessionRunning, setSessionRunning] = useState(false);
-  // Session generation guard: a stopped session's late callbacks never overwrite
-  // the status of the session that replaced it.
+  // Mirrors config.last_ended, updated locally the instant Selesai/Batalkan
+  // succeed so the idle screen reflects it without a refetch.
+  const [lastEnded, setLastEnded] = useState<CaptureConfigResponse["last_ended"]>(null);
+  // Re-checked every 30s and on visibilitychange (technical spec §8.6) so the
+  // Mulai/Selesai gates and their notes stay current without a reload.
+  const [nowMs, setNowMs] = useState<number | null>(null);
+
+  const [session, setSession] = useState<LocalSession | null>(null);
+  const sessionRef = useRef<CaptureSession | null>(null);
   const sessionGenRef = useRef(0);
+  const [sessionRunning, setSessionRunning] = useState(false);
+  const [status, setStatus] = useState<CaptureStatus | null>(null);
+  const [lastUploadStatus, setLastUploadStatus] = useState<CaptureStatus | null>(null);
+  const retainedUploadRef = useRef<RetainedUpload>(NO_RETAINED_UPLOAD);
   const [micSource, setMicSource] = useState<MicSourceClass>("unknown");
   const [sampleRateMsg, setSampleRateMsg] = useState<string | null>(null);
-  const sessionRef = useRef<CaptureSession | null>(null);
 
-  // DEV-01 manual-start re-entrancy guards, mirroring the real auto-gate
-  // effect's own `starting` guard below (see handleDevStart for how they're
-  // used):
-  //  - devStartingRef is true for the whole span between a Start click and
-  //    that startCaptureSession() call settling, so a second Start click (or
-  //    double-click) while one is in flight is a no-op instead of leaking a
-  //    second mic/wake-lock session that nothing can ever stop.
-  //  - devStopRequestedRef records that Pause/Stop (or unmount, via the
-  //    main effect's cleanup) was requested while a start was still in
-  //    flight, so the just-created session is stopped immediately once it
-  //    resolves instead of being handed to sessionRef for no one to find.
+  // Mulai (§8.7): a generation guard (ref, synchronous) so a double tap before
+  // the first postSessionStart settles makes exactly one session.
+  const mulaiInFlightRef = useRef(false);
+  const [mulaiBusy, setMulaiBusy] = useState(false);
+  const [mulaiErrorKey, setMulaiErrorKey] = useState<DictKey | null>(null);
+
+  // Selesai (§5.5).
+  const [selesaiConfirmOpen, setSelesaiConfirmOpen] = useState(false);
+  const selesaiBusyRef = useRef(false);
+  const [selesaiBusy, setSelesaiBusy] = useState(false);
+  const [selesaiErrorKey, setSelesaiErrorKey] = useState<DictKey | null>(null);
+
+  // Batalkan (§5.6): a fast tick while the panel is open drives the 1s arm
+  // delay and the 15s self-close; the page-wide 30s `nowMs` tick is too coarse.
+  const [batalkanOpen, setBatalkanOpen] = useState(false);
+  const [batalkanOpenedAtMs, setBatalkanOpenedAtMs] = useState<number | null>(null);
+  const [batalkanTickMs, setBatalkanTickMs] = useState<number | null>(null);
+  const batalkanBusyRef = useRef(false);
+  const [batalkanBusy, setBatalkanBusy] = useState(false);
+  const [batalkanErrorKey, setBatalkanErrorKey] = useState<DictKey | null>(null);
+
+  // DEV-01 manual-start re-entrancy guards (unchanged from the pre-rewrite page).
   const devStartingRef = useRef(false);
   const devStopRequestedRef = useRef(false);
 
-  // DEV-01 event log: one ring buffer per mount, in-memory only, never
-  // persisted. The buffer itself is a mutable, non-reactive object; `events`
-  // (state) is the snapshot the render body actually reads, refreshed on
-  // every push — reading `eventBufRef.current` during render would violate
-  // the "no ref access during render" rule.
   const eventBufRef = useRef(createEventRingBuffer(200));
   const [events, setEvents] = useState<readonly LoggedCaptureEvent[]>([]);
   const handleEvent = (event: CaptureEvent) => {
@@ -151,190 +177,427 @@ export default function CapturePage() {
     setEvents(eventBufRef.current.list());
   };
 
+  // ── config load + the 30s/visibilitychange re-check (§8.6) ─────────────────
   useEffect(() => {
     const auth = readDeviceAuth();
     if (!auth) {
       router.replace("/pair");
       return;
     }
-
     let cancelled = false;
-    let unsupported = false;
-    let starting = false;
-    let phaseTimer: ReturnType<typeof setInterval> | null = null;
-    let loadedConfig: CaptureConfigResponse | null = null;
-
-    async function applyPhase() {
-      if (cancelled || starting || unsupported || !loadedConfig) return;
-      const now = new Date();
-      const phase = resolveCapturePhase(loadedConfig, now);
-      if (phase === "outside_hours" && !cancelled) {
-        setHours(hoursToShow(loadedConfig, now));
-        setClockMs(now.getTime());
-      }
-
-      if (devControlsEnabled) {
-        // Dev mode bypasses the opening-hours auto-gate entirely for this
-        // session — manual Start/Pause/Stop below owns the session.
-        // Still reflect the real computed phase so it's visible underneath.
-        if (!cancelled) setView(phase);
-        return;
-      }
-
-      if (phase !== "active") {
-        sessionGenRef.current += 1;
-        const session = sessionRef.current;
-        if (session) {
-          // Clear the reference at once and never await the stop: a segment PUT
-          // that never answers must not hold this loop, or the next open would
-          // find a stale session and skip the restart (QA defect 2).
-          sessionRef.current = null;
-          if (!cancelled) {
-            setSessionRunning(false);
-            setStatus(null);
-            setAutoStoppedOn(businessDateOf(now.getTime(), loadedConfig.timezone));
-          }
-          void session.stop();
-        }
-        if (!cancelled) setView(phase);
-        return;
-      }
-
-      if (sessionRef.current) return; // already capturing
-      starting = true;
-      const gen = ++sessionGenRef.current;
-      const isCurrent = () => !cancelled && gen === sessionGenRef.current;
-      retainedUploadRef.current = beginSessionRetention(retainedUploadRef.current, gen);
-      try {
-        const session = await startCaptureSession(auth!, loadedConfig, {
-          onStatus: (s) => {
-            // Upload results are kept even after a stop (UX-03 §5.7); only the
-            // live headline status is limited to the current session.
-            retainedUploadRef.current = retainEngineStatus(retainedUploadRef.current, s, gen);
-            setLastUploadStatus(retainedUploadRef.current.status);
-            if (isCurrent()) setStatus(s);
-          },
-          onMicSource: (source) => {
-            if (isCurrent()) setMicSource(source);
-          },
-          onUnsupported: () => {
-            unsupported = true;
-            if (!cancelled) setView("unsupported");
-          },
-          onSampleRateRejected: (msg) => !cancelled && setSampleRateMsg(msg),
-          // Nothing in the real (non-dev) path reads the ring buffer, so only
-          // wire it up when the dev panel is actually mounted to consume it.
-          onEvent: devControlsEnabled
-            ? (e) => {
-                if (!cancelled) handleEvent(e);
-              }
-            : undefined,
-        });
-        if (cancelled) {
-          void session?.stop();
-          return;
-        }
-        if (session) {
-          sessionRef.current = session;
-          setSessionRunning(true);
-          setView("active");
-        }
-      } finally {
-        starting = false;
-      }
-    }
-
     (async () => {
       try {
-        loadedConfig = await fetchCaptureConfig(auth);
+        const loaded = await fetchCaptureConfig(auth);
+        if (cancelled) return;
+        setConfig(loaded);
+        setLastEnded(loaded.last_ended);
+        setView("ready");
       } catch {
         if (!cancelled) setView("error");
-        return;
       }
-      if (cancelled) return;
-      setConfig(loadedConfig);
-      await applyPhase();
-      // Re-check hours periodically so capture starts/stops around open/close.
-      phaseTimer = setInterval(() => void applyPhase(), 30_000);
     })();
-
     return () => {
       cancelled = true;
-      // Also covers a dev-mode Start that's still in flight when this effect
-      // tears down (route change / unmount): see devStopRequestedRef below.
-      devStopRequestedRef.current = true;
-      if (phaseTimer) clearInterval(phaseTimer);
-      sessionGenRef.current += 1;
-      const session = sessionRef.current;
-      sessionRef.current = null;
-      void session?.stop();
-      setSessionRunning(false);
-      setStatus(null);
     };
-  }, [router, devControlsEnabled]);
+  }, [router]);
 
-  // Dev-only manual controls (DEV-01): call the exact same
-  // startCaptureSession()/session.stop() the real auto-gate effect above
-  // uses, just triggered by a button instead of the phase check — re-entrancy
-  // is guarded by devStartingRef/devStopRequestedRef, declared above. Only
-  // reachable when the dev panel is mounted.
+  // `config.last_ended` only ever reflects what the page loaded at mount; a
+  // local Selesai/Batalkan success updates `lastEnded` instead (no refetch).
+  // Every idle-view computation must read the merged value, never the raw
+  // `config` object, or the just-ended/discarded day never shows as ended.
+  const effectiveConfig = config ? { ...config, last_ended: lastEnded } : null;
+  // Computed once per render from the merged config, shared by the Mulai tap
+  // handler (reads `idle.offered`) and the idle screen (reads the rest) so
+  // neither computes it independently.
+  const idle =
+    effectiveConfig && nowMs !== null
+      ? idleViewFor({ config: effectiveConfig, nowMs, lang })
+      : null;
+
+  useEffect(() => {
+    const tick = () => setNowMs(Date.now());
+    tick();
+    const id = setInterval(tick, 30_000);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, []);
+
+  // Batalkan panel's own fast tick (arm delay + auto-close).
+  useEffect(() => {
+    if (!batalkanOpen || batalkanOpenedAtMs === null) return;
+    const id = setInterval(() => {
+      const now = Date.now();
+      setBatalkanTickMs(now);
+      if (shouldAutoClosePanel(batalkanOpenedAtMs, now)) {
+        setBatalkanOpen(false);
+        setBatalkanOpenedAtMs(null);
+      }
+    }, 250);
+    return () => clearInterval(id);
+  }, [batalkanOpen, batalkanOpenedAtMs]);
+
+  // Unmount: release the mic/VAD/wake lock of whichever session (Mulai or dev) is open.
+  useEffect(() => {
+    return () => {
+      sessionGenRef.current += 1;
+      const s = sessionRef.current;
+      sessionRef.current = null;
+      void s?.stop();
+    };
+  }, []);
+
+  function stopRunningSession(): void {
+    sessionGenRef.current += 1;
+    const s = sessionRef.current;
+    sessionRef.current = null;
+    setSessionRunning(false);
+    setStatus(null);
+    if (s) void s.stop();
+  }
+
+  function engineCallbacks(gen: number) {
+    const isCurrent = () => gen === sessionGenRef.current;
+    return {
+      onStatus: (s: CaptureStatus) => {
+        retainedUploadRef.current = retainEngineStatus(retainedUploadRef.current, s, gen);
+        setLastUploadStatus(retainedUploadRef.current.status);
+        if (isCurrent()) setStatus(s);
+      },
+      onMicSource: (source: MicSourceClass) => {
+        if (isCurrent()) setMicSource(source);
+      },
+      onUnsupported: () => setView("unsupported"),
+      onSampleRateRejected: (msg: string) => setSampleRateMsg(msg),
+      onEvent: devControlsEnabled ? handleEvent : undefined,
+    };
+  }
+
+  // ── Mulai (§8.7, web spec §6.6.3) ───────────────────────────────────────────
+  async function handleMulaiTap() {
+    if (!config || !effectiveConfig || !idle) return;
+    if (!idle.offered || mulaiInFlightRef.current) return;
+    const auth = readDeviceAuth();
+    if (!auth) {
+      router.replace("/pair");
+      return;
+    }
+    mulaiInFlightRef.current = true;
+    setMulaiBusy(true);
+    setMulaiErrorKey(null);
+    const sessionId = crypto.randomUUID();
+    const startedAt = Date.now();
+    const result = await postSessionStart(auth, {
+      session_id: sessionId,
+      started_at_ms: startedAt,
+    });
+    // A definite rejection (bad/old timestamp, or a server-side conflict) must
+    // never start the engine. Any other failure (network, 5xx) still starts
+    // it — capture must not depend on a confirmed round trip (technical spec
+    // §8.7: "failure never stops capture").
+    if (!result.ok && (result.status === 422 || result.status === 409)) {
+      mulaiInFlightRef.current = false;
+      setMulaiBusy(false);
+      setMulaiErrorKey(sessionErrorKey(result.status, result.code));
+      return;
+    }
+    const localDate =
+      mulaiWindowDateOf(startedAt, config.weekly_hours, config.timezone) ??
+      businessDateOf(startedAt, config.timezone);
+    const gen = ++sessionGenRef.current;
+    retainedUploadRef.current = beginSessionRetention(retainedUploadRef.current, gen);
+    const captureSession = await startCaptureSession(
+      auth,
+      config,
+      engineCallbacks(gen),
+      sessionId,
+    );
+    mulaiInFlightRef.current = false;
+    setMulaiBusy(false);
+    if (!captureSession) return; // onUnsupported already switched the view
+    sessionRef.current = captureSession;
+    setSessionRunning(true);
+    setSession({ session_id: sessionId, started_at_ms: startedAt, local_date: localDate });
+  }
+
+  // ── Selesai (§5.5, web spec §6.6.3) ─────────────────────────────────────────
+  function openSelesaiConfirm() {
+    setBatalkanOpen(false);
+    setBatalkanOpenedAtMs(null);
+    setSelesaiErrorKey(null);
+    setSelesaiConfirmOpen(true);
+  }
+  function closeSelesaiConfirm() {
+    setSelesaiConfirmOpen(false);
+  }
+  async function confirmSelesai() {
+    if (!session || selesaiBusyRef.current) return;
+    const auth = readDeviceAuth();
+    if (!auth) return;
+    selesaiBusyRef.current = true;
+    setSelesaiBusy(true);
+    const endedAt = Date.now();
+    const result = await postSessionEnd(auth, session.session_id, {
+      started_at_ms: session.started_at_ms,
+      ended_at_ms: endedAt,
+      end_reason: "selesai",
+    });
+    selesaiBusyRef.current = false;
+    setSelesaiBusy(false);
+    if (!result.ok) {
+      setSelesaiErrorKey(sessionErrorKey(result.status, result.code));
+      return; // stay running; the tap can be retried
+    }
+    setSelesaiConfirmOpen(false);
+    setLastEnded({
+      business_date: session.local_date,
+      end_reason: "selesai",
+      debrief_ends_at_ms: endedAt + DEBRIEF_DURATION_MS,
+    });
+    stopRunningSession();
+    setSession(null);
+  }
+
+  // ── Batalkan (§5.6, web spec §6.6.5) ────────────────────────────────────────
+  function openBatalkan() {
+    setSelesaiConfirmOpen(false);
+    setBatalkanErrorKey(null);
+    const now = Date.now();
+    setBatalkanOpenedAtMs(now);
+    setBatalkanTickMs(now);
+    setBatalkanOpen(true);
+  }
+  function closeBatalkan() {
+    setBatalkanOpen(false);
+    setBatalkanOpenedAtMs(null);
+  }
+  async function confirmBatalkan() {
+    if (!session || batalkanBusyRef.current) return;
+    if (batalkanOpenedAtMs === null || !isDiscardArmed(batalkanOpenedAtMs, Date.now())) return;
+    const auth = readDeviceAuth();
+    if (!auth) return;
+    batalkanBusyRef.current = true;
+    setBatalkanBusy(true);
+    const discardedAt = Date.now();
+    const result = await postSessionDiscard(auth, session.session_id, {
+      started_at_ms: session.started_at_ms,
+      discarded_at_ms: discardedAt,
+    });
+    batalkanBusyRef.current = false;
+    setBatalkanBusy(false);
+    if (!result.ok) {
+      setBatalkanErrorKey(sessionErrorKey(result.status, result.code));
+      return;
+    }
+    setBatalkanOpen(false);
+    setBatalkanOpenedAtMs(null);
+    setLastEnded({
+      business_date: session.local_date,
+      end_reason: "discarded",
+      debrief_ends_at_ms: null,
+    });
+    stopRunningSession();
+    setSession(null);
+  }
+
+  // ── DEV-01 manual controls: same startCaptureSession()/session.stop() as
+  // Mulai/Selesai, triggered by a button instead — entirely independent of the
+  // Mulai/Selesai/Batalkan session bookkeeping (no postSessionStart/End/Discard
+  // call), so a developer can exercise the audio pipeline without waiting on
+  // the calendar. Only reachable when the dev panel is mounted. ────────────────
   const handleDevStart = () => {
     const auth = readDeviceAuth();
     if (!auth || !config || sessionRef.current || devStartingRef.current) return;
     devStartingRef.current = true;
     devStopRequestedRef.current = false;
     const gen = ++sessionGenRef.current;
-    const isCurrent = () => gen === sessionGenRef.current;
     retainedUploadRef.current = beginSessionRetention(retainedUploadRef.current, gen);
     void (async () => {
       try {
-        const session = await startCaptureSession(auth, config, {
-          onStatus: (s) => {
-            retainedUploadRef.current = retainEngineStatus(retainedUploadRef.current, s, gen);
-            setLastUploadStatus(retainedUploadRef.current.status);
-            if (isCurrent()) setStatus(s);
-          },
-          onMicSource: (label) => {
-            if (isCurrent()) setMicSource(label);
-          },
-          onUnsupported: () => setView("unsupported"),
-          onSampleRateRejected: (msg) => setSampleRateMsg(msg),
-          onEvent: handleEvent,
-        });
-        if (!session) return;
+        const captureSession = await startCaptureSession(auth, config, engineCallbacks(gen));
+        if (!captureSession) return;
         if (devStopRequestedRef.current) {
-          // A stop/unmount landed while this start was in flight — the
-          // caller already moved on, so stop the session we just created
-          // instead of assigning it to sessionRef.
-          await session.stop();
+          await captureSession.stop();
           return;
         }
-        sessionRef.current = session;
+        sessionRef.current = captureSession;
         setSessionRunning(true);
-        setView("active");
       } finally {
         devStartingRef.current = false;
       }
     })();
   };
-
   const handleDevStop = () => {
     devStopRequestedRef.current = true;
-    sessionGenRef.current += 1;
-    const session = sessionRef.current;
-    setSessionRunning(false);
-    setStatus(null);
-    if (!session) return;
-    sessionRef.current = null;
-    void session.stop();
+    stopRunningSession();
   };
 
-  // The status banner outside hours (UX-03 decision 7 Oct). Dev mode already renders
-  // the banner in its own block, so it is not doubled here.
-  const offHours =
-    view === "outside_hours" && !devControlsEnabled && config && clockMs !== null
-      ? offHoursBanner({ config, nowMs: clockMs, autoStoppedOn, lang })
-      : null;
+  // ── idle view (no session open) ─────────────────────────────────────────────
+  function renderIdle() {
+    if (!idle) return null;
+    return (
+      <>
+        <StatusBanner
+          state={idle.headline}
+          micSource={micSource}
+          note={idle.note}
+          endedAt={idle.endedAt ?? undefined}
+        />
+        <button
+          type="button"
+          style={PRIMARY_BUTTON_STYLE}
+          onClick={handleMulaiTap}
+          disabled={mulaiBusy}
+          aria-disabled={!idle.offered || mulaiBusy ? "true" : undefined}
+        >
+          {mulaiBusy ? t(lang, "C-b-mulai-busy") : t(lang, "C-b-mulai")}
+        </button>
+        {idle.offered ? <p style={{ fontSize: 14 }}>{t(lang, "C-h-idle-help")}</p> : null}
+        {mulaiErrorKey ? (
+          <p role="alert" style={{ color: "#b00020" }}>
+            {t(lang, mulaiErrorKey)}
+          </p>
+        ) : null}
+      </>
+    );
+  }
+
+  // ── running view (a session is open) ────────────────────────────────────────
+  function renderSelesaiArea() {
+    if (!session || !config || nowMs === null) return null;
+    const sv = selesaiViewFor({
+      nowMs,
+      session,
+      weekly: config.weekly_hours,
+      tz: config.timezone,
+      lang,
+    });
+    if (!sv.ready) return <p>{sv.note}</p>;
+    return (
+      <button type="button" style={SECONDARY_BUTTON_STYLE} onClick={openSelesaiConfirm}>
+        {t(lang, "C-b-selesai")}
+      </button>
+    );
+  }
+
+  function renderSelesaiConfirmPanel() {
+    // nowMs is set by the mount-time tick effect before any session can
+    // exist (Mulai is gated on it via `idle` above), so this is never the
+    // fallback path in practice; the guard just avoids an impure render call.
+    if (!session || !config || nowMs === null) return null;
+    const tz = config.timezone;
+    const now = nowMs;
+    const nextDay = addDays(session.local_date, 1);
+    const nextMulaiMs = Math.max(
+      zonedTimeToEpochMs(nextDay, "01:00", tz),
+      now + 60 * 60_000,
+    );
+    return (
+      <div role="group" aria-label={t(lang, "C-c-selesai-h")} style={PANEL_STYLE}>
+        <h2 style={{ fontSize: 18, margin: 0 }}>{t(lang, "C-c-selesai-h")}</h2>
+        <p>
+          {t(lang, "C-c-selesai-b", {
+            date: dayLabel(localDateOf(nextMulaiMs, tz), lang),
+            time: clockLabel(nextMulaiMs, tz),
+          })}
+        </p>
+        <button type="button" style={PRIMARY_BUTTON_STYLE} onClick={closeSelesaiConfirm} autoFocus>
+          {t(lang, "C-b-belum-lanjut")}
+        </button>
+        <button
+          type="button"
+          style={SECONDARY_BUTTON_STYLE}
+          onClick={confirmSelesai}
+          disabled={selesaiBusy}
+        >
+          {t(lang, "C-b-ya-selesai")}
+        </button>
+        {selesaiErrorKey ? (
+          <p role="alert" style={{ color: "#b00020" }}>
+            {t(lang, selesaiErrorKey)}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  function renderBatalkanPanel() {
+    // batalkanTickMs is set in the same call as batalkanOpenedAtMs
+    // (openBatalkan) and on every subsequent fast tick while the panel is
+    // open, so it is never null once batalkanOpenedAtMs isn't; the guard
+    // just avoids an impure render call.
+    if (!session || !config || batalkanOpenedAtMs === null || batalkanTickMs === null) {
+      return null;
+    }
+    const tz = config.timezone;
+    const now = batalkanTickMs;
+    const armed = isDiscardArmed(batalkanOpenedAtMs, now);
+    const body = nextMulaiIsNow(session.local_date, now, tz)
+      ? t(lang, "C-c-cancel-b-now")
+      : t(lang, "C-c-cancel-b", { date: dayLabel(addDays(session.local_date, 1), lang) });
+    return (
+      <div
+        role="group"
+        aria-label={t(lang, "C-c-cancel-h", { time: clockLabel(session.started_at_ms, tz) })}
+        style={PANEL_STYLE}
+      >
+        <h2 style={{ fontSize: 18, margin: 0 }}>
+          {t(lang, "C-c-cancel-h", { time: clockLabel(session.started_at_ms, tz) })}
+        </h2>
+        <p>{body}</p>
+        <button type="button" style={PRIMARY_BUTTON_STYLE} onClick={closeBatalkan} autoFocus>
+          {t(lang, "C-b-tetap-simpan")}
+        </button>
+        <button
+          type="button"
+          style={{ ...SECONDARY_BUTTON_STYLE, color: "#b00020" }}
+          onClick={confirmBatalkan}
+          disabled={!armed || batalkanBusy}
+        >
+          {t(lang, "C-b-ya-hapus")}
+        </button>
+        {batalkanErrorKey ? (
+          <p role="alert" style={{ color: "#b00020" }}>
+            {t(lang, batalkanErrorKey)}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  function renderRunning() {
+    return (
+      <>
+        <StatusBanner
+          state={sessionRunning ? headlineStateFor(status?.state ?? "listening") : "idle"}
+          micSource={micSource}
+        />
+        {sampleRateMsg ? (
+          <p role="alert" style={{ color: "#b00020", marginTop: 16 }}>
+            {t(lang, "C-cap-rate")}
+          </p>
+        ) : null}
+        {session ? (
+          <>
+            {!selesaiConfirmOpen && !batalkanOpen ? renderSelesaiArea() : null}
+            {selesaiConfirmOpen ? renderSelesaiConfirmPanel() : null}
+            {!selesaiConfirmOpen && !batalkanOpen ? (
+              <button
+                type="button"
+                style={{ ...SECONDARY_BUTTON_STYLE, minHeight: 48 }}
+                onClick={openBatalkan}
+              >
+                {t(lang, "C-b-batalkan")}
+              </button>
+            ) : null}
+            {batalkanOpen ? renderBatalkanPanel() : null}
+          </>
+        ) : null}
+      </>
+    );
+  }
 
   return (
     <main style={PAGE_STYLE}>
@@ -342,12 +605,7 @@ export default function CapturePage() {
       <h1 style={{ fontSize: 22 }}>{t(lang, "C-cap-title")}</h1>
 
       {devControlsEnabled ? (
-        <DevPanel
-          onStart={handleDevStart}
-          onPause={handleDevStop}
-          onStop={handleDevStop}
-          events={events}
-        />
+        <DevPanel onStart={handleDevStart} onPause={handleDevStop} onStop={handleDevStop} events={events} />
       ) : null}
 
       {view === "loading" ? <p>{t(lang, "C-h-loading")}</p> : null}
@@ -359,28 +617,6 @@ export default function CapturePage() {
         </section>
       ) : null}
 
-      {view === "outside_hours" && hours ? (
-        <section role="status" aria-live="polite">
-          <h2 style={{ fontSize: 18 }}>{t(lang, "C-cap-hours-h")}</h2>
-          <p>
-            {t(lang, "C-cap-hours-b", {
-              from: hours.from,
-              to: hours.to,
-              tz: hours.tz,
-            })}
-          </p>
-        </section>
-      ) : null}
-
-      {offHours ? (
-        <StatusBanner
-          state={offHours.state}
-          micSource={micSource}
-          note={offHours.state === "idle" ? offHours.note : null}
-          endedAt={offHours.state === "ended_auto" ? offHours.endedAt : undefined}
-        />
-      ) : null}
-
       {view === "unsupported" ? (
         <section role="alert">
           <h2 style={{ fontSize: 18 }}>{t(lang, "C-h-unsupported")}</h2>
@@ -388,38 +624,12 @@ export default function CapturePage() {
         </section>
       ) : null}
 
-      {/* devControlsEnabled bypasses the opening-hours early return so
-          this section is visible for manual testing, without deleting the
-          real blocked-view sections above (still rendered alongside it). */}
-      {view === "active" || devControlsEnabled ? (
-        <>
-          <StatusBanner
-            state={sessionRunning ? headlineStateFor(status?.state ?? "listening") : "idle"}
-            micSource={micSource}
-          />
-          {sampleRateMsg ? (
-            <p role="alert" style={{ color: "#b00020", marginTop: 16 }}>
-              {t(lang, "C-cap-rate")}
-            </p>
-          ) : null}
-          <p style={{ marginTop: 16, fontSize: 14, color: "#444" }}>
-            {t(lang, "C-pair-step-2")}
-          </p>
-          {/* Staff PIN flow ships in R-07; this is a layout stub only. */}
-          <button
-            type="button"
-            disabled
-            aria-disabled="true"
-            style={{ marginTop: 16, width: "100%", minHeight: 48, padding: 12, fontSize: 16 }}
-          >
-            {t(lang, "C-cap-staff")}
-          </button>
-        </>
-      ) : null}
-      {/* Upload block (UX-03 §5.7): shown in every mode, including idle, outside
-          hours and stopped. While a session runs it follows the live status; after
-          a stop it keeps only the lost line and the retry row, until the next 2xx.
-          It never changes the headline. */}
+      {view === "ready" ? (sessionRunning ? renderRunning() : renderIdle()) : null}
+
+      {/* Upload block (UX-03 §5.7): shown in every mode, including idle and
+          stopped. While a session runs it follows the live status; after a
+          stop it keeps only the lost line and the retry row, until the next
+          2xx. It never changes the headline. */}
       <UploadStatusLine
         view={
           sessionRunning

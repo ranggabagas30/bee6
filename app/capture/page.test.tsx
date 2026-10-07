@@ -1,14 +1,17 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+
+/**
+ * /capture (R-P1 rewrite): Mulai, Selesai and Batalkan replace the old
+ * opening/closing auto-gate (UX-03 §5.4-§5.6, technical spec §8). A session
+ * only ever starts on a Mulai tap and only ever stops on Selesai, Batalkan or
+ * dev-mode Pause/Stop — never automatically at an opening or closing time.
+ */
 
 const replace = vi.fn();
-// One stable router object, as Next's real useRouter returns: a fresh object per
-// render would re-run the page's mount effect on every state update.
 const router = { replace };
-vi.mock("next/navigation", () => ({
-  useRouter: () => router,
-}));
+vi.mock("next/navigation", () => ({ useRouter: () => router }));
 
 const isDevControlsEnabled = vi.fn(() => false);
 vi.mock("@/lib/capture/dev-mode", () => ({
@@ -19,22 +22,25 @@ const readDeviceAuth = vi.fn<() => { deviceToken: string; deviceId: string } | n
   () => null,
 );
 const fetchCaptureConfig = vi.fn<(auth: unknown) => Promise<unknown>>();
-const resolveCapturePhase = vi.fn<
-  (config: unknown, now: unknown) => "outside_hours" | "active"
->(() => "outside_hours");
+const postSessionStart = vi.fn<
+  (auth: unknown, body: unknown) => Promise<{ ok: boolean; status?: number; code?: string }>
+>(async () => ({ ok: true }));
+const postSessionEnd = vi.fn<
+  (auth: unknown, id: string, body: unknown) => Promise<{ ok: boolean; status?: number; code?: string }>
+>(async () => ({ ok: true }));
+const postSessionDiscard = vi.fn<
+  (auth: unknown, id: string, body: unknown) => Promise<{ ok: boolean; status?: number; code?: string }>
+>(async () => ({ ok: true }));
+
 vi.mock("@/lib/capture/browser/client", () => ({
   readDeviceAuth: () => readDeviceAuth(),
   fetchCaptureConfig: (auth: unknown) => fetchCaptureConfig(auth),
-  resolveCapturePhase: (config: unknown, now: unknown) =>
-    resolveCapturePhase(config, now),
+  postSessionStart: (auth: unknown, body: unknown) => postSessionStart(auth, body),
+  postSessionEnd: (auth: unknown, id: string, body: unknown) => postSessionEnd(auth, id, body),
+  postSessionDiscard: (auth: unknown, id: string, body: unknown) =>
+    postSessionDiscard(auth, id, body),
 }));
 
-// The real auto-gate effect never reaches startCaptureSession in these tests
-// (phase is forced to a blocking value, or dev mode bypasses the auto-gate
-// entirely), but import it eagerly so a future wiring mistake that *does*
-// reach it unexpectedly fails loudly via this mock instead of touching real
-// getUserMedia/WebCodecs. Each call returns a distinct fake session with its
-// own `stop` spy, so a test can assert the exact session a button acted on.
 interface FakeCallbacks {
   onEvent?: (event: { type: string; [key: string]: unknown }) => void;
 }
@@ -42,39 +48,45 @@ interface FakeSession {
   stop: ReturnType<typeof vi.fn>;
 }
 const fakeSessions: FakeSession[] = [];
-// When true, a session's stop() never settles (a segment PUT that never answers
-// keeps the engine drain pending). Read at call time, so it applies to sessions
-// started earlier too.
 let holdStops = false;
 const startCaptureSession = vi.fn(
   async (
     _auth: unknown,
     _config: unknown,
     cb: FakeCallbacks,
+    _sessionId?: string,
   ): Promise<FakeSession> => {
     const session: FakeSession = {
       stop: vi.fn(() => (holdStops ? new Promise<void>(() => {}) : Promise.resolve())),
     };
     fakeSessions.push(session);
-    // Simulate the real session reporting one status transition on start,
-    // the same way session.ts emits state_changed from its onStatusChange.
     cb.onEvent?.({ type: "state_changed", state: "listening", queuedCount: 0 });
     return session;
   },
 );
 vi.mock("@/lib/capture/browser/session", () => ({
-  startCaptureSession: (auth: unknown, config: unknown, cb: FakeCallbacks) =>
-    startCaptureSession(auth, config, cb),
+  startCaptureSession: (
+    auth: unknown,
+    config: unknown,
+    cb: FakeCallbacks,
+    sessionId?: string,
+  ) => startCaptureSession(auth, config, cb, sessionId),
 }));
+
+let uuidCounter = 0;
+vi.stubGlobal("crypto", {
+  randomUUID: () => `11111111-1111-1111-1111-${String(++uuidCounter).padStart(12, "0")}`,
+});
 
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   vi.useRealTimers();
   readDeviceAuth.mockReturnValue(null);
-  resolveCapturePhase.mockReturnValue("outside_hours");
+  isDevControlsEnabled.mockReturnValue(false);
   fakeSessions.length = 0;
   holdStops = false;
+  uuidCounter = 0;
 });
 
 async function importCapturePage() {
@@ -83,203 +95,303 @@ async function importCapturePage() {
 }
 
 /** Strict config shape (web-backend-rbac §6.6.2): no consent key, no opening/closing. */
-function config(weekly: Record<string, { open: string; close: string } | null>) {
+function config(
+  weekly: Record<string, { open: string; close: string } | null>,
+  lastEnded: { business_date: string; end_reason: string; debrief_ends_at_ms: number | null } | null = null,
+) {
   const closed = { sun: null, mon: null, tue: null, wed: null, thu: null, fri: null, sat: null };
-  return { timezone: "Asia/Jakarta", weekly_hours: { ...closed, ...weekly }, last_ended: null };
+  return {
+    timezone: "Asia/Jakarta",
+    weekly_hours: { ...closed, ...weekly },
+    last_ended: lastEnded,
+  };
 }
 
-/** Pins the clock (Date only, so waitFor and timers keep working). */
 function pinClock(iso: string) {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date(iso));
 }
 
-describe("CapturePage hours copy (outside_hours)", () => {
-  it("shows today's hours from weekly_hours on an open day", async () => {
-    // Wed 2026-09-30 06:00 WIB, before the 08:00 opening.
-    pinClock("2026-09-29T23:00:00Z");
-    isDevControlsEnabled.mockReturnValue(false);
-    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+async function renderReady(auth = { deviceToken: "t", deviceId: "d" }) {
+  readDeviceAuth.mockReturnValue(auth);
+  const CapturePage = await importCapturePage();
+  return render(<CapturePage />);
+}
+
+describe("CapturePage idle state: the Mulai button (UX-03 §5.4)", () => {
+  it("is enabled inside the Mulai window, with no note", async () => {
+    // Wed 2026-09-30 10:00 WIB: inside 01:00-18:00 (close 22:00 - 4h).
+    pinClock("2026-09-30T03:00:00Z");
     fetchCaptureConfig.mockResolvedValue(config({ wed: { open: "08:00", close: "22:00" } }));
-    const CapturePage = await importCapturePage();
-    const { container } = render(<CapturePage />);
-    await waitFor(() =>
-      expect(container.textContent).toContain("Listening runs from 08:00 to 22:00 (Asia/Jakarta)."),
+    await renderReady();
+    const btn = await screen.findByRole("button", { name: "Start" });
+    expect(btn.getAttribute("aria-disabled")).not.toBe("true");
+  });
+
+  it("is disabled with the window-passed note after the cut-off", async () => {
+    // Mon 2026-10-12 23:30 WIB: after the 18:00 cut-off (close 22:00 - 4h).
+    pinClock("2026-10-12T16:30:00Z");
+    fetchCaptureConfig.mockResolvedValue(
+      config({
+        sun: null,
+        mon: { open: "08:00", close: "22:00" },
+        tue: { open: "08:00", close: "22:00" },
+      }),
     );
-  });
-
-  it("shows the next open day's hours on a closed day", async () => {
-    // Sun 2026-10-04 10:00 WIB: closed; Mon 2026-10-05 is open 07:00-21:00.
-    pinClock("2026-10-04T03:00:00Z");
-    isDevControlsEnabled.mockReturnValue(false);
-    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
-    fetchCaptureConfig.mockResolvedValue(config({ mon: { open: "07:00", close: "21:00" } }));
-    const CapturePage = await importCapturePage();
-    const { container } = render(<CapturePage />);
-    await waitFor(() =>
-      expect(container.textContent).toContain("Listening runs from 07:00 to 21:00 (Asia/Jakarta)."),
-    );
-  });
-
-  it("never renders any no-consent copy", async () => {
-    pinClock("2026-09-29T23:00:00Z");
-    isDevControlsEnabled.mockReturnValue(false);
-    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
-    fetchCaptureConfig.mockResolvedValue(config({ wed: { open: "08:00", close: "22:00" } }));
-    const CapturePage = await importCapturePage();
-    const { container } = render(<CapturePage />);
-    await waitFor(() => expect(container.textContent).toContain("Listening runs from"));
-    expect(container.textContent).not.toMatch(/capture is off|consent|persetujuan/i);
-  });
-});
-
-describe("CapturePage dev panel gating", () => {
-  it("renders no dev-panel node at all when the flag is unset", async () => {
-    isDevControlsEnabled.mockReturnValue(false);
-    const CapturePage = await importCapturePage();
-    const { container } = render(<CapturePage />);
-    expect(container.querySelector('[data-testid="dev-panel"]')).toBeNull();
-  });
-
-  it("still renders no dev-panel node once the real auto-gate resolves a blocking phase", async () => {
-    pinClock("2026-09-29T23:00:00Z");
-    isDevControlsEnabled.mockReturnValue(false);
-    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
-    fetchCaptureConfig.mockResolvedValue(config({ wed: { open: "08:00", close: "22:00" } }));
-    resolveCapturePhase.mockReturnValue("outside_hours");
-    const CapturePage = await importCapturePage();
-    const { container } = render(<CapturePage />);
-    await waitFor(() => expect(container.textContent).toMatch(/outside opening hours/i));
-    expect(container.querySelector('[data-testid="dev-panel"]')).toBeNull();
-  });
-
-  it("bypasses the outside_hours block and shows the active view when the flag is set", async () => {
-    pinClock("2026-09-29T23:00:00Z");
-    isDevControlsEnabled.mockReturnValue(true);
-    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
-    fetchCaptureConfig.mockResolvedValue(config({ wed: { open: "08:00", close: "22:00" } }));
-    resolveCapturePhase.mockReturnValue("outside_hours"); // still a blocking phase
-    const CapturePage = await importCapturePage();
-    const { container } = render(<CapturePage />);
-
-    // The dev panel is present...
-    await waitFor(() =>
-      expect(container.querySelector('[data-testid="dev-panel"]')).not.toBeNull(),
-    );
-    // ...the real blocked state is still shown underneath (not deleted)...
-    expect(container.textContent).toMatch(/outside opening hours/i);
-    // ...and the active capture view is no longer blocked by it.
-    expect(container.textContent).toMatch(/keep the screen on and this page open/i);
-  });
-});
-
-describe("CapturePage dev panel manual controls", () => {
-  async function renderInDevMode() {
-    isDevControlsEnabled.mockReturnValue(true);
-    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
-    fetchCaptureConfig.mockResolvedValue(config({ wed: { open: "08:00", close: "22:00" } }));
-    // A blocking phase: proves the manual buttons act independently of the
-    // real auto-gate (which would otherwise never call startCaptureSession
-    // here at all) rather than coincidentally riding its own auto-start.
-    resolveCapturePhase.mockReturnValue("outside_hours");
-    const CapturePage = await importCapturePage();
-    const result = render(<CapturePage />);
-    // Give the auto-gate's fetch effect a tick to settle so its own
-    // (non-)behavior doesn't race with the assertions below.
-    await waitFor(() => expect(fetchCaptureConfig).toHaveBeenCalled());
-    return result;
-  }
-
-  it('clicking "Start" calls startCaptureSession exactly once', async () => {
-    await renderInDevMode();
-    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
-    await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
-  });
-
-  it('clicking "Start" twice before the first startCaptureSession call settles calls it exactly once', async () => {
-    await renderInDevMode();
-    const startButton = screen.getByRole("button", { name: /^start$/i });
-
-    // Fire both clicks back-to-back, with no awaited tick in between, so the
-    // second click lands while the first startCaptureSession() promise is
-    // still in flight (the fake resolves on a microtask, not synchronously).
-    fireEvent.click(startButton);
-    fireEvent.click(startButton);
-
-    await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
-    // Let the in-flight start settle and confirm it's the only session created.
-    await waitFor(() => expect(fakeSessions).toHaveLength(1));
-    expect(startCaptureSession).toHaveBeenCalledTimes(1);
-  });
-
-  it('clicking "Pause" calls session.stop() and leaves the session cleared', async () => {
-    await renderInDevMode();
-    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
-    await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
-    const [session1] = fakeSessions;
-
-    fireEvent.click(screen.getByRole("button", { name: /^pause$/i }));
-    await waitFor(() => expect(session1?.stop).toHaveBeenCalledTimes(1));
-
-    // Pausing again (no running session) must not call stop() a second time
-    // on the already-stopped session — sessionRef.current was cleared.
-    fireEvent.click(screen.getByRole("button", { name: /^pause$/i }));
-    expect(session1?.stop).toHaveBeenCalledTimes(1);
-  });
-
-  it('clicking "Start" again after a pause starts a fresh session, not the stale one', async () => {
-    await renderInDevMode();
-    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
-    await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
-    const [session1] = fakeSessions;
-
-    fireEvent.click(screen.getByRole("button", { name: /^pause$/i }));
-    await waitFor(() => expect(session1?.stop).toHaveBeenCalledTimes(1));
-
-    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
-    await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(2));
-    const [, session2] = fakeSessions;
-    expect(session2).not.toBe(session1);
-  });
-
-  it("shows the session's emitted event in the on-page log after Start", async () => {
-    const { container } = await renderInDevMode();
-    fireEvent.click(screen.getByRole("button", { name: /^start$/i }));
+    await renderReady();
+    const btn = await screen.findByRole("button", { name: "Start" });
+    expect(btn.getAttribute("aria-disabled")).toBe("true");
     await waitFor(() =>
       expect(
-        container.querySelector('[data-testid="dev-event-log"]')?.textContent,
-      ).toMatch(/state_changed/),
+        screen.getByText(
+          "The Start cut-off today passed at 18:00. Today is recorded as a day off. Next Start Tue 13 Oct at 01:00.",
+        ),
+      ).toBeTruthy(),
     );
+  });
+
+  it("a tap while disabled does nothing (no startCaptureSession call)", async () => {
+    pinClock("2026-10-12T16:30:00Z");
+    fetchCaptureConfig.mockResolvedValue(
+      config({ sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } }),
+    );
+    await renderReady();
+    const btn = await screen.findByRole("button", { name: "Start" });
+    fireEvent.click(btn);
+    await Promise.resolve();
+    expect(startCaptureSession).not.toHaveBeenCalled();
+    expect(postSessionStart).not.toHaveBeenCalled();
+  });
+
+  it("shows the idle-help line only when Mulai is offered", async () => {
+    pinClock("2026-09-30T03:00:00Z");
+    fetchCaptureConfig.mockResolvedValue(config({ wed: { open: "08:00", close: "22:00" } }));
+    await renderReady();
+    await screen.findByRole("button", { name: "Start" });
+    expect(screen.getByText("Tap Start to begin today's session.")).toBeTruthy();
   });
 });
 
-describe("CapturePage close while a segment upload is held (defect 2)", () => {
-  async function flushAsync() {
-    for (let i = 0; i < 20; i += 1) await Promise.resolve();
+describe("CapturePage: tapping Mulai (UX-03 §5.4, web spec §6.6.3)", () => {
+  async function renderOffered() {
+    pinClock("2026-09-30T03:00:00Z"); // Wed 10:00 WIB, inside the window
+    fetchCaptureConfig.mockResolvedValue(config({ wed: { open: "08:00", close: "22:00" } }));
+    await renderReady();
+    return screen.findByRole("button", { name: "Start" });
   }
 
-  it("starts a fresh session at the next open even though the old session's stop() never settles", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
-    vi.setSystemTime(new Date("2026-09-30T02:00:00Z")); // Wed 09:00 WIB
+  it("success: posts the session start, then starts the engine and shows Listening", async () => {
+    const btn = await renderOffered();
+    fireEvent.click(btn);
+    await waitFor(() => expect(postSessionStart).toHaveBeenCalledTimes(1));
+    const [, body] = postSessionStart.mock.calls[0]!;
+    expect(body).toMatchObject({ session_id: expect.stringMatching(/^[0-9a-f-]{36}$/) });
+    await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+  });
+
+  it("the same client-generated session_id is sent to the start route and the engine", async () => {
+    const btn = await renderOffered();
+    fireEvent.click(btn);
+    await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
+    const sentId = (postSessionStart.mock.calls[0]![1] as { session_id: string }).session_id;
+    const [, , , engineSessionId] = startCaptureSession.mock.calls[0]!;
+    expect(engineSessionId).toBe(sentId);
+  });
+
+  it("422 from the route never starts the engine, and shows the dictionary fallback (never raw text)", async () => {
+    postSessionStart.mockResolvedValueOnce({ ok: false, status: 422, code: "VALIDATION_ERROR" });
+    const btn = await renderOffered();
+    fireEvent.click(btn);
+    await waitFor(() => expect(postSessionStart).toHaveBeenCalledTimes(1));
+    expect(startCaptureSession).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByText("Could not process that. Try again.")).toBeTruthy());
+  });
+
+  it("409 from the route never starts the engine", async () => {
+    postSessionStart.mockResolvedValueOnce({ ok: false, status: 409, code: "CONFLICT" });
+    const btn = await renderOffered();
+    fireEvent.click(btn);
+    await waitFor(() => expect(postSessionStart).toHaveBeenCalledTimes(1));
+    expect(startCaptureSession).not.toHaveBeenCalled();
+  });
+
+  it("a network failure (no response) still starts the engine (capture must not depend on the network)", async () => {
+    postSessionStart.mockResolvedValueOnce({ ok: false, status: undefined, code: undefined });
+    const btn = await renderOffered();
+    fireEvent.click(btn);
+    await waitFor(() => expect(postSessionStart).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
+  });
+
+  it("double-tap while the start is in flight calls startCaptureSession once", async () => {
+    let resolveStart: (v: { ok: true }) => void;
+    postSessionStart.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveStart = resolve; }),
+    );
+    const btn = await renderOffered();
+    fireEvent.click(btn);
+    fireEvent.click(btn);
+    await waitFor(() => expect(postSessionStart).toHaveBeenCalledTimes(1));
+    resolveStart!({ ok: true });
+    await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe("CapturePage running state: Selesai (UX-03 §5.5, technical spec §8.3 rule 4)", () => {
+  async function renderRunning(startedIso: string) {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date(startedIso));
+    fetchCaptureConfig.mockResolvedValue(
+      config({ sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } }),
+    );
+    const btn = await (async () => {
+      await renderReady();
+      return screen.findByRole("button", { name: "Start" });
+    })();
+    fireEvent.click(btn);
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+  }
+
+  it("before start+4h: shows the 'from HH:MM' note, no End button", async () => {
+    await renderRunning("2026-10-12T01:00:00Z"); // Mon 08:00 WIB
+    expect(screen.queryByRole("button", { name: "End" })).toBeNull();
+    expect(screen.getByText("You can tap End from 12:00.")).toBeTruthy();
+  });
+
+  it("at start+4h: the End button appears", async () => {
+    await renderRunning("2026-10-12T01:00:00Z");
+    await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+    expect(screen.getByRole("button", { name: "End" })).toBeTruthy();
+  });
+
+  it("tapping End opens the confirm panel; Belum, lanjut closes it with nothing changed", async () => {
+    await renderRunning("2026-10-12T01:00:00Z");
+    await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+    fireEvent.click(screen.getByRole("button", { name: "End" }));
+    expect(screen.getByText("End today's operations?")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Not yet, keep going" }));
+    expect(screen.queryByText("End today's operations?")).toBeNull();
+    expect(postSessionEnd).not.toHaveBeenCalled();
+  });
+
+  it("Ya, selesai posts the end, stops the engine and shows the Ended state", async () => {
+    await renderRunning("2026-10-12T01:00:00Z");
+    await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+    fireEvent.click(screen.getByRole("button", { name: "End" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
+    await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+    const [, sessionId, body] = postSessionEnd.mock.calls[0]!;
+    expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(body).toMatchObject({ end_reason: "selesai" });
+    await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByText("Ended")).toBeTruthy());
+    expect(screen.queryByText("Listening")).toBeNull();
+  });
+});
+
+describe("CapturePage running state: Batalkan (UX-03 §5.6, technical spec §8.9)", () => {
+  async function renderRunning() {
+    pinClock("2026-10-12T01:00:00Z"); // Mon 08:00 WIB
+    fetchCaptureConfig.mockResolvedValue(
+      config({ sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } }),
+    );
+    await renderReady();
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+  }
+
+  it("Ya, hapus sesi is disabled for the first second after the panel opens", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    await renderRunning();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
+    const deleteBtn = screen.getByRole("button", {
+      name: "Yes, delete session",
+    }) as HTMLButtonElement;
+    expect(deleteBtn.disabled).toBe(true);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(deleteBtn.disabled).toBe(false);
+  });
+
+  it("Tetap simpan sesi closes the panel with nothing changed", async () => {
+    await renderRunning();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Keep the session" }));
+    expect(screen.queryByText(/Cancel the session started at/)).toBeNull();
+    expect(postSessionDiscard).not.toHaveBeenCalled();
+    expect(screen.getByText("Listening")).toBeTruthy();
+  });
+
+  it("Ya, hapus sesi posts the discard, stops the engine and shows Session cancelled", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    await renderRunning();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
+    await vi.advanceTimersByTimeAsync(1_000);
+    fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
+    await waitFor(() => expect(postSessionDiscard).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByText("Session cancelled")).toBeTruthy());
+    expect(screen.queryByText("Listening")).toBeNull();
+  });
+
+  it("the panel closes itself after 15s with no tap, and nothing changes", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    await renderRunning();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(screen.queryByText(/Cancel the session started at/)).toBeNull();
+    expect(postSessionDiscard).not.toHaveBeenCalled();
+    expect(screen.getByText("Listening")).toBeTruthy();
+  });
+
+  it("202 (cleanup pending) is treated the same as 200", async () => {
+    postSessionDiscard.mockResolvedValueOnce({ ok: true });
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    await renderRunning();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
+    await vi.advanceTimersByTimeAsync(1_000);
+    fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
+    await waitFor(() => expect(screen.getByText("Session cancelled")).toBeTruthy());
+  });
+});
+
+describe("CapturePage dev panel (DEV-01, unaffected by the Mulai rewrite)", () => {
+  it("renders no dev-panel node at all when the flag is unset", async () => {
     isDevControlsEnabled.mockReturnValue(false);
-    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    await renderReady();
+    expect(screen.queryByTestId("dev-panel")).toBeNull();
+  });
+
+  it('clicking dev "Start" calls startCaptureSession exactly once, independent of Mulai', async () => {
+    isDevControlsEnabled.mockReturnValue(true);
+    fetchCaptureConfig.mockResolvedValue(config({ sun: null }));
+    await renderReady();
+    const panel = await screen.findByTestId("dev-panel");
+    fireEvent.click(within(panel).getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
+    expect(postSessionStart).not.toHaveBeenCalled();
+  });
+
+  it('clicking dev "Pause" calls session.stop()', async () => {
+    isDevControlsEnabled.mockReturnValue(true);
+    fetchCaptureConfig.mockResolvedValue(config({ sun: null }));
+    await renderReady();
+    const panel = await screen.findByTestId("dev-panel");
+    fireEvent.click(within(panel).getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
+    fireEvent.click(within(panel).getByRole("button", { name: /^pause$/i }));
+    await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe("CapturePage: no session_id stamping claim ships silently", () => {
+  it("starts a session with a client-generated session_id (session_id stamping on segments is NOT verified end-to-end — see report)", async () => {
+    pinClock("2026-09-30T03:00:00Z");
     fetchCaptureConfig.mockResolvedValue(config({ wed: { open: "08:00", close: "22:00" } }));
-    resolveCapturePhase.mockReturnValue("active");
-    const CapturePage = await importCapturePage();
-    render(<CapturePage />);
-    await flushAsync();
-    expect(startCaptureSession).toHaveBeenCalledTimes(1);
-
-    // The planned close passes while the old session's upload never answers.
-    holdStops = true;
-    resolveCapturePhase.mockReturnValue("outside_hours");
-    await vi.advanceTimersByTimeAsync(30_000);
-    expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1);
-
-    // The next open-hours tick must start a new session regardless.
-    resolveCapturePhase.mockReturnValue("active");
-    await vi.advanceTimersByTimeAsync(30_000);
-    await flushAsync();
-    expect(startCaptureSession).toHaveBeenCalledTimes(2);
+    await renderReady();
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
+    const [, , , sessionId] = startCaptureSession.mock.calls[0]!;
+    expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);
   });
 });
