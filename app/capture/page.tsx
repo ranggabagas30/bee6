@@ -175,13 +175,17 @@ export default function CapturePage() {
 
       if (phase !== "active") {
         sessionGenRef.current += 1;
-        if (sessionRef.current) {
-          await sessionRef.current.stop();
+        const session = sessionRef.current;
+        if (session) {
+          // Clear the reference at once and never await the stop: a segment PUT
+          // that never answers must not hold this loop, or the next open would
+          // find a stale session and skip the restart (QA defect 2).
           sessionRef.current = null;
           if (!cancelled) {
             setSessionRunning(false);
             setStatus(null);
           }
+          void session.stop();
         }
         if (!cancelled) setView(phase);
         return;
@@ -218,7 +222,7 @@ export default function CapturePage() {
             : undefined,
         });
         if (cancelled) {
-          await session?.stop();
+          void session?.stop();
           return;
         }
         if (session) {
