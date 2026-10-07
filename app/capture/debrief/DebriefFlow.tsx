@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useState } from "react";
 import { reduceDebrief, type DebriefState } from "@/lib/debrief/flow";
 import { DebriefListResponseSchema } from "@/lib/debrief/contract";
 import { appendAnswer, CacheWriteError, cachedIds, pendingSummary, purgeNow, readCache } from "@/lib/debrief/answer-cache";
@@ -52,25 +52,35 @@ export function DebriefFlow({ auth, endsAtMs, nowMs, tz, nextMulaiText, fetchFn,
     { view: { kind: "closed" }, ends_at_ms: endsAtMs, business_date: null } satisfies DebriefState,
   );
   const [uploadNote, setUploadNote] = useState<"offline" | "refused" | null>(null);
-  const [pendingCount, setPendingCount] = useState(0);
 
-  const uploaderRef = useRef<AnswerUploader | null>(null);
-  if (!uploaderRef.current && effectiveStorage) {
-    uploaderRef.current = createAnswerUploader({
-      storage: effectiveStorage,
-      fetchFn: effectiveFetch,
-      auth,
-      now: Date.now,
-      devLog: () => {
-        // Outcome-only logging (question_id + status) belongs to a future dev
-        // readout; nothing about the reason is ever available here to log.
-      },
-    });
-  }
+  // Created once per mount (a stable singleton, not recreated on a prop
+  // change this component never expects mid-debrief), via a lazy useState
+  // initializer rather than a ref write during render.
+  const [uploader] = useState<AnswerUploader | null>(() =>
+    effectiveStorage
+      ? createAnswerUploader({
+          storage: effectiveStorage,
+          fetchFn: effectiveFetch,
+          auth,
+          now: Date.now,
+          devLog: () => {
+            // Outcome-only logging (question_id + status) belongs to a future
+            // dev readout; nothing about the reason is ever available here.
+          },
+        })
+      : null,
+  );
+
+  // Derived only when the done screen is actually showing; a storage read is
+  // deliberately not a render-time dependency of the "question" view path.
+  const pendingCount = useMemo(() => {
+    if (state.view.kind !== "done" || !effectiveStorage) return 0;
+    return pendingSummary(readCache(effectiveStorage)).count;
+  }, [state.view.kind, effectiveStorage]);
 
   async function flushNow() {
-    if (!uploaderRef.current) return;
-    const result = await uploaderRef.current.flush();
+    if (!uploader) return;
+    const result = await uploader.flush();
     setUploadNote(uploadNoteFor(result.last));
   }
 
@@ -80,6 +90,11 @@ export function DebriefFlow({ auth, endsAtMs, nowMs, tz, nextMulaiText, fetchFn,
   // cache entry left over from a previous reload still drains.
   useEffect(() => {
     if (!effectiveStorage) return;
+    // flushNow() is async; any setState it does happens later, inside its
+    // own awaited callback (synchronizing with the uploader's result), not
+    // synchronously in this effect body — the documented "fetch on mount"
+    // shape. The lint rule can't see across the async boundary.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void flushNow();
     const onOnline = () => void flushNow();
     window.addEventListener("online", onOnline);
@@ -105,12 +120,6 @@ export function DebriefFlow({ auth, endsAtMs, nowMs, tz, nextMulaiText, fetchFn,
     const id = setInterval(() => dispatch({ type: "TICK", now_ms: Date.now() }), 1_000);
     return () => clearInterval(id);
   }, [state.view.kind]);
-
-  useEffect(() => {
-    if (state.view.kind === "done" && effectiveStorage) {
-      setPendingCount(pendingSummary(readCache(effectiveStorage)).count);
-    }
-  }, [state.view.kind, effectiveStorage]);
 
   async function loadQuestions() {
     try {

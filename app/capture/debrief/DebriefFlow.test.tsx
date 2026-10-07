@@ -113,8 +113,9 @@ function Harness({
   // Date is frozen per-test (see the file-level beforeEach), so these
   // Date.now()-relative defaults are stable across this render and every
   // re-render — a realistic future epoch, never a tiny relative number.
-  const resolvedEndsAtMs = endsAtMs ?? Date.now() + HOUR_MS;
-  const [now, setNow] = useState(nowMs ?? Date.now());
+  // Lazy useState initializers (not a bare render-body call) keep this pure.
+  const [resolvedEndsAtMs] = useState(() => endsAtMs ?? Date.now() + HOUR_MS);
+  const [now, setNow] = useState(() => nowMs ?? Date.now());
   return (
     <LangProvider initial="en">
       <button type="button" data-testid="advance-now" onClick={() => setNow(resolvedEndsAtMs)}>
