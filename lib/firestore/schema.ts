@@ -117,11 +117,6 @@ export const OutletSchema = z
     ...withOutlet,
     name: z.string().min(1),
     project_kind: z.enum(["pilot", "demo"]),
-    /**
-     * Legacy, not read (consent by contract, 4 Oct 2026, PROD-01 A19). Kept
-     * optional so existing outlet docs still parse; nothing writes or reads it.
-     */
-    consent_complete: z.boolean().optional(),
     timezone: z.string().min(1), // e.g. "Asia/Jakarta"
     /**
      * Weekly opening hours (technical spec §8.2). Optional so outlet docs seeded before
@@ -134,6 +129,20 @@ export const OutletSchema = z
   })
   .strict();
 export type Outlet = z.infer<typeof OutletSchema>;
+
+/**
+ * Parses a stored outlet doc. Outlet docs seeded before the consent flag was removed
+ * (CLAUDE.md 2 #7b, no consent flag in MVP 1) still carry `consent_complete`; it is
+ * stripped here so the strict schema accepts them and the field never reaches the
+ * app. Use this for every read of an outlet doc, never a bare cast.
+ */
+export function parseOutletDoc(raw: unknown): Outlet {
+  if (typeof raw === "object" && raw !== null && "consent_complete" in raw) {
+    const { consent_complete: _legacy, ...rest } = raw as Record<string, unknown>;
+    return OutletSchema.parse(rest);
+  }
+  return OutletSchema.parse(raw);
+}
 
 // ── users (owner / supervisor; Google sign-in) ───────────────────────────────
 export const UserSchema = z

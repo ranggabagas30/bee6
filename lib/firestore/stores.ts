@@ -25,8 +25,8 @@ import {
   DeviceSchema,
   LastEndedSchema,
   SegmentSchema,
+  parseOutletDoc,
   type Heartbeat,
-  type Outlet,
   type Segment,
 } from "@/lib/firestore/schema";
 
@@ -159,7 +159,7 @@ export function firestoreCaptureStore(): OutletReader & DeviceReader & Heartbeat
   return {
     async getOutlet(outletId) {
       const doc = await db.collection(COLLECTIONS.outlets).doc(outletId).get();
-      return doc.exists ? (doc.data() as Outlet) : null;
+      return doc.exists ? parseOutletDoc(doc.data()) : null;
     },
     async getDevice(outletId, deviceId) {
       const doc = await db

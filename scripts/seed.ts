@@ -45,7 +45,6 @@ export const SeedConfigSchema = z
         timezone: z.string().min(1),
         opening_time: z.string().regex(/^\d{2}:\d{2}$/),
         closing_time: z.string().regex(/^\d{2}:\d{2}$/),
-        consent_complete: z.boolean(),
       })
       .strict(),
     owner: z.object({ email: z.email() }).strict(),
@@ -79,7 +78,6 @@ export const DEMO_SEED: SeedConfig = {
     timezone: "Asia/Jakarta",
     opening_time: "07:00",
     closing_time: "21:45",
-    consent_complete: true,
   },
   owner: { email: "demo-owner@example.com" },
   supervisors: [{ email: "demo-supervisor@example.com" }],
@@ -120,7 +118,6 @@ export async function buildSeedDocuments(
     outlet_id: config.outlet.outlet_id,
     name: config.outlet.name,
     project_kind: project,
-    consent_complete: config.outlet.consent_complete,
     timezone: config.outlet.timezone,
     opening_time: config.outlet.opening_time,
     closing_time: config.outlet.closing_time,

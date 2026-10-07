@@ -156,7 +156,6 @@ describe("CaptureConfigResponseSchema", () => {
     outlet_id: "outlet-1",
     name: "Proofed",
     project_kind: "pilot" as const,
-    consent_complete: true,
     timezone: "Asia/Jakarta",
     opening_time: "07:00",
     closing_time: "21:45",
