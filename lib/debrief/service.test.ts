@@ -27,37 +27,6 @@ function makeQuestion(overrides: Partial<Question> = {}): Question {
   };
 }
 
-function makeThread(overrides: Partial<Thread> = {}): Thread {
-  return {
-    outlet_id: OUTLET,
-    thread_id: "t1",
-    device_id: DEVICE,
-    category: "ROUTINE_OPS",
-    confidence: 0.95,
-    line_ids: ["s1#0"],
-    evidence_line_ids: ["s1#0"],
-    lines: [{ line_id: "s1#0", start_ms: 0, end_ms: 1000, text: "checked the oven" }],
-    first_line_start_ms: 0,
-    last_line_end_ms: 1000,
-    summary: "checked the oven",
-    label_conflict: false,
-    status: "open",
-    gate: {
-      verdict: "fact",
-      fired_rule: "passed",
-      checks: [],
-      category: "ROUTINE_OPS",
-      confidence: 0.95,
-      threshold: 0.9,
-      evidence_count: 1,
-      gate_version: "1",
-    },
-    created_at_ms: 0,
-    updated_at_ms: 0,
-    ...overrides,
-  };
-}
-
 /** A minimal in-memory DebriefStore (service.ts's own store contract). */
 class FakeDebriefStore implements DebriefStore {
   lastEndedByDevice = new Map<string, LastEnded>();
