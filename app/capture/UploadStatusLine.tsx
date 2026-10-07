@@ -152,8 +152,8 @@ export function UploadStatusLine({
   const color = showView ? COLOR[view.phase] : "#444";
   const retryCount =
     showView && view.phase === "retrying" && view.failedAttempts !== undefined
-      ? ` ${t(lang, "C-u-count", { N: view.failedAttempts })}`
-      : "";
+      ? t(lang, "C-u-count", { N: view.failedAttempts })
+      : null;
   // Offline shows the no-internet detail. Online shows "Server busy" only for a
   // real server error (5xx or 429), never for a network failure or 401/403.
   const detailKey: DictKey | null =
@@ -164,37 +164,35 @@ export function UploadStatusLine({
           : null
         : "C-u-inet"
       : null;
-  // The regions are always rendered, so each live region exists before any row
-  // appears and is announced on change (UX-03 §5.7, §7). The lost value is
-  // announced once; its helper sits under it, outside every live region (copy
-  // keys: not announced). The retry / uploading / succeeded row has its own
-  // region. The toast is a sibling.
+  // One live region for the whole upload block, mounted once (UX-03 §5.7): the
+  // lost value, its helper and the retry / uploading / succeeded row are read
+  // together, in visual order. The helper is not aria-hidden. The "(Nx)" count
+  // is aria-hidden so count growth is never read. The toast is a sibling outside
+  // the block, with its own role="status".
   return (
     <>
-      <div style={hasContent ? { marginTop: 12, fontSize: 14 } : undefined}>
-        <div data-testid="upload-lost" role="status" aria-live="polite">
-          {lost ? (
-            <p style={{ margin: 0, fontWeight: 600, color: WARN_TOKEN }}>
-              <span aria-hidden="true">▲ </span>
-              {t(lang, "C-u-lost")}
-            </p>
-          ) : null}
-        </div>
+      <div
+        data-testid="upload-status"
+        role="status"
+        aria-live="polite"
+        style={hasContent ? { marginTop: 12, fontSize: 14 } : undefined}
+      >
+        {lost ? (
+          <p style={{ margin: 0, fontWeight: 600, color: WARN_TOKEN }}>
+            <span aria-hidden="true">▲ </span>
+            {t(lang, "C-u-lost")}
+          </p>
+        ) : null}
         {lost ? <p style={{ margin: "2px 0 0" }}>{t(lang, "C-u-lost-help")}</p> : null}
-        <div
-          data-testid="upload-status"
-          role="status"
-          aria-live="polite"
-          style={{ color, marginTop: lost && showView ? 8 : 0 }}
-        >
-          {showView ? (
-            <p style={{ margin: 0, fontWeight: 600 }}>
-              {t(lang, PHASE_KEY[view.phase])}
-              {retryCount}
-            </p>
-          ) : null}
-          {detailKey ? <p style={{ margin: "2px 0 0" }}>{t(lang, detailKey)}</p> : null}
-        </div>
+        {showView ? (
+          <p style={{ margin: lost ? "8px 0 0" : 0, fontWeight: 600, color }}>
+            {t(lang, PHASE_KEY[view.phase])}
+            {retryCount !== null ? (
+              <span aria-hidden="true"> {retryCount}</span>
+            ) : null}
+          </p>
+        ) : null}
+        {detailKey ? <p style={{ margin: "2px 0 0", color }}>{t(lang, detailKey)}</p> : null}
       </div>
       {toastVisible ? (
         <div
