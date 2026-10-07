@@ -3,8 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const replace = vi.fn();
+// One stable router object, as Next's real useRouter returns: a fresh object per
+// render would re-run the page's mount effect on every state update.
+const router = { replace };
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace }),
+  useRouter: () => router,
 }));
 
 const isDevControlsEnabled = vi.fn(() => false);
