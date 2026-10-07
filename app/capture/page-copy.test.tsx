@@ -45,6 +45,11 @@ afterEach(() => {
   document.cookie = "bee6_lang=; Path=/; Max-Age=0";
 });
 
+function pinClock(iso: string) {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(iso));
+}
+
 async function renderPage(lang: Lang) {
   const { default: CapturePage } = await import("@/app/capture/page");
   return render(
@@ -84,6 +89,8 @@ describe("capture page: the heading is one fixed neutral heading (UX-03 decision
   });
 
   it("is the same heading while listening (a session running)", async () => {
+    // Wed 2026-09-30 10:00 WIB: inside the Mulai window (closes at 18:00)
+    pinClock("2026-09-30T03:00:00Z");
     readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
     fetchCaptureConfig.mockResolvedValue(CONFIG);
     await renderPage("en");
@@ -153,6 +160,8 @@ describe("capture page: one language per render", () => {
   });
 
   it("the running screen (Selesai note + Batalkan) is Bahasa only under id", async () => {
+    // Wed 2026-09-30 10:00 WIB: inside the Mulai window (closes at 18:00)
+    pinClock("2026-09-30T03:00:00Z");
     readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
     fetchCaptureConfig.mockResolvedValue(CONFIG);
     const { container } = await renderPage("id");
@@ -164,6 +173,8 @@ describe("capture page: one language per render", () => {
   });
 
   it("the running screen is English only under en", async () => {
+    // Wed 2026-09-30 10:00 WIB: inside the Mulai window (closes at 18:00)
+    pinClock("2026-09-30T03:00:00Z");
     readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
     fetchCaptureConfig.mockResolvedValue(CONFIG);
     const { container } = await renderPage("en");
