@@ -19,32 +19,38 @@ import { t, type DictKey } from "@/lib/i18n/dict";
  */
 export type StatusBannerState = CaptureState | "idle";
 
-const PRESENTATION: Record<
-  StatusBannerState,
-  { emoji: string; label: DictKey; color: string; detail: DictKey | null }
-> = {
-  listening: { emoji: "🟢", label: "C-h-listening", color: "#1b5e20", detail: null },
-  offline: { emoji: "🟡", label: "C-h-listening", color: "#8d6e00", detail: null },
-  mic_error: { emoji: "🔴", label: "C-h-mic", color: "#b00020", detail: null },
-  idle: { emoji: "⚪", label: "C-h-idle", color: "#444", detail: "C-h-idle-help" },
+const PRESENTATION: Record<StatusBannerState, { emoji: string; label: DictKey; color: string }> = {
+  listening: { emoji: "🟢", label: "C-h-listening", color: "#1b5e20" },
+  offline: { emoji: "🟡", label: "C-h-listening", color: "#8d6e00" },
+  mic_error: { emoji: "🔴", label: "C-h-mic", color: "#b00020" },
+  idle: { emoji: "⚪", label: "C-h-idle", color: "#444" },
 };
 
 export interface StatusBannerProps {
   state: StatusBannerState;
   queuedCount: number;
   micSource: string;
+  /**
+   * True only when the page offers Mulai (UX-03 §5.2). The idle helper
+   * (C-h-idle-help) shows only then. When Mulai is not offered the banner says
+   * nothing under "Not started"; the Mulai reason note belongs to the page.
+   */
+  startOffered?: boolean;
 }
 
-export function StatusBanner({ state, queuedCount, micSource }: StatusBannerProps) {
+export function StatusBanner({ state, queuedCount, micSource, startOffered = false }: StatusBannerProps) {
   const { lang } = useLang();
-  const { emoji, label, color, detail: detailKey } = PRESENTATION[state];
-  const detail = detailKey
-    ? t(lang, detailKey)
-    : state === "offline"
-      ? t(lang, "C-cap-waiting", { N: queuedCount })
-      : state === "mic_error"
-        ? t(lang, "C-h-mic-help")
-        : t(lang, "C-cap-capturing");
+  const { emoji, label, color } = PRESENTATION[state];
+  const detail =
+    state === "idle"
+      ? startOffered
+        ? t(lang, "C-h-idle-help")
+        : null
+      : state === "offline"
+        ? t(lang, "C-cap-waiting", { N: queuedCount })
+        : state === "mic_error"
+          ? t(lang, "C-h-mic-help")
+          : t(lang, "C-cap-capturing");
 
   return (
     <section
@@ -64,7 +70,7 @@ export function StatusBanner({ state, queuedCount, micSource }: StatusBannerProp
       <p style={{ fontSize: 28, fontWeight: 700, margin: "8px 0 0", color }}>
         {t(lang, label)}
       </p>
-      <p style={{ fontSize: 16, margin: "8px 0 0" }}>{detail}</p>
+      <p style={{ fontSize: 16, margin: "8px 0 0" }}>{detail ?? ""}</p>
       <p style={{ fontSize: 14, margin: "12px 0 0", color: "#444" }}>
         {t(lang, "C-cap-mic", { source: micSource })}
       </p>
