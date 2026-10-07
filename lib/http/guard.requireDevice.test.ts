@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
 import { ForbiddenError, UnauthorizedError } from "@/lib/http/errors";
-import { hashDeviceToken } from "@/lib/auth/pairing";
+import {
+  DUMMY_DEVICE_TOKEN_HASH,
+  hashDeviceToken,
+  verifyDeviceToken,
+} from "@/lib/auth/pairing";
 
 /**
  * Device guard (web spec §6.6.1). Mocks the two external seams only:
@@ -14,6 +18,12 @@ import { hashDeviceToken } from "@/lib/auth/pairing";
  * - a verified Firebase ID token (owner / supervisor) is a non-device principal → 403;
  * - a bad token still → 401; a missing X-Device-Id is checked only after the token.
  */
+
+// Wrap the real bcrypt compare in a spy so a test can count compares per branch.
+vi.mock("@/lib/auth/pairing", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/auth/pairing")>();
+  return { ...actual, verifyDeviceToken: vi.fn(actual.verifyDeviceToken) };
+});
 
 const hoisted = vi.hoisted(() => ({
   verifyIdToken: vi.fn(),
@@ -152,5 +162,25 @@ describe("requireDevice: device credential path", () => {
 
     expect(err).toBeInstanceOf(UnauthorizedError);
     expect((err as UnauthorizedError).message).toBe("Invalid device token");
+  });
+});
+
+describe("requireDevice: every failure runs exactly one compare (timing parity)", () => {
+  it("a bearer with no X-Device-Id runs one compare against the dummy hash, then 401 'Invalid device token'", async () => {
+    const { requireDevice } = await import("@/lib/http/guard");
+    const compare = vi.mocked(verifyDeviceToken);
+    compare.mockClear();
+    hoisted.verifyIdToken.mockRejectedValueOnce(new Error("argument-error"));
+
+    const err = await requireDevice(
+      fakeRequest({ authorization: "Bearer opaque-device-token" }),
+    ).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(UnauthorizedError);
+    expect(err).not.toBeInstanceOf(ForbiddenError);
+    expect((err as UnauthorizedError).message).toBe("Invalid device token");
+    expect(compare).toHaveBeenCalledTimes(1);
+    expect(compare).toHaveBeenCalledWith("opaque-device-token", DUMMY_DEVICE_TOKEN_HASH);
+    expect(hoisted.findById).not.toHaveBeenCalled();
   });
 });
