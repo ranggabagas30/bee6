@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { StatusBanner, headlineStateFor } from "@/app/capture/StatusBanner";
 import { DevPanel } from "@/app/capture/DevPanel";
@@ -41,6 +41,7 @@ import { isDevControlsEnabled } from "@/lib/capture/dev-mode";
 import type { CaptureConfigResponse } from "@/lib/capture/contract";
 import {
   addDays,
+  autoStopAtMs,
   businessDateOf,
   localDateOf,
   mulaiWindowDateOf,
@@ -53,11 +54,10 @@ import type { MicSourceClass } from "@/lib/capture/mic-source";
 /**
  * /capture — the shop phone's always-on listening screen (technical spec §8,
  * UX-03 §5.2-§5.6). A session only ever starts on a Mulai tap and only ever
- * stops on Selesai, Batalkan or the deadline-driven auto-stop (not yet built
- * in this slice — see the handoff report). Reads the stored device
- * credential (or redirects to /pair), fetches the outlet's timezone/weekly
- * hours/last_ended, and shows a big status only; a transcript is NEVER
- * displayed (hard rule #2).
+ * stops on Selesai, Batalkan or the deadline-driven auto-stop (close(D) + 1h,
+ * no confirm dialog — §8.7). Reads the stored device credential (or
+ * redirects to /pair), fetches the outlet's timezone/weekly hours/last_ended,
+ * and shows a big status only; a transcript is NEVER displayed (hard rule #2).
  */
 
 const PAGE_STYLE: React.CSSProperties = {
@@ -214,6 +214,59 @@ export default function CapturePage() {
       ? idleViewFor({ config: effectiveConfig, nowMs, lang })
       : null;
 
+  // stopRunningSession reads only refs and stable setState setters, so an
+  // empty dep array is accurate — it lets the auto-stop effect below list it
+  // as a dependency without re-running on every render.
+  const stopRunningSession = useCallback((): void => {
+    sessionGenRef.current += 1;
+    const s = sessionRef.current;
+    sessionRef.current = null;
+    setSessionRunning(false);
+    setStatus(null);
+    if (s) void s.stop();
+  }, []);
+
+  // ── Auto-stop (§8.7): close(D) + 1h, enforced by the phone only ────────────
+  // Reacts to the same `nowMs` the 30s tick / visibilitychange handler below
+  // already sets, so this always sees the current session/config without a
+  // hand-rolled "latest ref". The state-setting work runs inside a
+  // `queueMicrotask` callback (same shape as the Batalkan panel's interval
+  // callback below: a scheduled callback, not a direct call from the
+  // effect's own synchronous body) so it stays a real microtask — safe under
+  // fake timers in tests, unlike a macrotask such as `setTimeout`.
+  const autoStopInFlightRef = useRef(false);
+  useEffect(() => {
+    if (!session || !config || nowMs === null || autoStopInFlightRef.current) return;
+    const deadline = autoStopAtMs(session.local_date, config.weekly_hours, config.timezone);
+    if (deadline === null || nowMs < deadline) return;
+    const auth = readDeviceAuth();
+    if (!auth) return;
+    autoStopInFlightRef.current = true;
+    const current = session;
+    queueMicrotask(() => {
+      void (async () => {
+        const endedAt = Date.now();
+        await postSessionEnd(auth, current.session_id, {
+          started_at_ms: current.started_at_ms,
+          ended_at_ms: endedAt,
+          end_reason: "auto_stop",
+        });
+        // No confirm dialog for an auto-stop: close either panel if one was open.
+        setSelesaiConfirmOpen(false);
+        setBatalkanOpen(false);
+        setBatalkanOpenedAtMs(null);
+        setLastEnded({
+          business_date: current.local_date,
+          end_reason: "auto_stop",
+          debrief_ends_at_ms: endedAt + DEBRIEF_DURATION_MS,
+        });
+        stopRunningSession();
+        setSession(null);
+        autoStopInFlightRef.current = false;
+      })();
+    });
+  }, [session, config, nowMs, stopRunningSession]);
+
   useEffect(() => {
     const tick = () => setNowMs(Date.now());
     tick();
@@ -248,15 +301,6 @@ export default function CapturePage() {
       void s?.stop();
     };
   }, []);
-
-  function stopRunningSession(): void {
-    sessionGenRef.current += 1;
-    const s = sessionRef.current;
-    sessionRef.current = null;
-    setSessionRunning(false);
-    setStatus(null);
-    if (s) void s.stop();
-  }
 
   function engineCallbacks(gen: number) {
     const isCurrent = () => gen === sessionGenRef.current;

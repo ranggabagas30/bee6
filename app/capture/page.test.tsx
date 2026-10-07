@@ -355,6 +355,43 @@ describe("CapturePage running state: Batalkan (UX-03 §5.6, technical spec §8.9
   });
 });
 
+describe("CapturePage: auto-stop enforcement (technical spec §8.7)", () => {
+  async function renderRunning(startedIso: string) {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date(startedIso));
+    // Mon 08:00-22:00 WIB: close 22:00 WIB, auto-stop = close + 1h = 23:00 WIB.
+    fetchCaptureConfig.mockResolvedValue(
+      config({ sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } }),
+    );
+    await renderReady();
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+  }
+
+  it("auto-stops on the next 30s tick once past close(D)+1h, with no confirm dialog", async () => {
+    await renderRunning("2026-10-12T01:00:00Z"); // Mon 08:00 WIB
+    // Mon 08:00 WIB -> auto-stop at Mon 23:00 WIB is 15h away; advance one
+    // extra tick past it so a 30s-tick boundary lands strictly after it.
+    await vi.advanceTimersByTimeAsync(15 * 60 * 60_000 + 30_000);
+    await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+    const [, sessionId, body] = postSessionEnd.mock.calls[0]!;
+    expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(body).toMatchObject({ end_reason: "auto_stop" });
+    await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByText("Ended automatically at 23:00")).toBeTruthy());
+    expect(screen.queryByText("Listening")).toBeNull();
+    expect(screen.queryByText("End today's operations?")).toBeNull();
+  });
+
+  it("does not auto-stop well before close(D)+1h", async () => {
+    await renderRunning("2026-10-12T01:00:00Z"); // Mon 08:00 WIB
+    // Past the 4h Selesai cut-off, but 11h short of the 15h auto-stop mark.
+    await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+    expect(postSessionEnd).not.toHaveBeenCalled();
+    expect(screen.getByText("Listening")).toBeTruthy();
+  });
+});
+
 describe("CapturePage dev panel (DEV-01, unaffected by the Mulai rewrite)", () => {
   it("renders no dev-panel node at all when the flag is unset", async () => {
     isDevControlsEnabled.mockReturnValue(false);
