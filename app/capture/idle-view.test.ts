@@ -9,6 +9,7 @@ const CONFIG: CaptureConfigResponse = {
   timezone: "Asia/Jakarta",
   weekly_hours: { sun: null, mon: day, tue: day, wed: day, thu: day, fri: day, sat: day },
   last_ended: null,
+  capture_mode: "room",
 };
 
 const MON_0200_JKT = Date.UTC(2026, 9, 11, 19, 0); // Mon 02:00 WIB (inside window)
