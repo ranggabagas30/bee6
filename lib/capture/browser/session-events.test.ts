@@ -64,14 +64,23 @@ vi.mock("@/lib/capture/browser/client", () => ({
 
 import { startCaptureSession } from "@/lib/capture/browser/session";
 import type { CaptureEvent } from "@/lib/capture/browser/event-log";
+import type { CaptureConfigResponse } from "@/lib/capture/contract";
 
 const AUTH = { deviceToken: "t", deviceId: "d" };
-const CONFIG = {
-  consent_complete: true,
-  opening_time: "08:00",
-  closing_time: "20:00",
+const HOURS = { open: "08:00", close: "20:00" };
+const CONFIG: CaptureConfigResponse = {
   timezone: "Asia/Jakarta",
-} as const;
+  weekly_hours: {
+    mon: HOURS,
+    tue: HOURS,
+    wed: HOURS,
+    thu: HOURS,
+    fri: HOURS,
+    sat: HOURS,
+    sun: null,
+  },
+  last_ended: null,
+};
 
 beforeEach(() => {
   Object.defineProperty(navigator, "mediaDevices", {

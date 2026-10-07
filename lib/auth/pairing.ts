@@ -45,10 +45,24 @@ export async function hashDeviceToken(token: string): Promise<string> {
   return bcrypt.hash(token, BCRYPT_ROUNDS);
 }
 
+/**
+ * A real bcrypt hash (cost `BCRYPT_ROUNDS`) of a random throwaway string that
+ * was discarded at creation. It matches no token. `authenticateDeviceToken`
+ * compares against it on failure branches with no real hash (unknown id,
+ * revoked, unpaired), so those branches cost one bcrypt compare, the same as a
+ * wrong token on a real device. Without it, response time would reveal whether
+ * a device id exists and is active.
+ */
+export const DUMMY_DEVICE_TOKEN_HASH =
+  "$2b$10$Uoc3KESv6chAwuWYGUtqdufCNwR0HlMTLvI15p6QCErRBHgFKFbnS";
+
+/**
+ * Always runs one bcrypt compare, including for an empty token, so the cost of
+ * a check does not depend on the input.
+ */
 export async function verifyDeviceToken(
   token: string,
   hash: string,
 ): Promise<boolean> {
-  if (!token) return false;
   return bcrypt.compare(token, hash);
 }

@@ -7,7 +7,8 @@ import { useLang } from "@/lib/i18n/context";
 import { pairErrorKey } from "@/lib/i18n/codes";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import { fetchCaptureConfig, type DeviceAuth } from "@/lib/capture/browser/client";
-import { mulaiWindowEnd } from "@/lib/capture/hours";
+import { businessDateOf, mulaiWindowFor } from "@/lib/capture/calendar";
+import type { CaptureConfigResponse } from "@/lib/capture/contract";
 
 /**
  * /pair — the shop phone's pairing entry (web spec §3, §4.1). Minimal by design:
@@ -30,12 +31,30 @@ const OUTLET_ID_KEY = "bee6.outlet_id";
 type Status =
   | { kind: "idle" }
   | { kind: "submitting" }
-  // untilHm: the Mulai window end (closing minus 4 h) once the outlet config
-  // has loaded. Until then, and if it never loads, the checklist omits step 3.
+  // untilHm: today's Mulai window end (close minus 4 h, HH:MM in the outlet
+  // zone) once the outlet config has loaded. Until then, on a closed day, and if
+  // the config never loads, the checklist omits step 3.
   | { kind: "paired"; outletId: string; untilHm?: string }
   | { kind: "error"; key: DictKey };
 
 const PAGE_STYLE: React.CSSProperties = { maxWidth: 360, margin: "0 auto", padding: 24 };
+
+/**
+ * Today's Mulai window end as HH:MM in the outlet zone (R-P1, decision (a)): the
+ * window of the current business date (§4.10), from its weekly hours. undefined on
+ * a closed day, so step 3 is hidden.
+ */
+function untilHmFor(config: CaptureConfigResponse, now: Date): string | undefined {
+  const tz = config.timezone;
+  const window = mulaiWindowFor(businessDateOf(now.getTime(), tz), config.weekly_hours, tz);
+  if (!window) return undefined;
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: tz,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(window.end_ms));
+}
 
 // box-sizing: border-box keeps width 100% inside the column (padding and border
 // do not add to it), so the code field lines up with the button at 360 px and above.
@@ -94,7 +113,7 @@ export default function PairPage() {
     // pairing into a connection error. The checklist simply keeps steps 1, 2, 4.
     try {
       const config = await fetchCaptureConfig(pairedAuth);
-      const untilHm = mulaiWindowEnd(config.closing_time);
+      const untilHm = untilHmFor(config, new Date());
       setStatus((current) =>
         current.kind === "paired" ? { ...current, untilHm } : current,
       );

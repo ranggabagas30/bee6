@@ -27,14 +27,16 @@ vi.mock("next/navigation", () => ({
 const PAIR_OK = {
   data: { device_token: "tok-1", device_id: "dev-1", outlet_id: "outlet-7" },
 };
-const CONFIG_OK = {
-  data: {
-    consent_complete: true,
-    opening_time: "09:30",
-    closing_time: "01:00",
+const OVERNIGHT = { open: "09:30", close: "01:00" };
+/** Strict config shape (web-backend-rbac §6.6.2): timezone, weekly_hours, last_ended. */
+function configBody(day: { open: string; close: string } | null, sunday: { open: string; close: string } | null = day) {
+  return {
     timezone: "Asia/Jakarta",
-  },
-};
+    weekly_hours: { mon: day, tue: day, wed: day, thu: day, fri: day, sat: day, sun: sunday },
+    last_ended: null,
+  };
+}
+const CONFIG_OK = { data: configBody(OVERNIGHT) };
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -45,6 +47,7 @@ function jsonResponse(body: unknown, status = 200) {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   memory.clear();
   push.mockClear();
@@ -159,14 +162,14 @@ describe("PairPage code field layout", () => {
 });
 
 describe("PairPage success (UX-03 section 5.1)", () => {
-  function stubPairThenConfig(configStatus: number) {
+  function stubPairThenConfig(configStatus: number, body: unknown = CONFIG_OK) {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
         if (url === "/api/v1/devices/pair") return jsonResponse(PAIR_OK);
         if (url === "/api/v1/capture/config") {
           return configStatus === 200
-            ? jsonResponse(CONFIG_OK)
+            ? jsonResponse(body)
             : jsonResponse({ error: { code: "INTERNAL_ERROR" } }, configStatus);
         }
         throw new Error(`unexpected fetch ${url}`);
@@ -174,7 +177,47 @@ describe("PairPage success (UX-03 section 5.1)", () => {
     );
   }
 
+  /** Wed 2026-09-30 10:00 WIB: an open day, so today's business date is Wed. */
+  function pinOpenDay() {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-30T03:00:00Z"));
+  }
+
+  it("ends step 3 at the Mulai window end (close minus 4 h) for today, in the outlet timezone", async () => {
+    pinOpenDay();
+    stubPairThenConfig(200, { data: configBody({ open: "08:00", close: "22:00" }) });
+    render(
+      <LangProvider initial="en">
+        <PairPage />
+      </LangProvider>,
+    );
+    fillCodeAndSubmit("123456");
+    await waitFor(() =>
+      expect(screen.getByText(/You can tap Start from 01:00 until 18:00, on each open day\./)).toBeTruthy(),
+    );
+  });
+
+  it("hides step 3 on a closed day", async () => {
+    // Sun 2026-10-04 10:00 WIB: closed. Mon-Sat stay open so the config is valid.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-04T03:00:00Z"));
+    stubPairThenConfig(200, { data: configBody(OVERNIGHT, null) });
+    render(
+      <LangProvider initial="en">
+        <PairPage />
+      </LangProvider>,
+    );
+    fillCodeAndSubmit("123456");
+    expect(await screen.findByText("Phone set up", {}, { timeout: 3000 })).toBeTruthy();
+    // Give the config fetch a tick to settle before asserting the step is absent.
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/v1/capture/config", expect.anything()));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByText(/You can tap Start from/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Open the listening page" })).toBeTruthy();
+  });
+
   it("shows the four-step checklist and the listening-page button in English", async () => {
+    pinOpenDay();
     stubPairThenConfig(200);
     render(
       <LangProvider initial="en">
@@ -194,6 +237,7 @@ describe("PairPage success (UX-03 section 5.1)", () => {
   });
 
   it("shows the Bahasa checklist and button when the language is id", async () => {
+    pinOpenDay();
     stubPairThenConfig(200);
     render(
       <LangProvider initial="id">

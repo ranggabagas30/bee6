@@ -1,17 +1,16 @@
 import type { NextRequest } from "next/server";
-import { handleApiError } from "@/lib/http/errors";
+import { UnauthorizedError, handleApiError } from "@/lib/http/errors";
 import { jsonOk } from "@/lib/http/respond";
 import { requireDevice } from "@/lib/http/guard";
 import { getCaptureConfig } from "@/lib/capture/services";
 import { firestoreCaptureStore } from "@/lib/firestore/stores";
 
 /**
- * GET /api/v1/capture/config (web spec §4.1).
- * The shop device fetches the outlet's consent flag + opening/closing hours +
- * timezone to gate capture, without ever touching Firestore directly (hard rule
- * #6). Authenticated by the device token; the outlet comes from the device
- * principal, so a device can only read its own outlet's config. Returns a strict
- * allowlist subset — never the whole outlet doc.
+ * GET /api/v1/capture/config (web spec §6.6.2). The shop device fetches its outlet's
+ * timezone, resolved weekly hours and this device's own `last_ended`, without touching
+ * Firestore directly (hard rule #6). Authenticated by the device token; the outlet and
+ * device come from the verified principal only. Returns a strict allowlist, never the
+ * whole outlet or device doc.
  */
 
 export const runtime = "nodejs";
@@ -20,8 +19,12 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   try {
     const device = await requireDevice(req);
+    if (!device.device_id) {
+      throw new UnauthorizedError("Device session missing device id");
+    }
     const config = await getCaptureConfig(firestoreCaptureStore(), {
       outlet_id: device.outlet_id,
+      device_id: device.device_id,
     });
     return jsonOk(config);
   } catch (error) {

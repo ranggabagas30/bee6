@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import bcrypt from "bcryptjs";
 import {
   authenticateDeviceToken,
   linkGoogleUser,
@@ -12,7 +13,7 @@ import {
   type UserStore,
 } from "@/lib/auth/services";
 import { hashPin } from "@/lib/auth/pin";
-import { hashDeviceToken } from "@/lib/auth/pairing";
+import { DUMMY_DEVICE_TOKEN_HASH, hashDeviceToken } from "@/lib/auth/pairing";
 import {
   ForbiddenError,
   LockedError,
@@ -178,6 +179,30 @@ describe("authenticateDeviceToken", () => {
       authenticateDeviceToken({ devices: store }, { device_id: "d1", token: "wrong" }),
     ).rejects.toThrow(UnauthorizedError);
   });
+
+  it("answers an unknown device id and a wrong token for a known id identically", async () => {
+    const store = makeDeviceStore([
+      device({ token_hash: await hashDeviceToken("correct") }),
+    ]);
+    const captureError = async (input: { device_id: string; token: string }) => {
+      try {
+        await authenticateDeviceToken({ devices: store }, input);
+      } catch (err) {
+        return err;
+      }
+      throw new Error("expected authenticateDeviceToken to throw");
+    };
+    const unknownId = await captureError({ device_id: "no-such-device", token: "correct" });
+    const wrongToken = await captureError({ device_id: "d1", token: "wrong" });
+    expect(unknownId).toBeInstanceOf(UnauthorizedError);
+    expect(wrongToken).toBeInstanceOf(UnauthorizedError);
+    const u = unknownId as UnauthorizedError;
+    const w = wrongToken as UnauthorizedError;
+    expect(u.statusCode).toBe(w.statusCode);
+    expect(u.code).toBe(w.code);
+    expect(u.message).toBe(w.message);
+    expect(u.message).toBe("Invalid device token");
+  });
 });
 
 // ── staffPinLogin ────────────────────────────────────────────────────────────
@@ -300,5 +325,97 @@ describe("linkGoogleUser", () => {
         { uid: "x", email: "stranger@example.com", email_verified: true },
       ),
     ).rejects.toThrow(ForbiddenError);
+  });
+});
+
+// ── authenticateDeviceToken: bcrypt parity on every failure branch ───────────
+// Every failure must run exactly one bcrypt compare, so response time does not
+// reveal whether a device id exists or is active. Spying on bcrypt.compare
+// checks the work done without measuring wall-clock time.
+describe("authenticateDeviceToken bcrypt parity", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  async function runAuth(
+    store: DeviceStore,
+    input: { device_id: string; token: string },
+  ) {
+    const spy = vi.spyOn(bcrypt, "compare");
+    let error: unknown;
+    try {
+      await authenticateDeviceToken({ devices: store }, input);
+    } catch (err) {
+      error = err;
+    }
+    return { error, spy };
+  }
+
+  function expectSameUnauthorized(error: unknown) {
+    expect(error).toBeInstanceOf(UnauthorizedError);
+    const e = error as UnauthorizedError;
+    expect(e.statusCode).toBe(401);
+    expect(e.code).toBe("UNAUTHORIZED");
+    expect(e.message).toBe("Invalid device token");
+  }
+
+  it("the dummy hash is a real bcrypt hash at the production cost (10) and matches nothing", async () => {
+    expect(DUMMY_DEVICE_TOKEN_HASH).toMatch(/^\$2[aby]\$10\$/);
+    expect(await bcrypt.compare("any-token", DUMMY_DEVICE_TOKEN_HASH)).toBe(false);
+  });
+
+  it("unknown device id runs one compare against the dummy hash", async () => {
+    const store = makeDeviceStore([
+      device({ token_hash: await hashDeviceToken("correct") }),
+    ]);
+    const { error, spy } = await runAuth(store, { device_id: "no-such", token: "x" });
+    expectSameUnauthorized(error);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0]?.[1]).toBe(DUMMY_DEVICE_TOKEN_HASH);
+  });
+
+  it("revoked device runs one compare against the dummy hash", async () => {
+    const store = makeDeviceStore([
+      device({ revoked: true, token_hash: await hashDeviceToken("correct") }),
+    ]);
+    const { error, spy } = await runAuth(store, { device_id: "d1", token: "correct" });
+    expectSameUnauthorized(error);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0]?.[1]).toBe(DUMMY_DEVICE_TOKEN_HASH);
+  });
+
+  it("unpaired device (missing hash) runs one compare against the dummy hash", async () => {
+    const store = makeDeviceStore([device({ token_hash: null })]);
+    const { error, spy } = await runAuth(store, { device_id: "d1", token: "x" });
+    expectSameUnauthorized(error);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0]?.[1]).toBe(DUMMY_DEVICE_TOKEN_HASH);
+  });
+
+  it("active device with a wrong token runs one compare against its own hash", async () => {
+    const realHash = await hashDeviceToken("correct");
+    const store = makeDeviceStore([device({ token_hash: realHash })]);
+    const { error, spy } = await runAuth(store, { device_id: "d1", token: "wrong" });
+    expectSameUnauthorized(error);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0]?.[1]).toBe(realHash);
+  });
+
+  it("active device with an empty token still runs one compare (no short-circuit)", async () => {
+    const realHash = await hashDeviceToken("correct");
+    const store = makeDeviceStore([device({ token_hash: realHash })]);
+    const { error, spy } = await runAuth(store, { device_id: "d1", token: "" });
+    expectSameUnauthorized(error);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0]?.[1]).toBe(realHash);
+  });
+
+  it("unknown device id with an empty token also runs one compare", async () => {
+    const store = makeDeviceStore([
+      device({ token_hash: await hashDeviceToken("correct") }),
+    ]);
+    const { error, spy } = await runAuth(store, { device_id: "no-such", token: "" });
+    expectSameUnauthorized(error);
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 });

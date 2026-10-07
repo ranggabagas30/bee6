@@ -162,33 +162,55 @@ describe("CaptureConfigResponseSchema", () => {
     closing_time: "21:45",
     created_at: "2026-09-30T00:00:00.000Z",
   };
+  const day = { open: "07:00", close: "21:45" };
+  const weekly = { mon: day, tue: day, wed: day, thu: day, fri: day, sat: day, sun: day };
+  const lastEnded = {
+    business_date: "2026-10-06",
+    end_reason: "auto_stop" as const,
+    ended_at_ms: 1_700_000_000_000,
+    debrief_ends_at_ms: 1_700_003_600_000,
+  };
 
-  it("projects a full outlet doc to the allowlist subset", () => {
-    expect(toCaptureConfig(outlet)).toEqual({
-      consent_complete: true,
-      opening_time: "07:00",
-      closing_time: "21:45",
+  it("projects a full outlet doc and device to the allowlist shape", () => {
+    expect(toCaptureConfig(outlet, null)).toEqual({
       timezone: "Asia/Jakarta",
+      weekly_hours: weekly,
+      last_ended: null,
     });
+  });
+
+  it("uses the outlet's stored weekly_hours when present", () => {
+    const stored = { ...weekly, sun: null };
+    expect(toCaptureConfig({ ...outlet, weekly_hours: stored }, lastEnded).weekly_hours).toEqual(stored);
   });
 
   it("round-trips the allowlist shape", () => {
     const config = {
-      consent_complete: false,
-      opening_time: "08:00",
-      closing_time: "20:00",
       timezone: "Asia/Jakarta",
+      weekly_hours: weekly,
+      last_ended: { business_date: "2026-10-06", end_reason: "auto_stop", debrief_ends_at_ms: 1_700_003_600_000 },
     };
     expect(CaptureConfigResponseSchema.parse(config)).toEqual(config);
+  });
+
+  it("never carries consent_complete (a contract test asserts its absence)", () => {
+    expect(toCaptureConfig(outlet, null)).not.toHaveProperty("consent_complete");
+    expect(() =>
+      CaptureConfigResponseSchema.parse({
+        timezone: "Asia/Jakarta",
+        weekly_hours: weekly,
+        last_ended: null,
+        consent_complete: true,
+      }),
+    ).toThrow();
   });
 
   it("rejects extra fields (strict allowlist)", () => {
     expect(() =>
       CaptureConfigResponseSchema.parse({
-        consent_complete: true,
-        opening_time: "07:00",
-        closing_time: "21:45",
         timezone: "Asia/Jakarta",
+        weekly_hours: weekly,
+        last_ended: null,
         name: "Proofed",
       }),
     ).toThrow();

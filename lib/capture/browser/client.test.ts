@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildSegmentPut,
   deviceAuthHeaders,
+  fetchCaptureConfig,
   resolveCapturePhase,
 } from "@/lib/capture/browser/client";
 import type { QueuedSegment } from "@/lib/capture/browser/engine";
+import type { CaptureConfigResponse } from "@/lib/capture/contract";
 
 const auth = { deviceToken: "tok-123", deviceId: "dev-1" };
 
@@ -52,34 +54,94 @@ describe("buildSegmentPut", () => {
   });
 });
 
-describe("resolveCapturePhase", () => {
-  const base = {
-    opening_time: "07:00",
-    closing_time: "21:45",
-    timezone: "Asia/Jakarta",
-  };
+// Jakarta is UTC+7 with no DST. 2026-09-30 is a Wednesday; 2026-10-04 a Sunday.
+const day = { open: "08:00", close: "22:00" };
+const overnight = { open: "09:30", close: "01:00" };
+const config: CaptureConfigResponse = {
+  timezone: "Asia/Jakarta",
+  weekly_hours: {
+    mon: day,
+    tue: day,
+    wed: day,
+    thu: day,
+    fri: day,
+    sat: day,
+    sun: null,
+  },
+  last_ended: null,
+};
 
-  it("refuses when consent is incomplete", () => {
-    const phase = resolveCapturePhase(
-      { ...base, consent_complete: false },
-      new Date("2026-09-30T03:00:00Z"), // 10:00 WIB, inside hours
-    );
-    expect(phase).toBe("no_consent");
+describe("resolveCapturePhase (strict config shape, no consent gate)", () => {
+  it("is active inside today's hours", () => {
+    expect(
+      resolveCapturePhase(config, new Date("2026-09-30T03:00:00Z")), // Wed 10:00 WIB
+    ).toBe("active");
   });
 
-  it("pauses outside opening hours (consent complete)", () => {
-    const phase = resolveCapturePhase(
-      { ...base, consent_complete: true },
-      new Date("2026-09-29T23:00:00Z"), // 06:00 WIB, before opening
-    );
-    expect(phase).toBe("outside_hours");
+  it("is outside_hours before opening", () => {
+    expect(
+      resolveCapturePhase(config, new Date("2026-09-29T23:00:00Z")), // Wed 06:00 WIB
+    ).toBe("outside_hours");
   });
 
-  it("is active with consent inside hours", () => {
-    const phase = resolveCapturePhase(
-      { ...base, consent_complete: true },
-      new Date("2026-09-30T03:00:00Z"), // 10:00 WIB
+  it("is outside_hours after closing", () => {
+    expect(
+      resolveCapturePhase(config, new Date("2026-09-30T15:30:00Z")), // Wed 22:30 WIB
+    ).toBe("outside_hours");
+  });
+
+  it("is outside_hours on a closed weekday", () => {
+    expect(
+      resolveCapturePhase(config, new Date("2026-10-04T03:00:00Z")), // Sun 10:00 WIB
+    ).toBe("outside_hours");
+  });
+
+  it("is active after midnight inside a 09:30-01:00 day (business date is the previous day)", () => {
+    const overnightConfig: CaptureConfigResponse = {
+      ...config,
+      weekly_hours: { ...config.weekly_hours, wed: overnight },
+    };
+    expect(
+      resolveCapturePhase(overnightConfig, new Date("2026-09-30T17:30:00Z")), // Thu 00:30 WIB
+    ).toBe("active");
+  });
+
+  it("only ever returns outside_hours or active", () => {
+    const phases = new Set(
+      [
+        "2026-09-29T23:00:00Z",
+        "2026-09-30T03:00:00Z",
+        "2026-10-04T03:00:00Z",
+      ].map((iso) => resolveCapturePhase(config, new Date(iso))),
     );
-    expect(phase).toBe("active");
+    for (const phase of phases) {
+      expect(["outside_hours", "active"]).toContain(phase);
+    }
+  });
+});
+
+describe("fetchCaptureConfig (client-side strict boundary)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("accepts the strict config shape", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ data: config }), { status: 200 })),
+    );
+    await expect(fetchCaptureConfig(auth)).resolves.toEqual(config);
+  });
+
+  it("rejects a response that still carries consent_complete", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(JSON.stringify({ data: { ...config, consent_complete: true } }), {
+          status: 200,
+        }),
+      ),
+    );
+    await expect(fetchCaptureConfig(auth)).rejects.toThrow();
   });
 });

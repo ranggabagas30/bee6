@@ -3,7 +3,7 @@ import {
   type CaptureConfigResponse,
   type HeartbeatRequest,
 } from "@/lib/capture/contract";
-import { isWithinOpeningHours } from "@/lib/capture/hours";
+import { businessDateOf, plannedIntervalFor } from "@/lib/capture/calendar";
 import type { QueuedSegment, UploadFn } from "@/lib/capture/browser/engine";
 
 /**
@@ -117,14 +117,27 @@ export function createHeartbeatPoster(
   };
 }
 
-export type CapturePhase = "no_consent" | "outside_hours" | "active";
+export type CapturePhase = "outside_hours" | "active";
 
-/** Decides the capture phase from the outlet config + current time. */
+/**
+ * Decides the capture phase from the outlet config + current time. Active when
+ * `now` falls inside the planned interval of its business date (web spec §4.1,
+ * §4.10). Consent is collected outside the product (CLAUDE.md §2 #7b), so there
+ * is no consent phase. The interval is half-open: [open, close).
+ */
 export function resolveCapturePhase(
   config: CaptureConfigResponse,
   now: Date,
 ): CapturePhase {
-  if (!config.consent_complete) return "no_consent";
-  if (!isWithinOpeningHours(now, config)) return "outside_hours";
-  return "active";
+  const nowMs = now.getTime();
+  const tz = config.timezone;
+  const interval = plannedIntervalFor(
+    businessDateOf(nowMs, tz),
+    config.weekly_hours,
+    tz,
+  );
+  if (interval && interval.start_ms <= nowMs && nowMs < interval.end_ms) {
+    return "active";
+  }
+  return "outside_hours";
 }

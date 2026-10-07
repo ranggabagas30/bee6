@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 import { PUT } from "./route";
 import * as guardModule from "@/lib/http/guard";
@@ -142,6 +142,7 @@ describe("PUT /api/v1/segments/[segment]", () => {
       });
       vi.spyOn(storesModule, "firestoreSegmentStore").mockReturnValueOnce({
         get: vi.fn().mockResolvedValueOnce(null),
+        isDiscarded: vi.fn().mockResolvedValue(false),
         create: vi.fn(),
       });
 
@@ -193,6 +194,7 @@ describe("PUT /api/v1/segments/[segment]", () => {
       vi.spyOn(redactModule, "dlpRedactor").mockReturnValueOnce(mockRedactor);
       vi.spyOn(storesModule, "firestoreSegmentStore").mockReturnValueOnce({
         get: vi.fn().mockResolvedValueOnce(null),
+        isDiscarded: vi.fn().mockResolvedValue(false),
         create: vi.fn(),
       });
 
@@ -253,6 +255,7 @@ describe("PUT /api/v1/segments/[segment]", () => {
       vi.spyOn(redactModule, "dlpRedactor").mockReturnValueOnce(mockRedactor);
       vi.spyOn(storesModule, "firestoreSegmentStore").mockReturnValueOnce({
         get: vi.fn().mockResolvedValueOnce(existingSegment),
+        isDiscarded: vi.fn().mockResolvedValue(false),
         create: vi.fn(),
       });
 
@@ -303,6 +306,7 @@ describe("PUT /api/v1/segments/[segment]", () => {
       vi.spyOn(redactModule, "dlpRedactor").mockReturnValueOnce(mockRedactor);
       vi.spyOn(storesModule, "firestoreSegmentStore").mockReturnValueOnce({
         get: vi.fn().mockResolvedValueOnce(null),
+        isDiscarded: vi.fn().mockResolvedValue(false),
         create: vi.fn().mockResolvedValueOnce({ status: "created" }),
       });
 
@@ -335,6 +339,130 @@ describe("PUT /api/v1/segments/[segment]", () => {
     });
   });
 
+  describe("X-Session-Id and discard tombstone (web spec §6.6.4)", () => {
+    const SESSION_ID = "6f1c2a4e-8b3d-4e5f-9a7b-1c2d3e4f5a6b";
+
+    // The 422 case never reaches the store, so its queued once-mocks must not leak
+    // into the next test.
+    afterEach(() => {
+      vi.resetAllMocks();
+    });
+
+    function sessionRequest(sessionHeader?: string): NextRequest {
+      const audioBuffer = Buffer.from("fake-audio");
+      return new NextRequest("http://localhost/api/v1/segments/device-1:seg-1", {
+        method: "PUT",
+        headers: {
+          "content-type": "audio/webm;codecs=opus",
+          "content-length": String(audioBuffer.length),
+          "x-segment-start-ms": "0",
+          "x-segment-end-ms": "15000",
+          "x-segment-sample-rate": "16000",
+          ...(sessionHeader !== undefined ? { "x-session-id": sessionHeader } : {}),
+        },
+        body: audioBuffer,
+      });
+    }
+
+    function mockDevice() {
+      vi.spyOn(guardModule, "requireDevice").mockResolvedValueOnce({
+        outlet_id: "outlet-1",
+        device_id: "device-1",
+        role: "device",
+      });
+    }
+
+    function mockTranscribeAndRedact() {
+      const transcriber = {
+        transcribe: vi.fn().mockResolvedValue({
+          text: "hello world",
+          inputTokens: 1,
+          outputTokens: 1,
+          model: "gemini-3.5-transcribe-preview",
+          location: "global",
+        }),
+      };
+      vi.spyOn(transcribeModule, "geminiTranscriber").mockReturnValueOnce(transcriber);
+      vi.spyOn(redactModule, "dlpRedactor").mockReturnValueOnce({
+        redact: vi.fn().mockResolvedValue("redacted text"),
+      });
+      return transcriber;
+    }
+
+    function mockStore(opts: { discarded?: boolean } = {}) {
+      const create = vi.fn().mockResolvedValue({ status: "created" });
+      const isDiscarded = vi.fn().mockResolvedValue(opts.discarded ?? false);
+      vi.spyOn(storesModule, "firestoreSegmentStore").mockReturnValueOnce({
+        get: vi.fn().mockResolvedValueOnce(null),
+        isDiscarded,
+        create,
+      });
+      return { create, isDiscarded };
+    }
+
+    const params = { params: Promise.resolve({ segment: "device-1:seg-1" }) };
+
+    it("stores session_id from a valid X-Session-Id header", async () => {
+      mockDevice();
+      mockTranscribeAndRedact();
+      const { create } = mockStore();
+
+      const response = await PUT(sessionRequest(SESSION_ID), params);
+
+      expect(response.status).toBe(200);
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(create.mock.calls[0]![0].session_id).toBe(SESSION_ID);
+    });
+
+    it("stores session_id as null when the header is absent", async () => {
+      mockDevice();
+      mockTranscribeAndRedact();
+      const { create } = mockStore();
+
+      const response = await PUT(sessionRequest(), params);
+
+      expect(response.status).toBe(200);
+      expect(create.mock.calls[0]![0].session_id).toBeNull();
+    });
+
+    it("returns 422 for a session id that is not a uuid, before transcribing", async () => {
+      mockDevice();
+      const transcriber = mockTranscribeAndRedact();
+      mockStore();
+
+      const response = await PUT(sessionRequest("not-a-uuid"), params);
+
+      expect(response.status).toBe(422);
+      expect(transcriber.transcribe).not.toHaveBeenCalled();
+    });
+
+    it("returns 200 {discarded:true} and writes nothing for a tombstoned session", async () => {
+      mockDevice();
+      const transcriber = mockTranscribeAndRedact();
+      const { create, isDiscarded } = mockStore({ discarded: true });
+
+      const response = await PUT(sessionRequest(SESSION_ID), params);
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ data: { discarded: true } });
+      expect(isDiscarded).toHaveBeenCalledWith({ device_id: "device-1", session_id: SESSION_ID });
+      expect(transcriber.transcribe).not.toHaveBeenCalled();
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it("writes a live session's segment normally (200 with seg_id and lines)", async () => {
+      mockDevice();
+      mockTranscribeAndRedact();
+      const { create } = mockStore({ discarded: false });
+
+      const response = await PUT(sessionRequest(SESSION_ID), params);
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ data: { seg_id: "seg-1", lines: 1 } });
+      expect(create).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe("Error logging (whitelisted)", () => {
     it("logs diagnostics without message text on ServiceUnavailableError", async () => {
       const { ServiceUnavailableError } = await import("@/lib/http/errors");
@@ -358,6 +486,7 @@ describe("PUT /api/v1/segments/[segment]", () => {
       });
       vi.spyOn(storesModule, "firestoreSegmentStore").mockReturnValueOnce({
         get: vi.fn().mockResolvedValueOnce(null),
+        isDiscarded: vi.fn().mockResolvedValue(false),
         create: vi.fn(),
       });
 

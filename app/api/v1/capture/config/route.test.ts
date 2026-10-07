@@ -1,0 +1,119 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
+import { GET } from "./route";
+import * as servicesModule from "@/lib/auth/services";
+import * as storesModule from "@/lib/firestore/stores";
+import * as adminModule from "@/lib/firebase/admin";
+import { UnauthorizedError } from "@/lib/http/errors";
+import type { Device, Outlet } from "@/lib/firestore/schema";
+
+vi.mock("@/lib/auth/services");
+vi.mock("@/lib/firestore/stores");
+vi.mock("@/lib/firebase/admin", () => ({ verifyIdToken: vi.fn() }));
+
+/** web spec §6.6.2: GET /api/v1/capture/config, device-only, strict allowlist. */
+
+const outlet: Outlet = {
+  outlet_id: "outlet-1",
+  name: "Proofed",
+  project_kind: "pilot",
+  timezone: "Asia/Jakarta",
+  opening_time: "07:00",
+  closing_time: "21:45",
+  created_at: "2026-09-30T00:00:00.000Z",
+};
+
+function device(overrides: Partial<Device> = {}): Device {
+  return {
+    outlet_id: "outlet-1",
+    device_id: "dev-1",
+    label: "Kasir 1",
+    token_hash: "$2b$10$hashhashhashhashhashhashhashhashhashhashhashhashhash",
+    paired_at: "2026-09-30T00:00:00.000Z",
+    revoked: false,
+    pairing_code: null,
+    pairing_code_expires_at: null,
+    created_at: "2026-09-30T00:00:00.000Z",
+    last_ended: {
+      business_date: "2026-10-05",
+      end_reason: "selesai",
+      ended_at_ms: Date.parse("2026-10-05T14:00:00.000Z"),
+      debrief_ends_at_ms: Date.parse("2026-10-05T14:30:00.000Z"),
+    },
+    ...overrides,
+  };
+}
+
+function req(headers: Record<string, string> = { authorization: "Bearer t", "x-device-id": "dev-1" }) {
+  return new NextRequest("http://localhost/api/v1/capture/config", { method: "GET", headers });
+}
+
+function wireDevice(d: Device | null = device()) {
+  vi.mocked(adminModule.verifyIdToken).mockRejectedValue(new Error("not an ID token"));
+  vi.mocked(servicesModule.authenticateDeviceToken).mockResolvedValue({
+    outlet_id: "outlet-1",
+    role: "device",
+    device_id: "dev-1",
+  } as never);
+  vi.mocked(storesModule.firestoreCaptureStore).mockReturnValue({
+    getOutlet: async () => outlet,
+    getDevice: async () => d,
+    saveHeartbeat: async () => undefined,
+  } as never);
+}
+
+describe("GET /api/v1/capture/config", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("401 with no bearer token", async () => {
+    const res = await GET(req({ "x-device-id": "dev-1" }));
+    expect(res.status).toBe(401);
+  });
+
+  it("401 when the device token does not verify", async () => {
+    vi.mocked(adminModule.verifyIdToken).mockRejectedValue(new Error("not an ID token"));
+    vi.mocked(servicesModule.authenticateDeviceToken).mockRejectedValue(
+      new UnauthorizedError("Invalid device token"),
+    );
+    const res = await GET(req());
+    expect(res.status).toBe(401);
+  });
+
+  it("403 for a supervisor ID token (only a paired device may read the config)", async () => {
+    vi.mocked(adminModule.verifyIdToken).mockResolvedValue({
+      claims: { outlet_id: "outlet-1", role: "supervisor" },
+    } as never);
+    const res = await GET(req());
+    expect(res.status).toBe(403);
+    expect(servicesModule.authenticateDeviceToken).not.toHaveBeenCalled();
+  });
+
+  it("200 with exactly {timezone, weekly_hours, last_ended} and no consent key", async () => {
+    wireDevice();
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Record<string, unknown> };
+    expect(Object.keys(body.data).sort()).toEqual(["last_ended", "timezone", "weekly_hours"]);
+    expect(body.data.timezone).toBe("Asia/Jakarta");
+    expect(body.data.weekly_hours).toMatchObject({ mon: { open: "07:00", close: "21:45" } });
+    expect(body.data.last_ended).toEqual({
+      business_date: "2026-10-05",
+      end_reason: "selesai",
+      debrief_ends_at_ms: Date.parse("2026-10-05T14:30:00.000Z"),
+    });
+    expect(JSON.stringify(body)).not.toMatch(/consent/i);
+  });
+
+  it("200 with last_ended null and no device identity when the device has never ended a day", async () => {
+    wireDevice(device({ last_ended: undefined }));
+    const res = await GET(req());
+    const body = (await res.json()) as { data: Record<string, unknown> };
+    expect(body.data.last_ended).toBeNull();
+    const text = JSON.stringify(body);
+    expect(text).not.toContain("dev-1");
+    expect(text).not.toContain("Kasir 1");
+    expect(text).not.toContain("token_hash");
+  });
+});

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { NextRequest } from "next/server";
-import { handleApiError, BadRequestError, ServiceUnavailableError } from "@/lib/http/errors";
+import { handleApiError, BadRequestError, ServiceUnavailableError, ValidationError } from "@/lib/http/errors";
 import { jsonOk } from "@/lib/http/respond";
 import { requireDevice } from "@/lib/http/guard";
 import {
@@ -71,6 +71,18 @@ export async function PUT(
       throw new BadRequestError("Content-Type must be exactly audio/webm;codecs=opus");
     }
 
+    // Step 3b: X-Session-Id is optional (pre-P1 bundles never send it). When sent it
+    // must be a uuid, else 422 (web spec §6.6.4).
+    const sessionHeader = req.headers.get("x-session-id");
+    let session_id: string | null = null;
+    if (sessionHeader !== null) {
+      const parsedSession = z.uuid().safeParse(sessionHeader);
+      if (!parsedSession.success) {
+        throw new ValidationError("X-Session-Id must be a uuid");
+      }
+      session_id = parsedSession.data;
+    }
+
     // Step 4: Parse metadata from headers
     let metadata;
     try {
@@ -81,6 +93,7 @@ export async function PUT(
         end_ms: req.headers.get("x-segment-end-ms"),
         sample_rate: req.headers.get("x-segment-sample-rate"),
         content_type: contentType,
+        session_id,
       });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -105,8 +118,8 @@ export async function PUT(
     // Step 7: Validate actual body size (413 if too large)
     assertSegmentSize(audioBuffer.length);
 
-    // Step 8: Record the segment (transcribe → redact → store)
-    const segment_doc = await recordSegment(
+    // Step 8: Record the segment (tombstone check → transcribe → redact → store)
+    const outcome = await recordSegment(
       {
         transcriber: geminiTranscriber(),
         redactor: dlpRedactor(),
@@ -132,10 +145,14 @@ export async function PUT(
       },
     );
 
-    // Step 9: Return 200 with minimal response (no transcript text back to device)
+    // Step 9: A tombstoned session answers 200 {discarded: true} and the phone drops the
+    // item (§6.6.4). Otherwise 200 with minimal response (no transcript text back to device)
+    if (outcome.status === "discarded") {
+      return jsonOk({ discarded: true });
+    }
     return jsonOk({
-      seg_id: segment_doc.seg_id,
-      lines: segment_doc.lines.length,
+      seg_id: outcome.segment.seg_id,
+      lines: outcome.segment.lines.length,
     });
   } catch (error) {
     // Log whitelisted diagnostic fields for upstream failures (no message/body)

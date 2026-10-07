@@ -1,4 +1,4 @@
-import { Timestamp, type Firestore } from "firebase-admin/firestore";
+import { FieldValue, Timestamp, type Firestore } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import { COLLECTIONS } from "@/lib/firestore/collections";
 import { normalizeStaffName } from "@/lib/auth/staff-name";
@@ -11,13 +11,24 @@ import type {
   UserRecord,
   UserStore,
 } from "@/lib/auth/services";
-import type { HeartbeatWriter, OutletReader } from "@/lib/capture/services";
+import type { DeviceReader, HeartbeatWriter, OutletReader } from "@/lib/capture/services";
+import type { CaptureSessionStore, AuditDraft } from "@/lib/capture/session-service";
+import { DISCARD_DELETE_BATCH_MAX } from "@/lib/capture/session-service";
 import {
   segmentDocId,
   type SegmentCreateResult,
   type SegmentStore,
 } from "@/lib/capture/segment-types";
-import { SegmentSchema, type Heartbeat, Outlet, Segment } from "@/lib/firestore/schema";
+import {
+  AuditLogSchema,
+  CaptureSessionSchema,
+  DeviceSchema,
+  LastEndedSchema,
+  SegmentSchema,
+  type Heartbeat,
+  type Outlet,
+  type Segment,
+} from "@/lib/firestore/schema";
 
 /** gRPC status code for ALREADY_EXISTS — a `docRef.create()` collision. */
 const GRPC_ALREADY_EXISTS = 6;
@@ -132,24 +143,35 @@ export function firestoreStaffStore(): StaffStore {
   };
 }
 
+/** Device doc id: `${outlet_id}:${device_id}` (seed script and heartbeats use the same key). */
+export function deviceDocId(outletId: string, deviceId: string): string {
+  return `${outletId}:${deviceId}`;
+}
+
 /**
  * Capture store: reads the outlet doc (capture/config) and writes device
  * heartbeats. Outlet doc id is the outlet_id; device doc id is
  * `${outlet_id}:${device_id}` (see scripts/seed.ts), and heartbeats live in its
  * `heartbeats` subcollection keyed by timestamp.
  */
-export function firestoreCaptureStore(): OutletReader & HeartbeatWriter {
+export function firestoreCaptureStore(): OutletReader & DeviceReader & HeartbeatWriter {
   const db = adminDb();
   return {
     async getOutlet(outletId) {
       const doc = await db.collection(COLLECTIONS.outlets).doc(outletId).get();
       return doc.exists ? (doc.data() as Outlet) : null;
     },
+    async getDevice(outletId, deviceId) {
+      const doc = await db
+        .collection(COLLECTIONS.devices)
+        .doc(deviceDocId(outletId, deviceId))
+        .get();
+      return doc.exists ? DeviceSchema.parse(doc.data()) : null;
+    },
     async saveHeartbeat(heartbeat: Heartbeat) {
-      const deviceDocId = `${heartbeat.outlet_id}:${heartbeat.device_id}`;
       await db
         .collection(COLLECTIONS.devices)
-        .doc(deviceDocId)
+        .doc(deviceDocId(heartbeat.outlet_id, heartbeat.device_id))
         .collection(COLLECTIONS.heartbeats)
         .doc(heartbeat.ts)
         .set(heartbeat);
@@ -173,10 +195,21 @@ export function firestoreCaptureStore(): OutletReader & HeartbeatWriter {
  */
 export function firestoreSegmentStore(db: Firestore = adminDb()): SegmentStore {
   const col = () => db.collection(COLLECTIONS.segments);
+  const sessions = () => db.collection(COLLECTIONS.captureSessions);
+
+  /** A session doc that exists and has ended as a discard. Missing docs are not tombstones. */
+  function isTombstone(data: Record<string, unknown> | undefined): boolean {
+    return data !== undefined && CaptureSessionSchema.parse(data).end_reason === "discarded";
+  }
+
   return {
     async get(key) {
       const doc = await col().doc(segmentDocId(key)).get();
       return doc.exists ? fromSegmentDoc(doc.data()!) : null;
+    },
+    async isDiscarded(key) {
+      const doc = await sessions().doc(captureSessionDocId(key)).get();
+      return doc.exists && isTombstone(doc.data());
     },
     async create(segment: Segment): Promise<SegmentCreateResult> {
       const id = segmentDocId({
@@ -184,6 +217,23 @@ export function firestoreSegmentStore(db: Firestore = adminDb()): SegmentStore {
         device_id: segment.device_id,
         seg_id: segment.seg_id,
       });
+      const sessionId = segment.session_id;
+      if (sessionId) {
+        // Tombstone read and segment write in one transaction (§6.6.4): a discard that
+        // commits first is seen here, and a segment written first is found by the
+        // discard's delete pass. Firestore retries the transaction on contention.
+        return db.runTransaction(async (tx): Promise<SegmentCreateResult> => {
+          const sessionSnap = await tx.get(
+            sessions().doc(captureSessionDocId({ device_id: segment.device_id, session_id: sessionId })),
+          );
+          if (sessionSnap.exists && isTombstone(sessionSnap.data())) return { status: "discarded" };
+          const segRef = col().doc(id);
+          const segSnap = await tx.get(segRef);
+          if (segSnap.exists) return { status: "already_exists" };
+          tx.create(segRef, toSegmentDoc(segment));
+          return { status: "created" };
+        });
+      }
       try {
         await col().doc(id).create(toSegmentDoc(segment));
         return { status: "created" };
@@ -208,6 +258,98 @@ export function firestoreUserStore(): UserStore {
       const doc = snap.docs[0];
       if (!doc) return;
       await doc.ref.update({ uid });
+    },
+  };
+}
+
+/** `capture_sessions/{device_id}:{session_id}` (web spec §6.6.3). */
+export function captureSessionDocId(key: { device_id: string; session_id: string }): string {
+  return `${key.device_id}:${key.session_id}`;
+}
+
+/**
+ * Capture session store (web spec §6.6.3 to §6.6.5; service contract in
+ * lib/capture/session-service.ts). `transact` runs the service callback inside one
+ * Firestore transaction: the session doc, the device's `last_ended` and every audit
+ * entry commit together, or none do. Audits with a fixed id are written with
+ * `create`, so a second write to the same id fails the transaction loudly. The
+ * outlet is fixed per store (taken from the verified claims), and the device doc
+ * is `${outlet_id}:${device_id}`. It must already exist (a paired device always has
+ * one), so its `last_ended` is updated, never created as a partial doc.
+ *
+ * `db` is injectable so the transaction and batch rules are unit-tested against a
+ * fake that models the same contract.
+ */
+export function firestoreCaptureSessionStore(
+  outletId: string,
+  db: Firestore = adminDb(),
+): CaptureSessionStore {
+  const sessions = () => db.collection(COLLECTIONS.captureSessions);
+  const devices = () => db.collection(COLLECTIONS.devices);
+  const audits = () => db.collection(COLLECTIONS.auditLog);
+
+  function auditDoc(entry: AuditDraft): Record<string, unknown> {
+    return AuditLogSchema.parse({
+      outlet_id: outletId,
+      ts: new Date().toISOString(),
+      ...entry,
+    });
+  }
+
+  return {
+    async transact(key, fn) {
+      return db.runTransaction(async (tx) => {
+        const sessionRef = sessions().doc(captureSessionDocId(key));
+        const deviceRef = devices().doc(deviceDocId(outletId, key.device_id));
+        const sessionSnap = await tx.get(sessionRef);
+        const deviceSnap = await tx.get(deviceRef);
+
+        const session = sessionSnap.exists
+          ? CaptureSessionSchema.parse(sessionSnap.data())
+          : null;
+        const lastEnded = deviceSnap.exists
+          ? LastEndedSchema.nullish().parse((deviceSnap.data() ?? {}).last_ended) ?? null
+          : null;
+
+        const outcome = fn({ session, last_ended: lastEnded });
+
+        if (outcome.write?.session) {
+          tx.set(sessionRef, CaptureSessionSchema.parse(outcome.write.session));
+        }
+        if (outcome.write && outcome.write.last_ended !== undefined) {
+          tx.update(deviceRef, { last_ended: outcome.write.last_ended });
+        }
+        for (const entry of outcome.audits ?? []) {
+          tx.create(audits().doc(), auditDoc(entry));
+        }
+        for (const fixed of outcome.fixed_audits ?? []) {
+          tx.create(audits().doc(fixed.id), auditDoc(fixed.entry));
+        }
+        return outcome.result;
+      });
+    },
+
+    async deleteSegments(key, auditId) {
+      let deleted = 0;
+      // Each pass takes one bounded page, so a retry after a crash finds only what is left.
+      for (;;) {
+        const page = await db
+          .collection(COLLECTIONS.segments)
+          .where("outlet_id", "==", outletId)
+          .where("device_id", "==", key.device_id)
+          .where("session_id", "==", key.session_id)
+          .limit(DISCARD_DELETE_BATCH_MAX)
+          .get();
+        if (page.empty) return deleted;
+        const batch = db.batch();
+        for (const doc of page.docs) batch.delete(doc.ref);
+        // Same commit as the deletes, so the audit count is exact under any crash.
+        batch.update(audits().doc(auditId), {
+          "details.segments_deleted": FieldValue.increment(page.size),
+        });
+        await batch.commit();
+        deleted += page.size;
+      }
     },
   };
 }

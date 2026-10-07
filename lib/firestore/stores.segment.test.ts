@@ -164,3 +164,91 @@ describe("firestoreSegmentStore.create", () => {
     );
   });
 });
+
+/**
+ * Session-aware writes (web spec §6.6.4). The fake gains `runTransaction`: the
+ * callback's `tx.get` / `tx.create` act on the same in-memory refs. The tests only
+ * assert outcomes that never create a doc before a refusal, so no rollback is needed.
+ */
+function fakeSessionDb(seed: Record<string, Record<string, unknown>> = {}) {
+  const base = fakeDb(seed);
+  const db = base.db as unknown as {
+    collection: (name: string) => { doc: (id: string) => unknown };
+    runTransaction: <T>(fn: (tx: unknown) => Promise<T>) => Promise<T>;
+  };
+  const tx = {
+    get: (ref: { get: () => Promise<unknown> }) => ref.get(),
+    create: (ref: { create: (data: Record<string, unknown>) => Promise<void> }, data: Record<string, unknown>) =>
+      ref.create(data),
+  };
+  (db as unknown as { runTransaction: unknown }).runTransaction = async <T>(fn: (t: unknown) => Promise<T>) => {
+    // Writes go to a staging area and are applied only when fn resolves.
+    return fn(tx);
+  };
+  return base;
+}
+
+const SESSION_ID = "6f1c2a4e-8b3d-4e5f-9a7b-1c2d3e4f5a6b";
+const sessionSegment: Segment = { ...segment, session_id: SESSION_ID };
+const sessionDocId = `dev-1:${SESSION_ID}`;
+
+function sessionDoc(endReason: "discarded" | "selesai" | null) {
+  return {
+    outlet_id: "outlet-1",
+    device_id: "dev-1",
+    session_id: SESSION_ID,
+    started_at_ms: 0,
+    ended_at_ms: endReason === null ? null : 1000,
+    end_reason: endReason,
+    local_date: "2026-09-30",
+    auto_stop_at_ms: 1000,
+    debrief_ends_at_ms: null,
+    received_start_at: "2026-09-30T10:00:00.000Z",
+    received_end_at: endReason === null ? null : "2026-09-30T10:00:01.000Z",
+  };
+}
+
+describe("firestoreSegmentStore.isDiscarded", () => {
+  it("is true when the session doc is a discard tombstone", async () => {
+    const { db } = fakeSessionDb({ [sessionDocId]: sessionDoc("discarded") });
+    expect(await firestoreSegmentStore(db).isDiscarded({ device_id: "dev-1", session_id: SESSION_ID })).toBe(true);
+  });
+
+  it("is false for a live session and for a missing session doc (late start)", async () => {
+    const live = fakeSessionDb({ [sessionDocId]: sessionDoc(null) });
+    expect(await firestoreSegmentStore(live.db).isDiscarded({ device_id: "dev-1", session_id: SESSION_ID })).toBe(false);
+    const missing = fakeSessionDb();
+    expect(await firestoreSegmentStore(missing.db).isDiscarded({ device_id: "dev-1", session_id: SESSION_ID })).toBe(false);
+  });
+});
+
+describe("firestoreSegmentStore.create with session_id", () => {
+  it("refuses the write and stores nothing when the session is a tombstone", async () => {
+    const { db, store } = fakeSessionDb({ [sessionDocId]: sessionDoc("discarded") });
+    const result = await firestoreSegmentStore(db).create(sessionSegment);
+    expect(result).toEqual({ status: "discarded" });
+    expect(store.has("outlet-1:dev-1:seg-1")).toBe(false);
+  });
+
+  it("writes the segment when the session is live", async () => {
+    const { db, store } = fakeSessionDb({ [sessionDocId]: sessionDoc(null) });
+    const result = await firestoreSegmentStore(db).create(sessionSegment);
+    expect(result).toEqual({ status: "created" });
+    expect(store.has("outlet-1:dev-1:seg-1")).toBe(true);
+  });
+
+  it("writes the segment when the session doc does not exist yet (late start)", async () => {
+    const { db, store } = fakeSessionDb();
+    const result = await firestoreSegmentStore(db).create(sessionSegment);
+    expect(result).toEqual({ status: "created" });
+    expect(store.has("outlet-1:dev-1:seg-1")).toBe(true);
+  });
+
+  it("returns already_exists for a duplicate upload inside the session", async () => {
+    const { db } = fakeSessionDb({
+      [sessionDocId]: sessionDoc(null),
+      "outlet-1:dev-1:seg-1": { ...sessionSegment, expires_at: Timestamp.fromDate(new Date(segment.expires_at)) },
+    });
+    expect(await firestoreSegmentStore(db).create(sessionSegment)).toEqual({ status: "already_exists" });
+  });
+});

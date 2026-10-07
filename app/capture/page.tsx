@@ -20,16 +20,17 @@ import {
 } from "@/lib/capture/browser/event-log";
 import { isDevControlsEnabled } from "@/lib/capture/dev-mode";
 import type { CaptureConfigResponse } from "@/lib/capture/contract";
+import { businessDateOf, nextOpenDay } from "@/lib/capture/calendar";
 import type { CaptureStatus } from "@/lib/capture/browser/engine";
 import type { MicSourceClass } from "@/lib/capture/mic-source";
 
 /**
  * /capture — the shop phone's always-on listening screen (web spec §4.1, §5).
  * Runs on the same paired phone as /pair: reads the stored device credential (or
- * redirects to /pair), fetches the outlet's consent + hours, and — only when
- * consent is complete and inside opening hours — starts the capture session
- * (mic → VAD → segments → upload) with heartbeat + wake lock. It shows a big
- * status only; a transcript is NEVER displayed (hard rule #2 / spec).
+ * redirects to /pair), fetches the outlet's timezone and weekly hours, and — only
+ * inside the planned hours — starts the capture session (mic → VAD → segments →
+ * upload) with heartbeat + wake lock. It shows a big status only; a transcript is
+ * NEVER displayed (hard rule #2 / spec).
  */
 
 const PAGE_STYLE: React.CSSProperties = {
@@ -39,13 +40,20 @@ const PAGE_STYLE: React.CSSProperties = {
   fontFamily: "system-ui, sans-serif",
 };
 
-type View =
-  | "loading"
-  | "error"
-  | "no_consent"
-  | "outside_hours"
-  | "unsupported"
-  | "active";
+type View = "loading" | "error" | "outside_hours" | "unsupported" | "active";
+
+/**
+ * The hours line on a paused phone: today's weekly hours, or the next open day's
+ * hours on a closed day (R-P1, strict config shape). null only if no day is open.
+ */
+function hoursToShow(
+  config: CaptureConfigResponse,
+  now: Date,
+): { from: string; to: string; tz: string } | null {
+  const tz = config.timezone;
+  const next = nextOpenDay(businessDateOf(now.getTime(), tz), config.weekly_hours);
+  return next ? { from: next.hours.open, to: next.hours.close, tz } : null;
+}
 
 export default function CapturePage() {
   // Build-time flag (lib/capture/dev-mode.ts): off in every real build, so
@@ -56,6 +64,7 @@ export default function CapturePage() {
   const { lang } = useLang();
   const [view, setView] = useState<View>("loading");
   const [config, setConfig] = useState<CaptureConfigResponse | null>(null);
+  const [hours, setHours] = useState<{ from: string; to: string; tz: string } | null>(null);
   const [status, setStatus] = useState<CaptureStatus>({
     state: "listening",
     queuedCount: 0,
@@ -107,11 +116,15 @@ export default function CapturePage() {
 
     async function applyPhase() {
       if (cancelled || starting || unsupported || !loadedConfig) return;
-      const phase = resolveCapturePhase(loadedConfig, new Date());
+      const now = new Date();
+      const phase = resolveCapturePhase(loadedConfig, now);
+      if (phase === "outside_hours" && !cancelled) {
+        setHours(hoursToShow(loadedConfig, now));
+      }
 
       if (devControlsEnabled) {
-        // Dev mode bypasses the opening_hours/consent auto-gate entirely for
-        // this session — manual Start/Pause/Stop below owns the session.
+        // Dev mode bypasses the opening-hours auto-gate entirely for this
+        // session — manual Start/Pause/Stop below owns the session.
         // Still reflect the real computed phase so it's visible underneath.
         if (!cancelled) setView(phase);
         return;
@@ -250,21 +263,14 @@ export default function CapturePage() {
         </section>
       ) : null}
 
-      {view === "no_consent" ? (
-        <section role="alert">
-          <h2 style={{ fontSize: 18 }}>{t(lang, "C-cap-noconsent-h")}</h2>
-          <p>{t(lang, "C-cap-noconsent-b")}</p>
-        </section>
-      ) : null}
-
-      {view === "outside_hours" && config ? (
+      {view === "outside_hours" && hours ? (
         <section role="status" aria-live="polite">
           <h2 style={{ fontSize: 18 }}>{t(lang, "C-cap-hours-h")}</h2>
           <p>
             {t(lang, "C-cap-hours-b", {
-              from: config.opening_time,
-              to: config.closing_time,
-              tz: config.timezone,
+              from: hours.from,
+              to: hours.to,
+              tz: hours.tz,
             })}
           </p>
         </section>
@@ -277,7 +283,7 @@ export default function CapturePage() {
         </section>
       ) : null}
 
-      {/* devControlsEnabled bypasses the opening_hours/consent early return so
+      {/* devControlsEnabled bypasses the opening-hours early return so
           this section is visible for manual testing, without deleting the
           real blocked-view sections above (still rendered alongside it). */}
       {view === "active" || devControlsEnabled ? (
