@@ -1,0 +1,150 @@
+import type { DebriefQuestionView } from "@/lib/debrief/contract";
+import { DEBRIEF_SHOW_MAX, REASON_MAX_CHARS } from "@/lib/debrief/constants";
+import { reasonLength } from "@/lib/debrief/reason";
+
+/**
+ * The debrief state machine (R-07 Task 7.1, `docs/tasks/R-07-plan.md`). Pure:
+ * every transition is a function of the current state and one event, so it is
+ * unit-tested without Firestore, `fetch` or a browser. `/capture` is the only
+ * caller (`useReducer(reduceDebrief, ...)`); this module knows nothing about
+ * Mulai, Selesai or the shop's opening-hours calendar (see the grep test in
+ * `flow.test.ts`, which checks this file imports no such module).
+ */
+
+export type DebriefView =
+  | { kind: "closed" }
+  | { kind: "loading" }
+  | { kind: "load_error" }
+  | { kind: "empty" }
+  | {
+      kind: "question";
+      list: DebriefQuestionView[];
+      index: number;
+      choice: "yes" | "no" | null;
+      reason: string;
+      save_error: boolean;
+      /** Count of this device's own answers committed so far this debrief (carries into "done"). */
+      answered: number;
+      /** Count of this device's own skips so far this debrief (carries into "done"). */
+      skipped: number;
+    }
+  | { kind: "done"; answered: number; skipped: number }
+  | { kind: "timed_out"; ended_at_ms: number };
+
+export type DebriefState = {
+  view: DebriefView;
+  ends_at_ms: number;
+  business_date: string | null;
+};
+
+export type DebriefEvent =
+  | { type: "OPEN" }
+  | { type: "RETRY" }
+  | { type: "LOADED"; questions: DebriefQuestionView[]; business_date: string; cached: ReadonlySet<string> }
+  | { type: "LOAD_FAILED" }
+  | { type: "CHOOSE"; answer: "yes" | "no" }
+  | { type: "TYPE"; reason: string }
+  | { type: "COMMITTED" }
+  | { type: "COMMIT_FAILED" }
+  | { type: "SKIP" }
+  | { type: "BACK" }
+  | { type: "TICK"; now_ms: number };
+
+type QuestionView = Extract<DebriefView, { kind: "question" }>;
+
+function freshQuestion(
+  list: DebriefQuestionView[],
+  index: number,
+  answered: number,
+  skipped: number,
+): QuestionView {
+  return {
+    kind: "question",
+    list,
+    index,
+    choice: null,
+    reason: "",
+    save_error: false,
+    answered,
+    skipped,
+  };
+}
+
+/** `question` with a choice and a reason of 1 to 500 trimmed code points. */
+export function canCommit(v: DebriefView): boolean {
+  if (v.kind !== "question") return false;
+  if (v.choice === null) return false;
+  const n = reasonLength(v.reason);
+  return n >= 1 && n <= REASON_MAX_CHARS;
+}
+
+export function reduceDebrief(s: DebriefState, e: DebriefEvent): DebriefState {
+  switch (e.type) {
+    case "OPEN":
+    case "RETRY":
+      return { ...s, view: { kind: "loading" } };
+
+    case "LOADED": {
+      const filtered = e.questions
+        .filter((item) => !e.cached.has(item.question_id))
+        .slice(0, DEBRIEF_SHOW_MAX);
+      const view: DebriefView =
+        filtered.length === 0 ? { kind: "empty" } : freshQuestion(filtered, 0, 0, 0);
+      return { ...s, business_date: e.business_date, view };
+    }
+
+    case "LOAD_FAILED":
+      return { ...s, view: { kind: "load_error" } };
+
+    case "CHOOSE": {
+      if (s.view.kind !== "question") return s;
+      return { ...s, view: { ...s.view, choice: e.answer } };
+    }
+
+    case "TYPE": {
+      if (s.view.kind !== "question") return s;
+      return { ...s, view: { ...s.view, reason: e.reason } };
+    }
+
+    case "COMMITTED": {
+      if (s.view.kind !== "question") return s;
+      const { list, index, answered, skipped } = s.view;
+      const nextAnswered = answered + 1;
+      const nextIndex = index + 1;
+      const view: DebriefView =
+        nextIndex >= list.length
+          ? { kind: "done", answered: nextAnswered, skipped }
+          : freshQuestion(list, nextIndex, nextAnswered, skipped);
+      return { ...s, view };
+    }
+
+    case "COMMIT_FAILED": {
+      if (s.view.kind !== "question") return s;
+      return { ...s, view: { ...s.view, save_error: true } };
+    }
+
+    case "SKIP": {
+      if (s.view.kind !== "question") return s;
+      const { list, index, answered, skipped } = s.view;
+      const nextSkipped = skipped + 1;
+      const nextIndex = index + 1;
+      const view: DebriefView =
+        nextIndex >= list.length
+          ? { kind: "done", answered, skipped: nextSkipped }
+          : freshQuestion(list, nextIndex, answered, nextSkipped);
+      return { ...s, view };
+    }
+
+    case "BACK": {
+      const closable: ReadonlyArray<DebriefView["kind"]> = ["done", "empty", "timed_out", "load_error"];
+      if (!closable.includes(s.view.kind)) return s;
+      return { ...s, view: { kind: "closed" } };
+    }
+
+    case "TICK": {
+      if (s.view.kind === "closed") return s;
+      if (e.now_ms < s.ends_at_ms) return s;
+      return { ...s, view: { kind: "timed_out", ended_at_ms: s.ends_at_ms } };
+    }
+  }
+}
