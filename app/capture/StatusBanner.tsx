@@ -17,7 +17,7 @@ import { t, type DictKey } from "@/lib/i18n/dict";
  * session is actually running (before Start, outside hours, after Stop or Pause).
  * It never says "Listening": the label must match what the system is doing.
  */
-export type StatusBannerState = "listening" | "mic_error" | "idle";
+export type StatusBannerState = "listening" | "mic_error" | "idle" | "ended_auto";
 
 /**
  * The headline state for an engine state (UX-03 decision A). The headline takes
@@ -33,18 +33,29 @@ const PRESENTATION: Record<StatusBannerState, { emoji: string; label: DictKey; c
   listening: { emoji: "🟢", label: "C-h-listening", color: "#1b5e20" },
   mic_error: { emoji: "🔴", label: "C-h-mic", color: "#b00020" },
   idle: { emoji: "⚪", label: "C-h-idle", color: "#444" },
+  ended_auto: { emoji: "■", label: "C-h-ended-auto", color: "#444" },
 };
 
 export interface StatusBannerProps {
   state: StatusBannerState;
   micSource: string;
+  /** Outside hours only: the Mulai note under Not started (UX-03 5.2). */
+  note?: string | null;
+  /** ended_auto only: the auto-stop time, HH:MM in the shop's zone. */
+  endedAt?: string;
 }
 
-export function StatusBanner({ state, micSource }: StatusBannerProps) {
+export function StatusBanner({ state, micSource, note = null, endedAt = "" }: StatusBannerProps) {
   const { lang } = useLang();
   const { emoji, label, color } = PRESENTATION[state];
+  const headline =
+    state === "ended_auto" ? t(lang, label, { time: endedAt }) : t(lang, label);
   const detail =
-    state === "idle" ? null : state === "mic_error" ? t(lang, "C-h-mic-help") : t(lang, "C-cap-capturing");
+    state === "idle" || state === "ended_auto"
+      ? note
+      : state === "mic_error"
+        ? t(lang, "C-h-mic-help")
+        : t(lang, "C-cap-capturing");
 
   return (
     <section
@@ -62,7 +73,7 @@ export function StatusBanner({ state, micSource }: StatusBannerProps) {
         {emoji}
       </p>
       <p style={{ fontSize: 28, fontWeight: 700, margin: "8px 0 0", color }}>
-        {t(lang, label)}
+        {headline}
       </p>
       <p style={{ fontSize: 16, margin: "8px 0 0" }}>{detail ?? ""}</p>
       <p style={{ fontSize: 14, margin: "12px 0 0", color: "#444" }}>
