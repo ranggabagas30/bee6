@@ -58,6 +58,19 @@ export const ID = {
   "C-cap-noconsent-b": "Outlet ini belum menyelesaikan langkah persetujuan staf, jadi perekaman belum bisa mulai. Minta supervisor menyelesaikan persetujuan, lalu muat ulang halaman ini.", // PROVISIONAL
   "C-cap-hours-h": "Dijeda · di luar jam buka", // PROVISIONAL
   "C-cap-hours-b": "Mendengarkan berjalan dari pukul {from} sampai {to} ({tz}). Akan mulai lagi otomatis saat jam buka.", // PROVISIONAL
+
+  // Upload status block (UX-03 section 5.7, copy sheet section 6).
+  "C-u-up": "Mengunggah",
+  "C-u-retry": "Belum terkirim · mencoba lagi",
+  "C-u-count": "({N}x)", // count suffix for C-u-retry; the sheet row shows it as "({N}x)"
+  "C-u-server": "Server sibuk",
+  "C-u-inet": "Tidak ada internet", // PROVISIONAL: not in the copy sheet (shown only when navigator.onLine is false)
+  "C-u-ok": "Unggah berhasil",
+  "C-u-lost": "Sebagian suara tidak tercatat",
+  "C-u-lost-help": "Catatan itu jadi tidak lengkap. Tidak bisa dipulihkan.", // PROVISIONAL: not in the copy sheet (lost-line helper; C-u-lost-drop / C-u-lost-qfull-act are the sheet's cause helpers)
+  "C-u-toast": "Unggah berhasil lagi",
+  "C-h-idle": "Belum mulai",
+  "C-h-idle-help": "Pengambilan audio belum berjalan", // PROVISIONAL: not in the copy sheet
 } as const;
 
 export type DictKey = keyof typeof ID;
@@ -103,6 +116,18 @@ export const EN: Record<DictKey, string> = {
   "C-cap-noconsent-b": "This outlet hasn’t completed the staff-consent step yet, so listening can’t start. Ask the supervisor to complete consent, then reload this page.", // PROVISIONAL
   "C-cap-hours-h": "Paused · outside opening hours", // PROVISIONAL
   "C-cap-hours-b": "Listening runs from {from} to {to} ({tz}). It will start again automatically at opening time.", // PROVISIONAL
+
+  "C-u-up": "Uploading",
+  "C-u-retry": "Not sent yet · retrying",
+  "C-u-count": "({N}x)",
+  "C-u-server": "Server busy",
+  "C-u-inet": "No internet", // PROVISIONAL: not in the copy sheet
+  "C-u-ok": "Upload succeeded",
+  "C-u-lost": "Some speech was not captured",
+  "C-u-lost-help": "That note is now incomplete. It cannot be recovered.", // PROVISIONAL: not in the copy sheet
+  "C-u-toast": "Upload working again",
+  "C-h-idle": "Not started",
+  "C-h-idle-help": "Audio capture is not running", // PROVISIONAL: not in the copy sheet
 };
 
 export const DICT: Record<Lang, Record<DictKey, string>> = { id: ID, en: EN };
