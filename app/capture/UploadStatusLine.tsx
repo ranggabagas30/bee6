@@ -68,6 +68,15 @@ export function deriveRetainedUploadView(status: UploadSource | null | undefined
   return view?.phase === "retrying" ? view : null;
 }
 
+/**
+ * True only for a real server-side refusal: 5xx, or 429 (rate limited). A network
+ * failure has no HTTP status, and 401/403 are auth problems. None of those shows
+ * "Server busy" (UX-03 §5.7 row 1a).
+ */
+export function isServerBusyStatus(httpStatus: number | null | undefined): boolean {
+  return typeof httpStatus === "number" && ((httpStatus >= 500 && httpStatus < 600) || httpStatus === 429);
+}
+
 /** UX-03 §2 `--warn` token (light theme). Used by the retry row and the lost row (§5.7). */
 export const WARN_TOKEN = "#7A4F00";
 
@@ -127,10 +136,13 @@ function useRecoveryToast(phase: UploadView["phase"] | undefined, lost: boolean)
 export function UploadStatusLine({
   view,
   online,
+  httpStatus,
   lost = false,
 }: {
   view: UploadView | null;
   online?: boolean;
+  /** HTTP status of the most recent upload, or null for a network failure. */
+  httpStatus?: number | null;
   lost?: boolean;
 }) {
   const { lang } = useLang();
@@ -142,10 +154,14 @@ export function UploadStatusLine({
     showView && view.phase === "retrying" && view.failedAttempts !== undefined
       ? ` ${t(lang, "C-u-count", { N: view.failedAttempts })}`
       : "";
+  // Offline shows the no-internet detail. Online shows "Server busy" only for a
+  // real server error (5xx or 429), never for a network failure or 401/403.
   const detailKey: DictKey | null =
     showView && view.phase === "retrying" && online !== undefined
       ? online
-        ? "C-u-server"
+        ? isServerBusyStatus(httpStatus)
+          ? "C-u-server"
+          : null
         : "C-u-inet"
       : null;
   // The block is always rendered, so its live region exists before any row

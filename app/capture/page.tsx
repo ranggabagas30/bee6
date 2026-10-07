@@ -403,6 +403,9 @@ export default function CapturePage() {
         }
         lost={deriveLostLine(lastUploadStatus)}
         online={networkOnline}
+        httpStatus={
+          sessionRunning ? status?.lastUploadHttpStatus : lastUploadStatus?.lastUploadHttpStatus
+        }
       />
       {/* Capture privacy notice (UX-03 §5.10): a muted notice, not a consent
           gate (CLAUDE.md §7b). One per page, in the page's language, every mode. */}

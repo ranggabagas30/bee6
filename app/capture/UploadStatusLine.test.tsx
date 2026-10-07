@@ -64,11 +64,45 @@ describe("deriveUploadView (pure, language-free)", () => {
   });
 });
 
+describe("UploadStatusLine server-busy hint is gated on a real server error (UX-03 §5.7 row 1a)", () => {
+  it("a network failure with no HTTP status shows no server-busy line while online", () => {
+    const { container } = render(
+      withLang("en", <UploadStatusLine view={{ phase: "retrying", failedAttempts: 1 }} online={true} httpStatus={null} />),
+    );
+    expect(screen.getByText("Not sent yet · retrying (1x)")).toBeTruthy();
+    expect(container.textContent).not.toMatch(/Server busy/);
+  });
+
+  it("a 503 while online shows the server-busy line", () => {
+    render(withLang("en", <UploadStatusLine view={{ phase: "retrying" }} online={true} httpStatus={503} />));
+    expect(screen.getByText("Server busy")).toBeTruthy();
+  });
+
+  it("a 429 while online shows the server-busy line", () => {
+    render(withLang("en", <UploadStatusLine view={{ phase: "retrying" }} online={true} httpStatus={429} />));
+    expect(screen.getByText("Server busy")).toBeTruthy();
+  });
+
+  it("a 401 while online does not show the server-busy line", () => {
+    const { container } = render(
+      withLang("en", <UploadStatusLine view={{ phase: "retrying" }} online={true} httpStatus={401} />),
+    );
+    expect(container.textContent).not.toMatch(/Server busy/);
+  });
+
+  it("a 403 while online does not show the server-busy line", () => {
+    const { container } = render(
+      withLang("en", <UploadStatusLine view={{ phase: "retrying" }} online={true} httpStatus={403} />),
+    );
+    expect(container.textContent).not.toMatch(/Server busy/);
+  });
+});
+
 describe("UploadStatusLine renders one language per render", () => {
   it("EN default: retry row with count and server-busy hint, no Bahasa text", () => {
     const { container } = render(
       withLang(parseLangCookie(undefined), (
-        <UploadStatusLine view={{ phase: "retrying", failedAttempts: 2 }} online={true} />
+        <UploadStatusLine view={{ phase: "retrying", failedAttempts: 2 }} online={true} httpStatus={503} />
       )),
     );
     expect(screen.getByText("Not sent yet · retrying (2x)")).toBeTruthy();
@@ -79,7 +113,7 @@ describe("UploadStatusLine renders one language per render", () => {
   it("ID when the cookie is id: the same retry row in Bahasa only", () => {
     const { container } = render(
       withLang(parseLangCookie("id"), (
-        <UploadStatusLine view={{ phase: "retrying", failedAttempts: 2 }} online={true} />
+        <UploadStatusLine view={{ phase: "retrying", failedAttempts: 2 }} online={true} httpStatus={503} />
       )),
     );
     expect(screen.getByText("Belum terkirim · mencoba lagi (2x)")).toBeTruthy();
@@ -107,7 +141,7 @@ describe("UploadStatusLine renders one language per render", () => {
 
   it("never shows the 'No internet' detail while the browser is online or unknown", () => {
     const { container, rerender } = render(
-      withLang("en", <UploadStatusLine view={{ phase: "retrying" }} online={true} />),
+      withLang("en", <UploadStatusLine view={{ phase: "retrying" }} online={true} httpStatus={503} />),
     );
     expect(screen.getByText("Server busy")).toBeTruthy();
     expect(container.textContent).not.toMatch(/No internet/);
