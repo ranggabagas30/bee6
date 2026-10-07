@@ -44,24 +44,31 @@ function fakeRedactor(
   };
 }
 
-function fakeSegmentStore(): {
+function fakeSegmentStore(options: { discarded?: boolean; createDiscarded?: boolean } = {}): {
   store: SegmentStore;
   getCalls: Array<{ outlet_id: string; device_id: string; seg_id: string }>;
   createCalls: Segment[];
+  isDiscardedCalls: Array<{ device_id: string; session_id: string }>;
 } {
   const getCalls: Array<{ outlet_id: string; device_id: string; seg_id: string }> = [];
   const createCalls: Segment[] = [];
+  const isDiscardedCalls: Array<{ device_id: string; session_id: string }> = [];
   return {
     getCalls,
     createCalls,
+    isDiscardedCalls,
     store: {
       async get(key) {
         getCalls.push(key);
         return null;
       },
+      async isDiscarded(key) {
+        isDiscardedCalls.push(key);
+        return options.discarded ?? false;
+      },
       async create(segment) {
         createCalls.push(segment);
-        return { status: "created" };
+        return options.createDiscarded ? { status: "discarded" } : { status: "created" };
       },
     },
   };
@@ -200,7 +207,7 @@ describe("recordSegment", () => {
         },
       );
 
-      expect(result.lines).toEqual([]);
+      expect(result.status === "stored" && result.segment.lines).toEqual([]);
     });
 
     it("throws ServiceUnavailableError on transcribe failure", async () => {
@@ -301,6 +308,9 @@ describe("recordSegment", () => {
         async get() {
           return existing;
         },
+        async isDiscarded() {
+          return false;
+        },
         async create() {
           return { status: "created" };
         },
@@ -315,7 +325,7 @@ describe("recordSegment", () => {
         },
       );
 
-      expect(result).toEqual(existing);
+      expect(result).toEqual({ status: "stored", segment: existing });
       expect(transcribeCalls).toHaveLength(0);
     });
 
@@ -410,6 +420,9 @@ describe("recordSegment", () => {
         async get() {
           return null;
         },
+        async isDiscarded() {
+          return false;
+        },
         async create() {
           return { status: "already_exists" };
         },
@@ -425,9 +438,11 @@ describe("recordSegment", () => {
       );
 
       // Should still return a valid segment (constructed from input)
-      expect(result.outlet_id).toBe("outlet-1");
-      expect(result.device_id).toBe("device-1");
-      expect(result.seg_id).toBe("seg-1");
+      expect(result.status).toBe("stored");
+      if (result.status !== "stored") return;
+      expect(result.segment.outlet_id).toBe("outlet-1");
+      expect(result.segment.device_id).toBe("device-1");
+      expect(result.segment.seg_id).toBe("seg-1");
     });
 
     it("stores outlet_id and device_id from claims, not from metadata", async () => {
@@ -446,6 +461,116 @@ describe("recordSegment", () => {
 
       expect(createCalls[0]!.outlet_id).toBe("outlet-actual");
       expect(createCalls[0]!.device_id).toBe("device-1");
+    });
+  });
+
+  describe("Session id and discard tombstone (web spec §6.6.4)", () => {
+    const SESSION_ID = "6f1c2a4e-8b3d-4e5f-9a7b-1c2d3e4f5a6b";
+
+    it("stamps session_id from metadata onto the stored segment", async () => {
+      const { transcriber } = fakeTranscriber();
+      const { redactor } = fakeRedactor();
+      const { store, createCalls } = fakeSegmentStore();
+
+      await recordSegment(
+        { transcriber, redactor, store },
+        {
+          metadata: { ...validMetadata, session_id: SESSION_ID },
+          audio: Buffer.from("audio"),
+          claims: validClaims,
+        },
+      );
+
+      expect(createCalls).toHaveLength(1);
+      expect(createCalls[0]!.session_id).toBe(SESSION_ID);
+    });
+
+    it("stores session_id as null when the metadata carries no session id", async () => {
+      const { transcriber } = fakeTranscriber();
+      const { redactor } = fakeRedactor();
+      const { store, createCalls, isDiscardedCalls } = fakeSegmentStore();
+
+      await recordSegment(
+        { transcriber, redactor, store },
+        { metadata: validMetadata, audio: Buffer.from("audio"), claims: validClaims },
+      );
+
+      expect(createCalls[0]!.session_id).toBeNull();
+      // No session means no tombstone to read.
+      expect(isDiscardedCalls).toHaveLength(0);
+    });
+
+    it("reads the tombstone for the claims device and the session id before transcribing", async () => {
+      const { transcriber, calls: transcribeCalls } = fakeTranscriber();
+      const { redactor } = fakeRedactor();
+      const { store, isDiscardedCalls } = fakeSegmentStore();
+
+      await recordSegment(
+        { transcriber, redactor, store },
+        {
+          metadata: { ...validMetadata, session_id: SESSION_ID },
+          audio: Buffer.from("audio"),
+          claims: validClaims,
+        },
+      );
+
+      expect(isDiscardedCalls).toEqual([{ device_id: "device-1", session_id: SESSION_ID }]);
+      expect(transcribeCalls).toHaveLength(1);
+    });
+
+    it("returns discarded and skips transcription when the session is already a tombstone", async () => {
+      const { transcriber, calls: transcribeCalls } = fakeTranscriber();
+      const { redactor, calls: redactCalls } = fakeRedactor();
+      const { store, createCalls } = fakeSegmentStore({ discarded: true });
+
+      const result = await recordSegment(
+        { transcriber, redactor, store },
+        {
+          metadata: { ...validMetadata, session_id: SESSION_ID },
+          audio: Buffer.from("audio"),
+          claims: validClaims,
+        },
+      );
+
+      expect(result).toEqual({ status: "discarded" });
+      expect(transcribeCalls).toHaveLength(0);
+      expect(redactCalls).toHaveLength(0);
+      expect(createCalls).toHaveLength(0);
+    });
+
+    it("returns discarded when the tombstone lands between the pre-check and the write", async () => {
+      const { transcriber } = fakeTranscriber();
+      const { redactor } = fakeRedactor();
+      const { store } = fakeSegmentStore({ createDiscarded: true });
+
+      const result = await recordSegment(
+        { transcriber, redactor, store },
+        {
+          metadata: { ...validMetadata, session_id: SESSION_ID },
+          audio: Buffer.from("audio"),
+          claims: validClaims,
+        },
+      );
+
+      expect(result).toEqual({ status: "discarded" });
+    });
+
+    it("writes a live session's segment normally", async () => {
+      const { transcriber } = fakeTranscriber();
+      const { redactor } = fakeRedactor();
+      const { store, createCalls } = fakeSegmentStore({ discarded: false });
+
+      const result = await recordSegment(
+        { transcriber, redactor, store },
+        {
+          metadata: { ...validMetadata, session_id: SESSION_ID },
+          audio: Buffer.from("audio"),
+          claims: validClaims,
+        },
+      );
+
+      expect(result.status).toBe("stored");
+      expect(createCalls).toHaveLength(1);
     });
   });
 
