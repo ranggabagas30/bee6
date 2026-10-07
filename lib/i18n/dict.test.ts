@@ -48,4 +48,21 @@ describe("copy dictionary", () => {
   it("throws when a placeholder has no value, rather than showing a raw token", () => {
     expect(() => t("en", "C-pair-ok-line")).toThrow(/outlet_id/);
   });
+
+  it("carries the approved upload-status and idle copy (UX-03 section 6)", () => {
+    const cases: Array<[DictKey, string, string]> = [
+      ["C-u-up", "Mengunggah", "Uploading"],
+      ["C-u-retry", "Belum terkirim · mencoba lagi", "Not sent yet · retrying"],
+      ["C-u-count", "({N}x)", "({N}x)"],
+      ["C-u-server", "Server sibuk", "Server busy"],
+      ["C-u-ok", "Unggah berhasil", "Upload succeeded"],
+      ["C-u-lost", "Sebagian suara tidak tercatat", "Some speech was not captured"],
+      ["C-u-toast", "Unggah berhasil lagi", "Upload working again"],
+      ["C-h-idle", "Belum mulai", "Not started"],
+    ];
+    for (const [key, id, en] of cases) {
+      expect(ID[key], `ID ${key}`).toBe(id);
+      expect(EN[key], `EN ${key}`).toBe(en);
+    }
+  });
 });
