@@ -6,6 +6,7 @@ import {
   LabelUnitLedgerSchema,
   OutletSchema,
   PipelineLockSchema,
+  parseOutletDoc,
   QuestionSchema,
   SegmentSchema,
   StaffSchema,
@@ -20,7 +21,6 @@ describe("OutletSchema", () => {
     outlet_id: "proofed",
     name: "Proofed",
     project_kind: "pilot",
-    consent_complete: true,
     timezone: "Asia/Jakarta",
     opening_time: "07:00",
     closing_time: "21:45",
@@ -29,6 +29,13 @@ describe("OutletSchema", () => {
 
   it("accepts a well-formed outlet", () => {
     expect(OutletSchema.safeParse(good).success).toBe(true);
+  });
+
+  it("parseOutletDoc accepts a legacy doc that still has consent_complete and strips the field", () => {
+    const legacy = { ...good, consent_complete: true };
+    const parsed = parseOutletDoc(legacy);
+    expect(parsed).toEqual(good);
+    expect(parsed).not.toHaveProperty("consent_complete");
   });
 
   it("rejects a bad opening_time format", () => {
