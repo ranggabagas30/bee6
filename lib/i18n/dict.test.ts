@@ -9,17 +9,38 @@ describe("copy dictionary", () => {
     expect(Object.keys(EN).sort()).toEqual(Object.keys(ID).sort());
   });
 
+  // C-d-q-block-2 is the only key allowed an empty ID line: the ID debrief
+  // headline (C-d-q-block) is one line, the EN one is two (section 7.4 of
+  // docs/tasks/R-07-plan.md); the question screen skips an empty line.
+  const EMPTY_ID_ALLOWED: ReadonlySet<DictKey> = new Set(["C-d-q-block-2"] as DictKey[]);
+
   it("has a non-empty, trimmed value for every key in both languages", () => {
     for (const key of Object.keys(ID) as DictKey[]) {
-      expect(ID[key].trim().length, `ID ${key}`).toBeGreaterThan(0);
+      if (!EMPTY_ID_ALLOWED.has(key)) {
+        expect(ID[key].trim().length, `ID ${key}`).toBeGreaterThan(0);
+      }
       expect(EN[key].trim(), `EN ${key}`).toBe(EN[key]);
       expect(ID[key].trim(), `ID ${key}`).toBe(ID[key]);
       expect(EN[key].trim().length, `EN ${key}`).toBeGreaterThan(0);
     }
   });
 
+  // The EN singular ("count = 1") rows hardcode the literal 1 instead of a
+  // placeholder (section 5.12.4: the value is always exactly 1 when these
+  // keys are chosen), while the unchanged ID row keeps its template
+  // placeholder — same key, deliberately different placeholder sets. A
+  // caller always passes the same vars regardless of which key it picked.
+  const EN_SINGULAR_HARDCODED: ReadonlySet<DictKey> = new Set([
+    "C-d-entry-left-one",
+    "C-d-entry-n-one",
+    "C-d-over-one",
+    "C-d-done-unsent-one",
+    "C-d-done-skip-one",
+  ] as DictKey[]);
+
   it("uses the same placeholders in both languages for every key", () => {
     for (const key of Object.keys(ID) as DictKey[]) {
+      if (EN_SINGULAR_HARDCODED.has(key)) continue;
       expect(placeholders(EN[key]), key).toBe(placeholders(ID[key]));
     }
   });
@@ -188,5 +209,130 @@ describe("copy for the status banner after the planned close (UX-03 sections 5.2
       expect(ID[key], `ID ${key}`).toBe(id);
       expect(EN[key], `EN ${key}`).toBe(en);
     }
+  });
+});
+
+describe("debrief copy keys (R-07 Task 7.4, UX-03 section 6)", () => {
+  it("carries the entry card, loading, error and empty-state copy", () => {
+    const cases: Array<[DictKey, string, string]> = [
+      ["C-d-entry-h", "Debrief berjalan", "Debrief running"],
+      ["C-d-entry-left", "Sisa {mm} menit.", "{mm} minutes left."],
+      ["C-d-entry-n", "{N} pertanyaan.", "{N} questions."],
+      ["C-d-btn", "Jawab pertanyaan", "Answer questions"],
+      ["C-d-takes", "Butuh sekitar 5 menit.", "Takes about 5 minutes."],
+      ["C-d-next", "Mulai bisa ditekan lagi {day} pukul {hm}.", "You can tap Start again {day} at {hm}."],
+      ["C-d-load", "Memuat pertanyaan…", "Loading questions…"],
+      ["C-d-load-2", "Biasanya beberapa detik.", "Usually takes a few seconds."],
+      ["C-d-err", "Pertanyaan belum bisa dimuat.", "Questions could not load yet."],
+      ["C-d-err-2", "Cek koneksi, lalu coba lagi.", "Check the connection, then try again."],
+      ["C-d-empty-h", "Tidak ada pertanyaan hari ini.", "There are no questions today."],
+      ["C-d-empty-h-2", "Terima kasih.", "Thank you."],
+    ];
+    for (const [key, id, en] of cases) {
+      expect(ID[key], `ID ${key}`).toBe(id);
+      expect(EN[key], `EN ${key}`).toBe(en);
+    }
+  });
+
+  it("carries the question-screen copy (progress, template, choice, reason, counter)", () => {
+    const cases: Array<[DictKey, string, string]> = [
+      ["C-d-prog", "Pertanyaan {N} dari {M}", "Question {N} of {M}"],
+      ["C-d-q-step", "Sekitar pukul {hm} ada {step}. Benar?", "Around {hm} there was {step}. Is that right?"],
+      [
+        "C-d-q-block",
+        "Sekitar pukul {hm}–{hm_end} ada kegiatan kerja. Benar?",
+        "Between {hm} and {hm_end} there was work.",
+      ],
+      ["C-d-q-block-2", "", "Is that right?"],
+      ["C-d-yes", "Ya", "Yes"],
+      ["C-d-no", "Tidak", "No"],
+      ["C-d-r-yes", "Sudah sesuai SOP? Kalau belum, kenapa?", "Did it follow the SOP? If not, why?"],
+      ["C-d-r-yes-2", "Wajib diisi, tanpa nama.", "Required. No names."],
+      ["C-d-r-no", "Kenapa tidak? Ceritakan singkat.", "Why not? Tell us briefly."],
+      ["C-d-r-no-2", "Wajib diisi, tanpa nama.", "Required. No names."],
+      ["C-d-count", "{N}/500", "{N}/500"],
+      ["C-d-count-warn", "{N}/500 · {M} lagi", "{N}/500 · {M} left"],
+      ["C-d-over", "Terlalu panjang. Kurangi {N} karakter.", "Too long. Remove {N} characters."],
+      ["C-d-help-dis", "Pilih Ya atau Tidak, lalu isi alasan.", "Choose Yes or No, then give a reason."],
+      ["C-d-locked", "Jawaban yang sudah Lanjut tidak bisa diubah.", "An answer sent with Next cannot be changed."],
+    ];
+    for (const [key, id, en] of cases) {
+      expect(ID[key], `ID ${key}`).toBe(id);
+      expect(EN[key], `EN ${key}`).toBe(en);
+    }
+  });
+
+  it("carries the save-fail, refused and offline copy", () => {
+    const cases: Array<[DictKey, string, string]> = [
+      ["C-d-save-fail", "Jawaban belum tersimpan di HP ini.", "The answer is not saved on this phone yet."],
+      [
+        "C-d-save-fail-2",
+        "HP tidak bisa menyimpan. Teks kamu masih ada.",
+        "The phone could not save it. Your text is still here.",
+      ],
+      ["C-d-save-fail-3", "Coba Lanjut lagi.", "Try Next again."],
+      ["C-d-refused", "Belum terkirim. Akan dicoba lagi otomatis.", "Not sent yet. It will be retried automatically."],
+      ["C-d-refused-2", "Jawaban tetap tersimpan di HP ini.", "The answer stays saved on this phone."],
+      ["C-d-offline", "Tersimpan di HP. Akan dikirim saat online.", "Saved on the phone. Will be sent when online."],
+    ];
+    for (const [key, id, en] of cases) {
+      expect(ID[key], `ID ${key}`).toBe(id);
+      expect(EN[key], `EN ${key}`).toBe(en);
+    }
+  });
+
+  it("carries the done screen and timeout copy", () => {
+    const cases: Array<[DictKey, string, string]> = [
+      ["C-d-done-h", "Debrief selesai. Terima kasih.", "Debrief complete. Thank you."],
+      ["C-d-done-l", "Jawabanmu sudah tersimpan.", "Your answers are saved."],
+      ["C-d-done-unsent", "Masih ada {N} jawaban belum terkirim.", "{N} answers are not sent yet."],
+      ["C-d-done-unsent-2", "Akan dikirim saat online.", "They will be sent when online."],
+      ["C-d-done-skip", "{N} pertanyaan dilewati.", "{N} questions skipped."],
+      ["C-d-done-skip-2", "Bisa dijawab sampai pukul {hm}.", "You can answer them until {hm}."],
+      ["C-d-done-mulai", "Mulai bisa ditekan lagi {day} pukul {hm}.", "You can tap Start again {day} at {hm}."],
+      ["C-d-timeout", "Waktu debrief habis pukul {hm}.", "The debrief time ran out at {hm}."],
+      ["C-d-timeout-2", "Jawaban yang sudah Lanjut tetap tersimpan.", "Answers sent with Next are kept."],
+      ["C-d-timeout-3", "Teks yang belum Lanjut tidak tersimpan.", "Text not sent with Next is not saved."],
+    ];
+    for (const [key, id, en] of cases) {
+      expect(ID[key], `ID ${key}`).toBe(id);
+      expect(EN[key], `EN ${key}`).toBe(en);
+    }
+  });
+
+  it("carries the shared Back/Skip/Next/Try-again buttons (new keys, not yet in the dict)", () => {
+    const cases: Array<[DictKey, string, string]> = [
+      ["C-b-kembali", "Kembali", "Back"],
+      ["C-b-lewati", "Lewati", "Skip"],
+      ["C-b-lanjut", "Lanjut", "Next"],
+      ["C-b-coba", "Coba lagi", "Try again"],
+    ];
+    for (const [key, id, en] of cases) {
+      expect(ID[key], `ID ${key}`).toBe(id);
+      expect(EN[key], `EN ${key}`).toBe(en);
+    }
+  });
+
+  it("carries the EN singular forms (count = 1); the ID column is unchanged", () => {
+    const cases: Array<[DictKey, string, string]> = [
+      ["C-d-entry-left-one", "Sisa {mm} menit.", "1 minute left."],
+      ["C-d-entry-n-one", "{N} pertanyaan.", "1 question."],
+      ["C-d-over-one", "Terlalu panjang. Kurangi {N} karakter.", "Too long. Remove 1 character."],
+      ["C-d-done-unsent-one", "Masih ada {N} jawaban belum terkirim.", "1 answer is not sent yet."],
+      ["C-d-done-skip-one", "{N} pertanyaan dilewati.", "1 question skipped."],
+    ];
+    for (const [key, id, en] of cases) {
+      expect(ID[key], `ID ${key}`).toBe(id);
+      expect(EN[key], `EN ${key}`).toBe(en);
+    }
+  });
+
+  it("fills the debrief count/time/step placeholders without leaving a raw token", () => {
+    expect(t("en", "C-d-prog", { N: 2, M: 4 })).toBe("Question 2 of 4");
+    expect(t("id", "C-d-prog", { N: 2, M: 4 })).toBe("Pertanyaan 2 dari 4");
+    expect(t("en", "C-d-q-step", { hm: "15:00", step: "a restock" })).toBe(
+      "Around 15:00 there was a restock. Is that right?",
+    );
+    expect(t("en", "C-d-count-warn", { N: 450, M: 50 })).toBe("450/500 · 50 left");
   });
 });
