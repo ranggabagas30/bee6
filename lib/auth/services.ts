@@ -14,6 +14,7 @@ import {
   type LockoutState,
 } from "@/lib/auth/pin";
 import {
+  DUMMY_DEVICE_TOKEN_HASH,
   generateDeviceToken,
   hashDeviceToken,
   isPairingCodeExpired,
@@ -144,9 +145,11 @@ export async function authenticateDeviceToken(
   input: { device_id: string; token: string },
 ): Promise<CustomClaims> {
   // One message for every failure (unknown id, revoked, unpaired, wrong token),
-  // so a caller cannot tell whether a device id exists.
+  // so a caller cannot tell whether a device id exists. Every failure also runs
+  // one bcrypt compare, so the timing does not reveal it either.
   const device = await deps.devices.findById(input.device_id);
   if (!device || device.revoked || !device.token_hash) {
+    await verifyDeviceToken(input.token, DUMMY_DEVICE_TOKEN_HASH);
     throw new UnauthorizedError("Invalid device token");
   }
   const ok = await verifyDeviceToken(input.token, device.token_hash);
