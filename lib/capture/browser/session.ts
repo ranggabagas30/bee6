@@ -95,6 +95,7 @@ export async function startCaptureSession(
   auth: DeviceAuth,
   _config: CaptureConfigResponse,
   cb: CaptureSessionCallbacks,
+  sessionId?: string,
 ): Promise<CaptureSession | null> {
   if (!isOpusEncoderSupported()) {
     cb.onUnsupported();
@@ -103,7 +104,7 @@ export async function startCaptureSession(
 
   const engine = new CaptureEngine({
     encode: encodeSegmentToWebmOpus,
-    upload: createSegmentUploader(auth),
+    upload: createSegmentUploader(auth, sessionId),
     onStatusChange: (status) => {
       cb.onStatus(status);
       // Translate the existing status callback into a state_changed event —

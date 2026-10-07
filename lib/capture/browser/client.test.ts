@@ -3,6 +3,9 @@ import {
   buildSegmentPut,
   deviceAuthHeaders,
   fetchCaptureConfig,
+  postSessionDiscard,
+  postSessionEnd,
+  postSessionStart,
   resolveCapturePhase,
 } from "@/lib/capture/browser/client";
 import type { QueuedSegment } from "@/lib/capture/browser/engine";
@@ -51,6 +54,116 @@ describe("buildSegmentPut", () => {
     // The only place bytes exist is `body`; none of the numeric header values
     // are the raw audio array.
     expect(serialized).not.toContain("10,20,30");
+  });
+
+  it("carries no X-Session-Id header when no session id is given (pre-P1 bundle shape)", () => {
+    expect(req.headers["X-Session-Id"]).toBeUndefined();
+  });
+
+  it("stamps X-Session-Id when a session id is given (web spec §6.6.4, release gate)", () => {
+    const withSession = buildSegmentPut(segment, auth, "11111111-1111-1111-1111-111111111111");
+    expect(withSession.headers["X-Session-Id"]).toBe("11111111-1111-1111-1111-111111111111");
+  });
+});
+
+describe("session routes (Mulai/Selesai/Batalkan; web spec §6.6.3-§6.6.5)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("postSessionStart: success returns ok:true", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => {
+        expect(url).toBe("/api/v1/capture/sessions");
+        expect(init.method).toBe("POST");
+        expect(JSON.parse(init.body as string)).toEqual({
+          session_id: "11111111-1111-1111-1111-111111111111",
+          started_at_ms: 1000,
+        });
+        return new Response(JSON.stringify({ data: { ok: true } }), { status: 200 });
+      }),
+    );
+    const result = await postSessionStart(auth, {
+      session_id: "11111111-1111-1111-1111-111111111111",
+      started_at_ms: 1000,
+    });
+    expect(result).toEqual({ ok: true, data: { ok: true } });
+  });
+
+  it("postSessionStart: 422 never starts the engine, carries the error code", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: { code: "VALIDATION_ERROR" } }), { status: 422 }),
+      ),
+    );
+    const result = await postSessionStart(auth, {
+      session_id: "11111111-1111-1111-1111-111111111111",
+      started_at_ms: 1000,
+    });
+    expect(result).toEqual({ ok: false, status: 422, code: "VALIDATION_ERROR" });
+  });
+
+  it("postSessionStart: a network failure (no response) carries no status or code", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("network"); }));
+    const result = await postSessionStart(auth, {
+      session_id: "11111111-1111-1111-1111-111111111111",
+      started_at_ms: 1000,
+    });
+    expect(result).toEqual({ ok: false, status: undefined, code: undefined });
+  });
+
+  it("postSessionEnd: success posts to the path session id with the device auth", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => {
+        expect(url).toBe(
+          "/api/v1/capture/sessions/11111111-1111-1111-1111-111111111111/end",
+        );
+        expect(init.headers).toMatchObject(deviceAuthHeaders(auth));
+        return new Response(JSON.stringify({ data: { ok: true } }), { status: 200 });
+      }),
+    );
+    const result = await postSessionEnd(auth, "11111111-1111-1111-1111-111111111111", {
+      started_at_ms: 1000,
+      ended_at_ms: 2000,
+      end_reason: "selesai",
+    });
+    expect(result).toEqual({ ok: true, data: { ok: true } });
+  });
+
+  it("postSessionDiscard: a 409 session_ended carries its code, distinct from a generic failure", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: { code: "session_ended" } }), { status: 409 }),
+      ),
+    );
+    const result = await postSessionDiscard(auth, "11111111-1111-1111-1111-111111111111", {
+      started_at_ms: 1000,
+      discarded_at_ms: 2000,
+    });
+    expect(result).toEqual({ ok: false, status: 409, code: "session_ended" });
+  });
+
+  it("postSessionDiscard: a 202 pending-cleanup response is still ok:true", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ data: { ok: true, cleanup: "pending" } }), {
+            status: 202,
+          }),
+      ),
+    );
+    const result = await postSessionDiscard(auth, "11111111-1111-1111-1111-111111111111", {
+      started_at_ms: 1000,
+      discarded_at_ms: 2000,
+    });
+    expect(result).toEqual({ ok: true, data: { ok: true, cleanup: "pending" } });
   });
 });
 
