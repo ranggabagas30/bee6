@@ -1,16 +1,20 @@
-import type { Firestore, Transaction } from "firebase-admin/firestore";
+import type { DocumentReference, Firestore, Transaction } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import { COLLECTIONS } from "@/lib/firestore/collections";
+import { deviceDocId } from "@/lib/firestore/stores";
 import { segmentDocId } from "@/lib/capture/segment-types";
 import type { WorkCategory } from "@/lib/pipeline/categories";
+import { expireAtDebriefEnd } from "@/lib/pipeline/gate";
 import {
   SegmentSchema,
   ThreadSchema,
   QuestionSchema,
+  QuestionDocSchema,
   LabelUnitLedgerSchema,
   PipelineLockSchema,
   StaffSchema,
   DeviceSchema,
+  type LastEnded,
   type Segment,
   type Thread,
 } from "@/lib/firestore/schema";
@@ -22,6 +26,9 @@ import type {
   TickStore,
   UnitWriteBatch,
 } from "@/lib/pipeline/tick/types";
+
+/** A chunk size safely under Firestore's 500-write transaction limit, with room for thread writes too. */
+const EXPIRE_CHUNK_SIZE = 100;
 
 /**
  * Firestore-backed `TickStore` (R-05b, Task 6). The pure orchestration in
@@ -104,6 +111,23 @@ function groupBlankLineIdsBySegment(lineIds: readonly string[]): Map<string, num
     bySeg.set(parsed.segId, arr);
   }
   return bySeg;
+}
+
+/**
+ * The exact fields carried over from a stored thread the staff decision
+ * already stands for (R-07, Task 5.2) — `confirmed_category` is included
+ * only when the stored doc actually has it (a NO never sets it; spreading
+ * an explicit `undefined` would write a bad field to Firestore).
+ */
+function carryOverStaffFields(stored: Record<string, unknown>): Record<string, unknown> {
+  const fields: Record<string, unknown> = {
+    status: stored.status,
+    gate: stored.gate,
+  };
+  if ("label_source" in stored) fields.label_source = stored.label_source;
+  if ("confirmed_category" in stored) fields.confirmed_category = stored.confirmed_category;
+  if ("excluded_from_evidence" in stored) fields.excluded_from_evidence = stored.excluded_from_evidence;
+  return fields;
 }
 
 export function firestoreTickStore(db: Firestore = adminDb()): TickStore {
@@ -263,8 +287,8 @@ export function firestoreTickStore(db: Firestore = adminDb()): TickStore {
       const ledgerDoc = LabelUnitLedgerSchema.parse({ ...batch.ledger, outlet_id: outletId });
 
       await db.runTransaction(async (tx: Transaction) => {
-        // Firestore transactions require every read before any write.
-        const segmentSnaps = new Map<string, { ref: FirebaseFirestore.DocumentReference; data: Segment }>();
+        // ---- READ PHASE (Firestore transactions require every read before any write) ----
+        const segmentSnaps = new Map<string, { ref: DocumentReference; data: Segment }>();
         for (const segId of blankBySeg.keys()) {
           const ref = db.collection(COLLECTIONS.segments).doc(segmentDocId({ outlet_id: outletId, device_id: deviceId, seg_id: segId }));
           const snap = await tx.get(ref);
@@ -275,12 +299,62 @@ export function firestoreTickStore(db: Firestore = adminDb()): TickStore {
           // this write) is not an error — there is nothing left to blank.
         }
 
-        for (const thread of threadDocs) {
-          tx.set(db.collection(COLLECTIONS.threads).doc(thread.thread_id), thread);
+        const threadRefs = threadDocs.map((t) => db.collection(COLLECTIONS.threads).doc(t.thread_id));
+        const threadSnaps = await Promise.all(threadRefs.map((ref) => tx.get(ref)));
+
+        const questionRefs = questionDocs.map((q) => db.collection(COLLECTIONS.questions).doc(q.question_id));
+        const questionSnaps = await Promise.all(questionRefs.map((ref) => tx.get(ref)));
+
+        // ---- WRITE PHASE ----
+        // Threads (R-07, Task 5.2): a thread the staff decision already
+        // stands for (staff_confirmed, or excluded_from_evidence by a NO)
+        // keeps that decision — new lines still merge into the new doc,
+        // but label_source/confirmed_category/excluded_from_evidence/
+        // status/gate are carried over from the stored doc, never the
+        // tick's own fresh (re-opened) values.
+        for (let i = 0; i < threadDocs.length; i++) {
+          const ref = threadRefs[i]!;
+          const snap = threadSnaps[i]!;
+          const newDoc = threadDocs[i]!;
+          if (snap.exists) {
+            const stored = snap.data() as Record<string, unknown>;
+            const staffDecisionStands = stored.label_source === "staff_confirmed" || stored.excluded_from_evidence === true;
+            if (staffDecisionStands) {
+              tx.set(ref, { ...newDoc, ...carryOverStaffFields(stored) });
+              continue;
+            }
+          }
+          tx.set(ref, newDoc);
         }
-        for (const question of questionDocs) {
-          tx.set(db.collection(COLLECTIONS.questions).doc(question.question_id), question);
+
+        // Questions (R-07, Task 5.2): never reopen an answered or
+        // unverified question (a blind tx.set would). An existing OPEN
+        // question is updated — category/window only, so a continuation
+        // never pushes created_at_ms (and so expiry) forward.
+        for (let i = 0; i < questionDocs.length; i++) {
+          const ref = questionRefs[i]!;
+          const snap = questionSnaps[i]!;
+          const newDoc = questionDocs[i]!;
+          if (!snap.exists) {
+            tx.set(ref, newDoc);
+            continue;
+          }
+          const stored = QuestionDocSchema.safeParse(snap.data());
+          if (!stored.success) {
+            // A malformed stored doc: never blindly clobber it either —
+            // same "skip, don't block the tick" discipline as every other
+            // malformed-doc read in this file.
+            logSkippedDoc("question", ref.id);
+            continue;
+          }
+          if (stored.data.status !== "open") continue;
+          tx.update(ref, {
+            category: newDoc.category,
+            window_start_ms: newDoc.window_start_ms,
+            window_end_ms: newDoc.window_end_ms,
+          });
         }
+
         tx.set(db.collection(COLLECTIONS.labelUnits).doc(ledgerDoc.unit_key), ledgerDoc);
 
         for (const [segId, lineIndices] of blankBySeg) {
@@ -292,6 +366,102 @@ export function firestoreTickStore(db: Firestore = adminDb()): TickStore {
           tx.update(found.ref, { lines });
         }
       });
+    },
+
+    async getLastEnded(outletId: string, deviceId: string): Promise<LastEnded | null> {
+      const doc = await db.collection(COLLECTIONS.devices).doc(deviceDocId(outletId, deviceId)).get();
+      if (!doc.exists) return null;
+      const parsed = DeviceSchema.safeParse(doc.data());
+      if (!parsed.success) {
+        logSkippedDoc("device", doc.id);
+        return null;
+      }
+      return parsed.data.last_ended ?? null;
+    },
+
+    async expireOpenQuestions(
+      outletId: string,
+      deviceId: string,
+      debriefEndsAtMs: number,
+      nowMs: number,
+    ): Promise<number> {
+      const snap = await db
+        .collection(COLLECTIONS.questions)
+        .where("outlet_id", "==", outletId)
+        .where("device_id", "==", deviceId)
+        .where("status", "==", "open")
+        .get();
+      const ids = snap.docs.map((d) => d.id);
+
+      interface Expiry {
+        ref: DocumentReference;
+        patch: { status: "unverified"; expired_by_debrief_end_ms: number | null };
+        kind: "gate" | "unlabelled_unit";
+        threadId: string | null;
+      }
+
+      let total = 0;
+      for (let i = 0; i < ids.length; i += EXPIRE_CHUNK_SIZE) {
+        const chunkIds = ids.slice(i, i + EXPIRE_CHUNK_SIZE);
+        total += await db.runTransaction(async (tx: Transaction) => {
+          // ---- READ PHASE: re-read every question in this chunk fresh ----
+          const questionRefs = chunkIds.map((id) => db.collection(COLLECTIONS.questions).doc(id));
+          const questionSnaps = await Promise.all(questionRefs.map((ref) => tx.get(ref)));
+
+          const expiries: Expiry[] = [];
+          for (let j = 0; j < questionSnaps.length; j++) {
+            const qsnap = questionSnaps[j]!;
+            if (!qsnap.exists) continue;
+            const parsed = QuestionDocSchema.safeParse(qsnap.data());
+            if (!parsed.success) {
+              logSkippedDoc("question", qsnap.id);
+              continue;
+            }
+            const q = parsed.data;
+            const result = expireAtDebriefEnd(
+              { status: q.status, created_at_ms: q.created_at_ms },
+              debriefEndsAtMs,
+              nowMs,
+            );
+            if (!result) continue;
+            expiries.push({
+              ref: questionRefs[j]!,
+              patch: { status: "unverified", expired_by_debrief_end_ms: result.expired_by_debrief_end_ms },
+              kind: q.kind,
+              threadId: q.thread_id,
+            });
+          }
+
+          // Still the read phase: every candidate gate-kind thread, read
+          // before any write in this transaction.
+          const threadEntries = new Map<string, { ref: DocumentReference; stored: Record<string, unknown> | null }>();
+          for (const e of expiries) {
+            if (e.kind === "gate" && e.threadId && !threadEntries.has(e.threadId)) {
+              const tref = db.collection(COLLECTIONS.threads).doc(e.threadId);
+              const tsnap = await tx.get(tref);
+              threadEntries.set(e.threadId, { ref: tref, stored: tsnap.exists ? (tsnap.data() as Record<string, unknown>) : null });
+            }
+          }
+
+          // ---- WRITE PHASE ----
+          for (const e of expiries) {
+            tx.update(e.ref, e.patch);
+            if (e.kind === "gate" && e.threadId) {
+              const entry = threadEntries.get(e.threadId);
+              const stored = entry?.stored;
+              if (stored) {
+                const parsedThread = ThreadSchema.safeParse(stored);
+                if (parsedThread.success && parsedThread.data.status === "open" && parsedThread.data.excluded_from_evidence !== true) {
+                  tx.update(entry.ref, { status: "unverified" });
+                }
+              }
+            }
+          }
+
+          return expiries.length;
+        });
+      }
+      return total;
     },
   };
 }

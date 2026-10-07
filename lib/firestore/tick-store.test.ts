@@ -3,10 +3,11 @@ import type { Firestore } from "firebase-admin/firestore";
 import { Timestamp } from "firebase-admin/firestore";
 import { firestoreTickStore } from "@/lib/firestore/tick-store";
 import { COLLECTIONS } from "@/lib/firestore/collections";
+import { deviceDocId } from "@/lib/firestore/stores";
 import { evaluateGate } from "@/lib/pipeline/gate";
 import { segmentDocId } from "@/lib/capture/segment-types";
-import type { Device, Staff, Segment, Question, LabelUnitLedger } from "@/lib/firestore/schema";
-import type { ThreadWrite } from "@/lib/pipeline/tick/types";
+import type { Device, Staff, Segment, LabelUnitLedger } from "@/lib/firestore/schema";
+import type { ThreadWrite, QuestionWrite } from "@/lib/pipeline/tick/types";
 
 const SAMPLE_GATE = evaluateGate({
   category: "ROUTINE_OPS",
@@ -481,7 +482,7 @@ describe("firestoreTickStore.writeUnitResult", () => {
     const store = firestoreTickStore(db);
 
     const thread: ThreadWrite = makeThread({ thread_id: "t1" });
-    const question: Question = {
+    const question: QuestionWrite = {
       outlet_id: OUTLET,
       device_id: DEVICE,
       question_id: "q1",
@@ -565,5 +566,337 @@ describe("firestoreTickStore.writeUnitResult", () => {
     ).rejects.toBeTruthy();
 
     expect(collections.get(COLLECTIONS.labelUnits)?.get("unit_bad")).toBeUndefined();
+  });
+
+  it("R-07 (Task 5.2): a missing question is created, exactly as before", async () => {
+    const { db, collections } = fakeDb();
+    const store = firestoreTickStore(db);
+    const question: QuestionWrite = {
+      outlet_id: OUTLET,
+      device_id: DEVICE,
+      question_id: "q1",
+      thread_id: "t1",
+      kind: "gate",
+      status: "open",
+      category: "ROUTINE_OPS",
+      window_start_ms: 0,
+      window_end_ms: 3000,
+      created_at_ms: 1000,
+    };
+    await store.writeUnitResult(OUTLET, DEVICE, {
+      threads: [],
+      questions: [question],
+      ledger: { outlet_id: OUTLET, device_id: DEVICE, unit_key: "u1", line_ids: [], status: "done", attempts: 1, labelled_at_ms: 2000 },
+      blank_line_ids: [],
+    });
+    expect(collections.get(COLLECTIONS.questions)?.get("q1")).toEqual(question);
+  });
+
+  it("R-07 (Task 5.2): an existing OPEN question is updated (category/window) but never reopened, and created_at_ms is kept", async () => {
+    const existing = asDoc({
+      outlet_id: OUTLET,
+      device_id: DEVICE,
+      question_id: "q1",
+      thread_id: "t1",
+      kind: "gate",
+      status: "open",
+      category: "ROUTINE_OPS",
+      window_start_ms: 0,
+      window_end_ms: 3000,
+      created_at_ms: 1000, // must survive the continuation unchanged
+    });
+    const { db, collections } = fakeDb({ [COLLECTIONS.questions]: { q1: existing } });
+    const store = firestoreTickStore(db);
+
+    await store.writeUnitResult(OUTLET, DEVICE, {
+      threads: [],
+      questions: [
+        {
+          outlet_id: OUTLET,
+          device_id: DEVICE,
+          question_id: "q1",
+          thread_id: "t1",
+          kind: "gate",
+          status: "open",
+          category: "CUSTOMER_SERVICE", // the continuation's own (possibly new) category
+          window_start_ms: 0,
+          window_end_ms: 9000, // the continuation extends the window
+          created_at_ms: 9999, // a blind tx.set would wrongly push this forward
+        },
+      ],
+      ledger: { outlet_id: OUTLET, device_id: DEVICE, unit_key: "u1", line_ids: [], status: "done", attempts: 1, labelled_at_ms: 2000 },
+      blank_line_ids: [],
+    });
+
+    expect(collections.get(COLLECTIONS.questions)?.get("q1")).toMatchObject({
+      category: "CUSTOMER_SERVICE",
+      window_start_ms: 0,
+      window_end_ms: 9000,
+      created_at_ms: 1000, // unchanged
+      status: "open",
+    });
+  });
+
+  it("R-07 (Task 5.2): an ANSWERED question is never reopened by a later tick write", async () => {
+    const existing = asDoc({
+      outlet_id: OUTLET,
+      device_id: DEVICE,
+      question_id: "q1",
+      thread_id: "t1",
+      kind: "gate",
+      status: "answered",
+      answer: "yes",
+      answered_at_ms: 5000,
+      category: "ROUTINE_OPS",
+      window_start_ms: 0,
+      window_end_ms: 3000,
+      created_at_ms: 1000,
+    });
+    const { db, collections } = fakeDb({ [COLLECTIONS.questions]: { q1: existing } });
+    const store = firestoreTickStore(db);
+
+    await store.writeUnitResult(OUTLET, DEVICE, {
+      threads: [],
+      questions: [
+        {
+          outlet_id: OUTLET,
+          device_id: DEVICE,
+          question_id: "q1",
+          thread_id: "t1",
+          kind: "gate",
+          status: "open",
+          category: "CUSTOMER_SERVICE",
+          window_start_ms: 0,
+          window_end_ms: 9000,
+          created_at_ms: 1000,
+        },
+      ],
+      ledger: { outlet_id: OUTLET, device_id: DEVICE, unit_key: "u1", line_ids: [], status: "done", attempts: 1, labelled_at_ms: 2000 },
+      blank_line_ids: [],
+    });
+
+    expect(collections.get(COLLECTIONS.questions)?.get("q1")).toEqual(existing);
+  });
+
+  it("R-07 (Task 5.2): an UNVERIFIED question is never reopened by a later tick write", async () => {
+    const existing = asDoc({
+      outlet_id: OUTLET,
+      device_id: DEVICE,
+      question_id: "q1",
+      thread_id: "t1",
+      kind: "gate",
+      status: "unverified",
+      expired_by_debrief_end_ms: 5000,
+      category: "ROUTINE_OPS",
+      window_start_ms: 0,
+      window_end_ms: 3000,
+      created_at_ms: 1000,
+    });
+    const { db, collections } = fakeDb({ [COLLECTIONS.questions]: { q1: existing } });
+    const store = firestoreTickStore(db);
+
+    await store.writeUnitResult(OUTLET, DEVICE, {
+      threads: [],
+      questions: [
+        {
+          outlet_id: OUTLET,
+          device_id: DEVICE,
+          question_id: "q1",
+          thread_id: "t1",
+          kind: "gate",
+          status: "open",
+          category: "CUSTOMER_SERVICE",
+          window_start_ms: 0,
+          window_end_ms: 9000,
+          created_at_ms: 1000,
+        },
+      ],
+      ledger: { outlet_id: OUTLET, device_id: DEVICE, unit_key: "u1", line_ids: [], status: "done", attempts: 1, labelled_at_ms: 2000 },
+      blank_line_ids: [],
+    });
+
+    expect(collections.get(COLLECTIONS.questions)?.get("q1")).toEqual(existing);
+  });
+
+  it("R-07 (Task 5.2): a staff_confirmed thread keeps its staff fields (and status 'fact') on a later continuation", async () => {
+    const existing = asDoc({
+      ...makeThread({ thread_id: "t1", status: "fact" }),
+      label_source: "staff_confirmed",
+      confirmed_category: "CUSTOMER_SERVICE",
+    });
+    const { db, collections } = fakeDb({ [COLLECTIONS.threads]: { t1: existing } });
+    const store = firestoreTickStore(db);
+
+    const continuation = makeThread({
+      thread_id: "t1",
+      status: "open", // the tick's own fresh gate call, re-opened by new evidence
+      category: "ROUTINE_OPS", // a later unit's own label — the staff decision still stands
+      confidence: 0.5,
+      lines: [{ line_id: "s1#1", start_ms: 3000, end_ms: 6000, text: "more lines" }],
+    });
+
+    await store.writeUnitResult(OUTLET, DEVICE, {
+      threads: [continuation],
+      questions: [],
+      ledger: { outlet_id: OUTLET, device_id: DEVICE, unit_key: "u1", line_ids: [], status: "done", attempts: 1, labelled_at_ms: 2000 },
+      blank_line_ids: [],
+    });
+
+    const stored = collections.get(COLLECTIONS.threads)?.get("t1");
+    expect(stored).toMatchObject({
+      status: "fact",
+      label_source: "staff_confirmed",
+      confirmed_category: "CUSTOMER_SERVICE",
+      gate: existing.gate, // the staff decision's own gate, not the tick's fresh one
+      // new lines still merge in:
+      lines: continuation.lines,
+      confidence: continuation.confidence,
+    });
+  });
+
+  it("R-07 (Task 5.2): a NO-rejected (excluded_from_evidence) thread keeps that flag on a later continuation", async () => {
+    const existing = asDoc({
+      ...makeThread({ thread_id: "t1", status: "open" }),
+      label_source: "model",
+      excluded_from_evidence: true,
+    });
+    const { db, collections } = fakeDb({ [COLLECTIONS.threads]: { t1: existing } });
+    const store = firestoreTickStore(db);
+
+    const continuation = makeThread({ thread_id: "t1", status: "fact", confidence: 0.99 });
+
+    await store.writeUnitResult(OUTLET, DEVICE, {
+      threads: [continuation],
+      questions: [],
+      ledger: { outlet_id: OUTLET, device_id: DEVICE, unit_key: "u1", line_ids: [], status: "done", attempts: 1, labelled_at_ms: 2000 },
+      blank_line_ids: [],
+    });
+
+    const stored = collections.get(COLLECTIONS.threads)?.get("t1");
+    expect(stored).toMatchObject({
+      status: "open", // carried over, never promoted to fact under a staff NO
+      excluded_from_evidence: true,
+      label_source: "model",
+    });
+  });
+
+  it("R-07 (Task 5.2): an ordinary (model, not excluded) thread is written plainly, as before", async () => {
+    const existing = asDoc(makeThread({ thread_id: "t1", status: "open" }));
+    const { db, collections } = fakeDb({ [COLLECTIONS.threads]: { t1: existing } });
+    const store = firestoreTickStore(db);
+
+    const continuation = makeThread({ thread_id: "t1", status: "fact", confidence: 0.99 });
+
+    await store.writeUnitResult(OUTLET, DEVICE, {
+      threads: [continuation],
+      questions: [],
+      ledger: { outlet_id: OUTLET, device_id: DEVICE, unit_key: "u1", line_ids: [], status: "done", attempts: 1, labelled_at_ms: 2000 },
+      blank_line_ids: [],
+    });
+
+    expect(collections.get(COLLECTIONS.threads)?.get("t1")).toEqual(continuation);
+  });
+});
+
+describe("firestoreTickStore.getLastEnded (R-07)", () => {
+  it("returns the device's last_ended", async () => {
+    const lastEnded = {
+      business_date: "2026-10-07",
+      end_reason: "selesai" as const,
+      ended_at_ms: 1000,
+      debrief_ends_at_ms: 5000,
+    };
+    const { db } = fakeDb({ [COLLECTIONS.devices]: { [deviceDocId(OUTLET, DEVICE)]: asDoc(makeDevice({ last_ended: lastEnded })) } });
+    expect(await firestoreTickStore(db).getLastEnded(OUTLET, DEVICE)).toEqual(lastEnded);
+  });
+
+  it("returns null when the device has no last_ended", async () => {
+    const { db } = fakeDb({ [COLLECTIONS.devices]: { [deviceDocId(OUTLET, DEVICE)]: asDoc(makeDevice()) } });
+    expect(await firestoreTickStore(db).getLastEnded(OUTLET, DEVICE)).toBeNull();
+  });
+
+  it("returns null when the device doc does not exist", async () => {
+    const { db } = fakeDb();
+    expect(await firestoreTickStore(db).getLastEnded(OUTLET, DEVICE)).toBeNull();
+  });
+});
+
+describe("firestoreTickStore.expireOpenQuestions (R-07)", () => {
+  function makeOpenQuestion(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      outlet_id: OUTLET,
+      device_id: DEVICE,
+      question_id: "q1",
+      thread_id: null,
+      kind: "unlabelled_unit",
+      status: "open",
+      category: null,
+      window_start_ms: 0,
+      window_end_ms: 1000,
+      created_at_ms: 1000,
+      ...overrides,
+    };
+  }
+
+  const E = 5000;
+
+  it("expires an open question created before E, and returns the count", async () => {
+    const { db, collections } = fakeDb({
+      [COLLECTIONS.questions]: { q1: asDoc(makeOpenQuestion({ created_at_ms: 1000 })) },
+    });
+    const count = await firestoreTickStore(db).expireOpenQuestions(OUTLET, DEVICE, E, E + 1000);
+    expect(count).toBe(1);
+    expect(collections.get(COLLECTIONS.questions)?.get("q1")).toMatchObject({
+      status: "unverified",
+      expired_by_debrief_end_ms: E,
+    });
+  });
+
+  it("leaves a question created after E untouched", async () => {
+    const { db, collections } = fakeDb({
+      [COLLECTIONS.questions]: { q1: asDoc(makeOpenQuestion({ created_at_ms: E + 1 })) },
+    });
+    const count = await firestoreTickStore(db).expireOpenQuestions(OUTLET, DEVICE, E, E + 1000);
+    expect(count).toBe(0);
+    expect(collections.get(COLLECTIONS.questions)?.get("q1")).toMatchObject({ status: "open" });
+  });
+
+  it("never touches a question already answered or unverified (the query itself scopes to status==open)", async () => {
+    const { db, collections } = fakeDb({
+      [COLLECTIONS.questions]: {
+        q1: asDoc(makeOpenQuestion({ question_id: "q1", status: "answered", answer: "yes", answered_at_ms: 1 })),
+        q2: asDoc(makeOpenQuestion({ question_id: "q2", status: "unverified", expired_by_debrief_end_ms: 1 })),
+      },
+    });
+    const count = await firestoreTickStore(db).expireOpenQuestions(OUTLET, DEVICE, E, E + 1000);
+    expect(count).toBe(0);
+    expect(collections.get(COLLECTIONS.questions)?.get("q1")).toMatchObject({ status: "answered" });
+    expect(collections.get(COLLECTIONS.questions)?.get("q2")).toMatchObject({ status: "unverified" });
+  });
+
+  it("also sets a gate question's still-open thread to unverified", async () => {
+    const { db, collections } = fakeDb({
+      [COLLECTIONS.questions]: {
+        q1: asDoc(makeOpenQuestion({ question_id: "q1", kind: "gate", thread_id: "t1", category: "ROUTINE_OPS" })),
+      },
+      [COLLECTIONS.threads]: { t1: asDoc(makeThread({ thread_id: "t1", status: "open" })) },
+    });
+    await firestoreTickStore(db).expireOpenQuestions(OUTLET, DEVICE, E, E + 1000);
+    expect(collections.get(COLLECTIONS.threads)?.get("t1")).toMatchObject({ status: "unverified" });
+  });
+
+  it("never un-excludes a thread already excluded_from_evidence (a staff NO stands)", async () => {
+    const { db, collections } = fakeDb({
+      [COLLECTIONS.questions]: {
+        q1: asDoc(makeOpenQuestion({ question_id: "q1", kind: "gate", thread_id: "t1", category: "ROUTINE_OPS" })),
+      },
+      [COLLECTIONS.threads]: {
+        t1: asDoc({ ...makeThread({ thread_id: "t1", status: "open" }), excluded_from_evidence: true }),
+      },
+    });
+    await firestoreTickStore(db).expireOpenQuestions(OUTLET, DEVICE, E, E + 1000);
+    // status stays "open" -- expiry only ever applies to a QUESTION the debrief missed,
+    // never un-excludes or otherwise touches an already-excluded thread.
+    expect(collections.get(COLLECTIONS.threads)?.get("t1")).toMatchObject({ status: "open", excluded_from_evidence: true });
   });
 });

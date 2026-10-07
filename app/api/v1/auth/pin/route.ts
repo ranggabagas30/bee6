@@ -1,60 +1,16 @@
 import type { NextRequest } from "next/server";
-import { z } from "zod";
-import {
-  BadRequestError,
-  UnauthorizedError,
-  handleApiError,
-} from "@/lib/http/errors";
-import { jsonOk } from "@/lib/http/respond";
-import { requireDevice } from "@/lib/http/guard";
-import { staffPinLogin } from "@/lib/auth/services";
-import { firestoreStaffStore } from "@/lib/firestore/stores";
-import { mintCustomToken } from "@/lib/firebase/admin";
+import { NextResponse } from "next/server";
 
 /**
- * POST /api/v1/auth/pin (web spec §3, §6.2).
- * Name + 4-digit PIN on the paired shop device → a staff session (Firebase
- * custom token). The device is authenticated first via its device token, so the
- * PIN screen only works on a paired phone; outlet + device come from the device
- * principal, never from the request body. 5 wrong PINs → locked 15 min.
+ * POST /api/v1/auth/pin — DORMANT (R-07, Rangga 7 Oct). MVP 1 has no staff
+ * sign-in; staff name + PIN sessions are post-MVP 1 (CLAUDE.md §3). This
+ * route always answers 404, before any auth or body read, so it can't be
+ * mistaken for a live endpoint. `lib/auth/pin.ts` and `staffPinLogin` stay
+ * in place, unused, for when PIN sessions are built.
  */
 
 export const runtime = "nodejs";
 
-const BodySchema = z
-  .object({ name: z.string().min(1), pin: z.string() })
-  .strict();
-
-export async function POST(req: NextRequest) {
-  try {
-    const device = await requireDevice(req);
-    if (!device.device_id) {
-      throw new UnauthorizedError("Device session missing device id");
-    }
-
-    let raw: unknown;
-    try {
-      raw = await req.json();
-    } catch {
-      throw new BadRequestError("Body must be JSON");
-    }
-    const { name, pin } = BodySchema.parse(raw);
-
-    const result = await staffPinLogin(
-      { staff: firestoreStaffStore(), mintToken: mintCustomToken },
-      {
-        outlet_id: device.outlet_id,
-        device_id: device.device_id,
-        name,
-        pin,
-      },
-    );
-
-    return jsonOk({
-      custom_token: result.custom_token,
-      staff_id: result.staff_id,
-    });
-  } catch (error) {
-    return handleApiError(error);
-  }
+export async function POST(_req: NextRequest) {
+  return NextResponse.json({ error: { code: "NOT_FOUND", message: "Not found" } }, { status: 404 });
 }

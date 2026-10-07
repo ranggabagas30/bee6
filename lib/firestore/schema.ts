@@ -3,6 +3,7 @@ import { PrincipalRoleSchema, UserRoleSchema } from "@/lib/auth/roles";
 import { MIC_SOURCE_CLASSES } from "@/lib/capture/mic-source";
 import { CategorySchema } from "@/lib/pipeline/categories";
 import { GateDecisionSchema } from "@/lib/pipeline/gate";
+import { CORRECTION_TEXT_MAX_CHARS } from "@/lib/debrief/constants";
 
 /**
  * Firestore schema v0 (web spec §6.4). zod schemas + inferred TS types for every
@@ -125,6 +126,12 @@ export const OutletSchema = z
     weekly_hours: WeeklyHoursSchema.optional(),
     opening_time: z.string().regex(/^\d{2}:\d{2}$/), // "07:00"
     closing_time: z.string().regex(/^\d{2}:\d{2}$/), // "21:45"
+    /**
+     * How long a correction/evidence doc is kept (web spec §6.6.2). Optional
+     * so existing outlet docs still parse; callers default to 14 when
+     * absent (`lib/firestore/debrief-store.ts`'s `getOutletCalendar`).
+     */
+    retention_days: z.number().int().min(1).max(90).optional(),
     created_at: isoDateTime,
   })
   .strict();
@@ -404,8 +411,8 @@ export const ThreadRunnerUpSchema = z
  * Task 3 — and gated — R-05a `evaluateGate`) persisted as its own document.
  * `status` is `applyGateDecision`'s own return type: a fresh/continued
  * thread above threshold is `"fact"`; everything else is `"open"` (a
- * debrief question also exists for it — see `QuestionSchema`) or, once
- * R-06/R-07 wire `expireQuestion`, `"unverified"`. Decision 4: when a later
+ * debrief question also exists for it — see `QuestionSchema`) or, since
+ * R-07 wires `expireAtDebriefEnd`, `"unverified"`. Decision 4: when a later
  * unit continues an existing thread, `confidence` becomes
  * `min(stored, new)` and a stored `"fact"` CAN be downgraded back to
  * `"open"` — never the reverse within this task (a thread that gathers
@@ -432,6 +439,17 @@ export const ThreadSchema = z
     gate: GateDecisionSchema,
     created_at_ms: z.number().int().min(0),
     updated_at_ms: z.number().int().min(0),
+    /**
+     * R-07: set when a staff YES/NO answer decided this thread's category
+     * (never a model relabel). `confirmed_category` is only ever set
+     * alongside `label_source: "staff_confirmed"`. `excluded_from_evidence`
+     * marks a staff NO (the thread stays `open`/visible to a supervisor but
+     * is never counted as evidence) — independent of `label_source`, since
+     * a NO never sets `staff_confirmed`.
+     */
+    label_source: z.enum(["model", "staff_confirmed"]).optional(),
+    confirmed_category: CategorySchema.optional(),
+    excluded_from_evidence: z.boolean().optional(),
   })
   .strict();
 export type Thread = z.infer<typeof ThreadSchema>;
@@ -451,18 +469,66 @@ export const QuestionSchema = z
     device_id: z.string().min(1),
     thread_id: z.string().min(1).nullable(),
     kind: z.enum(["gate", "unlabelled_unit"]),
-    status: z.enum(["open", "unverified"]),
+    status: z.enum(["open", "unverified", "answered"]),
     category: CategorySchema.nullable(),
     window_start_ms: z.number().int().min(0),
     window_end_ms: z.number().int().min(0),
     created_at_ms: z.number().int().min(0),
+    answer: z.enum(["yes", "no"]).nullable().optional(),
+    answered_at_ms: z.number().int().min(0).nullable().optional(),
+    /** The debrief end that set `unverified` (lets a late in-window answer replace it, §4c item 2). */
+    expired_by_debrief_end_ms: z.number().int().min(0).nullable().optional(),
   })
   .strict();
 export type Question = z.infer<typeof QuestionSchema>;
 
-/** filled in R-07 (answers write corrections; answered_by role only). */
+/**
+ * Stricter read-side parse (R-07): `status === "answered"` iff `answer` is
+ * set and `answered_at_ms` is a number; every other status carries neither.
+ * `QuestionSchema` itself stays a plain `.strict()` object (other code
+ * `.omit`/`.pick`s it) — the debrief store parses with this schema instead.
+ */
+export const QuestionDocSchema = QuestionSchema.superRefine((q, ctx) => {
+  const answered = q.status === "answered";
+  const hasAnswer = q.answer === "yes" || q.answer === "no";
+  const hasAnsweredAt = typeof q.answered_at_ms === "number";
+  if (answered && !(hasAnswer && hasAnsweredAt)) {
+    ctx.addIssue({
+      code: "custom",
+      message: "answered status requires answer and answered_at_ms",
+      path: ["status"],
+    });
+  }
+  if (!answered && (hasAnswer || hasAnsweredAt)) {
+    ctx.addIssue({
+      code: "custom",
+      message: "answer/answered_at_ms are only set when status is answered",
+      path: ["status"],
+    });
+  }
+});
+
+/**
+ * filled in R-07 (answers write corrections; §6.6.6). No `answered_by`, uid,
+ * staff id, name or PIN field — ever (hard rule #7). `reason_text` is
+ * scrubbed then redacted before this is ever parsed.
+ */
 export const CorrectionSchema = z
-  .object({ ...withOutlet, correction_id: z.string().min(1) })
+  .object({
+    ...withOutlet,
+    correction_id: z.string().min(1), // === question_id (doc id corrections/{question_id})
+    question_id: z.string().min(1),
+    thread_id: z.string().min(1).nullable(), // null for unlabelled_unit
+    answer: z.enum(["yes", "no"]),
+    reason_text: z.string().min(1).max(CORRECTION_TEXT_MAX_CHARS),
+    answered_device_id: z.string().min(1), // from claims; never returned to supervisor/owner
+    debrief_business_date: dateString,
+    answered_at_ms: z.number().int().min(0),
+    received_at_ms: z.number().int().min(0),
+    needs_supervisor_confirm: z.boolean(),
+    expires_at: isoDateTime, // stored as a native Timestamp (same conversion as segments)
+    created_at: isoDateTime,
+  })
   .strict();
 export type Correction = z.infer<typeof CorrectionSchema>;
 

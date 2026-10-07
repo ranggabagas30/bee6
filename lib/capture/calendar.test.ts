@@ -10,6 +10,7 @@ import {
   closeMs,
   evaluateCheckpoint,
   localDateOf,
+  localHmOf,
   mulaiAvailability,
   mulaiWindowDateOf,
   mulaiWindowFor,
@@ -88,6 +89,14 @@ describe("date helpers", () => {
     expect(weekdayOf("2026-10-14")).toBe("wed");
     expect(addDays("2026-12-31", 1)).toBe("2027-01-01");
     expect(addDays("2026-03-01", -1)).toBe("2026-02-28");
+  });
+
+  it("localHmOf formats 24h zero-padded wall-clock time in the zone (R-07)", () => {
+    expect(localHmOf(Date.UTC(2026, 9, 7, 19, 5), JKT)).toBe("02:05");
+  });
+
+  it("localHmOf zero-pads single-digit hours and minutes", () => {
+    expect(localHmOf(Date.UTC(2026, 9, 7, 0, 30), JKT)).toBe("07:30");
   });
 });
 

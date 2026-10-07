@@ -4,76 +4,103 @@ import { NEEDS_SUPERVISOR_CONFIRM, ALWAYS_QUESTION, FACT_THRESHOLD, type Categor
 /**
  * Evidence gate (hard rule #10 — plain code only). Decides if a thread
  * is a fact or a question based on category, confidence, evidence, and conflicts.
- * Precedence: invalid_label → label_conflict → always_question → 
- * needs_supervisor_confirm → no_evidence → below_threshold → passed.
+ *
+ * v1 (no `staff_answer`): unchanged from R-05a. Precedence: invalid_label →
+ * label_conflict → always_question → needs_supervisor_confirm → no_evidence
+ * → below_threshold → passed.
+ *
+ * v2 (R-07, `staff_answer` present): a debrief YES/NO answer either rejects
+ * the model's label outright (`staff_rejected`, always a question — even on
+ * zero evidence) or re-runs the same checks against the staff-chosen
+ * category with `label_conflict`/`always_question`/`below_threshold`
+ * waived (a human just confirmed it happened; only `invalid_label`,
+ * `needs_supervisor_confirm` and `no_evidence` can still block a fact).
+ *
  * Pure functions, no I/O.
  */
 
 export type GateRule =
+  | "staff_rejected"
   | "invalid_label"
   | "label_conflict"
   | "always_question"
   | "needs_supervisor_confirm"
   | "no_evidence"
   | "below_threshold"
+  | "staff_confirmed"
   | "passed";
+
+const GATE_RULES = [
+  "staff_rejected",
+  "invalid_label",
+  "label_conflict",
+  "always_question",
+  "needs_supervisor_confirm",
+  "no_evidence",
+  "below_threshold",
+  "staff_confirmed",
+  "passed",
+] as const;
 
 export const GateDecisionSchema = z
   .object({
     verdict: z.enum(["fact", "question"]),
-    fired_rule: z.enum([
-      "invalid_label",
-      "label_conflict",
-      "always_question",
-      "needs_supervisor_confirm",
-      "no_evidence",
-      "below_threshold",
-      "passed",
-    ]),
+    fired_rule: z.enum(GATE_RULES),
     checks: z.array(
-      z.object({
-        rule: z.enum([
-          "invalid_label",
-          "label_conflict",
-          "always_question",
-          "needs_supervisor_confirm",
-          "no_evidence",
-          "below_threshold",
-          "passed",
-        ]),
-        passed: z.boolean(),
-      }).strict()
+      z
+        .object({
+          rule: z.enum(GATE_RULES),
+          passed: z.boolean(),
+          waived: z.boolean().optional(),
+        })
+        .strict(),
     ),
     category: CategorySchema,
     confidence: z.number(),
     threshold: z.number(),
     evidence_count: z.number().int(),
-    gate_version: z.literal("1"),
+    gate_version: z.enum(["1", "2"]),
+    /** v2 only: the question this staff answer resolved. */
+    question_id: z.string().min(1).optional(),
+    /** v2 only: the model's original label (before the staff answer). `category` becomes the effective one. */
+    model_category: CategorySchema.optional(),
   })
   .strict();
 
 export type GateDecision = z.infer<typeof GateDecisionSchema>;
-export type QuestionStatus = "open" | "unverified";
+export type QuestionStatus = "open" | "unverified" | "answered";
+
+/** A debrief YES/NO answer feeding the gate (R-07). `chosen_category: null` is a NO (staff rejected the label). */
+export type StaffAnswerInput = { question_id: string; chosen_category: WorkCategory | null };
+
+interface BaseCheckResult {
+  checks: Array<{ rule: GateRule; passed: boolean; waived?: boolean }>;
+  /** The first non-waived failing rule, in precedence order; null when every non-waived check passed. */
+  firedRule: GateRule | null;
+  finalCategory: Category;
+  normalizedConfidence: number;
+  threshold: number;
+  evidenceCount: number;
+}
 
 /**
- * Evaluates the evidence gate for a thread.
- * Returns a full decision with all checks logged (every check is evaluated independently).
- * Precedence: invalid_label → label_conflict → always_question → needs_supervisor_confirm
- *           → no_evidence → below_threshold → passed.
+ * Computes the six shared checks (`invalid_label`, `label_conflict`,
+ * `always_question`, `needs_supervisor_confirm`, `no_evidence`,
+ * `below_threshold`) against `category`, in the v1 precedence order. Used
+ * by v1 (no waives), `staff_rejected` (no waives, logged only — the
+ * question_id/staff_rejected wrapping happens in the caller) and
+ * `staff_confirmed` (label_conflict/always_question/below_threshold waived).
  */
-export function evaluateGate(input: {
-  category: WorkCategory;
+function computeBaseChecks(input: {
+  category: unknown;
   confidence: number;
   evidence_line_ids: readonly string[];
   label_conflict: boolean;
-}): GateDecision {
-  const { category, confidence, evidence_line_ids, label_conflict } = input;
+  waivedRules: ReadonlySet<GateRule>;
+}): BaseCheckResult {
+  const { category, confidence, evidence_line_ids, label_conflict, waivedRules } = input;
 
-  const checks: Array<{ rule: GateRule; passed: boolean }> = [];
-  let firedRule: GateRule = "passed";
-
-  // 1. Check invalid_label (category unknown, NON_WORK, confidence NaN/out-of-[0,1])
-  // Validate category first — check if it's in CategorySchema AND not NON_WORK
+  // Validate category first — in CategorySchema AND not NON_WORK.
   // `parsedCategory` records what the input ACTUALLY was whenever it parses
   // at all (including NON_WORK) — used for the persisted `category` field so
   // a NON_WORK/junk label isn't misreported as ROUTINE_OPS downstream.
@@ -86,138 +113,239 @@ export function evaluateGate(input: {
   try {
     const parsed = CategorySchema.parse(category);
     parsedCategory = parsed;
-    // Hard rule #10: NON_WORK must never reach the gate as valid
     if (parsed !== "NON_WORK") {
       categoryParseResult = parsed;
       validCategory = true;
     }
   } catch {
-    // Invalid category — treat as invalid_label
+    // Invalid category — treat as invalid_label.
   }
 
-  // Check confidence validity (must be a number in [0, 1])
   const validConfidence =
-    typeof confidence === "number" &&
-    !isNaN(confidence) &&
-    confidence >= 0 &&
-    confidence <= 1;
-
+    typeof confidence === "number" && !isNaN(confidence) && confidence >= 0 && confidence <= 1;
   const isValidLabel = validCategory && validConfidence;
-  checks.push({ rule: "invalid_label", passed: isValidLabel });
-  if (!isValidLabel && firedRule === "passed") {
-    firedRule = "invalid_label";
-  }
 
-  // Get threshold for this category (safely, in case invalid)
-  const threshold = validCategory && categoryParseResult
-    ? FACT_THRESHOLD[categoryParseResult as keyof typeof FACT_THRESHOLD] ?? 0.9
-    : 0.9;
+  const threshold =
+    validCategory && categoryParseResult
+      ? FACT_THRESHOLD[categoryParseResult as keyof typeof FACT_THRESHOLD] ?? 0.9
+      : 0.9;
 
-  // 2. Check label_conflict (independently)
-  const hasConflict = label_conflict;
-  checks.push({ rule: "label_conflict", passed: !hasConflict });
-  if (hasConflict && firedRule === "passed") {
-    firedRule = "label_conflict";
-  }
+  const isAlwaysQuestion = Boolean(
+    validCategory && categoryParseResult && ALWAYS_QUESTION.has(categoryParseResult),
+  );
+  const needsConfirm = Boolean(
+    validCategory && categoryParseResult && NEEDS_SUPERVISOR_CONFIRM.has(categoryParseResult),
+  );
 
-  // 3. Check always_question (PHONE_CALL) — only if category is valid
-  const isAlwaysQuestion = validCategory && categoryParseResult && ALWAYS_QUESTION.has(categoryParseResult);
-  checks.push({ rule: "always_question", passed: !isAlwaysQuestion });
-  if (isAlwaysQuestion && firedRule === "passed") {
-    firedRule = "always_question";
-  }
-
-  // 4. Check needs_supervisor_confirm — only if category is valid
-  const needsConfirm = validCategory && categoryParseResult && NEEDS_SUPERVISOR_CONFIRM.has(categoryParseResult);
-  checks.push({
-    rule: "needs_supervisor_confirm",
-    passed: !needsConfirm,
-  });
-  if (needsConfirm && firedRule === "passed") {
-    firedRule = "needs_supervisor_confirm";
-  }
-
-  // 5. Check no_evidence — require non-empty, non-whitespace, unique evidence IDs
   const validEvidence = Array.from(
-    new Set(
-      evidence_line_ids.filter(
-        (id) => typeof id === "string" && id.trim().length > 0
-      )
-    )
+    new Set(evidence_line_ids.filter((id) => typeof id === "string" && id.trim().length > 0)),
   );
   const hasEvidence = validEvidence.length >= 1;
-  checks.push({ rule: "no_evidence", passed: hasEvidence });
-  if (!hasEvidence && firedRule === "passed") {
-    firedRule = "no_evidence";
-  }
-
-  // 6. Check below_threshold
   const aboveThreshold = confidence >= threshold;
-  checks.push({ rule: "below_threshold", passed: aboveThreshold });
-  if (!aboveThreshold && firedRule === "passed") {
-    firedRule = "below_threshold";
-  }
 
-  // 7. If all other checks pass, this is passed
-  const allPassed = checks.every((c) => c.passed);
-  if (allPassed && firedRule === "passed") {
-    checks.push({ rule: "passed", passed: true });
-  } else if (!allPassed) {
-    // Still add passed: false if something fired
-    const hasPassedCheck = checks.some((c) => c.rule === "passed");
-    if (!hasPassedCheck) {
-      checks.push({ rule: "passed", passed: false });
-    }
-  }
+  const order: Array<{ rule: GateRule; passed: boolean }> = [
+    { rule: "invalid_label", passed: isValidLabel },
+    { rule: "label_conflict", passed: !label_conflict },
+    { rule: "always_question", passed: !isAlwaysQuestion },
+    { rule: "needs_supervisor_confirm", passed: !needsConfirm },
+    { rule: "no_evidence", passed: hasEvidence },
+    { rule: "below_threshold", passed: aboveThreshold },
+  ];
 
-  const verdict = firedRule === "passed" ? "fact" : "question";
-
-  // Ensure we always return a valid category — use the parsed result, or fallback to a default work category
-  // This guarantees the schema parse never fails due to an invalid category
-  // Record the real parsed category whenever parsing succeeded at all
-  // (including NON_WORK, which is still invalid_label but a real, known
-  // enum value) — only fall back to a placeholder when the input genuinely
-  // isn't a known category string.
-  const finalCategory = parsedCategory ?? "ROUTINE_OPS";
+  let firedRule: GateRule | null = null;
+  const checks = order.map((c) => {
+    const waived = waivedRules.has(c.rule);
+    if (!c.passed && !waived && firedRule === null) firedRule = c.rule;
+    return waived ? { ...c, waived: true } : c;
+  });
 
   return {
-    verdict,
-    fired_rule: firedRule,
     checks,
-    category: finalCategory,
-    confidence: isFinite(confidence) ? confidence : 0,
+    firedRule,
+    finalCategory: parsedCategory ?? "ROUTINE_OPS",
+    normalizedConfidence: isFinite(confidence) ? confidence : 0,
     threshold,
-    evidence_count: validEvidence.length,
+    evidenceCount: validEvidence.length,
+  };
+}
+
+const NO_WAIVES: ReadonlySet<GateRule> = new Set();
+const STAFF_CONFIRMED_WAIVES: ReadonlySet<GateRule> = new Set([
+  "label_conflict",
+  "always_question",
+  "below_threshold",
+]);
+
+/** v1 — byte-identical to the pre-R-07 gate. Never changed by this task. */
+function evaluateGateV1(input: {
+  category: WorkCategory;
+  confidence: number;
+  evidence_line_ids: readonly string[];
+  label_conflict: boolean;
+}): GateDecision {
+  const base = computeBaseChecks({ ...input, waivedRules: NO_WAIVES });
+  const checks = [...base.checks, { rule: "passed" as const, passed: base.firedRule === null }];
+  const fired_rule = base.firedRule ?? "passed";
+  return {
+    verdict: fired_rule === "passed" ? "fact" : "question",
+    fired_rule,
+    checks,
+    category: base.finalCategory,
+    confidence: base.normalizedConfidence,
+    threshold: base.threshold,
+    evidence_count: base.evidenceCount,
     gate_version: "1",
   };
 }
 
 /**
- * Question expiry: after 7 days, an open question becomes unverified.
- * Unverified is terminal and never changes.
+ * A NO on a debrief question: the staff member said the model's label never
+ * happened. Always a question, even with a COMPLAINT thread and 0 evidence
+ * — a rejected label can never become a fact by itself (hard rule #10).
+ * The v1 checks against the model's own category are still computed and
+ * logged (for the audit trail), but never change the verdict here.
  */
-export function expireQuestion(
-  q: { status: QuestionStatus; created_at_ms: number },
-  now_ms: number
-): QuestionStatus {
-  if (q.status === "unverified") return "unverified";
-
-  const age_ms = now_ms - q.created_at_ms;
-  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
-
-  return age_ms >= sevenDaysMs ? "unverified" : "open";
+function evaluateStaffRejected(input: {
+  category: WorkCategory;
+  confidence: number;
+  evidence_line_ids: readonly string[];
+  label_conflict: boolean;
+  question_id: string;
+}): GateDecision {
+  const base = computeBaseChecks({ ...input, waivedRules: NO_WAIVES });
+  const checks = [{ rule: "staff_rejected" as const, passed: false }, ...base.checks];
+  return {
+    verdict: "question",
+    fired_rule: "staff_rejected",
+    checks,
+    category: base.finalCategory,
+    confidence: base.normalizedConfidence,
+    threshold: base.threshold,
+    evidence_count: base.evidenceCount,
+    gate_version: "2",
+    question_id: input.question_id,
+    model_category: base.finalCategory,
+  };
 }
 
 /**
- * Apply gate decision to a question's status.
- * Unverified is terminal — never changes.
+ * A YES on a debrief question: the staff member confirmed the (possibly
+ * re-chosen) category happened. `label_conflict`, `always_question` and
+ * `below_threshold` are waived — a confirmed observation; only
+ * `invalid_label`, `needs_supervisor_confirm` and `no_evidence` can still
+ * keep this a question (still requiring a supervisor's confirmation).
+ */
+function evaluateStaffConfirmed(input: {
+  modelCategory: WorkCategory;
+  chosenCategory: WorkCategory;
+  confidence: number;
+  evidence_line_ids: readonly string[];
+  label_conflict: boolean;
+  question_id: string;
+}): GateDecision {
+  const base = computeBaseChecks({
+    category: input.chosenCategory,
+    confidence: input.confidence,
+    evidence_line_ids: input.evidence_line_ids,
+    label_conflict: input.label_conflict,
+    waivedRules: STAFF_CONFIRMED_WAIVES,
+  });
+  const staffConfirmedPassed = base.firedRule === null;
+  const checks = [...base.checks, { rule: "staff_confirmed" as const, passed: staffConfirmedPassed }];
+  const fired_rule = base.firedRule ?? "staff_confirmed";
+  const modelCategoryParsed = CategorySchema.safeParse(input.modelCategory);
+  return {
+    verdict: staffConfirmedPassed ? "fact" : "question",
+    fired_rule,
+    checks,
+    category: base.finalCategory,
+    confidence: base.normalizedConfidence,
+    threshold: base.threshold,
+    evidence_count: base.evidenceCount,
+    gate_version: "2",
+    question_id: input.question_id,
+    model_category: modelCategoryParsed.success ? modelCategoryParsed.data : base.finalCategory,
+  };
+}
+
+/**
+ * Evaluates the evidence gate for a thread. With no `staff_answer`, this is
+ * v1, unchanged. With a `staff_answer`, this is v2 (see the module doc).
+ */
+export function evaluateGate(input: {
+  category: WorkCategory;
+  confidence: number;
+  evidence_line_ids: readonly string[];
+  label_conflict: boolean;
+  staff_answer?: StaffAnswerInput;
+}): GateDecision {
+  const { category, confidence, evidence_line_ids, label_conflict, staff_answer } = input;
+
+  if (!staff_answer) {
+    return evaluateGateV1({ category, confidence, evidence_line_ids, label_conflict });
+  }
+
+  if (staff_answer.chosen_category === null) {
+    return evaluateStaffRejected({
+      category,
+      confidence,
+      evidence_line_ids,
+      label_conflict,
+      question_id: staff_answer.question_id,
+    });
+  }
+
+  return evaluateStaffConfirmed({
+    modelCategory: category,
+    chosenCategory: staff_answer.chosen_category,
+    confidence,
+    evidence_line_ids,
+    label_conflict,
+    question_id: staff_answer.question_id,
+  });
+}
+
+/**
+ * Per-device debrief-end expiry (R-07, technical spec §8.10 "Expiry",
+ * `docs/tasks/R-07-plan.md` §4c). Replaces the old 7-day age-based expiry
+ * rule entirely — a question now expires only at THIS DEVICE's own debrief
+ * end, never by age alone.
+ *
+ * Only an `open` question created at or before the debrief end `E` expires,
+ * and only once `now_ms` has reached `E` — a question created after `E`
+ * (a late tick for audio still draining) stays open until the device's
+ * NEXT debrief end. `null` means no change: already answered/unverified,
+ * no debrief end yet (day off/cancelled), created after `E`, or `now_ms`
+ * hasn't reached `E` yet. There is no age rule anywhere in this function.
+ */
+export function expireAtDebriefEnd(
+  q: { status: QuestionStatus; created_at_ms: number },
+  debrief_ends_at_ms: number | null,
+  now_ms: number,
+): { status: QuestionStatus; expired_by_debrief_end_ms: number | null } | null {
+  if (q.status !== "open") return null;
+  if (debrief_ends_at_ms === null) return null;
+  const E = debrief_ends_at_ms;
+  if (q.created_at_ms <= E && E <= now_ms) {
+    return { status: "unverified", expired_by_debrief_end_ms: E };
+  }
+  return null;
+}
+
+/**
+ * Apply gate decision to a thread's status (R-05a/R-05b; the tick's
+ * no-answer path only — never dealing with a debrief `"answered"` question,
+ * hence the narrower type than `QuestionStatus`).
+ * Unverified is terminal — never changes via this path. A late answer that
+ * replaces an `unverified` question's expiry is `lib/debrief/answer-plan.ts`'s
+ * job (R-07), not this function's.
  * A passing decision converts null/open to "fact".
  * A failing decision converts null to "open".
  */
 export function applyGateDecision(
-  existing: QuestionStatus | "fact" | null,
-  d: GateDecision
-): QuestionStatus | "fact" {
+  existing: "open" | "unverified" | "fact" | null,
+  d: GateDecision,
+): "open" | "unverified" | "fact" {
   // Unverified is terminal
   if (existing === "unverified") return "unverified";
 

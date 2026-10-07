@@ -25,6 +25,9 @@ export const CategorySchema = z.enum(CATEGORIES);
 export type Category = z.infer<typeof CategorySchema>;
 export type WorkCategory = Exclude<Category, "NON_WORK">;
 
+/** Every category except NON_WORK (R-07 debrief contract; a debrief question never shows NON_WORK). */
+export const WorkCategorySchema = CategorySchema.exclude(["NON_WORK"]);
+
 /**
  * Categories that always require supervisor confirmation before becoming facts,
  * regardless of confidence. Per the plan:
