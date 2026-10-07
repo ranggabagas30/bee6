@@ -5,8 +5,8 @@ import { firestoreTickStore } from "@/lib/firestore/tick-store";
 import { COLLECTIONS } from "@/lib/firestore/collections";
 import { evaluateGate } from "@/lib/pipeline/gate";
 import { segmentDocId } from "@/lib/capture/segment-types";
-import type { Device, Staff, Segment, Question, LabelUnitLedger } from "@/lib/firestore/schema";
-import type { ThreadWrite } from "@/lib/pipeline/tick/types";
+import type { Device, Staff, Segment, LabelUnitLedger } from "@/lib/firestore/schema";
+import type { ThreadWrite, QuestionWrite } from "@/lib/pipeline/tick/types";
 
 const SAMPLE_GATE = evaluateGate({
   category: "ROUTINE_OPS",
@@ -481,7 +481,7 @@ describe("firestoreTickStore.writeUnitResult", () => {
     const store = firestoreTickStore(db);
 
     const thread: ThreadWrite = makeThread({ thread_id: "t1" });
-    const question: Question = {
+    const question: QuestionWrite = {
       outlet_id: OUTLET,
       device_id: DEVICE,
       question_id: "q1",

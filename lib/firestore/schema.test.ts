@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   AuditLogSchema,
+  CorrectionSchema,
   DeviceSchema,
   HeartbeatSchema,
   LabelUnitLedgerSchema,
   OutletSchema,
   PipelineLockSchema,
   parseOutletDoc,
+  QuestionDocSchema,
   QuestionSchema,
   SegmentSchema,
   StaffSchema,
@@ -307,6 +309,25 @@ describe("ThreadSchema", () => {
   it("rejects a thread with no name field — this schema never carries a staff name (hard rule #7)", () => {
     expect(ThreadSchema.safeParse({ ...good, staff_name: "Dina" }).success).toBe(false);
   });
+
+  it("accepts the R-07 staff-confirm fields", () => {
+    expect(
+      ThreadSchema.safeParse({
+        ...good,
+        label_source: "staff_confirmed",
+        confirmed_category: "CUSTOMER_SERVICE",
+        excluded_from_evidence: false,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("accepts an R-05b doc with none of the R-07 fields (back-compat)", () => {
+    expect(ThreadSchema.safeParse(good).success).toBe(true);
+  });
+
+  it("rejects an unknown label_source", () => {
+    expect(ThreadSchema.safeParse({ ...good, label_source: "owner_confirmed" }).success).toBe(false);
+  });
 });
 
 describe("QuestionSchema", () => {
@@ -341,5 +362,82 @@ describe("QuestionSchema", () => {
 
   it("rejects an unknown kind", () => {
     expect(QuestionSchema.safeParse({ ...gateQuestion, kind: "debrief" }).success).toBe(false);
+  });
+
+  it("accepts an R-05b doc with none of the R-07 fields (back-compat)", () => {
+    expect(QuestionSchema.safeParse(gateQuestion).success).toBe(true);
+  });
+
+  it("accepts an answered question with answer + answered_at_ms", () => {
+    expect(
+      QuestionSchema.safeParse({
+        ...gateQuestion,
+        status: "answered",
+        answer: "yes",
+        answered_at_ms: 1_700_000_000_000,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("accepts an unverified question with expired_by_debrief_end_ms", () => {
+    expect(
+      QuestionSchema.safeParse({
+        ...gateQuestion,
+        status: "unverified",
+        expired_by_debrief_end_ms: 1_700_000_000_000,
+      }).success,
+    ).toBe(true);
+  });
+});
+
+describe("QuestionDocSchema", () => {
+  const openQuestion = {
+    outlet_id: "proofed",
+    question_id: "q1",
+    device_id: "d1",
+    thread_id: "t1",
+    kind: "gate" as const,
+    status: "open" as const,
+    category: "ROUTINE_OPS" as const,
+    window_start_ms: 0,
+    window_end_ms: 1000,
+    created_at_ms: 1_700_000_000_000,
+  };
+
+  it("accepts an R-05b doc with no new fields", () => {
+    expect(QuestionDocSchema.safeParse(openQuestion).success).toBe(true);
+  });
+
+  it("rejects answered without an answer field", () => {
+    expect(
+      QuestionDocSchema.safeParse({ ...openQuestion, status: "answered" }).success,
+    ).toBe(false);
+  });
+
+  it("rejects open with an answer set", () => {
+    expect(
+      QuestionDocSchema.safeParse({ ...openQuestion, status: "open", answer: "yes" }).success,
+    ).toBe(false);
+  });
+
+  it("accepts answered with answer and answered_at_ms both set", () => {
+    expect(
+      QuestionDocSchema.safeParse({
+        ...openQuestion,
+        status: "answered",
+        answer: "yes",
+        answered_at_ms: 1_700_000_000_000,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects answered with answer set but answered_at_ms missing", () => {
+    expect(
+      QuestionDocSchema.safeParse({ ...openQuestion, status: "answered", answer: "yes" }).success,
+    ).toBe(false);
+  });
+
+  it("accepts unverified with no answer", () => {
+    expect(QuestionDocSchema.safeParse({ ...openQuestion, status: "unverified" }).success).toBe(true);
   });
 });
