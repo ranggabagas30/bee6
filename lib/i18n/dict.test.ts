@@ -65,4 +65,28 @@ describe("copy dictionary", () => {
       expect(EN[key], `EN ${key}`).toBe(en);
     }
   });
+
+  it("carries the copy keys added 7 Oct (UX-03 copy sheet, section 6)", () => {
+    const cases: Array<[DictKey, string, string]> = [
+      [
+        "C-u-inet",
+        "Tidak ada internet. Sambungkan agar antrean terkirim.",
+        "No internet. Connect so the queued items can send.",
+      ],
+      [
+        "C-h-idle-help",
+        "Ketuk Mulai untuk memulai sesi hari ini.",
+        "Tap Start to begin today's session.",
+      ],
+      [
+        "C-notice-pilot",
+        "Suara diubah jadi catatan kerja singkat. Rekaman suara tidak disimpan.",
+        "Speech becomes short work notes. Audio is not kept.",
+      ],
+    ];
+    for (const [key, id, en] of cases) {
+      expect(ID[key], `ID ${key}`).toBe(id);
+      expect(EN[key], `EN ${key}`).toBe(en);
+    }
+  });
 });

@@ -5,10 +5,14 @@ import { StatusBanner } from "@/app/capture/StatusBanner";
 import { LangProvider } from "@/lib/i18n/context";
 import { parseLangCookie, type Lang } from "@/lib/i18n/lang";
 
-function renderBanner(lang: Lang, state: Parameters<typeof StatusBanner>[0]["state"]) {
+function renderBanner(
+  lang: Lang,
+  state: Parameters<typeof StatusBanner>[0]["state"],
+  startOffered?: boolean,
+) {
   return render(
     <LangProvider initial={lang}>
-      <StatusBanner state={state} queuedCount={2} micSource="built-in" />
+      <StatusBanner state={state} queuedCount={2} micSource="built-in" startOffered={startOffered} />
     </LangProvider>,
   );
 }
@@ -31,16 +35,29 @@ describe("StatusBanner: one language per render", () => {
   });
 
   it("idle (not started) says Not started, never Listening", () => {
-    const { container } = renderBanner("en", "idle");
+    const { container } = renderBanner("en", "idle", true);
     expect(screen.getByText("Not started")).toBeTruthy();
-    expect(screen.getByText("Audio capture is not running")).toBeTruthy();
+    expect(screen.getByText("Tap Start to begin today's session.")).toBeTruthy();
     expect(container.textContent).not.toMatch(/Listening|Mendengarkan/);
   });
 
-  it("idle in ID is Bahasa only", () => {
-    const { container } = renderBanner("id", "idle");
+  it("idle in ID is Bahasa only, with the Bahasa helper when Mulai is offered", () => {
+    const { container } = renderBanner("id", "idle", true);
     expect(screen.getByText("Belum mulai")).toBeTruthy();
-    expect(container.textContent).not.toMatch(/Not started|not running/);
+    expect(screen.getByText("Ketuk Mulai untuk memulai sesi hari ini.")).toBeTruthy();
+    expect(container.textContent).not.toMatch(/Not started|Tap Start|Audio capture/);
+  });
+
+  it("idle helper is hidden when Mulai is not offered, and no capturing text replaces it", () => {
+    const { container } = renderBanner("en", "idle");
+    expect(screen.getByText("Not started")).toBeTruthy();
+    expect(container.textContent).not.toMatch(/Tap Start|Ketuk Mulai|Audio is being captured|Suara sedang direkam/);
+    expect(container.textContent).not.toMatch(/Audio capture is not running/);
+  });
+
+  it("idle helper is never shown in any non-idle state, even when Mulai is offered", () => {
+    const { container } = renderBanner("en", "listening", true);
+    expect(container.textContent).not.toMatch(/Tap Start|Ketuk Mulai/);
   });
 
   it("mic error in ID shows the mic label and help in Bahasa only", () => {

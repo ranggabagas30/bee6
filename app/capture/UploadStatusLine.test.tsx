@@ -87,10 +87,33 @@ describe("UploadStatusLine renders one language per render", () => {
     expect(container.textContent).not.toMatch(/Not sent|Server busy|retrying/);
   });
 
-  it("shows 'No internet' only when the browser reports no connection", () => {
+  it("shows the 'No internet' detail only when the browser reports no connection", () => {
     render(withLang("en", <UploadStatusLine view={{ phase: "retrying" }} online={false} />));
-    expect(screen.getByText("No internet")).toBeTruthy();
+    expect(
+      screen.getByText("No internet. Connect so the queued items can send."),
+    ).toBeTruthy();
     expect(screen.queryByText("Server busy")).toBeNull();
+    expect(screen.getByText("Not sent yet · retrying")).toBeTruthy();
+  });
+
+  it("the 'No internet' detail is Bahasa only under id, and keeps the retry row", () => {
+    const { container } = render(
+      withLang("id", <UploadStatusLine view={{ phase: "retrying", failedAttempts: 2 }} online={false} />),
+    );
+    expect(screen.getByText("Tidak ada internet. Sambungkan agar antrean terkirim.")).toBeTruthy();
+    expect(screen.getByText("Belum terkirim · mencoba lagi (2x)")).toBeTruthy();
+    expect(container.textContent).not.toMatch(/No internet|Server busy|Server sibuk/);
+  });
+
+  it("never shows the 'No internet' detail while the browser is online or unknown", () => {
+    const { container, rerender } = render(
+      withLang("en", <UploadStatusLine view={{ phase: "retrying" }} online={true} />),
+    );
+    expect(screen.getByText("Server busy")).toBeTruthy();
+    expect(container.textContent).not.toMatch(/No internet/);
+    rerender(withLang("en", <UploadStatusLine view={{ phase: "retrying" }} />));
+    expect(container.textContent).not.toMatch(/No internet/);
+    expect(container.textContent).not.toMatch(/Server busy/);
   });
 
   it("lost line in ID comes with its helper, in one language only", () => {

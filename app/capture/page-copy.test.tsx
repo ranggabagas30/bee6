@@ -107,6 +107,30 @@ describe("capture page: one language per render", () => {
     expect(screen.getByTestId("upload-status").getAttribute("aria-live")).toBe("polite");
   });
 
+  it("privacy notice renders once per page, in English only, under en", async () => {
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    fetchCaptureConfig.mockResolvedValue(CONFIG);
+    resolveCapturePhase.mockReturnValue("outside_hours");
+    const { container } = await renderPage("en");
+    await waitFor(() => expect(screen.getByText("Shop listening")).toBeTruthy());
+    expect(screen.getAllByText("Speech becomes short work notes. Audio is not kept.")).toHaveLength(1);
+    const body = container.querySelector("main")?.textContent ?? "";
+    expect(body).not.toMatch(/Suara diubah|Rekaman suara/);
+  });
+
+  it("privacy notice renders once per page, in Bahasa only, under id", async () => {
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    fetchCaptureConfig.mockResolvedValue(CONFIG);
+    resolveCapturePhase.mockReturnValue("outside_hours");
+    const { container } = await renderPage("id");
+    await waitFor(() => expect(screen.getByText("Mendengarkan toko")).toBeTruthy());
+    expect(
+      screen.getAllByText("Suara diubah jadi catatan kerja singkat. Rekaman suara tidak disimpan."),
+    ).toHaveLength(1);
+    const body = container.querySelector("main")?.textContent ?? "";
+    expect(body).not.toMatch(/Speech becomes|Audio is not kept/);
+  });
+
   it("active with a lost segment: the lost line and retry row are Bahasa only under id", async () => {
     readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
     fetchCaptureConfig.mockResolvedValue(CONFIG);
