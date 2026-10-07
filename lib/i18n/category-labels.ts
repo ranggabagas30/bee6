@@ -29,24 +29,29 @@ export const CATEGORY_LABELS: Record<Lang, Partial<Record<WorkCategory, string>>
   id: {},
 };
 
-/** `C-d-q-block` (+ `-2`, empty and skipped in ID), joined into one string for an aria-label. */
-function blockTemplate(lang: Lang, question: DebriefQuestionView): string {
+/** `C-d-q-block` + `-2` (empty and skipped in ID), as separate lines — never joined here. */
+function blockLines(lang: Lang, question: DebriefQuestionView): string[] {
   const vars = { hm: question.start_hm, hm_end: question.end_hm };
-  const lines = [t(lang, "C-d-q-block", vars), t(lang, "C-d-q-block-2", vars)];
-  return lines.filter((line) => line.length > 0).join(" ");
+  return [t(lang, "C-d-q-block", vars), t(lang, "C-d-q-block-2", vars)].filter((line) => line.length > 0);
 }
 
 /**
  * `gate` with a category that has a label in this language -> the step
- * template (`C-d-q-step`); everything else (`unlabelled_unit`, no category,
- * or a category with no label yet in this language) -> the block template.
- * Never reads anything from the server beyond the enum code and the two
- * `HH:MM` strings already on `DebriefQuestionView`.
+ * template (`C-d-q-step`), always a single line; everything else
+ * (`unlabelled_unit`, no category, or a category with no label yet in this
+ * language) -> the block template's non-empty lines (plan §7.4: "component
+ * skips empty lines"). Never reads anything from the server beyond the enum
+ * code and the two `HH:MM` strings already on `DebriefQuestionView`.
  */
-export function questionText(lang: Lang, question: DebriefQuestionView): string {
+export function questionLines(lang: Lang, question: DebriefQuestionView): string[] {
   if (question.kind === "gate" && question.category) {
     const label = CATEGORY_LABELS[lang][question.category];
-    if (label) return t(lang, "C-d-q-step", { hm: question.start_hm, step: label });
+    if (label) return [t(lang, "C-d-q-step", { hm: question.start_hm, step: label })];
   }
-  return blockTemplate(lang, question);
+  return blockLines(lang, question);
+}
+
+/** `questionLines` joined into one string — for the radiogroup `aria-label` only; the on-screen heading renders each line separately. */
+export function questionText(lang: Lang, question: DebriefQuestionView): string {
+  return questionLines(lang, question).join(" ");
 }

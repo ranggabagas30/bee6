@@ -4,7 +4,7 @@ import { useEffect, useId, useRef } from "react";
 import { canCommit, type DebriefView } from "@/lib/debrief/flow";
 import { reasonLength } from "@/lib/debrief/reason";
 import { REASON_MAX_CHARS } from "@/lib/debrief/constants";
-import { questionText } from "@/lib/i18n/category-labels";
+import { questionLines, questionText } from "@/lib/i18n/category-labels";
 import { t } from "@/lib/i18n/dict";
 import type { Lang } from "@/lib/i18n/lang";
 
@@ -73,6 +73,7 @@ export function QuestionScreen({ view, lang, uploadNote, onChoose, onTypeReason,
   if (!question) return null;
 
   const qText = questionText(lang, question);
+  const qLines = questionLines(lang, question);
   const n = reasonLength(view.reason);
   const over = n > REASON_MAX_CHARS ? n - REASON_MAX_CHARS : 0;
   const disabled = !canCommit(view);
@@ -110,7 +111,13 @@ export function QuestionScreen({ view, lang, uploadNote, onChoose, onTypeReason,
         <p style={{ fontSize: 14, margin: 0, color: "#555" }}>
           {t(lang, "C-d-prog", { N: view.index + 1, M: view.list.length })}
         </p>
-        <h2 style={{ fontSize: 18, margin: "4px 0 0" }}>{qText}</h2>
+        <h2 style={{ fontSize: 18, margin: "4px 0 0" }}>
+          {qLines.map((line, i) => (
+            <span key={i} style={{ display: "block" }}>
+              {line}
+            </span>
+          ))}
+        </h2>
       </div>
 
       <div

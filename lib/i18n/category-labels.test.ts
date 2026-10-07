@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CATEGORY_LABELS, questionText } from "@/lib/i18n/category-labels";
+import { CATEGORY_LABELS, questionLines, questionText } from "@/lib/i18n/category-labels";
 import type { DebriefQuestionView } from "@/lib/debrief/contract";
 import type { WorkCategory } from "@/lib/pipeline/categories";
 
@@ -91,5 +91,28 @@ describe("questionText", () => {
     expect(text).not.toContain("SAFETY_INCIDENT");
     expect(text).not.toContain("d1");
     expect(text).toBe("Around 15:00 there was a safety incident. Is that right?");
+  });
+});
+
+describe("questionLines", () => {
+  it("a step template (EN or ID) is always a single line", () => {
+    expect(questionLines("en", q({ kind: "gate", category: "ROUTINE_OPS", start_hm: "15:00" }))).toEqual([
+      "Around 15:00 there was routine work. Is that right?",
+    ]);
+  });
+
+  it("the EN block template renders two lines (empty lines filtered)", () => {
+    const lines = questionLines("en", q({ kind: "gate", category: null, start_hm: "08:00", end_hm: "08:30" }));
+    expect(lines).toEqual(["Between 08:00 and 08:30 there was work.", "Is that right?"]);
+  });
+
+  it("the ID block template renders one line (its -2 row is empty)", () => {
+    const lines = questionLines("id", q({ kind: "gate", category: "ROUTINE_OPS", start_hm: "15:00", end_hm: "15:10" }));
+    expect(lines).toEqual(["Sekitar pukul 15:00–15:10 ada kegiatan kerja. Benar?"]);
+  });
+
+  it("questionText is questionLines joined with a space", () => {
+    const question = q({ kind: "gate", category: null, start_hm: "08:00", end_hm: "08:30" });
+    expect(questionText("en", question)).toBe(questionLines("en", question).join(" "));
   });
 });
