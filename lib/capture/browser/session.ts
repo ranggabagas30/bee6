@@ -12,9 +12,9 @@ import { isSampleRateSupported, checkSampleRate } from "@/lib/capture/sample-rat
 import {
   createHeartbeatPoster,
   createSegmentUploader,
+  type CaptureConfigClient,
   type DeviceAuth,
 } from "@/lib/capture/browser/client";
-import type { CaptureConfigResponse } from "@/lib/capture/contract";
 import type { CaptureEvent } from "@/lib/capture/browser/event-log";
 
 /**
@@ -72,7 +72,7 @@ export interface CaptureSession {
  */
 export async function startCaptureSession(
   auth: DeviceAuth,
-  _config: CaptureConfigResponse,
+  _config: CaptureConfigClient,
   cb: CaptureSessionCallbacks,
 ): Promise<CaptureSession | null> {
   if (!isOpusEncoderSupported()) {
