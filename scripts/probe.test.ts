@@ -97,7 +97,21 @@ describe("probeModel — retry/fallback ordering", () => {
     const first = await probeModel("gemini-3.5-flash", makeCaller(), REGION_ORDER, FIXED_NOW);
     const second = await probeModel("gemini-3.5-flash", makeCaller(), REGION_ORDER, FIXED_NOW);
 
-    expect(second).toEqual(first);
+    // Compare deterministic fields; ignore wall-clock latency variations in attempts.
+    expect(second.model).toEqual(first.model);
+    expect(second.location).toEqual(first.location);
+    expect(second.latencyMs).toEqual(first.latencyMs);
+    expect(second.probedAt).toEqual(first.probedAt);
+    expect(second.error).toEqual(first.error);
+    expect(second.attempts.length).toEqual(first.attempts.length);
+    for (let i = 0; i < second.attempts.length; i++) {
+      const secondAttempt = second.attempts[i]!;
+      const firstAttempt = first.attempts[i]!;
+      expect(secondAttempt.region).toEqual(firstAttempt.region);
+      expect(secondAttempt.ok).toEqual(firstAttempt.ok);
+      expect(secondAttempt.error).toEqual(firstAttempt.error);
+      // latencyMs is not compared: failed attempts record wall-clock time, which varies
+    }
   });
 });
 
