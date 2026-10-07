@@ -191,7 +191,7 @@ export default function CapturePage() {
       starting = true;
       const gen = ++sessionGenRef.current;
       const isCurrent = () => !cancelled && gen === sessionGenRef.current;
-      retainedUploadRef.current = beginSessionRetention(retainedUploadRef.current);
+      retainedUploadRef.current = beginSessionRetention(retainedUploadRef.current, gen);
       try {
         const session = await startCaptureSession(auth!, loadedConfig, {
           onStatus: (s) => {
@@ -272,7 +272,7 @@ export default function CapturePage() {
     devStopRequestedRef.current = false;
     const gen = ++sessionGenRef.current;
     const isCurrent = () => gen === sessionGenRef.current;
-    retainedUploadRef.current = beginSessionRetention(retainedUploadRef.current);
+    retainedUploadRef.current = beginSessionRetention(retainedUploadRef.current, gen);
     void (async () => {
       try {
         const session = await startCaptureSession(auth, config, {

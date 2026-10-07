@@ -9,16 +9,19 @@ import type { CaptureStatus } from "@/lib/capture/browser/engine";
  * page owns the ref and calls these on every engine report and on every start.
  *
  * Engines are told apart by generation (page.tsx sessionGenRef, incremented on
- * every start). The retained status follows the newest generation that has
- * reported; a late report from an older generation can only raise the loss, and
- * only when its own lostSinceSuccess flips from false to true.
+ * every start). The newest generation is the one most recently STARTED
+ * (beginSessionRetention), not the one that happened to report last: a stopped
+ * engine's in-flight PUT can answer 2xx between Stop, Start and the new engine's
+ * first report, and that 2xx must not clear a loss. A late report from an older
+ * generation can only raise the loss, and only when its own lostSinceSuccess
+ * flips from false to true.
  */
 export interface RetainedUpload {
   /** Latest status of the newest engine generation that has reported; null before the first report. */
   status: CaptureStatus | null;
   /** A loss from before the current engine's first 2xx, still unresolved. */
   carryLoss: boolean;
-  /** Newest engine generation that has reported; 0 before any report. */
+  /** Newest engine generation started (or, before any start, reported); 0 before any. */
   gen: number;
   /** The last lostSinceSuccess each engine generation reported. */
   prevLostByGen: Record<number, boolean>;
@@ -36,11 +39,14 @@ function isHttpSuccess(httpStatus: number | null): boolean {
 }
 
 /**
- * A new session is starting. Any loss still open from before it carries over,
- * so the new engine's first report (which has no drops yet) does not clear it.
+ * A new session is starting under generation `gen`. Any loss still open from
+ * before it carries over, so the new engine's first report (which has no drops
+ * yet) does not clear it. `gen` becomes the newest generation at once, so every
+ * report from an earlier, stopped engine is stale from this point on, even
+ * before the new engine has reported anything.
  */
-export function beginSessionRetention(prev: RetainedUpload): RetainedUpload {
-  return { ...prev, carryLoss: prev.status?.lostSinceSuccess === true };
+export function beginSessionRetention(prev: RetainedUpload, gen: number): RetainedUpload {
+  return { ...prev, carryLoss: prev.status?.lostSinceSuccess === true, gen };
 }
 
 /**
@@ -60,9 +66,9 @@ export function retainEngineStatus(
 ): RetainedUpload {
   const prevLostByGen = { ...prev.prevLostByGen, [gen]: next.lostSinceSuccess };
 
-  if (prev.status !== null && gen < prev.gen) {
+  if (gen < prev.gen) {
     const genuineNewDrop = next.lostSinceSuccess && prev.prevLostByGen[gen] !== true;
-    if (!genuineNewDrop) return { ...prev, prevLostByGen };
+    if (prev.status === null || !genuineNewDrop) return { ...prev, prevLostByGen };
     return {
       status: { ...prev.status, lostSinceSuccess: true },
       carryLoss: true,
