@@ -159,6 +159,25 @@ describe("UploadStatusLine renders one language per render", () => {
     expect(container.textContent).not.toMatch(/Some speech|incomplete/);
   });
 
+  it("the lost-line helper is not inside a live region (copy keys: not announced)", () => {
+    render(withLang("en", <UploadStatusLine view={{ phase: "retrying", failedAttempts: 2 }} online={false} lost={true} />));
+    const helper = screen.getByText("That note is now incomplete. It cannot be recovered.");
+    expect(helper.closest('[role="status"], [aria-live]')).toBeNull();
+  });
+
+  it("the lost value stays inside the polite live region, and the helper sits right under it", () => {
+    render(withLang("en", <UploadStatusLine view={{ phase: "retrying", failedAttempts: 2 }} online={false} lost={true} />));
+    const lostValue = screen.getByText("Some speech was not captured");
+    const region = lostValue.closest('[aria-live="polite"]');
+    expect(region).not.toBeNull();
+    expect(region?.getAttribute("role")).toBe("status");
+    const helper = screen.getByText("That note is now incomplete. It cannot be recovered.");
+    const retryRow = screen.getByText("Not sent yet · retrying (2x)");
+    // Visual order (lost value, helper, retry row) is unchanged: the helper follows the lost value and precedes the retry row.
+    expect(lostValue.compareDocumentPosition(helper) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(helper.compareDocumentPosition(retryRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("hides the succeeded row while the lost line is up", () => {
     render(withLang("en", <UploadStatusLine view={{ phase: "succeeded" }} lost={true} />));
     expect(screen.getByText("Some speech was not captured")).toBeTruthy();

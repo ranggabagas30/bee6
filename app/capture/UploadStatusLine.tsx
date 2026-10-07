@@ -164,32 +164,37 @@ export function UploadStatusLine({
           : null
         : "C-u-inet"
       : null;
-  // The block is always rendered, so its live region exists before any row
-  // appears and is announced on change (UX-03 §5.7, §7). The toast is a sibling.
+  // The regions are always rendered, so each live region exists before any row
+  // appears and is announced on change (UX-03 §5.7, §7). The lost value is
+  // announced once; its helper sits under it, outside every live region (copy
+  // keys: not announced). The retry / uploading / succeeded row has its own
+  // region. The toast is a sibling.
   return (
     <>
-      <div
-        data-testid="upload-status"
-        role="status"
-        aria-live="polite"
-        style={hasContent ? { marginTop: 12, fontSize: 14, color } : undefined}
-      >
-        {lost ? (
-          <>
+      <div style={hasContent ? { marginTop: 12, fontSize: 14 } : undefined}>
+        <div data-testid="upload-lost" role="status" aria-live="polite">
+          {lost ? (
             <p style={{ margin: 0, fontWeight: 600, color: WARN_TOKEN }}>
               <span aria-hidden="true">▲ </span>
               {t(lang, "C-u-lost")}
             </p>
-            <p style={{ margin: "2px 0 0" }}>{t(lang, "C-u-lost-help")}</p>
-          </>
-        ) : null}
-        {showView ? (
-          <p style={{ margin: lost ? "8px 0 0" : 0, fontWeight: 600 }}>
-            {t(lang, PHASE_KEY[view.phase])}
-            {retryCount}
-          </p>
-        ) : null}
-        {detailKey ? <p style={{ margin: "2px 0 0" }}>{t(lang, detailKey)}</p> : null}
+          ) : null}
+        </div>
+        {lost ? <p style={{ margin: "2px 0 0" }}>{t(lang, "C-u-lost-help")}</p> : null}
+        <div
+          data-testid="upload-status"
+          role="status"
+          aria-live="polite"
+          style={{ color, marginTop: lost && showView ? 8 : 0 }}
+        >
+          {showView ? (
+            <p style={{ margin: 0, fontWeight: 600 }}>
+              {t(lang, PHASE_KEY[view.phase])}
+              {retryCount}
+            </p>
+          ) : null}
+          {detailKey ? <p style={{ margin: "2px 0 0" }}>{t(lang, detailKey)}</p> : null}
+        </div>
       </div>
       {toastVisible ? (
         <div
