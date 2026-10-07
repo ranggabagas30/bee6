@@ -195,10 +195,21 @@ export function firestoreCaptureStore(): OutletReader & DeviceReader & Heartbeat
  */
 export function firestoreSegmentStore(db: Firestore = adminDb()): SegmentStore {
   const col = () => db.collection(COLLECTIONS.segments);
+  const sessions = () => db.collection(COLLECTIONS.captureSessions);
+
+  /** A session doc that exists and has ended as a discard. Missing docs are not tombstones. */
+  function isTombstone(data: Record<string, unknown> | undefined): boolean {
+    return data !== undefined && CaptureSessionSchema.parse(data).end_reason === "discarded";
+  }
+
   return {
     async get(key) {
       const doc = await col().doc(segmentDocId(key)).get();
       return doc.exists ? fromSegmentDoc(doc.data()!) : null;
+    },
+    async isDiscarded(key) {
+      const doc = await sessions().doc(captureSessionDocId(key)).get();
+      return doc.exists && isTombstone(doc.data());
     },
     async create(segment: Segment): Promise<SegmentCreateResult> {
       const id = segmentDocId({
@@ -206,6 +217,23 @@ export function firestoreSegmentStore(db: Firestore = adminDb()): SegmentStore {
         device_id: segment.device_id,
         seg_id: segment.seg_id,
       });
+      const sessionId = segment.session_id;
+      if (sessionId) {
+        // Tombstone read and segment write in one transaction (§6.6.4): a discard that
+        // commits first is seen here, and a segment written first is found by the
+        // discard's delete pass. Firestore retries the transaction on contention.
+        return db.runTransaction(async (tx): Promise<SegmentCreateResult> => {
+          const sessionSnap = await tx.get(
+            sessions().doc(captureSessionDocId({ device_id: segment.device_id, session_id: sessionId })),
+          );
+          if (sessionSnap.exists && isTombstone(sessionSnap.data())) return { status: "discarded" };
+          const segRef = col().doc(id);
+          const segSnap = await tx.get(segRef);
+          if (segSnap.exists) return { status: "already_exists" };
+          tx.create(segRef, toSegmentDoc(segment));
+          return { status: "created" };
+        });
+      }
       try {
         await col().doc(id).create(toSegmentDoc(segment));
         return { status: "created" };

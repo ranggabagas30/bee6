@@ -280,6 +280,8 @@ export const SegmentSchema = z
     lines: z.array(SegmentLineSchema),
     /** Firestore TTL field: document deleted 48 h after this time. */
     expires_at: isoDateTime,
+    /** The capture session from the X-Session-Id header (§6.6.4); null for pre-P1 bundles. */
+    session_id: z.uuid().nullable().optional(),
   })
   .strict();
 export type Segment = z.infer<typeof SegmentSchema>;

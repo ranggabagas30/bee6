@@ -45,14 +45,21 @@ export interface RecordSegmentInput {
 }
 
 /**
- * Records a segment: idempotency check, transcribe, redact, store.
- * Returns the stored Segment or an existing one if already present.
+ * `stored`: the segment is in Firestore (or was already there, a duplicate upload).
+ * `discarded`: the session is a discard tombstone, so nothing was written (§6.6.4).
+ */
+export type RecordSegmentResult =
+  | { status: "stored"; segment: Segment }
+  | { status: "discarded" };
+
+/**
+ * Records a segment: tombstone check, idempotency check, transcribe, redact, store.
  * Throws on validation or model failures.
  */
 export async function recordSegment(
   deps: RecordSegmentDeps,
   input: RecordSegmentInput,
-): Promise<Segment> {
+): Promise<RecordSegmentResult> {
   // Validate: path device_id must match claims
   assertDeviceMatch(input.metadata.device_id, input.claims.device_id);
 
@@ -76,10 +83,17 @@ export async function recordSegment(
     seg_id: metadata.seg_id,
   };
 
+  // Tombstone pre-check (§6.6.4): a discarded session is never transcribed. The same
+  // session is checked again inside the write transaction (see `create`).
+  const session_id = metadata.session_id ?? null;
+  if (session_id !== null && (await deps.store.isDiscarded({ device_id: key.device_id, session_id }))) {
+    return { status: "discarded" };
+  }
+
   // Idempotency: check if already stored
   const existing = await deps.store.get(key);
   if (existing) {
-    return existing;
+    return { status: "stored", segment: existing };
   }
 
   // Transcribe (may fail with ServiceUnavailableError)
@@ -109,12 +123,14 @@ export async function recordSegment(
       ? [{ text: redactedText, start: 0, end: durationMs / 1000 }]
       : [],
     expires_at: expiresAt,
+    session_id,
   };
 
-  // Store (may return already_exists, which is treated as success)
-  await deps.store.create(segment);
+  // Store. `already_exists` is success; `discarded` means a discard committed while
+  // transcription ran, so nothing was written and the phone drops the item.
+  const written = await deps.store.create(segment);
 
-  // Log usage (only on success)
+  // Log usage once the model call has happened (the tokens were spent either way).
   deps.recordUsage?.({
     outlet_id: input.claims.outlet_id,
     device_id: input.claims.device_id,
@@ -123,5 +139,6 @@ export async function recordSegment(
     audioSeconds: durationMs / 1000,
   });
 
-  return segment;
+  if (written.status === "discarded") return { status: "discarded" };
+  return { status: "stored", segment };
 }

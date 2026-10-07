@@ -116,6 +116,8 @@ export const SegmentMetadataSchema = z
       z.coerce.number().int().positive(),
     ),
     content_type: z.literal(SEGMENT_CONTENT_TYPE),
+    /** From the optional X-Session-Id header (web spec §6.6.4); null or absent when not sent. */
+    session_id: z.uuid().nullable().optional(),
   })
   .strict()
   .refine((m) => m.end_ms >= m.start_ms, {

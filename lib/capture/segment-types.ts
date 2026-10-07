@@ -35,14 +35,29 @@ export function segmentDocId(key: SegmentKey): string {
  */
 export type SegmentCreateResult =
   | { status: "created" }
-  | { status: "already_exists" };
+  | { status: "already_exists" }
+  /** The session is a discard tombstone: nothing was written (web spec §6.6.4). */
+  | { status: "discarded" };
+
+/** The device session a segment belongs to (claims device + the X-Session-Id). */
+export interface SegmentSessionKey {
+  device_id: string;
+  session_id: string;
+}
 
 export interface SegmentStore {
   /** Reads a segment for the idempotency pre-check, or null if not stored. */
   get(key: SegmentKey): Promise<Segment | null>;
   /**
+   * True when `capture_sessions/{device_id}:{session_id}` is a discard tombstone. A
+   * missing session doc is not a tombstone (a late start), so it is false.
+   */
+  isDiscarded(key: SegmentSessionKey): Promise<boolean>;
+  /**
    * Creates a segment with `docRef.create()`. Returns `already_exists` when the
-   * doc is already present (Firestore ALREADY_EXISTS), never overwriting it.
+   * doc is already present (Firestore ALREADY_EXISTS), never overwriting it. When
+   * `segment.session_id` is set, the tombstone read and the write share one
+   * transaction, so a discard that commits first makes this return `discarded`.
    */
   create(segment: Segment): Promise<SegmentCreateResult>;
 }

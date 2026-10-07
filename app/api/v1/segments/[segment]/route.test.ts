@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 import { PUT } from "./route";
 import * as guardModule from "@/lib/http/guard";
@@ -142,6 +142,7 @@ describe("PUT /api/v1/segments/[segment]", () => {
       });
       vi.spyOn(storesModule, "firestoreSegmentStore").mockReturnValueOnce({
         get: vi.fn().mockResolvedValueOnce(null),
+        isDiscarded: vi.fn().mockResolvedValue(false),
         create: vi.fn(),
       });
 
@@ -193,6 +194,7 @@ describe("PUT /api/v1/segments/[segment]", () => {
       vi.spyOn(redactModule, "dlpRedactor").mockReturnValueOnce(mockRedactor);
       vi.spyOn(storesModule, "firestoreSegmentStore").mockReturnValueOnce({
         get: vi.fn().mockResolvedValueOnce(null),
+        isDiscarded: vi.fn().mockResolvedValue(false),
         create: vi.fn(),
       });
 
@@ -253,6 +255,7 @@ describe("PUT /api/v1/segments/[segment]", () => {
       vi.spyOn(redactModule, "dlpRedactor").mockReturnValueOnce(mockRedactor);
       vi.spyOn(storesModule, "firestoreSegmentStore").mockReturnValueOnce({
         get: vi.fn().mockResolvedValueOnce(existingSegment),
+        isDiscarded: vi.fn().mockResolvedValue(false),
         create: vi.fn(),
       });
 
@@ -303,6 +306,7 @@ describe("PUT /api/v1/segments/[segment]", () => {
       vi.spyOn(redactModule, "dlpRedactor").mockReturnValueOnce(mockRedactor);
       vi.spyOn(storesModule, "firestoreSegmentStore").mockReturnValueOnce({
         get: vi.fn().mockResolvedValueOnce(null),
+        isDiscarded: vi.fn().mockResolvedValue(false),
         create: vi.fn().mockResolvedValueOnce({ status: "created" }),
       });
 
@@ -337,6 +341,12 @@ describe("PUT /api/v1/segments/[segment]", () => {
 
   describe("X-Session-Id and discard tombstone (web spec §6.6.4)", () => {
     const SESSION_ID = "6f1c2a4e-8b3d-4e5f-9a7b-1c2d3e4f5a6b";
+
+    // The 422 case never reaches the store, so its queued once-mocks must not leak
+    // into the next test.
+    afterEach(() => {
+      vi.resetAllMocks();
+    });
 
     function sessionRequest(sessionHeader?: string): NextRequest {
       const audioBuffer = Buffer.from("fake-audio");
@@ -476,6 +486,7 @@ describe("PUT /api/v1/segments/[segment]", () => {
       });
       vi.spyOn(storesModule, "firestoreSegmentStore").mockReturnValueOnce({
         get: vi.fn().mockResolvedValueOnce(null),
+        isDiscarded: vi.fn().mockResolvedValue(false),
         create: vi.fn(),
       });
 
