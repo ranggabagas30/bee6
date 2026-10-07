@@ -75,6 +75,12 @@ export function localDateOf(ms: number, tz: string): string {
   return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
 }
 
+/** "HH:MM" (24h, zero-padded) wall-clock time of `ms` in `tz` (R-07 debrief question view). */
+export function localHmOf(ms: number, tz: string): string {
+  const p = zonedParts(ms, tz);
+  return `${String(p.hour).padStart(2, "0")}:${String(p.minute).padStart(2, "0")}`;
+}
+
 /** Weekday of a "YYYY-MM-DD" date (UTC noon avoids any zone shift). */
 export function weekdayOf(localDate: string): Weekday {
   const [y, m, d] = localDate.split("-").map(Number);
