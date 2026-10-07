@@ -70,6 +70,9 @@ export const ID = {
   "C-u-lost-help": "Catatan itu jadi tidak lengkap. Tidak bisa dipulihkan.", // lost-line helper, in the copy sheet (UX-03 copy keys; UX-03 section 5.7 row L, decision F)
   "C-u-toast": "Unggah berhasil lagi",
   "C-h-idle": "Belum mulai",
+  "C-h-ended-auto": "Selesai otomatis pukul {time}",
+  "C-m-closed": "Hari ini tutup. Mulai berikutnya {date} pukul 01:00.",
+  "C-m-window-passed": "Batas Mulai hari ini sudah lewat pukul {time}. Hari ini dicatat libur. Mulai lagi {date} pukul 01:00.",
   "C-notice-pilot": "Suara diubah jadi catatan kerja singkat. Rekaman suara tidak disimpan.", // capture privacy notice, pilot (UX-03 §5.10)
 } as const;
 
@@ -127,6 +130,9 @@ export const EN: Record<DictKey, string> = {
   "C-u-lost-help": "That note is now incomplete. It cannot be recovered.", // lost-line helper, in the copy sheet (UX-03 copy keys; UX-03 section 5.7 row L, decision F)
   "C-u-toast": "Upload working again",
   "C-h-idle": "Not started",
+  "C-h-ended-auto": "Ended automatically at {time}",
+  "C-m-closed": "Closed today. Next Start {date} at 01:00.",
+  "C-m-window-passed": "The Start cut-off today passed at {time}. Today is recorded as a day off. Next Start {date} at 01:00.",
   "C-notice-pilot": "Speech becomes short work notes. Audio is not kept.", // capture privacy notice, pilot (UX-03 §5.10)
 };
 
