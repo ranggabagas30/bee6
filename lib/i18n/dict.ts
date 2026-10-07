@@ -54,8 +54,6 @@ export const ID = {
   "C-cap-mic": "Mikrofon: {source}", // PROVISIONAL (format from HANDOFF)
   "C-cap-rate": "Sample rate mikrofon ini tidak didukung.", // PROVISIONAL
   "C-cap-staff": "Staf (segera hadir)", // PROVISIONAL
-  "C-cap-noconsent-h": "Perekaman belum aktif", // PROVISIONAL: consent gate is removed (CLAUDE.md 7b)
-  "C-cap-noconsent-b": "Outlet ini belum menyelesaikan langkah persetujuan staf, jadi perekaman belum bisa mulai. Minta supervisor menyelesaikan persetujuan, lalu muat ulang halaman ini.", // PROVISIONAL
   "C-cap-hours-h": "Dijeda · di luar jam buka", // PROVISIONAL
   "C-cap-hours-b": "Mendengarkan berjalan dari pukul {from} sampai {to} ({tz}). Akan mulai lagi otomatis saat jam buka.", // PROVISIONAL
 } as const;
@@ -99,8 +97,6 @@ export const EN: Record<DictKey, string> = {
   "C-cap-mic": "Microphone: {source}", // PROVISIONAL
   "C-cap-rate": "This microphone's sample rate is not supported.", // PROVISIONAL
   "C-cap-staff": "Staff (available soon)", // PROVISIONAL
-  "C-cap-noconsent-h": "Capture is off", // PROVISIONAL
-  "C-cap-noconsent-b": "This outlet hasn’t completed the staff-consent step yet, so listening can’t start. Ask the supervisor to complete consent, then reload this page.", // PROVISIONAL
   "C-cap-hours-h": "Paused · outside opening hours", // PROVISIONAL
   "C-cap-hours-b": "Listening runs from {from} to {to} ({tz}). It will start again automatically at opening time.", // PROVISIONAL
 };
