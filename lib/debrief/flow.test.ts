@@ -89,6 +89,25 @@ describe("reduceDebrief: LOAD_FAILED", () => {
   });
 });
 
+describe("reduceDebrief: LOADED/LOAD_FAILED ignore a late GET once the view moved on", () => {
+  it("a late LOADED does not replace timed_out (same object)", () => {
+    const s: DebriefState = { ...CLOSED, view: { kind: "timed_out", ended_at_ms: 10_000 } };
+    const next = reduceDebrief(s, {
+      type: "LOADED",
+      questions: [q("q0")],
+      business_date: "2026-10-07",
+      cached: new Set(),
+    });
+    expect(next).toBe(s);
+  });
+
+  it("a late LOAD_FAILED does not replace timed_out (same object)", () => {
+    const s: DebriefState = { ...CLOSED, view: { kind: "timed_out", ended_at_ms: 10_000 } };
+    const next = reduceDebrief(s, { type: "LOAD_FAILED" });
+    expect(next).toBe(s);
+  });
+});
+
 function questionState(overrides: Partial<Extract<DebriefView, { kind: "question" }>> = {}): DebriefState {
   return {
     ...CLOSED,

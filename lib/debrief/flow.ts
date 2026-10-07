@@ -85,6 +85,9 @@ export function reduceDebrief(s: DebriefState, e: DebriefEvent): DebriefState {
       return { ...s, view: { kind: "loading" } };
 
     case "LOADED": {
+      // A late GET response (the view already moved on — e.g. TICK fired
+      // `timed_out` first) must never replace whatever is on screen now.
+      if (s.view.kind !== "loading") return s;
       const filtered = e.questions
         .filter((item) => !e.cached.has(item.question_id))
         .slice(0, DEBRIEF_SHOW_MAX);
@@ -94,6 +97,9 @@ export function reduceDebrief(s: DebriefState, e: DebriefEvent): DebriefState {
     }
 
     case "LOAD_FAILED":
+      // Same race as LOADED above: a late failure must not override a view
+      // that already moved on (e.g. a timeout that beat the GET).
+      if (s.view.kind !== "loading") return s;
       return { ...s, view: { kind: "load_error" } };
 
     case "CHOOSE": {
