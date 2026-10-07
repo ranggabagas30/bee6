@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { StatusBanner } from "@/app/capture/StatusBanner";
+import { StatusBanner, headlineStateFor } from "@/app/capture/StatusBanner";
 import { DevPanel } from "@/app/capture/DevPanel";
 import {
   UploadStatusLine,
@@ -365,8 +365,7 @@ export default function CapturePage() {
       {view === "active" || devControlsEnabled ? (
         <>
           <StatusBanner
-            state={sessionRunning ? (status?.state ?? "listening") : "idle"}
-            queuedCount={status?.queuedCount ?? 0}
+            state={sessionRunning ? headlineStateFor(status?.state ?? "listening") : "idle"}
             micSource={micSource}
             // No Mulai control exists on this page yet (start is opening-hours
             // gated); the dev panel's Start is the only start control, so the

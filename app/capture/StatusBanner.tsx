@@ -17,18 +17,26 @@ import { t, type DictKey } from "@/lib/i18n/dict";
  * session is actually running (before Start, outside hours, after Stop or Pause).
  * It never says "Listening": the label must match what the system is doing.
  */
-export type StatusBannerState = CaptureState | "idle";
+export type StatusBannerState = "listening" | "mic_error" | "idle";
+
+/**
+ * The headline state for an engine state (UX-03 decision A). The headline takes
+ * only listening, mic_error or idle. An upload failure leaves the engine at
+ * "offline", but that is an upload result: the headline stays "Listening" and
+ * the retry state lives in the upload block.
+ */
+export function headlineStateFor(engine: CaptureState): "listening" | "mic_error" {
+  return engine === "mic_error" ? "mic_error" : "listening";
+}
 
 const PRESENTATION: Record<StatusBannerState, { emoji: string; label: DictKey; color: string }> = {
   listening: { emoji: "🟢", label: "C-h-listening", color: "#1b5e20" },
-  offline: { emoji: "🟡", label: "C-h-listening", color: "#8d6e00" },
   mic_error: { emoji: "🔴", label: "C-h-mic", color: "#b00020" },
   idle: { emoji: "⚪", label: "C-h-idle", color: "#444" },
 };
 
 export interface StatusBannerProps {
   state: StatusBannerState;
-  queuedCount: number;
   micSource: string;
   /**
    * True only when the page offers Mulai (UX-03 §5.2). The idle helper
@@ -38,7 +46,7 @@ export interface StatusBannerProps {
   startOffered?: boolean;
 }
 
-export function StatusBanner({ state, queuedCount, micSource, startOffered = false }: StatusBannerProps) {
+export function StatusBanner({ state, micSource, startOffered = false }: StatusBannerProps) {
   const { lang } = useLang();
   const { emoji, label, color } = PRESENTATION[state];
   const detail =
@@ -46,9 +54,7 @@ export function StatusBanner({ state, queuedCount, micSource, startOffered = fal
       ? startOffered
         ? t(lang, "C-h-idle-help")
         : null
-      : state === "offline"
-        ? t(lang, "C-cap-waiting", { N: queuedCount })
-        : state === "mic_error"
+      : state === "mic_error"
           ? t(lang, "C-h-mic-help")
           : t(lang, "C-cap-capturing");
 

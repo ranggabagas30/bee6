@@ -131,6 +131,22 @@ describe("capture page: one language per render", () => {
     expect(body).not.toMatch(/Speech becomes|Audio is not kept/);
   });
 
+  it("an offline upload failure keeps the headline green Listening (UX-03 decision A)", async () => {
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    fetchCaptureConfig.mockResolvedValue(CONFIG);
+    resolveCapturePhase.mockReturnValue("active");
+    const { container } = await renderPage("en");
+    await waitFor(() =>
+      expect(screen.getByText("Some speech was not captured")).toBeTruthy(),
+    );
+    // The engine status is "offline" here (LOST_STATUS), but the headline never shows it.
+    expect(screen.getByText("Shop listening")).toBeTruthy();
+    expect(container.textContent).toContain("🟢");
+    expect(container.textContent).not.toContain("🟡");
+    // The retry state stays in the upload block.
+    expect(screen.getByText("Not sent yet · retrying (2x)")).toBeTruthy();
+  });
+
   it("active with a lost segment: the lost line and retry row are Bahasa only under id", async () => {
     readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
     fetchCaptureConfig.mockResolvedValue(CONFIG);

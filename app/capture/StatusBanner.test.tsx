@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { StatusBanner } from "@/app/capture/StatusBanner";
+import { StatusBanner, headlineStateFor } from "@/app/capture/StatusBanner";
 import { LangProvider } from "@/lib/i18n/context";
 import { parseLangCookie, type Lang } from "@/lib/i18n/lang";
 
@@ -12,7 +12,7 @@ function renderBanner(
 ) {
   return render(
     <LangProvider initial={lang}>
-      <StatusBanner state={state} queuedCount={2} micSource="built-in" startOffered={startOffered} />
+      <StatusBanner state={state} micSource="built-in" startOffered={startOffered} />
     </LangProvider>,
   );
 }
@@ -64,5 +64,16 @@ describe("StatusBanner: one language per render", () => {
     const { container } = renderBanner("id", "mic_error");
     expect(screen.getByText("Mikrofon bermasalah · tidak mendengarkan")).toBeTruthy();
     expect(container.textContent).not.toMatch(/Microphone problem|Check the microphone/);
+  });
+});
+
+describe("headlineStateFor: the headline never shows an upload result", () => {
+  it("maps listening and offline to listening (offline is an upload result, not a headline state)", () => {
+    expect(headlineStateFor("listening")).toBe("listening");
+    expect(headlineStateFor("offline")).toBe("listening");
+  });
+
+  it("keeps mic_error as the only problem headline", () => {
+    expect(headlineStateFor("mic_error")).toBe("mic_error");
   });
 });
