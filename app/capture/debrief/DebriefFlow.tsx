@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useReducer, useState } from "react";
+import { useEffect, useReducer, useState } from "react";
 import { canCommit, reduceDebrief, type DebriefState } from "@/lib/debrief/flow";
 import { DebriefListResponseSchema } from "@/lib/debrief/contract";
 import { appendAnswer, CacheWriteError, cachedIds, pendingSummary, purgeNow, readCache } from "@/lib/debrief/answer-cache";
@@ -52,6 +52,12 @@ export function DebriefFlow({ auth, endsAtMs, nowMs, tz, nextMulaiText, fetchFn,
     { view: { kind: "closed" }, ends_at_ms: endsAtMs, business_date: null } satisfies DebriefState,
   );
   const [uploadNote, setUploadNote] = useState<"offline" | "refused" | null>(null);
+  // The done screen's unsent-answer count. Seeded in `handleLanjut` right
+  // after the cache write (so it is correct on the very first render of
+  // "done"), then kept current by every `flushNow()` — never a one-shot
+  // read on entry to "done", or a later flush finishing online would leave
+  // a stale "N answers not sent yet." showing forever.
+  const [pendingCount, setPendingCount] = useState(0);
 
   // Created once per mount (a stable singleton, not recreated on a prop
   // change this component never expects mid-debrief), via a lazy useState
@@ -71,17 +77,19 @@ export function DebriefFlow({ auth, endsAtMs, nowMs, tz, nextMulaiText, fetchFn,
       : null,
   );
 
-  // Derived only when the done screen is actually showing; a storage read is
-  // deliberately not a render-time dependency of the "question" view path.
-  const pendingCount = useMemo(() => {
-    if (state.view.kind !== "done" || !effectiveStorage) return 0;
-    return pendingSummary(readCache(effectiveStorage)).count;
-  }, [state.view.kind, effectiveStorage]);
-
   async function flushNow() {
     if (!uploader) return;
-    const result = await uploader.flush();
+    let result = await uploader.flush();
     setUploadNote(uploadNoteFor(result.last));
+    setPendingCount(result.pending);
+    // A commit that lands mid-flush (its cache write happens after this
+    // flush already read the cache) would otherwise wait the full
+    // ANSWER_RETRY_MS retry interval before it is picked up.
+    if (result.pending > 0 && result.last === "removed_ok") {
+      result = await uploader.flush();
+      setUploadNote(uploadNoteFor(result.last));
+      setPendingCount(result.pending);
+    }
   }
 
   // Uploader lifecycle (R-07 Task 7.5): flush on mount, on `online`, every
@@ -190,6 +198,10 @@ export function DebriefFlow({ auth, endsAtMs, nowMs, tz, nextMulaiText, fetchFn,
       }
       throw err;
     }
+    // Seed the done-screen count from the cache as it stands right after
+    // this write, so "done" never renders a 0 for a beat before the async
+    // flush below reports in.
+    setPendingCount(pendingSummary(readCache(effectiveStorage)).count);
     dispatch({ type: "COMMITTED" });
     void flushNow();
   }

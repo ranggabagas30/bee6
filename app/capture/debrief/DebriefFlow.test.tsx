@@ -250,6 +250,38 @@ describe("DebriefFlow: Lanjut commit order and persistence", () => {
   });
 });
 
+describe("DebriefFlow: done-screen unsent count stays live (tech-lead finding 2)", () => {
+  it("answering the last question online (POST 200) ends with no unsent-answers line", async () => {
+    const { fn } = makeFetch({
+      list: () => ({ status: 200, body: listResponse([q("q1")]) }),
+      answer: () => ({ status: 200 }),
+    });
+    const storage = new FakeStorage();
+    render(<Harness fetchFn={fn} storage={storage} />);
+    await openCard();
+    fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "sudah" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(screen.getByText("Debrief complete. Thank you.")).toBeTruthy());
+    await waitFor(() => expect(screen.queryByText(/not sent yet/)).toBeNull());
+  });
+
+  it("answering with a network error ends showing exactly one unsent answer", async () => {
+    const { fn } = makeFetch({
+      list: () => ({ status: 200, body: listResponse([q("q1")]) }),
+      answer: () => "network",
+    });
+    const storage = new FakeStorage();
+    render(<Harness fetchFn={fn} storage={storage} />);
+    await openCard();
+    fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "sudah" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(screen.getByText("Debrief complete. Thank you.")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("1 answer is not sent yet.")).toBeTruthy());
+  });
+});
+
 describe("DebriefFlow: timeout", () => {
   it("timing out mid-question shows C-d-timeout and caches nothing typed", async () => {
     const endsAtMs = Date.now() + 5_000;
