@@ -89,6 +89,8 @@ export interface DeviceTickResult {
   threads_written: number;
   questions_written: number;
   failed_units: number;
+  /** R-07: questions expired to `unverified` by this device's own debrief end this tick. 0 when the lease was held. */
+  questions_expired: number;
 }
 
 export interface RunTickResult {
@@ -512,10 +514,28 @@ async function processOneDevice(
       threads_written: 0,
       questions_written: 0,
       failed_units: 0,
+      questions_expired: 0,
     };
   }
 
   try {
+    // R-07: right after the lease, BEFORE listSegmentsForDevice, so a device
+    // with no segments this tick still expires its own stale questions. A
+    // failure here never stops labelling (its own try/catch; logged by
+    // error class only — same discipline as the rest of this file).
+    let questionsExpired = 0;
+    try {
+      const last = await store.getLastEnded(outlet_id, device_id);
+      if (last?.debrief_ends_at_ms != null && last.end_reason !== "discarded" && last.debrief_ends_at_ms <= now_ms) {
+        questionsExpired = await store.expireOpenQuestions(outlet_id, device_id, last.debrief_ends_at_ms, now_ms);
+      }
+    } catch (error) {
+      console.error("[pipeline-tick] expireOpenQuestions failed", {
+        device_id,
+        error_class: classifyUnexpectedError(error),
+      });
+    }
+
     const segments = await store.listSegmentsForDevice(outlet_id, device_id);
     if (segments.length === 0) {
       return {
@@ -526,6 +546,7 @@ async function processOneDevice(
         threads_written: 0,
         questions_written: 0,
         failed_units: 0,
+        questions_expired: questionsExpired,
       };
     }
 
@@ -539,6 +560,7 @@ async function processOneDevice(
         threads_written: 0,
         questions_written: 0,
         failed_units: 0,
+        questions_expired: questionsExpired,
       };
     }
 
@@ -620,6 +642,7 @@ async function processOneDevice(
       threads_written: threadsWritten,
       questions_written: questionsWritten,
       failed_units: failedUnits,
+      questions_expired: questionsExpired,
     };
   } finally {
     await store.releaseLease(outlet_id, device_id, leaseToken);
@@ -671,6 +694,7 @@ export async function runTick(deps: RunTickDeps): Promise<RunTickResult> {
         threads_written: 0,
         questions_written: 0,
         failed_units: 0,
+        questions_expired: 0,
       });
     }
   }

@@ -16,6 +16,7 @@ import type {
 } from "@/lib/pipeline/tick/types";
 import type { BuiltThread } from "@/lib/pipeline/threads";
 import { loadCategoriesConfig } from "@/lib/pipeline/label/config";
+import type { LastEnded } from "@/lib/firestore/schema";
 
 const CONFIG = loadCategoriesConfig("config/categories.draft.yaml");
 
@@ -95,6 +96,17 @@ class FakeTickStore implements TickStore {
   acquireLeaseCalls = 0;
   releaseLeaseCalls = 0;
 
+  // R-07 (Task 5): per-device last_ended + a controllable expireOpenQuestions.
+  lastEndedByDevice = new Map<string, LastEnded>();
+  expireOpenQuestionsCalls: Array<{
+    outletId: string;
+    deviceId: string;
+    debriefEndsAtMs: number;
+    nowMs: number;
+  }> = [];
+  expireOpenQuestionsResult = 0;
+  expireOpenQuestionsError: Error | null = null;
+
   private key(outletId: string, deviceId: string): string {
     return `${outletId}:${deviceId}`;
   }
@@ -145,6 +157,21 @@ class FakeTickStore implements TickStore {
     const existing = this.leases.get(key);
     if (!existing || existing.acquired_at_ms !== acquiredAtMs) return;
     this.leases.delete(key);
+  }
+
+  async getLastEnded(outletId: string, deviceId: string): Promise<LastEnded | null> {
+    return this.lastEndedByDevice.get(this.key(outletId, deviceId)) ?? null;
+  }
+
+  async expireOpenQuestions(
+    outletId: string,
+    deviceId: string,
+    debriefEndsAtMs: number,
+    nowMs: number,
+  ): Promise<number> {
+    this.expireOpenQuestionsCalls.push({ outletId, deviceId, debriefEndsAtMs, nowMs });
+    if (this.expireOpenQuestionsError) throw this.expireOpenQuestionsError;
+    return this.expireOpenQuestionsResult;
   }
 
   async writeUnitResult(outletId: string, deviceId: string, batch: UnitWriteBatch): Promise<void> {
@@ -862,6 +889,125 @@ describe("runTick", () => {
 
     expect(d2.failed_units).toBe(1);
     expect(d2.questions_written).toBe(1); // d2's fallback write succeeded normally
+  });
+
+  describe("R-07: per-device debrief-end expiry wiring", () => {
+    const NOW = SERVER_NOW_MS;
+
+    function lastEnded(overrides: Partial<LastEnded> = {}): LastEnded {
+      return {
+        business_date: "2026-10-07",
+        end_reason: "selesai",
+        ended_at_ms: NOW - 3_600_000,
+        debrief_ends_at_ms: NOW - 1000, // already passed
+        ...overrides,
+      };
+    }
+
+    it("calls expireOpenQuestions with this device's own debrief end when it has passed, even with no segments", async () => {
+      const store = new FakeTickStore();
+      store.devices = [{ outlet_id: "o1", device_id: "d1" }];
+      store.lastEndedByDevice.set("o1:d1", lastEnded());
+      store.expireOpenQuestionsResult = 2;
+
+      const result = await runTick({ store, now_ms: NOW, config: CONFIG });
+
+      expect(result.devices).toHaveLength(1);
+      const d1 = result.devices[0]!;
+      expect(d1.skipped_reason).toBe("no_segments");
+      expect(d1.questions_expired).toBe(2);
+      expect(store.expireOpenQuestionsCalls).toEqual([
+        { outletId: "o1", deviceId: "d1", debriefEndsAtMs: NOW - 1000, nowMs: NOW },
+      ]);
+    });
+
+    it("does not call expireOpenQuestions when the debrief end has not passed yet", async () => {
+      const store = new FakeTickStore();
+      store.devices = [{ outlet_id: "o1", device_id: "d1" }];
+      store.lastEndedByDevice.set("o1:d1", lastEnded({ debrief_ends_at_ms: NOW + 1000 }));
+
+      const result = await runTick({ store, now_ms: NOW, config: CONFIG });
+
+      expect(result.devices[0]!.questions_expired).toBe(0);
+      expect(store.expireOpenQuestionsCalls).toHaveLength(0);
+    });
+
+    it("does not call expireOpenQuestions for a discarded last session", async () => {
+      const store = new FakeTickStore();
+      store.devices = [{ outlet_id: "o1", device_id: "d1" }];
+      store.lastEndedByDevice.set("o1:d1", lastEnded({ end_reason: "discarded", debrief_ends_at_ms: null }));
+
+      const result = await runTick({ store, now_ms: NOW, config: CONFIG });
+
+      expect(result.devices[0]!.questions_expired).toBe(0);
+      expect(store.expireOpenQuestionsCalls).toHaveLength(0);
+    });
+
+    it("does not call expireOpenQuestions when the device has never ended a debrief", async () => {
+      const store = new FakeTickStore();
+      store.devices = [{ outlet_id: "o1", device_id: "d1" }];
+      // No lastEndedByDevice entry at all.
+
+      const result = await runTick({ store, now_ms: NOW, config: CONFIG });
+
+      expect(result.devices[0]!.questions_expired).toBe(0);
+      expect(store.expireOpenQuestionsCalls).toHaveLength(0);
+    });
+
+    it("MD2: device A's debrief end never triggers an expiry call for device B", async () => {
+      const store = new FakeTickStore();
+      store.devices = [
+        { outlet_id: "o1", device_id: "d1" },
+        { outlet_id: "o1", device_id: "d2" },
+      ];
+      store.lastEndedByDevice.set("o1:d1", lastEnded());
+      // d2 has no last_ended at all.
+
+      await runTick({ store, now_ms: NOW, config: CONFIG });
+
+      expect(store.expireOpenQuestionsCalls).toEqual([
+        { outletId: "o1", deviceId: "d1", debriefEndsAtMs: NOW - 1000, nowMs: NOW },
+      ]);
+    });
+
+    it("a lease held by another tick never calls expireOpenQuestions", async () => {
+      const store = new FakeTickStore();
+      store.devices = [{ outlet_id: "o1", device_id: "d1" }];
+      store.lastEndedByDevice.set("o1:d1", lastEnded());
+      await store.acquireLease("o1", "d1", NOW - 10_000, 1_800_000); // held by a prior tick
+
+      const result = await runTick({ store, now_ms: NOW, config: CONFIG });
+
+      expect(result.devices[0]!.skipped_reason).toBe("lease_held");
+      expect(result.devices[0]!.questions_expired).toBe(0);
+      expect(store.expireOpenQuestionsCalls).toHaveLength(0);
+    });
+
+    it("a throwing expireOpenQuestions never stops labelling; questions_expired is 0", async () => {
+      const store = new FakeTickStore();
+      store.devices = [{ outlet_id: "o1", device_id: "d1" }];
+      store.lastEndedByDevice.set("o1:d1", lastEnded());
+      store.expireOpenQuestionsError = new Error("Firestore down");
+      store.segmentsByDevice.set("o1:d1", [
+        makeSegment({ segId: "s1", deviceStartMs: 0, text: "Checked the oven" }),
+      ]);
+      const generate = vi.fn().mockResolvedValue(fakeResponse(JSON.stringify(okWire())));
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+      const result = await runTick({
+        store,
+        now_ms: NOW,
+        config: CONFIG,
+        labelClientDeps: { generate, project: "proj", resolveLocation: () => "global" },
+        sanitizeDeps: { redactBatch: async (texts) => [...texts] },
+      });
+
+      const d1 = result.devices[0]!;
+      expect(d1.questions_expired).toBe(0);
+      expect(d1.skipped_reason).toBeNull();
+      expect(d1.threads_written).toBeGreaterThanOrEqual(1); // labelling still ran
+      errorSpy.mockRestore();
+    });
   });
 });
 

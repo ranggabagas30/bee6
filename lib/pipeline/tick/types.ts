@@ -1,5 +1,6 @@
 import type { Category, WorkCategory } from "@/lib/pipeline/categories";
 import type { GateDecision } from "@/lib/pipeline/gate";
+import type { LastEnded } from "@/lib/firestore/schema";
 
 /**
  * Store interfaces for the pipeline tick (R-05b, Task 6). Pure interfaces
@@ -144,4 +145,18 @@ export interface TickStore {
   releaseLease(outletId: string, deviceId: string, acquiredAtMs: number): Promise<void>;
   /** Persists one unit's full result (threads, questions, ledger, non-work blanking) together. */
   writeUnitResult(outletId: string, deviceId: string, batch: UnitWriteBatch): Promise<void>;
+  /** This device's own `devices/{id}.last_ended` (R-07 debrief-end expiry). */
+  getLastEnded(outletId: string, deviceId: string): Promise<LastEnded | null>;
+  /**
+   * Expires every `open` question of this device created at or before
+   * `debriefEndsAtMs`, to `unverified` (R-07, `expireAtDebriefEnd`); a
+   * `kind: "gate"` question's still-`open`, not-yet-excluded thread is set
+   * `unverified` too. Returns the number of questions expired.
+   */
+  expireOpenQuestions(
+    outletId: string,
+    deviceId: string,
+    debriefEndsAtMs: number,
+    nowMs: number,
+  ): Promise<number>;
 }
