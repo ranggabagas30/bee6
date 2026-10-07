@@ -40,7 +40,7 @@ export const ID = {
   "C-b-buka-mendengarkan": "Buka halaman mendengarkan",
 
   // /capture headline, states and helpers
-  "C-cap-title": "Mendengarkan toko", // PROVISIONAL: pending sign-off (HANDOFF)
+  "C-cap-title": "HP toko", // one fixed neutral heading on every state (UX-03, 7 Oct)
   "C-h-loading": "Memuat…",
   "C-h-error": "Jam buka belum termuat",
   "C-h-error-help": "Jam buka belum termuat. Sambung internet sekali, lalu buka.",
@@ -56,6 +56,22 @@ export const ID = {
   "C-cap-staff": "Staf (segera hadir)", // PROVISIONAL
   "C-cap-hours-h": "Dijeda · di luar jam buka", // PROVISIONAL
   "C-cap-hours-b": "Mendengarkan berjalan dari pukul {from} sampai {to} ({tz}). Akan mulai lagi otomatis saat jam buka.", // PROVISIONAL
+
+  // Upload status block (UX-03 section 5.7, copy sheet section 6).
+  "C-u-up": "Mengunggah",
+  "C-u-retry": "Belum terkirim · mencoba lagi",
+  "C-u-count": "({N}x)", // count suffix for C-u-retry; the sheet row shows it as "({N}x)"
+  "C-u-server": "Server sibuk",
+  "C-u-inet": "Tidak ada internet. Sambungkan agar antrean terkirim.", // shown only when navigator.onLine is false
+  "C-u-ok": "Unggah berhasil",
+  "C-u-lost": "Sebagian suara tidak tercatat",
+  "C-u-lost-help": "Catatan itu jadi tidak lengkap. Tidak bisa dipulihkan.", // lost-line helper, in the copy sheet (UX-03 copy keys; UX-03 section 5.7 row L, decision F)
+  "C-u-toast": "Unggah berhasil lagi",
+  "C-h-idle": "Belum mulai",
+  "C-h-ended-auto": "Selesai otomatis pukul {time}",
+  "C-m-closed": "Hari ini tutup. Mulai berikutnya {date} pukul 01:00.",
+  "C-m-window-passed": "Batas Mulai hari ini sudah lewat pukul {time}. Hari ini dicatat libur. Mulai lagi {date} pukul 01:00.",
+  "C-notice-pilot": "Suara diubah jadi catatan kerja singkat. Rekaman suara tidak disimpan.", // capture privacy notice, pilot (UX-03 §5.10)
 } as const;
 
 export type DictKey = keyof typeof ID;
@@ -83,7 +99,7 @@ export const EN: Record<DictKey, string> = {
   "C-pair-step-4": "The End button appears 4 hours after Start.",
   "C-b-buka-mendengarkan": "Open the listening page",
 
-  "C-cap-title": "Shop listening", // PROVISIONAL
+  "C-cap-title": "Shop phone", // one fixed neutral heading on every state (UX-03, 7 Oct)
   "C-h-loading": "Loading…",
   "C-h-error": "Opening hours not loaded yet",
   "C-h-error-help": "Opening hours have not loaded yet. Connect to the internet once, then reopen.",
@@ -99,6 +115,21 @@ export const EN: Record<DictKey, string> = {
   "C-cap-staff": "Staff (available soon)", // PROVISIONAL
   "C-cap-hours-h": "Paused · outside opening hours", // PROVISIONAL
   "C-cap-hours-b": "Listening runs from {from} to {to} ({tz}). It will start again automatically at opening time.", // PROVISIONAL
+
+  "C-u-up": "Uploading",
+  "C-u-retry": "Not sent yet · retrying",
+  "C-u-count": "({N}x)",
+  "C-u-server": "Server busy",
+  "C-u-inet": "No internet. Connect so the queued items can send.", // shown only when navigator.onLine is false
+  "C-u-ok": "Upload succeeded",
+  "C-u-lost": "Some speech was not captured",
+  "C-u-lost-help": "That note is now incomplete. It cannot be recovered.", // lost-line helper, in the copy sheet (UX-03 copy keys; UX-03 section 5.7 row L, decision F)
+  "C-u-toast": "Upload working again",
+  "C-h-idle": "Not started",
+  "C-h-ended-auto": "Ended automatically at {time}",
+  "C-m-closed": "Closed today. Next Start {date} at 01:00.",
+  "C-m-window-passed": "The Start cut-off today passed at {time}. Today is recorded as a day off. Next Start {date} at 01:00.",
+  "C-notice-pilot": "Speech becomes short work notes. Audio is not kept.", // capture privacy notice, pilot (UX-03 §5.10)
 };
 
 export const DICT: Record<Lang, Record<DictKey, string>> = { id: ID, en: EN };

@@ -3,8 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const replace = vi.fn();
+// One stable router object, as Next's real useRouter returns: a fresh object per
+// render would re-run the page's mount effect on every state update.
+const router = { replace };
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace }),
+  useRouter: () => router,
 }));
 
 const isDevControlsEnabled = vi.fn(() => false);
@@ -39,13 +42,19 @@ interface FakeSession {
   stop: ReturnType<typeof vi.fn>;
 }
 const fakeSessions: FakeSession[] = [];
+// When true, a session's stop() never settles (a segment PUT that never answers
+// keeps the engine drain pending). Read at call time, so it applies to sessions
+// started earlier too.
+let holdStops = false;
 const startCaptureSession = vi.fn(
   async (
     _auth: unknown,
     _config: unknown,
     cb: FakeCallbacks,
   ): Promise<FakeSession> => {
-    const session: FakeSession = { stop: vi.fn(async () => {}) };
+    const session: FakeSession = {
+      stop: vi.fn(() => (holdStops ? new Promise<void>(() => {}) : Promise.resolve())),
+    };
     fakeSessions.push(session);
     // Simulate the real session reporting one status transition on start,
     // the same way session.ts emits state_changed from its onStatusChange.
@@ -65,6 +74,7 @@ afterEach(() => {
   readDeviceAuth.mockReturnValue(null);
   resolveCapturePhase.mockReturnValue("outside_hours");
   fakeSessions.length = 0;
+  holdStops = false;
 });
 
 async function importCapturePage() {
@@ -240,5 +250,36 @@ describe("CapturePage dev panel manual controls", () => {
         container.querySelector('[data-testid="dev-event-log"]')?.textContent,
       ).toMatch(/state_changed/),
     );
+  });
+});
+
+describe("CapturePage close while a segment upload is held (defect 2)", () => {
+  async function flushAsync() {
+    for (let i = 0; i < 20; i += 1) await Promise.resolve();
+  }
+
+  it("starts a fresh session at the next open even though the old session's stop() never settles", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+    vi.setSystemTime(new Date("2026-09-30T02:00:00Z")); // Wed 09:00 WIB
+    isDevControlsEnabled.mockReturnValue(false);
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    fetchCaptureConfig.mockResolvedValue(config({ wed: { open: "08:00", close: "22:00" } }));
+    resolveCapturePhase.mockReturnValue("active");
+    const CapturePage = await importCapturePage();
+    render(<CapturePage />);
+    await flushAsync();
+    expect(startCaptureSession).toHaveBeenCalledTimes(1);
+
+    // The planned close passes while the old session's upload never answers.
+    holdStops = true;
+    resolveCapturePhase.mockReturnValue("outside_hours");
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1);
+
+    // The next open-hours tick must start a new session regardless.
+    resolveCapturePhase.mockReturnValue("active");
+    await vi.advanceTimersByTimeAsync(30_000);
+    await flushAsync();
+    expect(startCaptureSession).toHaveBeenCalledTimes(2);
   });
 });

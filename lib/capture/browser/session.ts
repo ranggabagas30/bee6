@@ -14,8 +14,8 @@ import {
   createSegmentUploader,
   type DeviceAuth,
 } from "@/lib/capture/browser/client";
-import type { CaptureConfigResponse } from "@/lib/capture/contract";
 import type { CaptureEvent } from "@/lib/capture/browser/event-log";
+import type { CaptureConfigResponse } from "@/lib/capture/contract";
 
 /**
  * Browser capture session (web spec §5): wires the tested adapters + engine into
@@ -27,6 +27,12 @@ import type { CaptureEvent } from "@/lib/capture/browser/event-log";
  */
 
 const HEARTBEAT_INTERVAL_MS = 60_000;
+/**
+ * Longest stop() waits for an in-flight segment upload before it resolves anyway.
+ * A PUT that never answers keeps draining in the background; it cannot hold the
+ * caller (the page's phase loop) or the next session.
+ */
+const STOP_DRAIN_TIMEOUT_MS = 5_000;
 
 interface NavigatorWithBattery extends Navigator {
   getBattery?: () => Promise<{ level: number }>;
@@ -61,7 +67,22 @@ export interface CaptureSessionCallbacks {
 }
 
 export interface CaptureSession {
+  /**
+   * Releases the mic, VAD and wake lock synchronously, before it returns. The
+   * returned promise settles once the pending upload has drained or after
+   * STOP_DRAIN_TIMEOUT_MS, whichever comes first. Callers need not await it to
+   * start a new session.
+   */
   stop: () => Promise<void>;
+}
+
+/** Resolves when `p` settles or after `ms`, whichever comes first. */
+function waitAtMost(p: Promise<void>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
 }
 
 /**
@@ -282,24 +303,41 @@ export async function startCaptureSession(
   document.addEventListener("visibilitychange", onVisibility);
   navigator.mediaDevices.addEventListener?.("devicechange", onDeviceChange);
 
+  let stopping: Promise<void> | null = null;
+
   return {
-    stop: async () => {
+    stop: () => {
+      if (stopping) return stopping;
       stopped = true;
       clearInterval(heartbeatTimer);
       document.removeEventListener("visibilitychange", onVisibility);
       navigator.mediaDevices.removeEventListener?.("devicechange", onDeviceChange);
-      try {
-        await vadHandle?.destroy();
-      } catch {
-        /* ignore */
-      }
+      // Release the mic, VAD and wake lock now. Nothing here waits on an upload,
+      // so a segment PUT that never answers cannot keep the mic on (defect 2).
+      stopCurrentStream();
+      const vad = vadHandle;
+      vadHandle = null;
+      void (async () => {
+        try {
+          await vad?.destroy();
+        } catch {
+          /* ignore */
+        }
+      })();
       engine.flush();
-      // abort() stops the upload pump even mid-backoff, so stop() returns
-      // promptly even while offline (finding #3), instead of hanging on retries.
-      await engine.abort();
-      currentStream?.getTracks().forEach((t) => t.stop());
-      await wakeLock.release();
-      cb.onEvent?.({ type: "wake_lock_changed", held: wakeLock.held });
+      // abort() stops the upload pump even mid-backoff. Its drain is bounded so
+      // stop() settles even while a PUT is still pending (finding #3).
+      const drained = waitAtMost(engine.abort(), STOP_DRAIN_TIMEOUT_MS);
+      const released = wakeLock
+        .release()
+        .catch(() => {
+          /* ignore */
+        })
+        .then(() => {
+          cb.onEvent?.({ type: "wake_lock_changed", held: wakeLock.held });
+        });
+      stopping = Promise.all([drained, released]).then(() => undefined);
+      return stopping;
     },
   };
 }

@@ -12,27 +12,47 @@ import { t, type DictKey } from "@/lib/i18n/dict";
  * captures, so its headline is "Listening" and the waiting count is the detail.
  */
 
-const PRESENTATION: Record<
-  CaptureState,
-  { emoji: string; label: DictKey; color: string }
-> = {
+/**
+ * `"idle"` is the neutral "not started" state the page shows whenever no capture
+ * session is actually running (before Start, outside hours, after Stop or Pause).
+ * It never says "Listening": the label must match what the system is doing.
+ */
+export type StatusBannerState = "listening" | "mic_error" | "idle" | "ended_auto";
+
+/**
+ * The headline state for an engine state (UX-03 decision A). The headline takes
+ * only listening, mic_error or idle. An upload failure leaves the engine at
+ * "offline", but that is an upload result: the headline stays "Listening" and
+ * the retry state lives in the upload block.
+ */
+export function headlineStateFor(engine: CaptureState): "listening" | "mic_error" {
+  return engine === "mic_error" ? "mic_error" : "listening";
+}
+
+const PRESENTATION: Record<StatusBannerState, { emoji: string; label: DictKey; color: string }> = {
   listening: { emoji: "🟢", label: "C-h-listening", color: "#1b5e20" },
-  offline: { emoji: "🟡", label: "C-h-listening", color: "#8d6e00" },
   mic_error: { emoji: "🔴", label: "C-h-mic", color: "#b00020" },
+  idle: { emoji: "⚪", label: "C-h-idle", color: "#444" },
+  ended_auto: { emoji: "■", label: "C-h-ended-auto", color: "#444" },
 };
 
 export interface StatusBannerProps {
-  state: CaptureState;
-  queuedCount: number;
+  state: StatusBannerState;
   micSource: string;
+  /** Outside hours only: the Mulai note under Not started (UX-03 5.2). */
+  note?: string | null;
+  /** ended_auto only: the auto-stop time, HH:MM in the shop's zone. */
+  endedAt?: string;
 }
 
-export function StatusBanner({ state, queuedCount, micSource }: StatusBannerProps) {
+export function StatusBanner({ state, micSource, note = null, endedAt = "" }: StatusBannerProps) {
   const { lang } = useLang();
   const { emoji, label, color } = PRESENTATION[state];
+  const headline =
+    state === "ended_auto" ? t(lang, label, { time: endedAt }) : t(lang, label);
   const detail =
-    state === "offline"
-      ? t(lang, "C-cap-waiting", { N: queuedCount })
+    state === "idle" || state === "ended_auto"
+      ? note
       : state === "mic_error"
         ? t(lang, "C-h-mic-help")
         : t(lang, "C-cap-capturing");
@@ -53,9 +73,9 @@ export function StatusBanner({ state, queuedCount, micSource }: StatusBannerProp
         {emoji}
       </p>
       <p style={{ fontSize: 28, fontWeight: 700, margin: "8px 0 0", color }}>
-        {t(lang, label)}
+        {headline}
       </p>
-      <p style={{ fontSize: 16, margin: "8px 0 0" }}>{detail}</p>
+      <p style={{ fontSize: 16, margin: "8px 0 0" }}>{detail ?? ""}</p>
       <p style={{ fontSize: 14, margin: "12px 0 0", color: "#444" }}>
         {t(lang, "C-cap-mic", { source: micSource })}
       </p>

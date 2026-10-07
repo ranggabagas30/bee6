@@ -48,4 +48,67 @@ describe("copy dictionary", () => {
   it("throws when a placeholder has no value, rather than showing a raw token", () => {
     expect(() => t("en", "C-pair-ok-line")).toThrow(/outlet_id/);
   });
+
+  it("carries the approved upload-status and idle copy (UX-03 section 6)", () => {
+    const cases: Array<[DictKey, string, string]> = [
+      ["C-u-up", "Mengunggah", "Uploading"],
+      ["C-u-retry", "Belum terkirim · mencoba lagi", "Not sent yet · retrying"],
+      ["C-u-count", "({N}x)", "({N}x)"],
+      ["C-u-server", "Server sibuk", "Server busy"],
+      ["C-u-ok", "Unggah berhasil", "Upload succeeded"],
+      ["C-u-lost", "Sebagian suara tidak tercatat", "Some speech was not captured"],
+      ["C-u-toast", "Unggah berhasil lagi", "Upload working again"],
+      ["C-h-idle", "Belum mulai", "Not started"],
+    ];
+    for (const [key, id, en] of cases) {
+      expect(ID[key], `ID ${key}`).toBe(id);
+      expect(EN[key], `EN ${key}`).toBe(en);
+    }
+  });
+
+  it("has no idle-helper key: it has no approved row in UX-03 section 5.2 and no defined condition", () => {
+    expect(Object.keys(ID)).not.toContain("C-h-idle-help");
+    expect(Object.keys(EN)).not.toContain("C-h-idle-help");
+  });
+
+  it("carries the copy keys added 7 Oct (UX-03 copy sheet, section 6)", () => {
+    const cases: Array<[DictKey, string, string]> = [
+      [
+        "C-u-inet",
+        "Tidak ada internet. Sambungkan agar antrean terkirim.",
+        "No internet. Connect so the queued items can send.",
+      ],
+      [
+        "C-notice-pilot",
+        "Suara diubah jadi catatan kerja singkat. Rekaman suara tidak disimpan.",
+        "Speech becomes short work notes. Audio is not kept.",
+      ],
+    ];
+    for (const [key, id, en] of cases) {
+      expect(ID[key], `ID ${key}`).toBe(id);
+      expect(EN[key], `EN ${key}`).toBe(en);
+    }
+  });
+});
+
+describe("copy for the status banner after the planned close (UX-03 sections 5.2, 5.4, 6)", () => {
+  it("carries the ended-automatically headline and the two Mulai notes", () => {
+    const cases: Array<[DictKey, string, string]> = [
+      ["C-h-ended-auto", "Selesai otomatis pukul {time}", "Ended automatically at {time}"],
+      [
+        "C-m-closed",
+        "Hari ini tutup. Mulai berikutnya {date} pukul 01:00.",
+        "Closed today. Next Start {date} at 01:00.",
+      ],
+      [
+        "C-m-window-passed",
+        "Batas Mulai hari ini sudah lewat pukul {time}. Hari ini dicatat libur. Mulai lagi {date} pukul 01:00.",
+        "The Start cut-off today passed at {time}. Today is recorded as a day off. Next Start {date} at 01:00.",
+      ],
+    ];
+    for (const [key, id, en] of cases) {
+      expect(ID[key], `ID ${key}`).toBe(id);
+      expect(EN[key], `EN ${key}`).toBe(en);
+    }
+  });
 });

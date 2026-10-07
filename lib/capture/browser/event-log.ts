@@ -28,7 +28,9 @@ export type CaptureEvent =
   | { type: "segment_opened"; seg_id: string }
   | { type: "segment_closed"; seg_id: string; duration_ms: number }
   | { type: "segment_upload_started"; seg_id: string; byte_count: number }
-  | { type: "segment_upload_result"; seg_id: string; ok: boolean }
+  // `http_status` is the numeric HTTP status of the upload response, or null
+  // for a network failure (no response). Never a response body (rule #2).
+  | { type: "segment_upload_result"; seg_id: string; ok: boolean; http_status: number | null }
   | { type: "wake_lock_changed"; held: boolean }
   | { type: "mic_restart"; reason: string };
 
