@@ -368,6 +368,10 @@ export default function CapturePage() {
             state={sessionRunning ? (status?.state ?? "listening") : "idle"}
             queuedCount={status?.queuedCount ?? 0}
             micSource={micSource}
+            // No Mulai control exists on this page yet (start is opening-hours
+            // gated); the dev panel's Start is the only start control, so the
+            // idle helper follows it. See report: no mulai-available state yet.
+            startOffered={devControlsEnabled && !sessionRunning}
           />
           {sampleRateMsg ? (
             <p role="alert" style={{ color: "#b00020", marginTop: 16 }}>
@@ -401,6 +405,11 @@ export default function CapturePage() {
         lost={deriveLostLine(lastUploadStatus)}
         online={networkOnline}
       />
+      {/* Capture privacy notice (UX-03 §5.10): a muted notice, not a consent
+          gate (CLAUDE.md §7b). One per page, in the page's language, every mode. */}
+      <p data-testid="capture-notice" style={{ marginTop: 24, fontSize: 14, color: "#444" }}>
+        {t(lang, "C-notice-pilot")}
+      </p>
     </main>
   );
 }
