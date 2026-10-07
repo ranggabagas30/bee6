@@ -267,7 +267,8 @@ describe("capture page: the status banner after the planned close (UX-03 decisio
       await renderPage("en");
       await waitFor(() => expect(screen.getByText("Some speech was not captured")).toBeTruthy());
       resolveCapturePhase.mockReturnValue("outside_hours");
-      phaseTicks[0]?.();
+      // The effect can re-run (its router mock is not stable), so the live tick is the last one.
+      phaseTicks[phaseTicks.length - 1]?.();
       await new Promise((resolve) => realSetTimeout(resolve, 50));
       expect(screen.getByText("Ended automatically at 23:00")).toBeTruthy();
       expect(screen.queryByText("Not started")).toBeNull();
