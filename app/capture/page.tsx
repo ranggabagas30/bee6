@@ -19,6 +19,7 @@ import {
 import { idleViewFor } from "@/app/capture/idle-view";
 import { selesaiViewFor } from "@/app/capture/selesai-view";
 import { isDiscardArmed, nextMulaiIsNow, shouldAutoClosePanel } from "@/app/capture/batalkan-panel";
+import { DebriefFlow } from "@/app/capture/debrief/DebriefFlow";
 import { ShopTopBar } from "@/app/shop/ShopTopBar";
 import { useLang } from "@/lib/i18n/context";
 import { t, type DictKey } from "@/lib/i18n/dict";
@@ -44,6 +45,7 @@ import {
   autoStopAtMs,
   businessDateOf,
   localDateOf,
+  mulaiAvailability,
   mulaiWindowDateOf,
   nextOpenDay,
   zonedTimeToEpochMs,
@@ -227,6 +229,38 @@ export default function CapturePage() {
   const idle =
     effectiveConfig && nowMs !== null
       ? idleViewFor({ config: effectiveConfig, nowMs, lang })
+      : null;
+
+  // Debrief entry (R-07, technical spec §8.10): per-device, from this
+  // device's own last-ended record — the phone-local one set the instant
+  // Selesai/the auto-stop succeeds (below), or the config's on load/reload.
+  // A discarded session has no debrief (technical spec §8.9).
+  const debriefEndsAtMs =
+    lastEnded && lastEnded.end_reason !== "discarded" ? lastEnded.debrief_ends_at_ms : null;
+
+  // The same next-Mulai day/time P1's `C-m-debrief` note already carries
+  // (`idleViewFor`'s own `mulaiAvailability` call), computed the same way so
+  // the debrief card and done screen never show a different answer than the
+  // Mulai note underneath.
+  const nextMulaiText =
+    effectiveConfig && nowMs !== null
+      ? (() => {
+          const nextMs = mulaiAvailability({
+            now_ms: nowMs,
+            weekly: effectiveConfig.weekly_hours,
+            tz: effectiveConfig.timezone,
+            session_open: false,
+            last_ended: lastEnded
+              ? { business_date: lastEnded.business_date, debrief_ends_at_ms: lastEnded.debrief_ends_at_ms }
+              : null,
+          }).next_offer_ms;
+          return nextMs === null
+            ? null
+            : {
+                day: dayLabel(localDateOf(nextMs, effectiveConfig.timezone), lang),
+                hm: clockLabel(nextMs, effectiveConfig.timezone),
+              };
+        })()
       : null;
 
   // stopRunningSession reads only refs and stable setState setters, so an
@@ -494,10 +528,31 @@ export default function CapturePage() {
   };
 
   // ── idle view (no session open) ─────────────────────────────────────────────
+  function renderDebriefFlow() {
+    // nowMs is set by the mount-time tick effect before any debrief can
+    // exist (debriefEndsAtMs only comes from a real Selesai/auto-stop, both
+    // of which require config/nowMs already loaded), so the `nowMs === null`
+    // arm is defensive only.
+    if (debriefEndsAtMs === null || nowMs === null || !effectiveConfig) return null;
+    const auth = readDeviceAuth();
+    if (!auth) return null;
+    return (
+      <DebriefFlow
+        key={debriefEndsAtMs}
+        auth={auth}
+        endsAtMs={debriefEndsAtMs}
+        nowMs={nowMs}
+        tz={effectiveConfig.timezone}
+        nextMulaiText={nextMulaiText}
+      />
+    );
+  }
+
   function renderIdle() {
     if (!idle) return null;
     return (
       <>
+        {renderDebriefFlow()}
         <StatusBanner
           state={idle.headline}
           micSource={micSource}

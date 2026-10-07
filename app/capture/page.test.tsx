@@ -466,3 +466,82 @@ describe("CapturePage: no session_id stamping claim ships silently", () => {
     expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);
   });
 });
+
+describe("CapturePage: debrief entry card (R-07, technical spec §8.10)", () => {
+  it("appears synchronously after Selesai is confirmed", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date("2026-10-12T01:00:00Z")); // Mon 08:00 WIB
+    fetchCaptureConfig.mockResolvedValue(
+      config({ sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } }),
+    );
+    await renderReady();
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+    fireEvent.click(screen.getByRole("button", { name: "End" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
+    await waitFor(() => expect(screen.getByText("Debrief running")).toBeTruthy());
+  });
+
+  it("appears synchronously after an auto-stop, including a past-midnight auto-stop at 02:00 with ends 03:00", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date("2026-10-12T01:00:00Z")); // Mon 08:00 WIB
+    // Close at 01:00 (next calendar day): auto-stop = close + 1h = Tue 02:00 WIB.
+    fetchCaptureConfig.mockResolvedValue(
+      config({ sun: null, mon: { open: "08:00", close: "01:00" }, tue: { open: "08:00", close: "22:00" } }),
+    );
+    await renderReady();
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    // Mon 08:00 WIB -> Tue 02:00 WIB is 18h away; one extra tick past it.
+    await vi.advanceTimersByTimeAsync(18 * 60 * 60_000 + 30_000);
+    await waitFor(() => expect(screen.getByText("Ended automatically at 02:00")).toBeTruthy());
+    expect(screen.getByText("Debrief running")).toBeTruthy();
+  });
+
+  it("does not appear after a cancel (Batalkan)", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date("2026-10-12T01:00:00Z")); // Mon 08:00 WIB
+    fetchCaptureConfig.mockResolvedValue(
+      config({ sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } }),
+    );
+    await renderReady();
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
+    await vi.advanceTimersByTimeAsync(1_000);
+    fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
+    await waitFor(() => expect(screen.getByText("Session cancelled")).toBeTruthy());
+    expect(screen.queryByText("Debrief running")).toBeNull();
+  });
+
+  it("on reload at ends - 30 min, shows the card with 30 minutes left", async () => {
+    const now = Date.parse("2026-10-12T10:00:00Z");
+    const endsAtMs = now + 30 * 60_000;
+    pinClock(new Date(now).toISOString());
+    fetchCaptureConfig.mockResolvedValue(
+      config(
+        { sun: null, mon: { open: "08:00", close: "22:00" } },
+        { business_date: "2026-10-12", end_reason: "selesai", debrief_ends_at_ms: endsAtMs },
+      ),
+    );
+    await renderReady();
+    await waitFor(() => expect(screen.getByText("Debrief running")).toBeTruthy());
+    expect(screen.getByText("30 minutes left.")).toBeTruthy();
+  });
+
+  it("on reload at ends + 1 min, shows no card", async () => {
+    const now = Date.parse("2026-10-12T10:00:00Z");
+    const endsAtMs = now - 60_000;
+    pinClock(new Date(now).toISOString());
+    fetchCaptureConfig.mockResolvedValue(
+      config(
+        { sun: null, mon: { open: "08:00", close: "22:00" } },
+        { business_date: "2026-10-12", end_reason: "selesai", debrief_ends_at_ms: endsAtMs },
+      ),
+    );
+    await renderReady();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start" })).toBeTruthy());
+    expect(screen.queryByText("Debrief running")).toBeNull();
+  });
+});
