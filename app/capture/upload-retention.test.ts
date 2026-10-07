@@ -68,6 +68,7 @@ describe("retainEngineStatus (UX-03 §5.7, decision B)", () => {
         status({ droppedCount: 1, lostSinceSuccess: true, lastUploadHttpStatus: 400 }),
         GEN_A,
       ),
+      GEN_B,
     );
     retained = retainEngineStatus(retained, status({ lastUploadHttpStatus: null, lostSinceSuccess: false }), GEN_B);
     expect(retained.status?.lostSinceSuccess).toBe(true);
@@ -88,6 +89,7 @@ describe("retainEngineStatus (UX-03 §5.7, decision B)", () => {
         status({ lostSinceSuccess: true, lastUploadHttpStatus: 400, droppedCount: 1 }),
         GEN_A,
       ),
+      GEN_B,
     );
     retained = retainEngineStatus(retained, status({ lastUploadHttpStatus: 200, lostSinceSuccess: false }), GEN_B);
     retained = retainEngineStatus(
@@ -107,7 +109,7 @@ describe("retainEngineStatus: stale generations (tech-lead ruling 1)", () => {
       status({ droppedCount: 1, lastUploadHttpStatus: 400, lostSinceSuccess: true }),
       GEN_A,
     );
-    retained = beginSessionRetention(retained);
+    retained = beginSessionRetention(retained, GEN_B);
     retained = retainEngineStatus(
       retained,
       status({ lastUploadHttpStatus: 200, lostSinceSuccess: false }),
@@ -133,7 +135,7 @@ describe("retainEngineStatus: stale generations (tech-lead ruling 1)", () => {
       status({ lastUploadHttpStatus: 200, lostSinceSuccess: false }),
       GEN_A,
     );
-    retained = beginSessionRetention(retained);
+    retained = beginSessionRetention(retained, GEN_B);
     retained = retainEngineStatus(
       retained,
       status({ lastUploadHttpStatus: 200, lostSinceSuccess: false, queuedCount: 3 }),
@@ -156,7 +158,7 @@ describe("retainEngineStatus: stale generations (tech-lead ruling 1)", () => {
       status({ lastUploadHttpStatus: 200, lostSinceSuccess: false }),
       GEN_A,
     );
-    retained = beginSessionRetention(retained);
+    retained = beginSessionRetention(retained, GEN_B);
     retained = retainEngineStatus(
       retained,
       status({ droppedCount: 1, lastUploadHttpStatus: 400, lostSinceSuccess: true }),
@@ -181,7 +183,7 @@ describe("retainEngineStatus: stale generations (tech-lead ruling 1)", () => {
       status({ droppedCount: 1, lastUploadHttpStatus: 400, lostSinceSuccess: true }),
       GEN_A,
     );
-    retained = beginSessionRetention(retained);
+    retained = beginSessionRetention(retained, GEN_B);
     retained = retainEngineStatus(retained, status({ lastUploadHttpStatus: 200, lostSinceSuccess: false }), GEN_B);
     retained = retainEngineStatus(
       retained,
@@ -200,15 +202,15 @@ describe("beginSessionRetention (UX-03 §5.7, D2)", () => {
       status({ droppedCount: 1, lastUploadHttpStatus: 400, lostSinceSuccess: true }),
       GEN_A,
     );
-    const started = beginSessionRetention(stopped);
+    const started = beginSessionRetention(stopped, GEN_B);
     expect(started.carryLoss).toBe(true);
     expect(started.status?.lostSinceSuccess).toBe(true);
   });
 
   it("carries nothing when no loss is open", () => {
     const stopped = retainEngineStatus(NO_RETAINED_UPLOAD, status({ lastUploadHttpStatus: 200 }), GEN_A);
-    expect(beginSessionRetention(stopped).carryLoss).toBe(false);
-    expect(beginSessionRetention(NO_RETAINED_UPLOAD).carryLoss).toBe(false);
+    expect(beginSessionRetention(stopped, GEN_B).carryLoss).toBe(false);
+    expect(beginSessionRetention(NO_RETAINED_UPLOAD, GEN_B).carryLoss).toBe(false);
   });
 
   it("the new engine's first status (no loss, no upload yet) does not clear the carried loss", () => {
@@ -218,8 +220,42 @@ describe("beginSessionRetention (UX-03 §5.7, D2)", () => {
         status({ droppedCount: 1, lastUploadHttpStatus: 400, lostSinceSuccess: true }),
         GEN_A,
       ),
+      GEN_B,
     );
     const first = retainEngineStatus(started, status({ lostSinceSuccess: false, lastUploadHttpStatus: null }), GEN_B);
     expect(first.status?.lostSinceSuccess).toBe(true);
+  });
+});
+
+describe("stop then start with no 2xx (defect 5, UX-03 §5.7 decision B)", () => {
+  it("a stopped engine's late 2xx, arriving after the new session started, does not clear the loss", () => {
+    // A drops (lost). The user taps Stop, then Start at once. B has started but
+    // has not reported yet. A's in-flight PUT then answers 2xx: it must not clear
+    // the lost line or the helper, because only a real 2xx from the new session may.
+    let retained = retainEngineStatus(
+      NO_RETAINED_UPLOAD,
+      status({ droppedCount: 1, lastUploadHttpStatus: 400, lostSinceSuccess: true }),
+      GEN_A,
+    );
+    retained = beginSessionRetention(retained, GEN_B);
+    retained = retainEngineStatus(retained, status({ lastUploadHttpStatus: 200, lostSinceSuccess: false }), GEN_A);
+
+    expect(retained.status?.lostSinceSuccess).toBe(true);
+    expect(retained.carryLoss).toBe(true);
+    expect(retained.status?.lastUploadHttpStatus).toBe(400);
+  });
+
+  it("the new session's first report with no upload yet keeps the loss, and only its own 2xx clears it", () => {
+    let retained = retainEngineStatus(
+      NO_RETAINED_UPLOAD,
+      status({ droppedCount: 1, lastUploadHttpStatus: 400, lostSinceSuccess: true }),
+      GEN_A,
+    );
+    retained = beginSessionRetention(retained, GEN_B);
+    retained = retainEngineStatus(retained, status({ lastUploadHttpStatus: 200, lostSinceSuccess: false }), GEN_A);
+    retained = retainEngineStatus(retained, status({ lastUploadHttpStatus: null, lostSinceSuccess: false }), GEN_B);
+    expect(retained.status?.lostSinceSuccess).toBe(true);
+    retained = retainEngineStatus(retained, status({ lastUploadHttpStatus: 200, lostSinceSuccess: false }), GEN_B);
+    expect(retained.status?.lostSinceSuccess).toBe(false);
   });
 });
