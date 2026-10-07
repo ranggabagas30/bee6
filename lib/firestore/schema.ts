@@ -405,8 +405,8 @@ export const ThreadRunnerUpSchema = z
  * Task 3 — and gated — R-05a `evaluateGate`) persisted as its own document.
  * `status` is `applyGateDecision`'s own return type: a fresh/continued
  * thread above threshold is `"fact"`; everything else is `"open"` (a
- * debrief question also exists for it — see `QuestionSchema`) or, once
- * R-06/R-07 wire `expireQuestion`, `"unverified"`. Decision 4: when a later
+ * debrief question also exists for it — see `QuestionSchema`) or, since
+ * R-07 wires `expireAtDebriefEnd`, `"unverified"`. Decision 4: when a later
  * unit continues an existing thread, `confidence` becomes
  * `min(stored, new)` and a stored `"fact"` CAN be downgraded back to
  * `"open"` — never the reverse within this task (a thread that gathers

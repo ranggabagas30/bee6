@@ -1,11 +1,16 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "fs";
 import {
   GateDecisionSchema,
   evaluateGate,
-  expireQuestion,
+  expireAtDebriefEnd,
   applyGateDecision,
 } from "./gate";
 import type { WorkCategory } from "./categories";
+
+const v1Fixture = JSON.parse(
+  readFileSync(new URL("./gate.v1-fixture.json", import.meta.url), "utf8"),
+) as Array<{ input: Parameters<typeof evaluateGate>[0]; output: unknown }>;
 
 describe("gate", () => {
   describe("GateDecisionSchema", () => {
@@ -352,35 +357,6 @@ describe("gate", () => {
     });
   });
 
-  describe("expireQuestion", () => {
-    it("keeps open question status when less than 7 days old", () => {
-      const now_ms = 1000000;
-      const q = { status: "open" as const, created_at_ms: 100000 };
-
-      const result = expireQuestion(q, now_ms);
-
-      expect(result).toBe("open");
-    });
-
-    it("converts to unverified when >= 7 days old", () => {
-      const now_ms = 1000000;
-      const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
-      const q = { status: "open" as const, created_at_ms: now_ms - sevenDaysMs };
-
-      const result = expireQuestion(q, now_ms);
-
-      expect(result).toBe("unverified");
-    });
-
-    it("keeps unverified status", () => {
-      const q = { status: "unverified" as const, created_at_ms: 0 };
-
-      const result = expireQuestion(q, 999999999);
-
-      expect(result).toBe("unverified");
-    });
-  });
-
   describe("applyGateDecision", () => {
     it("sets fact status when decision passes", () => {
       const decision = evaluateGate({
@@ -432,6 +408,214 @@ describe("gate", () => {
       const result = applyGateDecision("open", decision);
 
       expect(result).toBe("fact");
+    });
+  });
+
+  describe("evaluateGate v1 regression (no staff_answer; R-05a grid unchanged)", () => {
+    it("matches the committed v1 fixture byte-for-byte", () => {
+      expect(v1Fixture.length).toBeGreaterThan(0);
+      for (const { input, output } of v1Fixture) {
+        const result = evaluateGate(input);
+        expect(result).toStrictEqual(output);
+        expect("question_id" in result).toBe(false);
+        expect("model_category" in result).toBe(false);
+      }
+    });
+  });
+
+  describe("evaluateGate v2 (staff_answer)", () => {
+    it("1. low-confidence CUSTOMER_SERVICE + a matching confirm -> fact, staff_confirmed, below_threshold waived", () => {
+      const result = evaluateGate({
+        category: "CUSTOMER_SERVICE",
+        confidence: 0.3,
+        evidence_line_ids: ["a", "b"],
+        label_conflict: false,
+        staff_answer: { question_id: "q1", chosen_category: "CUSTOMER_SERVICE" },
+      });
+      expect(result.verdict).toBe("fact");
+      expect(result.fired_rule).toBe("staff_confirmed");
+      expect(result.gate_version).toBe("2");
+      const below = result.checks.find((c) => c.rule === "below_threshold");
+      expect(below).toEqual({ rule: "below_threshold", passed: false, waived: true });
+      const staffConfirmed = result.checks.find((c) => c.rule === "staff_confirmed");
+      expect(staffConfirmed).toEqual({ rule: "staff_confirmed", passed: true });
+    });
+
+    it("2. COMPLAINT + a matching confirm -> question, needs_supervisor_confirm", () => {
+      const result = evaluateGate({
+        category: "COMPLAINT",
+        confidence: 0.95,
+        evidence_line_ids: ["a"],
+        label_conflict: false,
+        staff_answer: { question_id: "q1", chosen_category: "COMPLAINT" },
+      });
+      expect(result.verdict).toBe("question");
+      expect(result.fired_rule).toBe("needs_supervisor_confirm");
+      expect(result.gate_version).toBe("2");
+      expect(result.checks.find((c) => c.rule === "staff_confirmed")).toEqual({
+        rule: "staff_confirmed",
+        passed: false,
+      });
+    });
+
+    it("3. 0 evidence + a confirm -> question, no_evidence", () => {
+      const result = evaluateGate({
+        category: "ROUTINE_OPS",
+        confidence: 0.95,
+        evidence_line_ids: [],
+        label_conflict: false,
+        staff_answer: { question_id: "q1", chosen_category: "ROUTINE_OPS" },
+      });
+      expect(result.verdict).toBe("question");
+      expect(result.fired_rule).toBe("no_evidence");
+    });
+
+    it("4. PHONE_CALL + a matching confirm -> fact (always_question waived)", () => {
+      const result = evaluateGate({
+        category: "PHONE_CALL",
+        confidence: 0.95,
+        evidence_line_ids: ["a"],
+        label_conflict: false,
+        staff_answer: { question_id: "q1", chosen_category: "PHONE_CALL" },
+      });
+      expect(result.verdict).toBe("fact");
+      expect(result.fired_rule).toBe("staff_confirmed");
+      const always = result.checks.find((c) => c.rule === "always_question");
+      expect(always).toEqual({ rule: "always_question", passed: false, waived: true });
+    });
+
+    it("5. label_conflict true + a confirm -> fact (waived)", () => {
+      const result = evaluateGate({
+        category: "ROUTINE_OPS",
+        confidence: 0.95,
+        evidence_line_ids: ["a"],
+        label_conflict: true,
+        staff_answer: { question_id: "q1", chosen_category: "ROUTINE_OPS" },
+      });
+      expect(result.verdict).toBe("fact");
+      expect(result.fired_rule).toBe("staff_confirmed");
+      const conflict = result.checks.find((c) => c.rule === "label_conflict");
+      expect(conflict).toEqual({ rule: "label_conflict", passed: false, waived: true });
+    });
+
+    it("6. chosen_category null -> staff_rejected, verdict question", () => {
+      const result = evaluateGate({
+        category: "ROUTINE_OPS",
+        confidence: 0.95,
+        evidence_line_ids: ["a"],
+        label_conflict: false,
+        staff_answer: { question_id: "q1", chosen_category: null },
+      });
+      expect(result.verdict).toBe("question");
+      expect(result.fired_rule).toBe("staff_rejected");
+      expect(result.gate_version).toBe("2");
+      expect(result.category).toBe("ROUTINE_OPS");
+      expect(result.model_category).toBe("ROUTINE_OPS");
+      expect(result.question_id).toBe("q1");
+      expect(result.checks[0]).toEqual({ rule: "staff_rejected", passed: false });
+      expect(result.checks.some((c) => c.rule === "passed")).toBe(false);
+    });
+
+    it("6b. chosen_category null holds even on a COMPLAINT thread with 0 evidence", () => {
+      const result = evaluateGate({
+        category: "COMPLAINT",
+        confidence: 0.1,
+        evidence_line_ids: [],
+        label_conflict: false,
+        staff_answer: { question_id: "q1", chosen_category: null },
+      });
+      expect(result.verdict).toBe("question");
+      expect(result.fired_rule).toBe("staff_rejected");
+    });
+
+    it("7. NaN confidence + a confirm -> invalid_label", () => {
+      const result = evaluateGate({
+        category: "ROUTINE_OPS",
+        confidence: NaN,
+        evidence_line_ids: ["a"],
+        label_conflict: false,
+        staff_answer: { question_id: "q1", chosen_category: "ROUTINE_OPS" },
+      });
+      expect(result.verdict).toBe("question");
+      expect(result.fired_rule).toBe("invalid_label");
+    });
+
+    it("precedence: invalid_label beats needs_supervisor_confirm and no_evidence", () => {
+      const result = evaluateGate({
+        category: "COMPLAINT",
+        confidence: NaN,
+        evidence_line_ids: [],
+        label_conflict: false,
+        staff_answer: { question_id: "q1", chosen_category: "COMPLAINT" },
+      });
+      expect(result.fired_rule).toBe("invalid_label");
+    });
+
+    it("precedence: needs_supervisor_confirm beats no_evidence", () => {
+      const result = evaluateGate({
+        category: "COMPLAINT",
+        confidence: 0.95,
+        evidence_line_ids: [],
+        label_conflict: false,
+        staff_answer: { question_id: "q1", chosen_category: "COMPLAINT" },
+      });
+      expect(result.fired_rule).toBe("needs_supervisor_confirm");
+    });
+  });
+
+  describe("expireAtDebriefEnd", () => {
+    const H = 3600_000;
+
+    it("open, created before E, now >= E -> unverified with expired_by_debrief_end_ms = E", () => {
+      const result = expireAtDebriefEnd(
+        { status: "open", created_at_ms: 1 * H },
+        2 * H + 10 * 60_000, // 02:10
+        2 * H + 10 * 60_000,
+      );
+      expect(result).toEqual({ status: "unverified", expired_by_debrief_end_ms: 2 * H + 10 * 60_000 });
+    });
+
+    it("created after E -> null (no change)", () => {
+      const E = 2 * H + 10 * 60_000;
+      const result = expireAtDebriefEnd(
+        { status: "open", created_at_ms: 2 * H + 20 * 60_000 },
+        E,
+        E,
+      );
+      expect(result).toBeNull();
+    });
+
+    it("E null (off or cancelled day) -> null", () => {
+      const result = expireAtDebriefEnd({ status: "open", created_at_ms: 0 }, null, 10 * H);
+      expect(result).toBeNull();
+    });
+
+    it("answered yes -> null (never touched)", () => {
+      const result = expireAtDebriefEnd({ status: "answered", created_at_ms: 0 }, 1 * H, 10 * H);
+      expect(result).toBeNull();
+    });
+
+    it("unverified -> null (already terminal)", () => {
+      const result = expireAtDebriefEnd({ status: "unverified", created_at_ms: 0 }, 1 * H, 10 * H);
+      expect(result).toBeNull();
+    });
+
+    it("created 30 days ago, E null -> null (no age rule exists)", () => {
+      const thirtyDaysMs = 30 * 24 * H;
+      const result = expireAtDebriefEnd({ status: "open", created_at_ms: -thirtyDaysMs }, null, 0);
+      expect(result).toBeNull();
+    });
+
+    it("now < E -> null (not yet time)", () => {
+      const E = 5 * H;
+      const result = expireAtDebriefEnd({ status: "open", created_at_ms: 0 }, E, E - 1);
+      expect(result).toBeNull();
+    });
+
+    it("created exactly at E, now exactly at E -> unverified (boundary inclusive both sides)", () => {
+      const E = 5 * H;
+      const result = expireAtDebriefEnd({ status: "open", created_at_ms: E }, E, E);
+      expect(result).toEqual({ status: "unverified", expired_by_debrief_end_ms: E });
     });
   });
 });
