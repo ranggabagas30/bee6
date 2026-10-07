@@ -16,6 +16,7 @@ import {
   retainEngineStatus,
   type RetainedUpload,
 } from "@/app/capture/upload-retention";
+import { offHoursBanner } from "@/app/capture/off-hours-banner";
 import { ShopTopBar } from "@/app/shop/ShopTopBar";
 import { useLang } from "@/lib/i18n/context";
 import { t } from "@/lib/i18n/dict";
@@ -98,6 +99,12 @@ export default function CapturePage() {
   const [view, setView] = useState<View>("loading");
   const [config, setConfig] = useState<CaptureConfigResponse | null>(null);
   const [hours, setHours] = useState<{ from: string; to: string; tz: string } | null>(null);
+  // Clock of the last phase check outside hours, so the banner's day and times
+  // follow the same tick as the hours line. Null until the first check.
+  const [clockMs, setClockMs] = useState<number | null>(null);
+  // Business date on which this page saw a live session stop at the planned close
+  // (UX-03 decision 7 Oct: "Ended automatically", never "Not started", that day).
+  const [autoStoppedOn, setAutoStoppedOn] = useState<string | null>(null);
   // Engine status from the running session only. Null until the first report
   // and reset on stop, so nothing from a previous session is ever shown.
   const [status, setStatus] = useState<CaptureStatus | null>(null);
@@ -163,6 +170,7 @@ export default function CapturePage() {
       const phase = resolveCapturePhase(loadedConfig, now);
       if (phase === "outside_hours" && !cancelled) {
         setHours(hoursToShow(loadedConfig, now));
+        setClockMs(now.getTime());
       }
 
       if (devControlsEnabled) {
@@ -184,6 +192,7 @@ export default function CapturePage() {
           if (!cancelled) {
             setSessionRunning(false);
             setStatus(null);
+            setAutoStoppedOn(businessDateOf(now.getTime(), loadedConfig.timezone));
           }
           void session.stop();
         }
@@ -320,6 +329,13 @@ export default function CapturePage() {
     void session.stop();
   };
 
+  // The status banner outside hours (UX-03 decision 7 Oct). Dev mode already renders
+  // the banner in its own block, so it is not doubled here.
+  const offHours =
+    view === "outside_hours" && !devControlsEnabled && config && clockMs !== null
+      ? offHoursBanner({ config, nowMs: clockMs, autoStoppedOn, lang })
+      : null;
+
   return (
     <main style={PAGE_STYLE}>
       <ShopTopBar />
@@ -354,6 +370,15 @@ export default function CapturePage() {
             })}
           </p>
         </section>
+      ) : null}
+
+      {offHours ? (
+        <StatusBanner
+          state={offHours.state}
+          micSource={micSource}
+          note={offHours.state === "idle" ? offHours.note : null}
+          endedAt={offHours.state === "ended_auto" ? offHours.endedAt : undefined}
+        />
       ) : null}
 
       {view === "unsupported" ? (
