@@ -57,8 +57,9 @@ describe("deriveUploadView (pure, language-free)", () => {
   });
 
   it("reads the lost flag, false when absent", () => {
-    expect(deriveLostLine({ lostSinceSuccess: true })).toBe(true);
-    expect(deriveLostLine({})).toBe(false);
+    const base = { state: "listening" as const, queuedCount: 0, lastUploadHttpStatus: 200 };
+    expect(deriveLostLine({ ...base, lostSinceSuccess: true })).toBe(true);
+    expect(deriveLostLine({ ...base })).toBe(false);
     expect(deriveLostLine(null)).toBe(false);
   });
 });
