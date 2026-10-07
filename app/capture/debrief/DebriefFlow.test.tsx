@@ -1,0 +1,360 @@
+// @vitest-environment jsdom
+import { useState } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { DebriefFlow } from "@/app/capture/debrief/DebriefFlow";
+import { LangProvider, useLang } from "@/lib/i18n/context";
+import { ANSWER_CACHE_KEY } from "@/lib/debrief/answer-cache";
+
+/**
+ * DebriefFlow container (R-07 Task 7.5): owns the reducer, the GET-on-OPEN
+ * fetch, the phone answer cache and the exact Lanjut commit order. Mocked
+ * fetch + a Map-backed storage fake so every rule is proven without a real
+ * server or browser (technical spec section 8.10/8.11).
+ *
+ * `Date` is frozen every test (fake timers, Date only — real `setInterval`
+ * still fires). Without this, DebriefFlow's own 1s "while a question is on
+ * screen" tick reads the real wall clock, which instantly dwarfs any small
+ * test `endsAtMs` and times every scenario out before it can run.
+ */
+
+const HOUR_MS = 60 * 60_000;
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-07T00:00:00Z"));
+});
+
+type Call =
+  | { op: "setItem"; key: string; value: string }
+  | { op: "getItem"; key: string }
+  | { op: "removeItem"; key: string };
+
+class FakeStorage implements Storage {
+  private map = new Map<string, string>();
+  calls: Call[] = [];
+  setItemShouldThrow = false;
+  [name: string]: unknown;
+
+  get length(): number {
+    return this.map.size;
+  }
+  clear(): void {
+    this.map.clear();
+  }
+  key(index: number): string | null {
+    return Array.from(this.map.keys())[index] ?? null;
+  }
+  getItem(key: string): string | null {
+    this.calls.push({ op: "getItem", key });
+    return this.map.get(key) ?? null;
+  }
+  setItem(key: string, value: string): void {
+    this.calls.push({ op: "setItem", key, value });
+    if (this.setItemShouldThrow) throw new Error("quota exceeded");
+    this.map.set(key, value);
+  }
+  removeItem(key: string): void {
+    this.calls.push({ op: "removeItem", key });
+    this.map.delete(key);
+  }
+}
+
+const AUTH = { deviceToken: "t", deviceId: "d1" };
+
+function q(id: string, overrides: Record<string, unknown> = {}) {
+  return { question_id: id, kind: "gate", category: "ROUTINE_OPS", start_hm: "15:00", end_hm: "15:10", ...overrides };
+}
+
+function listResponse(questions: unknown[], business_date = "2026-10-07", ends_at_ms = 10_000) {
+  return { data: { debrief: { business_date, ends_at_ms }, questions } };
+}
+
+/** A fetch mock routed by method + path: GET list, POST answer. */
+function makeFetch(opts: {
+  list: () => { status: number; body?: unknown };
+  answer?: (id: string) => { status: number } | "network";
+}) {
+  const calls: Array<{ url: string; method: string }> = [];
+  const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = init?.method ?? "GET";
+    calls.push({ url, method });
+    if (url === "/api/v1/questions" && method === "GET") {
+      const { status, body } = opts.list();
+      return {
+        ok: status >= 200 && status < 300,
+        status,
+        json: async () => body ?? {},
+      } as Response;
+    }
+    const match = /\/api\/v1\/questions\/([^/]+)\/answer$/.exec(url);
+    if (match && method === "POST" && opts.answer) {
+      const outcome = opts.answer(decodeURIComponent(match[1] as string));
+      if (outcome === "network") throw new Error("network down");
+      return { ok: outcome.status >= 200 && outcome.status < 300, status: outcome.status, json: async () => ({}) } as Response;
+    }
+    throw new Error(`unexpected fetch ${method} ${url}`);
+  });
+  return { fn, calls };
+}
+
+function Harness({
+  fetchFn,
+  storage,
+  endsAtMs,
+  nowMs,
+}: {
+  fetchFn: typeof fetch;
+  storage: Storage;
+  endsAtMs?: number;
+  nowMs?: number;
+}) {
+  // Date is frozen per-test (see the file-level beforeEach), so these
+  // Date.now()-relative defaults are stable across this render and every
+  // re-render — a realistic future epoch, never a tiny relative number.
+  const resolvedEndsAtMs = endsAtMs ?? Date.now() + HOUR_MS;
+  const [now, setNow] = useState(nowMs ?? Date.now());
+  return (
+    <LangProvider initial="en">
+      <button type="button" data-testid="advance-now" onClick={() => setNow(resolvedEndsAtMs)}>
+        advance
+      </button>
+      <DebriefFlow
+        auth={AUTH}
+        endsAtMs={resolvedEndsAtMs}
+        nowMs={now}
+        tz="Asia/Jakarta"
+        nextMulaiText={null}
+        fetchFn={fetchFn}
+        storage={storage}
+      />
+    </LangProvider>
+  );
+}
+
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
+
+async function openCard() {
+  fireEvent.click(screen.getByRole("button", { name: "Answer questions" }));
+  await waitFor(() => expect(screen.queryByText("Loading questions…")).toBeNull());
+}
+
+describe("DebriefFlow: list loading", () => {
+  it("renders the load_error view with retry when debrief is null", async () => {
+    const fn = vi.fn(
+      async () =>
+        ({ ok: true, status: 200, json: async () => ({ data: { debrief: null, questions: [] } }) }) as Response,
+    );
+    const storage = new FakeStorage();
+    render(<Harness fetchFn={fn} storage={storage} />);
+    await openCard();
+    expect(screen.getByText("Questions could not load yet.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(fn).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe("DebriefFlow: Lewati never writes or sends", () => {
+  it("choose Ya, type, Lewati: no setItem, only the GET fetch happened", async () => {
+    const { fn, calls } = makeFetch({ list: () => ({ status: 200, body: listResponse([q("q1"), q("q2")]) }) });
+    const storage = new FakeStorage();
+    render(<Harness fetchFn={fn} storage={storage} />);
+    await openCard();
+    fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "sudah dicek" } });
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    await waitFor(() => expect(screen.getByText("Question 2 of 2")).toBeTruthy());
+    expect(storage.calls.filter((c) => c.op === "setItem")).toHaveLength(0);
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
+  });
+});
+
+describe("DebriefFlow: Lanjut commit order and persistence", () => {
+  it("writes the cache before the POST fetch (call order)", async () => {
+    const order: string[] = [];
+    const { fn } = makeFetch({
+      list: () => ({ status: 200, body: listResponse([q("q1")]) }),
+      answer: () => ({ status: 200 }),
+    });
+    const storage = new FakeStorage();
+    const originalSetItem = storage.setItem.bind(storage);
+    storage.setItem = (key, value) => {
+      order.push("setItem");
+      originalSetItem(key, value);
+    };
+    const wrappedFetch = vi.fn((url: string, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "POST") order.push("fetch:POST");
+      return fn(url, init);
+    }) as unknown as typeof fetch;
+
+    render(<Harness fetchFn={wrappedFetch} storage={storage} />);
+    await openCard();
+    fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "sudah" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(order).toContain("fetch:POST"));
+    expect(order.indexOf("setItem")).toBeLessThan(order.indexOf("fetch:POST"));
+  });
+
+  it("a successful answer reaches the done screen with no stats for a single fully-answered question", async () => {
+    const { fn } = makeFetch({
+      list: () => ({ status: 200, body: listResponse([q("q1")]) }),
+      answer: () => ({ status: 200 }),
+    });
+    const storage = new FakeStorage();
+    render(<Harness fetchFn={fn} storage={storage} />);
+    await openCard();
+    fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "sudah" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(screen.getByText("Debrief complete. Thank you.")).toBeTruthy());
+  });
+
+  it("setItem throwing shows C-d-save-fail, keeps the typed text, and never calls fetch for the answer", async () => {
+    const { fn, calls } = makeFetch({ list: () => ({ status: 200, body: listResponse([q("q1")]) }) });
+    const storage = new FakeStorage();
+    render(<Harness fetchFn={fn} storage={storage} />);
+    await openCard();
+    storage.setItemShouldThrow = true;
+    fireEvent.click(screen.getByRole("radio", { name: "No" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "lupa restock" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("lupa restock");
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
+  });
+
+  it("the typed reason never appears in any storage write except the answer cache entry", async () => {
+    const { fn } = makeFetch({
+      list: () => ({ status: 200, body: listResponse([q("q1")]) }),
+      answer: () => ({ status: 200 }),
+    });
+    const storage = new FakeStorage();
+    render(<Harness fetchFn={fn} storage={storage} />);
+    await openCard();
+    fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "rahasia dapur" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(screen.getByText("Debrief complete. Thank you.")).toBeTruthy());
+    for (const call of storage.calls) {
+      if (call.op !== "setItem") continue;
+      if (call.value.includes("rahasia dapur")) {
+        expect(call.key).toBe(ANSWER_CACHE_KEY);
+      }
+    }
+  });
+});
+
+describe("DebriefFlow: timeout", () => {
+  it("timing out mid-question shows C-d-timeout and caches nothing typed", async () => {
+    const endsAtMs = Date.now() + 5_000;
+    const { fn } = makeFetch({ list: () => ({ status: 200, body: listResponse([q("q1")], "2026-10-07", endsAtMs) }) });
+    const storage = new FakeStorage();
+    render(<Harness fetchFn={fn} storage={storage} endsAtMs={endsAtMs} nowMs={Date.now()} />);
+    await openCard();
+    fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "sedang diketik" } });
+    fireEvent.click(screen.getByTestId("advance-now"));
+    await waitFor(() => expect(screen.getByText(/The debrief time ran out/)).toBeTruthy());
+    expect(storage.calls.filter((c) => c.op === "setItem")).toHaveLength(0);
+  });
+
+  it("tapping Lanjut after the clock has already passed ends_at_ms times out instead of committing", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(0));
+    const { fn } = makeFetch({ list: () => ({ status: 200, body: listResponse([q("q1")], "2026-10-07", 1_000) }) });
+    const storage = new FakeStorage();
+    render(<Harness fetchFn={fn} storage={storage} endsAtMs={1_000} nowMs={0} />);
+    await openCard();
+    fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "sudah" } });
+    vi.setSystemTime(new Date(2_000));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(screen.getByText(/The debrief time ran out/)).toBeTruthy());
+    expect(storage.calls.filter((c) => c.op === "setItem")).toHaveLength(0);
+  });
+});
+
+describe("DebriefFlow: reopening inside the hour", () => {
+  it("a skipped question shows again, fresh (no choice, no reason)", async () => {
+    const { fn } = makeFetch({ list: () => ({ status: 200, body: listResponse([q("q1")]) }) });
+    const storage = new FakeStorage();
+    render(<Harness fetchFn={fn} storage={storage} />);
+    await openCard();
+    fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "sudah" } });
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    await waitFor(() => expect(screen.getByText("Debrief complete. Thank you.")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await openCard();
+    const radios = screen.getAllByRole("radio");
+    for (const radio of radios) expect(radio.getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("a cached (uploaded but not yet acked) answer is filtered out of the reopened list", async () => {
+    const { fn } = makeFetch({
+      list: () => ({ status: 200, body: listResponse([q("q1"), q("q2")]) }),
+      answer: () => "network",
+    });
+    const storage = new FakeStorage();
+    render(<Harness fetchFn={fn} storage={storage} />);
+    await openCard();
+    fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "sudah" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    // Still the same fixed two-item list this debrief loaded; filtering only
+    // happens once, at LOADED, not on every question transition.
+    await waitFor(() => expect(screen.getByText("Question 2 of 2")).toBeTruthy());
+    fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "sudah juga" } });
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    await waitFor(() => expect(screen.getByText("Debrief complete. Thank you.")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await openCard();
+    // q1's cached (unsent) answer is filtered; only q2 (skipped, never cached) reappears.
+    expect(screen.getByText("Question 1 of 1")).toBeTruthy();
+  });
+});
+
+function LangSwitchButton() {
+  const { setLang } = useLang();
+  return (
+    <button type="button" onClick={() => setLang("id")} data-testid="switch-lang">
+      switch
+    </button>
+  );
+}
+
+describe("DebriefFlow: language toggle mid-question", () => {
+  it("keeps the choice and reason when the language actually changes", async () => {
+    const { fn } = makeFetch({ list: () => ({ status: 200, body: listResponse([q("q1")]) }) });
+    const storage = new FakeStorage();
+
+    render(
+      <LangProvider initial="en">
+        <LangSwitchButton />
+        <DebriefFlow
+          auth={AUTH}
+          endsAtMs={60 * 60_000}
+          nowMs={0}
+          tz="Asia/Jakarta"
+          nextMulaiText={null}
+          fetchFn={fn}
+          storage={storage}
+        />
+      </LangProvider>,
+    );
+    await openCard();
+    fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "masih sama" } });
+    fireEvent.click(screen.getByTestId("switch-lang"));
+    // The label is now Bahasa ("Ya"), but the choice and the typed text survive.
+    await waitFor(() => expect(screen.getByRole("radio", { name: "Ya" })).toBeTruthy());
+    expect(screen.getByRole("radio", { name: "Ya" }).getAttribute("aria-checked")).toBe("true");
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("masih sama");
+  });
+});
