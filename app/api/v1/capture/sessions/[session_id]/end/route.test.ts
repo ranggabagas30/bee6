@@ -91,6 +91,13 @@ describe("POST /api/v1/capture/sessions/{session_id}/end", () => {
     expect((await send({ ...endBody, device_id: "x" })).status).toBe(422);
   });
 
+  it("400 for a body that is not JSON, with nothing written", async () => {
+    const sessions = wire();
+    const before = JSON.stringify(sessions.state);
+    expect((await send("{not json")).status).toBe(400);
+    expect(JSON.stringify(sessions.state)).toBe(before);
+  });
+
   it("200 { data: { ok: true } } and writes the end; a repeat end is unchanged", async () => {
     const sessions = wire();
     const { request, ctx } = req(endBody);

@@ -104,6 +104,13 @@ describe("POST /api/v1/capture/sessions/{session_id}/discard", () => {
     expect((await send(old)).status).toBe(422);
   });
 
+  it("400 for a body that is not JSON, with nothing written", async () => {
+    const sessions = wire("device", openSession);
+    const before = JSON.stringify(sessions.state);
+    expect((await send("{not json")).status).toBe(400);
+    expect(JSON.stringify(sessions.state)).toBe(before);
+  });
+
   it("202 { data: { ok: true, cleanup: 'pending' } } while Cancel-B cleanup has not run", async () => {
     const sessions = wire("device", openSession);
     const { request, ctx } = req(discardBody);
