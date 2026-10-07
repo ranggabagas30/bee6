@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { CaptureEvent, LoggedCaptureEvent } from "@/lib/capture/browser/event-log";
+import type { CaptureMode } from "@/lib/devices/capture-mode";
 
 /**
  * DEV-01: `/capture` developer-mode panel. Only ever mounted when
@@ -78,6 +79,42 @@ export interface DevPanelProps {
   onStop: () => void;
   /** Last up-to-200 pipeline events (oldest-dropped ring buffer), oldest-first. */
   events: readonly LoggedCaptureEvent[];
+
+  // R-07 Task 8 readouts — every one of these is a new OPTIONAL prop with a
+  // safe "not shown" default, so a page that hasn't been updated to pass
+  // them (the current pre-P1 page.tsx) renders exactly as it did before.
+  // None of these ever exposes a reason string, a raw/full device id, or a
+  // staff name (hard rules #2/#3/#7) — only a count, an age in minutes, a
+  // fixed-enum mode label, and a short id the caller already truncated.
+  /** `pendingSummary(readCache(localStorage)).count`. Omitted hides the whole readout block. */
+  answerCacheCount?: number;
+  /** Minutes since the oldest cached answer was written; `null` when nothing is cached. */
+  oldestPendingAgeMinutes?: number | null;
+  /** Wired by the caller to `purgeNow(localStorage, Date.now())` then a re-read. Omitted hides the button. */
+  onPurgeNow?: () => void;
+  /** `captureMode(pairedDeviceCount)` — display-only. */
+  captureMode?: CaptureMode;
+  /** This device's id, already truncated by the caller (first 6 chars) — DevPanel never sees the rest of it. */
+  deviceIdShort?: string;
+}
+
+const READOUTS_STYLE: React.CSSProperties = {
+  marginTop: 8,
+  paddingTop: 8,
+  borderTop: "1px dashed #7a4fff",
+  display: "flex",
+  flexDirection: "column",
+  gap: 4,
+};
+
+function hasAnyReadout(props: DevPanelProps): boolean {
+  return (
+    props.answerCacheCount !== undefined ||
+    props.oldestPendingAgeMinutes !== undefined ||
+    props.onPurgeNow !== undefined ||
+    props.captureMode !== undefined ||
+    props.deviceIdShort !== undefined
+  );
 }
 
 const LOG_LIST_STYLE: React.CSSProperties = {
@@ -92,7 +129,18 @@ const LOG_LIST_STYLE: React.CSSProperties = {
   overflowWrap: "anywhere",
 };
 
-export function DevPanel({ onStart, onPause, onStop, events }: DevPanelProps) {
+export function DevPanel(props: DevPanelProps) {
+  const {
+    onStart,
+    onPause,
+    onStop,
+    events,
+    answerCacheCount,
+    oldestPendingAgeMinutes,
+    onPurgeNow,
+    captureMode,
+    deviceIdShort,
+  } = props;
   // "Now" for the relative-time column, ticking once a second — read from
   // state (updated in an effect), never from Date.now() during render, so
   // the component body stays a pure function of its props/state.
@@ -127,6 +175,25 @@ export function DevPanel({ onStart, onPause, onStop, events }: DevPanelProps) {
           <li key={`${logged.ts}-${i}`}>{formatLine(logged, now)}</li>
         ))}
       </ul>
+      {hasAnyReadout(props) && (
+        <div data-testid="dev-readouts" style={READOUTS_STYLE}>
+          {answerCacheCount !== undefined && (
+            <span>
+              Answer cache: {answerCacheCount} pending
+              {oldestPendingAgeMinutes !== undefined && oldestPendingAgeMinutes !== null
+                ? ` (oldest ${oldestPendingAgeMinutes} min)`
+                : ""}
+            </span>
+          )}
+          {onPurgeNow && (
+            <button type="button" style={BUTTON_STYLE} onClick={onPurgeNow}>
+              Purge now
+            </button>
+          )}
+          {captureMode !== undefined && <span>Mode: {captureMode}</span>}
+          {deviceIdShort !== undefined && <span>Device: {deviceIdShort}</span>}
+        </div>
+      )}
     </section>
   );
 }
