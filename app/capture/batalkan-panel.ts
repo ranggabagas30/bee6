@@ -1,3 +1,5 @@
+import { addDays, zonedTimeToEpochMs } from "@/lib/capture/calendar";
+
 /**
  * Batalkan (cancel) panel timing (UX-03 §5.6, technical spec §8.1). Pure
  * predicates over `openedAtMs`/`nowMs`, so the 1s arm delay and the 15s
@@ -17,4 +19,16 @@ export function isDiscardArmed(openedAtMs: number, nowMs: number): boolean {
 
 export function shouldAutoClosePanel(openedAtMs: number, nowMs: number): boolean {
   return nowMs - openedAtMs >= DISCARD_PANEL_TIMEOUT_MS;
+}
+
+/**
+ * Whether the cancel panel should say Mulai is available "straight away"
+ * (C-c-cancel-b-now) instead of "{date} at 01:00" (C-c-cancel-b). True once
+ * the next business day's Mulai window has already opened — the closing-hour
+ * cancel case (worked example, technical spec §8.3): a cancel at Thu 01:30
+ * offers Thursday's Mulai at once, because Thu's window is already open.
+ */
+export function nextMulaiIsNow(sessionLocalDate: string, nowMs: number, tz: string): boolean {
+  const nextWindowStart = zonedTimeToEpochMs(addDays(sessionLocalDate, 1), "01:00", tz);
+  return nowMs >= nextWindowStart;
 }

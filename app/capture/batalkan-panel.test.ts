@@ -3,6 +3,7 @@ import {
   DISCARD_ARM_MS,
   DISCARD_PANEL_TIMEOUT_MS,
   isDiscardArmed,
+  nextMulaiIsNow,
   shouldAutoClosePanel,
 } from "@/app/capture/batalkan-panel";
 
@@ -28,5 +29,18 @@ describe("Batalkan panel timing (UX-03 §5.6, technical spec §8.1)", () => {
   it("the constants match the spec (§8.1)", () => {
     expect(DISCARD_ARM_MS).toBe(1_000);
     expect(DISCARD_PANEL_TIMEOUT_MS).toBe(15_000);
+  });
+});
+
+describe("nextMulaiIsNow: whether the cancel panel says 'straight away' (UX-03 §5.6)", () => {
+  it("false while before 01:00 on the day after the session's business date", () => {
+    // Session business date Mon 2026-10-12; next Mulai window opens Tue 01:00 WIB.
+    const beforeMs = Date.UTC(2026, 9, 12, 16, 30); // Mon 23:30 WIB
+    expect(nextMulaiIsNow("2026-10-12", beforeMs, "Asia/Jakarta")).toBe(false);
+  });
+
+  it("true at and after 01:00 the next day (the closing-hour cancel case)", () => {
+    const atMs = Date.UTC(2026, 9, 12, 18, 0); // Tue 01:00 WIB
+    expect(nextMulaiIsNow("2026-10-12", atMs, "Asia/Jakarta")).toBe(true);
   });
 });
