@@ -103,6 +103,71 @@ export const ID = {
   // UI/UX sign-off.
   "C-sess-err": "Tidak bisa memproses itu. Coba lagi.",
   "C-c-discard-failed": "Sesi ini sudah berakhir. Muat ulang halaman.",
+
+  // Debrief (R-07, UX-03 section 6, 5.8). Shared buttons first, then the
+  // entry card, question screen, done screen and timeout, in screen order.
+  "C-b-kembali": "Kembali",
+  "C-b-lewati": "Lewati",
+  "C-b-lanjut": "Lanjut",
+  "C-b-coba": "Coba lagi",
+
+  "C-d-entry-h": "Debrief berjalan",
+  "C-d-entry-left": "Sisa {mm} menit.",
+  "C-d-entry-n": "{N} pertanyaan.",
+  "C-d-btn": "Jawab pertanyaan",
+  "C-d-takes": "Butuh sekitar 5 menit.",
+  "C-d-next": "Mulai bisa ditekan lagi {day} pukul {hm}.",
+
+  "C-d-load": "Memuat pertanyaan…",
+  "C-d-load-2": "Biasanya beberapa detik.",
+  "C-d-err": "Pertanyaan belum bisa dimuat.",
+  "C-d-err-2": "Cek koneksi, lalu coba lagi.",
+  "C-d-empty-h": "Tidak ada pertanyaan hari ini.",
+  "C-d-empty-h-2": "Terima kasih.",
+
+  "C-d-prog": "Pertanyaan {N} dari {M}",
+  "C-d-q-step": "Sekitar pukul {hm} ada {step}. Benar?",
+  "C-d-q-block": "Sekitar pukul {hm}–{hm_end} ada kegiatan kerja. Benar?",
+  // ID is one line (the EN template is two); the question screen skips an
+  // empty line, so this is deliberately "" (dict.test.ts allows only this key).
+  "C-d-q-block-2": "",
+  "C-d-yes": "Ya",
+  "C-d-no": "Tidak",
+  "C-d-r-yes": "Sudah sesuai SOP? Kalau belum, kenapa?",
+  "C-d-r-yes-2": "Wajib diisi, tanpa nama.",
+  "C-d-r-no": "Kenapa tidak? Ceritakan singkat.",
+  "C-d-r-no-2": "Wajib diisi, tanpa nama.",
+  "C-d-count": "{N}/500",
+  "C-d-count-warn": "{N}/500 · {M} lagi",
+  "C-d-over": "Terlalu panjang. Kurangi {N} karakter.",
+  "C-d-help-dis": "Pilih Ya atau Tidak, lalu isi alasan.",
+  "C-d-locked": "Jawaban yang sudah Lanjut tidak bisa diubah.",
+
+  "C-d-save-fail": "Jawaban belum tersimpan di HP ini.",
+  "C-d-save-fail-2": "HP tidak bisa menyimpan. Teks kamu masih ada.",
+  "C-d-save-fail-3": "Coba Lanjut lagi.",
+  "C-d-refused": "Belum terkirim. Akan dicoba lagi otomatis.",
+  "C-d-refused-2": "Jawaban tetap tersimpan di HP ini.",
+  "C-d-offline": "Tersimpan di HP. Akan dikirim saat online.",
+
+  "C-d-done-h": "Debrief selesai. Terima kasih.",
+  "C-d-done-l": "Jawabanmu sudah tersimpan.",
+  "C-d-done-unsent": "Masih ada {N} jawaban belum terkirim.",
+  "C-d-done-unsent-2": "Akan dikirim saat online.",
+  "C-d-done-skip": "{N} pertanyaan dilewati.",
+  "C-d-done-skip-2": "Bisa dijawab sampai pukul {hm}.",
+  "C-d-done-mulai": "Mulai bisa ditekan lagi {day} pukul {hm}.",
+  "C-d-timeout": "Waktu debrief habis pukul {hm}.",
+  "C-d-timeout-2": "Jawaban yang sudah Lanjut tetap tersimpan.",
+  "C-d-timeout-3": "Teks yang belum Lanjut tidak tersimpan.",
+
+  // EN singular forms (count = 1; section 5.12.4). Bahasa has no plural, so
+  // every ID value here is byte-identical to its plural-row counterpart above.
+  "C-d-entry-left-one": "Sisa {mm} menit.",
+  "C-d-entry-n-one": "{N} pertanyaan.",
+  "C-d-over-one": "Terlalu panjang. Kurangi {N} karakter.",
+  "C-d-done-unsent-one": "Masih ada {N} jawaban belum terkirim.",
+  "C-d-done-skip-one": "{N} pertanyaan dilewati.",
 } as const;
 
 export type DictKey = keyof typeof ID;
@@ -187,6 +252,65 @@ export const EN: Record<DictKey, string> = {
   "C-srv-done": "Removed",
   "C-sess-err": "Could not process that. Try again.",
   "C-c-discard-failed": "This session has already ended. Reload the page.",
+
+  "C-b-kembali": "Back",
+  "C-b-lewati": "Skip",
+  "C-b-lanjut": "Next",
+  "C-b-coba": "Try again",
+
+  "C-d-entry-h": "Debrief running",
+  "C-d-entry-left": "{mm} minutes left.",
+  "C-d-entry-n": "{N} questions.",
+  "C-d-btn": "Answer questions",
+  "C-d-takes": "Takes about 5 minutes.",
+  "C-d-next": "You can tap Start again {day} at {hm}.",
+
+  "C-d-load": "Loading questions…",
+  "C-d-load-2": "Usually takes a few seconds.",
+  "C-d-err": "Questions could not load yet.",
+  "C-d-err-2": "Check the connection, then try again.",
+  "C-d-empty-h": "There are no questions today.",
+  "C-d-empty-h-2": "Thank you.",
+
+  "C-d-prog": "Question {N} of {M}",
+  "C-d-q-step": "Around {hm} there was {step}. Is that right?",
+  "C-d-q-block": "Between {hm} and {hm_end} there was work.",
+  "C-d-q-block-2": "Is that right?",
+  "C-d-yes": "Yes",
+  "C-d-no": "No",
+  "C-d-r-yes": "Did it follow the SOP? If not, why?",
+  "C-d-r-yes-2": "Required. No names.",
+  "C-d-r-no": "Why not? Tell us briefly.",
+  "C-d-r-no-2": "Required. No names.",
+  "C-d-count": "{N}/500",
+  "C-d-count-warn": "{N}/500 · {M} left",
+  "C-d-over": "Too long. Remove {N} characters.",
+  "C-d-help-dis": "Choose Yes or No, then give a reason.",
+  "C-d-locked": "An answer sent with Next cannot be changed.",
+
+  "C-d-save-fail": "The answer is not saved on this phone yet.",
+  "C-d-save-fail-2": "The phone could not save it. Your text is still here.",
+  "C-d-save-fail-3": "Try Next again.",
+  "C-d-refused": "Not sent yet. It will be retried automatically.",
+  "C-d-refused-2": "The answer stays saved on this phone.",
+  "C-d-offline": "Saved on the phone. Will be sent when online.",
+
+  "C-d-done-h": "Debrief complete. Thank you.",
+  "C-d-done-l": "Your answers are saved.",
+  "C-d-done-unsent": "{N} answers are not sent yet.",
+  "C-d-done-unsent-2": "They will be sent when online.",
+  "C-d-done-skip": "{N} questions skipped.",
+  "C-d-done-skip-2": "You can answer them until {hm}.",
+  "C-d-done-mulai": "You can tap Start again {day} at {hm}.",
+  "C-d-timeout": "The debrief time ran out at {hm}.",
+  "C-d-timeout-2": "Answers sent with Next are kept.",
+  "C-d-timeout-3": "Text not sent with Next is not saved.",
+
+  "C-d-entry-left-one": "1 minute left.",
+  "C-d-entry-n-one": "1 question.",
+  "C-d-over-one": "Too long. Remove 1 character.",
+  "C-d-done-unsent-one": "1 answer is not sent yet.",
+  "C-d-done-skip-one": "1 question skipped.",
 };
 
 export const DICT: Record<Lang, Record<DictKey, string>> = { id: ID, en: EN };

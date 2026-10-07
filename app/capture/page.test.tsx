@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 /**
  * /capture (R-P1 rewrite): Mulai, Selesai and Batalkan replace the old
@@ -464,5 +464,113 @@ describe("CapturePage: no session_id stamping claim ships silently", () => {
     await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
     const [, , , sessionId] = startCaptureSession.mock.calls[0]!;
     expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);
+  });
+});
+
+describe("CapturePage: debrief entry card (R-07, technical spec §8.10)", () => {
+  it("appears synchronously after Selesai is confirmed", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date("2026-10-12T01:00:00Z")); // Mon 08:00 WIB
+    fetchCaptureConfig.mockResolvedValue(
+      config({ sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } }),
+    );
+    await renderReady();
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+    fireEvent.click(screen.getByRole("button", { name: "End" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
+    await waitFor(() => expect(screen.getByText("Debrief running")).toBeTruthy());
+  });
+
+  it("appears synchronously after an auto-stop, including a past-midnight auto-stop at 02:00 with ends 03:00", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date("2026-10-12T01:00:00Z")); // Mon 08:00 WIB
+    // Close at 01:00 (next calendar day): auto-stop = close + 1h = Tue 02:00 WIB.
+    fetchCaptureConfig.mockResolvedValue(
+      config({ sun: null, mon: { open: "08:00", close: "01:00" }, tue: { open: "08:00", close: "22:00" } }),
+    );
+    await renderReady();
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    // Mon 08:00 WIB -> Tue 02:00 WIB is 18h away; one extra tick past it.
+    await vi.advanceTimersByTimeAsync(18 * 60 * 60_000 + 30_000);
+    await waitFor(() => expect(screen.getByText("Ended automatically at 02:00")).toBeTruthy());
+    expect(screen.getByText("Debrief running")).toBeTruthy();
+  });
+
+  it("the Mulai button stays disabled at ends − 1ms and enables within one 30s tick after ends (A5)", async () => {
+    // A reload mid-debrief, spanning the 01:00 business-date rollover so the
+    // calendar's "day_ended" gate has already cleared by `endsAtMs` and the
+    // only thing still blocking Mulai is "debrief_running" (lib/capture/
+    // calendar.ts mulaiAvailability): ends = Tue 2026-10-13 01:30 WIB, last
+    // Selesai on Mon 2026-10-12.
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    const endsAtMs = Date.parse("2026-10-12T18:30:00Z"); // Tue 01:30 WIB
+    vi.setSystemTime(new Date(endsAtMs - 1));
+    fetchCaptureConfig.mockResolvedValue(
+      config(
+        { sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } },
+        { business_date: "2026-10-12", end_reason: "selesai", debrief_ends_at_ms: endsAtMs },
+      ),
+    );
+    await renderReady();
+    const btn = (await screen.findByRole("button", { name: "Start" })) as HTMLButtonElement;
+    expect(btn.getAttribute("aria-disabled")).toBe("true");
+
+    // `act()` around the advance (rather than a bare await) so the page's
+    // 30s-tick state update is guaranteed to flush before the assertion,
+    // regardless of what an earlier test in this file left the fake-timer/
+    // scheduler interaction in.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(btn.getAttribute("aria-disabled")).not.toBe("true");
+  });
+
+  it("does not appear after a cancel (Batalkan)", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date("2026-10-12T01:00:00Z")); // Mon 08:00 WIB
+    fetchCaptureConfig.mockResolvedValue(
+      config({ sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } }),
+    );
+    await renderReady();
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
+    await vi.advanceTimersByTimeAsync(1_000);
+    fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
+    await waitFor(() => expect(screen.getByText("Session cancelled")).toBeTruthy());
+    expect(screen.queryByText("Debrief running")).toBeNull();
+  });
+
+  it("on reload at ends - 30 min, shows the card with 30 minutes left", async () => {
+    const now = Date.parse("2026-10-12T10:00:00Z");
+    const endsAtMs = now + 30 * 60_000;
+    pinClock(new Date(now).toISOString());
+    fetchCaptureConfig.mockResolvedValue(
+      config(
+        { sun: null, mon: { open: "08:00", close: "22:00" } },
+        { business_date: "2026-10-12", end_reason: "selesai", debrief_ends_at_ms: endsAtMs },
+      ),
+    );
+    await renderReady();
+    await waitFor(() => expect(screen.getByText("Debrief running")).toBeTruthy());
+    expect(screen.getByText("30 minutes left.")).toBeTruthy();
+  });
+
+  it("on reload at ends + 1 min, shows no card", async () => {
+    const now = Date.parse("2026-10-12T10:00:00Z");
+    const endsAtMs = now - 60_000;
+    pinClock(new Date(now).toISOString());
+    fetchCaptureConfig.mockResolvedValue(
+      config(
+        { sun: null, mon: { open: "08:00", close: "22:00" } },
+        { business_date: "2026-10-12", end_reason: "selesai", debrief_ends_at_ms: endsAtMs },
+      ),
+    );
+    await renderReady();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start" })).toBeTruthy());
+    expect(screen.queryByText("Debrief running")).toBeNull();
   });
 });
