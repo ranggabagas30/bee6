@@ -48,7 +48,7 @@ function req(headers: Record<string, string> = { authorization: "Bearer t", "x-d
   return new NextRequest("http://localhost/api/v1/capture/config", { method: "GET", headers });
 }
 
-function wireDevice(d: Device | null = device()) {
+function wireDevice(d: Device | null = device(), pairedDeviceCount = 1) {
   vi.mocked(adminModule.verifyIdToken).mockRejectedValue(new Error("not an ID token"));
   vi.mocked(servicesModule.authenticateDeviceToken).mockResolvedValue({
     outlet_id: "outlet-1",
@@ -59,6 +59,7 @@ function wireDevice(d: Device | null = device()) {
     getOutlet: async () => outlet,
     getDevice: async () => d,
     saveHeartbeat: async () => undefined,
+    countPairedDevices: async () => pairedDeviceCount,
   } as never);
 }
 
@@ -90,12 +91,17 @@ describe("GET /api/v1/capture/config", () => {
     expect(servicesModule.authenticateDeviceToken).not.toHaveBeenCalled();
   });
 
-  it("200 with exactly {timezone, weekly_hours, last_ended} and no consent key", async () => {
+  it("200 with exactly {timezone, weekly_hours, last_ended, capture_mode} and no consent key", async () => {
     wireDevice();
     const res = await GET(req());
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: Record<string, unknown> };
-    expect(Object.keys(body.data).sort()).toEqual(["last_ended", "timezone", "weekly_hours"]);
+    expect(Object.keys(body.data).sort()).toEqual([
+      "capture_mode",
+      "last_ended",
+      "timezone",
+      "weekly_hours",
+    ]);
     expect(body.data.timezone).toBe("Asia/Jakarta");
     expect(body.data.weekly_hours).toMatchObject({ mon: { open: "07:00", close: "21:45" } });
     expect(body.data.last_ended).toEqual({
@@ -103,7 +109,18 @@ describe("GET /api/v1/capture/config", () => {
       end_reason: "selesai",
       debrief_ends_at_ms: Date.parse("2026-10-05T14:30:00.000Z"),
     });
+    expect(body.data.capture_mode).toBe("room");
     expect(JSON.stringify(body)).not.toMatch(/consent/i);
+  });
+
+  it("200 with capture_mode derived from the paired-device count", async () => {
+    wireDevice(device(), 0);
+    const none = (await (await GET(req())).json()) as { data: Record<string, unknown> };
+    expect(none.data.capture_mode).toBe("none");
+
+    wireDevice(device(), 2);
+    const wearable = (await (await GET(req())).json()) as { data: Record<string, unknown> };
+    expect(wearable.data.capture_mode).toBe("wearable");
   });
 
   it("200 with last_ended null and no device identity when the device has never ended a day", async () => {

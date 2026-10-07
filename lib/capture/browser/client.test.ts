@@ -69,6 +69,7 @@ const config: CaptureConfigResponse = {
     sun: null,
   },
   last_ended: null,
+  capture_mode: "room",
 };
 
 describe("resolveCapturePhase (strict config shape, no consent gate)", () => {

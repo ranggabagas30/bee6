@@ -15,6 +15,7 @@ import {
 } from "@/lib/firestore/schema";
 import type { CustomClaims } from "@/lib/auth/roles";
 import { classifyMicSource } from "@/lib/capture/mic-source";
+import { captureMode } from "@/lib/devices/capture-mode";
 
 /**
  * Shared capture contract (R-03, web spec §4.1/§5). This module is the single
@@ -194,6 +195,9 @@ export function resolveWeeklyHours(
  * the product (hard rule #7b). `last_ended` is this device's own, without its
  * ended_at_ms, and carries no identity.
  */
+/** Mirrors `CaptureMode` from `lib/devices/capture-mode.ts`, kept as a wire literal here. */
+export const CaptureModeSchema = z.enum(["none", "room", "wearable"]);
+
 export const CaptureConfigResponseSchema = z
   .object({
     timezone: z.string().min(1),
@@ -203,18 +207,22 @@ export const CaptureConfigResponseSchema = z
       end_reason: true,
       debrief_ends_at_ms: true,
     }).nullable(),
+    /** Display-only (R-07 Task 8); derived from the outlet's paired, unrevoked devices. */
+    capture_mode: CaptureModeSchema,
   })
   .strict();
 export type CaptureConfigResponse = z.infer<typeof CaptureConfigResponseSchema>;
 
 /**
- * Projects an outlet doc and this device's `last_ended` (null when none) down to the
- * config allowlist. Fields are selected explicitly, never spread, and the result is
- * validated against the strict schema.
+ * Projects an outlet doc, this device's `last_ended` (null when none), and
+ * the outlet's paired-device count down to the config allowlist. Fields are
+ * selected explicitly, never spread, and the result is validated against
+ * the strict schema.
  */
 export function toCaptureConfig(
   outlet: Outlet,
   lastEnded: LastEnded | null,
+  pairedDeviceCount: number,
 ): CaptureConfigResponse {
   return CaptureConfigResponseSchema.parse({
     timezone: outlet.timezone,
@@ -226,5 +234,6 @@ export function toCaptureConfig(
           debrief_ends_at_ms: lastEnded.debrief_ends_at_ms,
         }
       : null,
+    capture_mode: captureMode(pairedDeviceCount),
   });
 }

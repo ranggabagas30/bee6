@@ -28,12 +28,13 @@ const PAIR_OK = {
   data: { device_token: "tok-1", device_id: "dev-1", outlet_id: "outlet-7" },
 };
 const OVERNIGHT = { open: "09:30", close: "01:00" };
-/** Strict config shape (web-backend-rbac §6.6.2): timezone, weekly_hours, last_ended. */
+/** Strict config shape (web-backend-rbac §6.6.2): timezone, weekly_hours, last_ended, capture_mode. */
 function configBody(day: { open: string; close: string } | null, sunday: { open: string; close: string } | null = day) {
   return {
     timezone: "Asia/Jakarta",
     weekly_hours: { mon: day, tue: day, wed: day, thu: day, fri: day, sat: day, sun: sunday },
     last_ended: null,
+    capture_mode: "room",
   };
 }
 const CONFIG_OK = { data: configBody(OVERNIGHT) };

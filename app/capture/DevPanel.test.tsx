@@ -64,4 +64,65 @@ describe("DevPanel", () => {
     expect(lines[0]).toMatch(/1400/);
     expect(lines[1]).toMatch(/state_changed/);
   });
+
+  // R-07 Task 8: new readouts, all via optional props with safe ("not shown")
+  // defaults — the current page.tsx (unmodified, pre-P1) passes none of
+  // these, so BASE_PROPS alone must keep rendering exactly as before.
+  describe("R-07 readouts (optional props, safe defaults)", () => {
+    it("renders no readout section when none of the new props are passed", () => {
+      const { container } = render(<DevPanel {...BASE_PROPS} />);
+      expect(container.querySelector('[data-testid="dev-readouts"]')).toBeNull();
+    });
+
+    it("shows the answer-cache pending count when provided", () => {
+      const { container } = render(<DevPanel {...BASE_PROPS} answerCacheCount={3} />);
+      const readouts = container.querySelector('[data-testid="dev-readouts"]');
+      expect(readouts).not.toBeNull();
+      expect(readouts?.textContent).toMatch(/3/);
+    });
+
+    it("shows the oldest-pending age in minutes when provided", () => {
+      const { container } = render(
+        <DevPanel {...BASE_PROPS} answerCacheCount={1} oldestPendingAgeMinutes={42} />,
+      );
+      expect(container.querySelector('[data-testid="dev-readouts"]')?.textContent).toMatch(/42/);
+    });
+
+    it("shows nothing cached when oldestPendingAgeMinutes is null", () => {
+      const { container } = render(
+        <DevPanel {...BASE_PROPS} answerCacheCount={0} oldestPendingAgeMinutes={null} />,
+      );
+      expect(container.querySelector('[data-testid="dev-readouts"]')?.textContent).not.toMatch(
+        /\d+ min/,
+      );
+    });
+
+    it('renders a "Purge now" button that calls onPurgeNow when provided', () => {
+      const onPurgeNow = vi.fn();
+      render(<DevPanel {...BASE_PROPS} answerCacheCount={2} onPurgeNow={onPurgeNow} />);
+      fireEvent.click(screen.getByRole("button", { name: /purge now/i }));
+      expect(onPurgeNow).toHaveBeenCalledTimes(1);
+    });
+
+    it('omits the "Purge now" button when onPurgeNow is not provided', () => {
+      render(<DevPanel {...BASE_PROPS} answerCacheCount={2} />);
+      expect(screen.queryByRole("button", { name: /purge now/i })).toBeNull();
+    });
+
+    it("shows the derived capture-mode label when provided", () => {
+      const { container } = render(<DevPanel {...BASE_PROPS} captureMode="wearable" />);
+      expect(container.querySelector('[data-testid="dev-readouts"]')?.textContent).toMatch(
+        /wearable/i,
+      );
+    });
+
+    it("shows exactly the caller-truncated device id, never a longer string", () => {
+      const { container } = render(<DevPanel {...BASE_PROPS} deviceIdShort="ab12cd" />);
+      const text = container.querySelector('[data-testid="dev-readouts"]')?.textContent ?? "";
+      expect(text).toMatch(/ab12cd/);
+      // DevPanel never appends to the id it was given (hard rule #7: it never
+      // sees, and therefore can never leak, the rest of the device id).
+      expect(text).not.toMatch(/ab12cd[0-9a-zA-Z]/);
+    });
+  });
 });

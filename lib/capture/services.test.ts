@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   getCaptureConfig,
   recordHeartbeat,
+  type DeviceCounter,
   type DeviceReader,
   type HeartbeatWriter,
   type OutletReader,
@@ -70,8 +71,12 @@ const ALL_DAYS = {
   sun: { open: "07:00", close: "21:45" },
 };
 
-function reader(o: Outlet | null, d: Device | null) {
-  return { ...outletReader(o), ...deviceReader(d) };
+function deviceCounter(count: number): DeviceCounter {
+  return { countPairedDevices: async () => count };
+}
+
+function reader(o: Outlet | null, d: Device | null, pairedCount = 1) {
+  return { ...outletReader(o), ...deviceReader(d), ...deviceCounter(pairedCount) };
 }
 
 describe("getCaptureConfig", () => {
@@ -84,7 +89,19 @@ describe("getCaptureConfig", () => {
       timezone: "Asia/Jakarta",
       weekly_hours: ALL_DAYS,
       last_ended: null,
+      capture_mode: "room",
     });
+  });
+
+  it("derives capture_mode from the store's paired-device count (R-07 Task 8)", async () => {
+    expect(
+      (await getCaptureConfig(reader(outlet, device, 0), { outlet_id: "outlet-1", device_id: "dev-1" }))
+        .capture_mode,
+    ).toBe("none");
+    expect(
+      (await getCaptureConfig(reader(outlet, device, 2), { outlet_id: "outlet-1", device_id: "dev-1" }))
+        .capture_mode,
+    ).toBe("wearable");
   });
 
   it("falls back to opening/closing on every weekday when the outlet has no weekly_hours", async () => {

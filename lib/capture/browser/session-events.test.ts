@@ -80,6 +80,7 @@ const CONFIG: CaptureConfigResponse = {
     sun: null,
   },
   last_ended: null,
+  capture_mode: "room",
 };
 
 beforeEach(() => {

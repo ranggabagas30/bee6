@@ -171,16 +171,23 @@ describe("CaptureConfigResponseSchema", () => {
   };
 
   it("projects a full outlet doc and device to the allowlist shape", () => {
-    expect(toCaptureConfig(outlet, null)).toEqual({
+    expect(toCaptureConfig(outlet, null, 0)).toEqual({
       timezone: "Asia/Jakarta",
       weekly_hours: weekly,
       last_ended: null,
+      capture_mode: "none",
     });
   });
 
   it("uses the outlet's stored weekly_hours when present", () => {
     const stored = { ...weekly, sun: null };
-    expect(toCaptureConfig({ ...outlet, weekly_hours: stored }, lastEnded).weekly_hours).toEqual(stored);
+    expect(toCaptureConfig({ ...outlet, weekly_hours: stored }, lastEnded, 1).weekly_hours).toEqual(stored);
+  });
+
+  it("derives capture_mode from the paired-device count (R-07 Task 8)", () => {
+    expect(toCaptureConfig(outlet, null, 0).capture_mode).toBe("none");
+    expect(toCaptureConfig(outlet, null, 1).capture_mode).toBe("room");
+    expect(toCaptureConfig(outlet, null, 2).capture_mode).toBe("wearable");
   });
 
   it("round-trips the allowlist shape", () => {
@@ -188,17 +195,19 @@ describe("CaptureConfigResponseSchema", () => {
       timezone: "Asia/Jakarta",
       weekly_hours: weekly,
       last_ended: { business_date: "2026-10-06", end_reason: "auto_stop", debrief_ends_at_ms: 1_700_003_600_000 },
+      capture_mode: "room",
     };
     expect(CaptureConfigResponseSchema.parse(config)).toEqual(config);
   });
 
   it("never carries consent_complete (a contract test asserts its absence)", () => {
-    expect(toCaptureConfig(outlet, null)).not.toHaveProperty("consent_complete");
+    expect(toCaptureConfig(outlet, null, 0)).not.toHaveProperty("consent_complete");
     expect(() =>
       CaptureConfigResponseSchema.parse({
         timezone: "Asia/Jakarta",
         weekly_hours: weekly,
         last_ended: null,
+        capture_mode: "none",
         consent_complete: true,
       }),
     ).toThrow();
@@ -210,7 +219,19 @@ describe("CaptureConfigResponseSchema", () => {
         timezone: "Asia/Jakarta",
         weekly_hours: weekly,
         last_ended: null,
+        capture_mode: "none",
         name: "Proofed",
+      }),
+    ).toThrow();
+  });
+
+  it("rejects an invalid capture_mode value", () => {
+    expect(() =>
+      CaptureConfigResponseSchema.parse({
+        timezone: "Asia/Jakarta",
+        weekly_hours: weekly,
+        last_ended: null,
+        capture_mode: "many",
       }),
     ).toThrow();
   });

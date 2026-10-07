@@ -38,6 +38,7 @@ describe("POST /api/v1/heartbeat (mic_source server-side classification)", () =>
     vi.spyOn(storesModule, "firestoreCaptureStore").mockReturnValueOnce({
       getOutlet: vi.fn(),
       getDevice: vi.fn(),
+      countPairedDevices: vi.fn(),
       saveHeartbeat,
     });
 
@@ -73,6 +74,7 @@ describe("POST /api/v1/heartbeat (mic_source server-side classification)", () =>
     vi.spyOn(storesModule, "firestoreCaptureStore").mockReturnValueOnce({
       getOutlet: vi.fn(),
       getDevice: vi.fn(),
+      countPairedDevices: vi.fn(),
       saveHeartbeat,
     });
 

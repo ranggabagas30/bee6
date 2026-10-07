@@ -24,6 +24,11 @@ export interface DeviceReader {
   getDevice(outletId: string, deviceId: string): Promise<Device | null>;
 }
 
+/** The outlet's paired, unrevoked device count — display-only (R-07 Task 8). */
+export interface DeviceCounter {
+  countPairedDevices(outletId: string): Promise<number>;
+}
+
 export interface HeartbeatWriter {
   saveHeartbeat(heartbeat: Heartbeat): Promise<void>;
 }
@@ -34,14 +39,15 @@ export interface HeartbeatWriter {
  * missing. Both reads are scoped to the authenticated outlet and device.
  */
 export async function getCaptureConfig(
-  store: OutletReader & DeviceReader,
+  store: OutletReader & DeviceReader & DeviceCounter,
   params: { outlet_id: string; device_id: string },
 ): Promise<CaptureConfigResponse> {
   const outlet = await store.getOutlet(params.outlet_id);
   if (!outlet) throw new NotFoundError("Outlet", params.outlet_id);
   const device = await store.getDevice(params.outlet_id, params.device_id);
   if (!device) throw new NotFoundError("Device", params.device_id);
-  return toCaptureConfig(outlet, device.last_ended ?? null);
+  const pairedDeviceCount = await store.countPairedDevices(params.outlet_id);
+  return toCaptureConfig(outlet, device.last_ended ?? null, pairedDeviceCount);
 }
 
 /**

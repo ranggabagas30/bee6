@@ -15,6 +15,7 @@ const CONFIG: CaptureConfigResponse = {
     sat: { open: "08:00", close: "22:00" },
   },
   last_ended: null,
+  capture_mode: "room",
 };
 
 const MON_2330_JKT = Date.UTC(2026, 9, 12, 16, 30); // 23:30 Monday, after the 18:00 Start cut-off
