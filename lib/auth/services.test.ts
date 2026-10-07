@@ -178,6 +178,30 @@ describe("authenticateDeviceToken", () => {
       authenticateDeviceToken({ devices: store }, { device_id: "d1", token: "wrong" }),
     ).rejects.toThrow(UnauthorizedError);
   });
+
+  it("answers an unknown device id and a wrong token for a known id identically", async () => {
+    const store = makeDeviceStore([
+      device({ token_hash: await hashDeviceToken("correct") }),
+    ]);
+    const captureError = async (input: { device_id: string; token: string }) => {
+      try {
+        await authenticateDeviceToken({ devices: store }, input);
+      } catch (err) {
+        return err;
+      }
+      throw new Error("expected authenticateDeviceToken to throw");
+    };
+    const unknownId = await captureError({ device_id: "no-such-device", token: "correct" });
+    const wrongToken = await captureError({ device_id: "d1", token: "wrong" });
+    expect(unknownId).toBeInstanceOf(UnauthorizedError);
+    expect(wrongToken).toBeInstanceOf(UnauthorizedError);
+    const u = unknownId as UnauthorizedError;
+    const w = wrongToken as UnauthorizedError;
+    expect(u.statusCode).toBe(w.statusCode);
+    expect(u.code).toBe(w.code);
+    expect(u.message).toBe(w.message);
+    expect(u.message).toBe("Invalid device token");
+  });
 });
 
 // ── staffPinLogin ────────────────────────────────────────────────────────────

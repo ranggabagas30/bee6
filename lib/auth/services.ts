@@ -143,9 +143,11 @@ export async function authenticateDeviceToken(
   deps: DeviceAuthDeps,
   input: { device_id: string; token: string },
 ): Promise<CustomClaims> {
+  // One message for every failure (unknown id, revoked, unpaired, wrong token),
+  // so a caller cannot tell whether a device id exists.
   const device = await deps.devices.findById(input.device_id);
   if (!device || device.revoked || !device.token_hash) {
-    throw new UnauthorizedError("Device is not paired");
+    throw new UnauthorizedError("Invalid device token");
   }
   const ok = await verifyDeviceToken(input.token, device.token_hash);
   if (!ok) throw new UnauthorizedError("Invalid device token");
