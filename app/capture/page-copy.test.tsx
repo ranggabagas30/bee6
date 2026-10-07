@@ -80,13 +80,51 @@ function rowByText(text: string) {
   return screen.getByText((_, el) => el?.tagName === "P" && el.textContent === text);
 }
 
+describe("capture page: the heading is one fixed neutral heading (UX-03 decision 7 Oct)", () => {
+  function headingText(): string | null {
+    return screen.getByRole("heading", { level: 1 }).textContent;
+  }
+
+  it("reads Shop phone in EN and HP toko in ID while outside hours", async () => {
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    fetchCaptureConfig.mockResolvedValue(CONFIG);
+    resolveCapturePhase.mockReturnValue("outside_hours");
+    await renderPage("en");
+    await waitFor(() => expect(headingText()).toBe("Shop phone"));
+    cleanup();
+    await renderPage("id");
+    await waitFor(() => expect(headingText()).toBe("HP toko"));
+  });
+
+  it("is the same heading while listening (active, a session running)", async () => {
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    fetchCaptureConfig.mockResolvedValue(CONFIG);
+    resolveCapturePhase.mockReturnValue("active");
+    await renderPage("en");
+    await waitFor(() => expect(screen.getByText("Some speech was not captured")).toBeTruthy());
+    expect(headingText()).toBe("Shop phone");
+    cleanup();
+    await renderPage("id");
+    await waitFor(() => expect(screen.getByText("Sebagian suara tidak tercatat")).toBeTruthy());
+    expect(headingText()).toBe("HP toko");
+  });
+
+  it("is the same heading when the opening hours cannot load (error state)", async () => {
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    fetchCaptureConfig.mockRejectedValue(new Error("offline"));
+    await renderPage("en");
+    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+    expect(headingText()).toBe("Shop phone");
+  });
+});
+
 describe("capture page: one language per render", () => {
   it("EN is the default when the cookie is missing: headline and hours in English only", async () => {
     readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
     fetchCaptureConfig.mockResolvedValue(CONFIG);
     resolveCapturePhase.mockReturnValue("outside_hours");
     const { container } = await renderPage(parseLangCookie(undefined));
-    await waitFor(() => expect(screen.getByText("Shop listening")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Shop phone")).toBeTruthy());
     expect(screen.getByText(/Listening runs from 08:00 to 22:00/)).toBeTruthy();
     const body = container.querySelector("main")?.textContent ?? "";
     expect(body).not.toMatch(/Mendengarkan|Dijeda|Mulai|Memuat|Jam buka|Pilih/);
@@ -97,7 +135,7 @@ describe("capture page: one language per render", () => {
     fetchCaptureConfig.mockResolvedValue(CONFIG);
     resolveCapturePhase.mockReturnValue("outside_hours");
     const { container } = await renderPage(parseLangCookie("id"));
-    await waitFor(() => expect(screen.getByText("Mendengarkan toko")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("HP toko")).toBeTruthy());
     expect(screen.getByText(/Mendengarkan berjalan dari pukul 08:00/)).toBeTruthy();
     const body = container.querySelector("main")?.textContent ?? "";
     expect(body).not.toMatch(/Shop listening|Listening runs|Paused|Resumes/);
@@ -108,7 +146,7 @@ describe("capture page: one language per render", () => {
     fetchCaptureConfig.mockResolvedValue(CONFIG);
     resolveCapturePhase.mockReturnValue("outside_hours");
     await renderPage("en");
-    await waitFor(() => expect(screen.getByText("Shop listening")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Shop phone")).toBeTruthy());
     expect(screen.getByTestId("upload-status").getAttribute("aria-live")).toBe("polite");
   });
 
@@ -117,7 +155,7 @@ describe("capture page: one language per render", () => {
     fetchCaptureConfig.mockResolvedValue(CONFIG);
     resolveCapturePhase.mockReturnValue("outside_hours");
     const { container } = await renderPage("en");
-    await waitFor(() => expect(screen.getByText("Shop listening")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Shop phone")).toBeTruthy());
     expect(screen.getAllByText("Speech becomes short work notes. Audio is not kept.")).toHaveLength(1);
     const body = container.querySelector("main")?.textContent ?? "";
     expect(body).not.toMatch(/Suara diubah|Rekaman suara/);
@@ -128,7 +166,7 @@ describe("capture page: one language per render", () => {
     fetchCaptureConfig.mockResolvedValue(CONFIG);
     resolveCapturePhase.mockReturnValue("outside_hours");
     const { container } = await renderPage("id");
-    await waitFor(() => expect(screen.getByText("Mendengarkan toko")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("HP toko")).toBeTruthy());
     expect(
       screen.getAllByText("Suara diubah jadi catatan kerja singkat. Rekaman suara tidak disimpan."),
     ).toHaveLength(1);
@@ -145,7 +183,7 @@ describe("capture page: one language per render", () => {
       expect(screen.getByText("Some speech was not captured")).toBeTruthy(),
     );
     // The engine status is "offline" here (LOST_STATUS), but the headline never shows it.
-    expect(screen.getByText("Shop listening")).toBeTruthy();
+    expect(screen.getByText("Shop phone")).toBeTruthy();
     expect(container.textContent).toContain("🟢");
     expect(container.textContent).not.toContain("🟡");
     // The retry state stays in the upload block.
