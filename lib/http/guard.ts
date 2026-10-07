@@ -4,6 +4,7 @@ import { ForbiddenError, UnauthorizedError } from "@/lib/http/errors";
 import { authorize, type Permission } from "@/lib/auth/rbac";
 import { verifyIdToken } from "@/lib/firebase/admin";
 import { authenticateDeviceToken } from "@/lib/auth/services";
+import { DUMMY_DEVICE_TOKEN_HASH, verifyDeviceToken } from "@/lib/auth/pairing";
 import { firestoreDeviceStore } from "@/lib/firestore/stores";
 
 /**
@@ -80,7 +81,11 @@ export async function requireDevice(req: NextRequest): Promise<CustomClaims> {
     throw new ForbiddenError("A device credential is required");
   }
   const deviceId = req.headers.get(DEVICE_ID_HEADER)?.trim();
-  if (!deviceId) throw new UnauthorizedError("Invalid device token");
+  if (!deviceId) {
+    // Same cost as every other device-auth failure: one compare, then the same 401.
+    await verifyDeviceToken(token, DUMMY_DEVICE_TOKEN_HASH);
+    throw new UnauthorizedError("Invalid device token");
+  }
   return authenticateDeviceToken(
     { devices: firestoreDeviceStore() },
     { device_id: deviceId, token },
