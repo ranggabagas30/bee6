@@ -16,6 +16,13 @@ import { NEEDS_SUPERVISOR_CONFIRM, ALWAYS_QUESTION, FACT_THRESHOLD, type Categor
  * waived (a human just confirmed it happened; only `invalid_label`,
  * `needs_supervisor_confirm` and `no_evidence` can still block a fact).
  *
+ * v3 (R-06 Task 10, `supervisor_decision` present): a supervisor who has
+ * read the evidence confirms or overrides a category — re-runs the same
+ * checks with `label_conflict`, `always_question`, `needs_supervisor_confirm`
+ * and `below_threshold` waived; only `invalid_label` and `no_evidence` can
+ * still block a fact (`supervisor_confirmed`). `staff_answer` and
+ * `supervisor_decision` are mutually exclusive — passing both throws.
+ *
  * Pure functions, no I/O.
  */
 
@@ -28,6 +35,7 @@ export type GateRule =
   | "no_evidence"
   | "below_threshold"
   | "staff_confirmed"
+  | "supervisor_confirmed"
   | "passed";
 
 const GATE_RULES = [
@@ -39,6 +47,7 @@ const GATE_RULES = [
   "no_evidence",
   "below_threshold",
   "staff_confirmed",
+  "supervisor_confirmed",
   "passed",
 ] as const;
 
@@ -59,10 +68,10 @@ export const GateDecisionSchema = z
     confidence: z.number(),
     threshold: z.number(),
     evidence_count: z.number().int(),
-    gate_version: z.enum(["1", "2"]),
+    gate_version: z.enum(["1", "2", "3"]),
     /** v2 only: the question this staff answer resolved. */
     question_id: z.string().min(1).optional(),
-    /** v2 only: the model's original label (before the staff answer). `category` becomes the effective one. */
+    /** v2/v3 only: the model's original label (before the staff/supervisor decision). `category` becomes the effective one. */
     model_category: CategorySchema.optional(),
   })
   .strict();
@@ -72,6 +81,9 @@ export type QuestionStatus = "open" | "unverified" | "answered";
 
 /** A debrief YES/NO answer feeding the gate (R-07). `chosen_category: null` is a NO (staff rejected the label). */
 export type StaffAnswerInput = { question_id: string; chosen_category: WorkCategory | null };
+
+/** A supervisor confirm/override decision feeding the gate (R-06 Task 10). */
+export type SupervisorDecisionInput = { chosen_category: WorkCategory };
 
 interface BaseCheckResult {
   checks: Array<{ rule: GateRule; passed: boolean; waived?: boolean }>;
@@ -175,6 +187,18 @@ const STAFF_CONFIRMED_WAIVES: ReadonlySet<GateRule> = new Set([
   "always_question",
   "below_threshold",
 ]);
+/**
+ * A supervisor has read the evidence, so every check that only exists to
+ * route a model guess to a human is waived; only `invalid_label` and
+ * `no_evidence` can still block a fact (a fact must cite at least one
+ * evidence line for R-08).
+ */
+const SUPERVISOR_WAIVES: ReadonlySet<GateRule> = new Set([
+  "label_conflict",
+  "always_question",
+  "needs_supervisor_confirm",
+  "below_threshold",
+]);
 
 /** v1 — byte-identical to the pre-R-07 gate. Never changed by this task. */
 function evaluateGateV1(input: {
@@ -269,8 +293,52 @@ function evaluateStaffConfirmed(input: {
 }
 
 /**
- * Evaluates the evidence gate for a thread. With no `staff_answer`, this is
- * v1, unchanged. With a `staff_answer`, this is v2 (see the module doc).
+ * A supervisor confirm or override (R-06 Task 10): the supervisor has read
+ * the evidence and the staff answer and picked a category (possibly the
+ * model's own, for a plain confirm). `label_conflict`, `always_question`,
+ * `needs_supervisor_confirm` and `below_threshold` are waived; only
+ * `invalid_label` and `no_evidence` can still keep this a question. No
+ * `question_id` (a supervisor decision does not resolve a specific debrief
+ * question the way a staff answer does).
+ */
+function evaluateSupervisorConfirmed(input: {
+  modelCategory: WorkCategory;
+  chosenCategory: WorkCategory;
+  confidence: number;
+  evidence_line_ids: readonly string[];
+  label_conflict: boolean;
+}): GateDecision {
+  const base = computeBaseChecks({
+    category: input.chosenCategory,
+    confidence: input.confidence,
+    evidence_line_ids: input.evidence_line_ids,
+    label_conflict: input.label_conflict,
+    waivedRules: SUPERVISOR_WAIVES,
+  });
+  const supervisorConfirmedPassed = base.firedRule === null;
+  const checks = [...base.checks, { rule: "supervisor_confirmed" as const, passed: supervisorConfirmedPassed }];
+  const fired_rule = base.firedRule ?? "supervisor_confirmed";
+  const modelCategoryParsed = CategorySchema.safeParse(input.modelCategory);
+  return {
+    verdict: supervisorConfirmedPassed ? "fact" : "question",
+    fired_rule,
+    checks,
+    category: base.finalCategory,
+    confidence: base.normalizedConfidence,
+    threshold: base.threshold,
+    evidence_count: base.evidenceCount,
+    gate_version: "3",
+    model_category: modelCategoryParsed.success ? modelCategoryParsed.data : base.finalCategory,
+  };
+}
+
+
+/**
+ * Evaluates the evidence gate for a thread. With no `staff_answer` and no
+ * `supervisor_decision`, this is v1, unchanged. With a `supervisor_decision`,
+ * this is v3 (confirm/override); else with a `staff_answer`, this is v2 (see
+ * the module doc). `staff_answer` and `supervisor_decision` together is a
+ * caller bug — throws.
  */
 export function evaluateGate(input: {
   category: WorkCategory;
@@ -278,8 +346,23 @@ export function evaluateGate(input: {
   evidence_line_ids: readonly string[];
   label_conflict: boolean;
   staff_answer?: StaffAnswerInput;
+  supervisor_decision?: SupervisorDecisionInput;
 }): GateDecision {
-  const { category, confidence, evidence_line_ids, label_conflict, staff_answer } = input;
+  const { category, confidence, evidence_line_ids, label_conflict, staff_answer, supervisor_decision } = input;
+
+  if (staff_answer && supervisor_decision) {
+    throw new Error("gate: staff_answer and supervisor_decision are exclusive");
+  }
+
+  if (supervisor_decision) {
+    return evaluateSupervisorConfirmed({
+      modelCategory: category,
+      chosenCategory: supervisor_decision.chosen_category,
+      confidence,
+      evidence_line_ids,
+      label_conflict,
+    });
+  }
 
   if (!staff_answer) {
     return evaluateGateV1({ category, confidence, evidence_line_ids, label_conflict });

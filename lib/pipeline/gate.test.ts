@@ -563,6 +563,80 @@ describe("gate", () => {
     });
   });
 
+  describe("evaluateGate v3 (supervisor_decision: confirm/override, Task 10)", () => {
+    it("COMPLAINT, confidence 0.5, 2 evidence, label_conflict true, chosen COMPLAINT -> fact, supervisor_confirmed, gate_version 3, four waived checks", () => {
+      const result = evaluateGate({
+        category: "COMPLAINT",
+        confidence: 0.5,
+        evidence_line_ids: ["a", "b"],
+        label_conflict: true,
+        supervisor_decision: { chosen_category: "COMPLAINT" },
+      });
+      expect(result.verdict).toBe("fact");
+      expect(result.fired_rule).toBe("supervisor_confirmed");
+      expect(result.gate_version).toBe("3");
+      expect(result.question_id).toBeUndefined();
+      expect(result.model_category).toBe("COMPLAINT");
+      for (const rule of ["label_conflict", "always_question", "needs_supervisor_confirm", "below_threshold"] as const) {
+        expect(result.checks.find((c) => c.rule === rule)).toEqual(
+          expect.objectContaining({ rule, waived: true }),
+        );
+      }
+      const supervisorConfirmed = result.checks.find((c) => c.rule === "supervisor_confirmed");
+      expect(supervisorConfirmed).toEqual({ rule: "supervisor_confirmed", passed: true });
+    });
+
+    it("same as above but 0 evidence -> question, no_evidence (not waived)", () => {
+      const result = evaluateGate({
+        category: "COMPLAINT",
+        confidence: 0.5,
+        evidence_line_ids: [],
+        label_conflict: true,
+        supervisor_decision: { chosen_category: "COMPLAINT" },
+      });
+      expect(result.verdict).toBe("question");
+      expect(result.fired_rule).toBe("no_evidence");
+      expect(result.gate_version).toBe("3");
+    });
+
+    it("override ROUTINE_OPS -> COMPLAINT -> fact, category COMPLAINT, model_category ROUTINE_OPS", () => {
+      const result = evaluateGate({
+        category: "ROUTINE_OPS",
+        confidence: 0.95,
+        evidence_line_ids: ["a"],
+        label_conflict: false,
+        supervisor_decision: { chosen_category: "COMPLAINT" },
+      });
+      expect(result.verdict).toBe("fact");
+      expect(result.category).toBe("COMPLAINT");
+      expect(result.model_category).toBe("ROUTINE_OPS");
+    });
+
+    it("both staff_answer and supervisor_decision -> throws", () => {
+      expect(() =>
+        evaluateGate({
+          category: "ROUTINE_OPS",
+          confidence: 0.95,
+          evidence_line_ids: ["a"],
+          label_conflict: false,
+          staff_answer: { question_id: "q1", chosen_category: "ROUTINE_OPS" },
+          supervisor_decision: { chosen_category: "ROUTINE_OPS" },
+        }),
+      ).toThrow("gate: staff_answer and supervisor_decision are exclusive");
+    });
+
+    it("GateDecisionSchema.parse accepts every v3 confirm output", () => {
+      const result = evaluateGate({
+        category: "COMPLAINT",
+        confidence: 0.5,
+        evidence_line_ids: ["a", "b"],
+        label_conflict: true,
+        supervisor_decision: { chosen_category: "COMPLAINT" },
+      });
+      expect(() => GateDecisionSchema.parse(result)).not.toThrow();
+    });
+  });
+
   describe("expireAtDebriefEnd", () => {
     const H = 3600_000;
 
