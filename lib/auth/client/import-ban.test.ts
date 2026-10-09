@@ -18,7 +18,11 @@ const ROOT = join(__dirname, "..", "..", "..");
 
 const BANNED_FIRESTORE_IMPORT_RE =
   /from\s+["'](?:@?firebase\/(?:firestore|database|storage))["']/;
-const FIREBASE_IMPORT_RE = /from\s+["']((?:@)?firebase\/[^"']+)["']/;
+// Global, and matches `from "..."`, a side-effect `import "..."`, and a
+// dynamic `import("...")` — not only the static `from` form (tech-lead
+// review finding 2, R-06 sign-in PR). Callers must iterate with `matchAll`
+// to see every match in a file, not just the first.
+const FIREBASE_IMPORT_RE = /(?:from\s+|import\s*\(?\s*)["']((?:@)?firebase\/[^"']+)["']/g;
 const AUTH_CLIENT_IMPORT_RE = /from\s+["']@\/lib\/auth\/client\/[^"']+["']/;
 
 function listTsFiles(dir: string): string[] {
@@ -78,11 +82,51 @@ describe("firebase import boundaries (R-06 Task 4.7)", () => {
       const rel = relPath(file);
       if (rel.startsWith("lib/auth/client/")) continue;
       const text = readFileSync(file, "utf8");
-      const match = FIREBASE_IMPORT_RE.exec(text);
-      if (match && (match[1] === "firebase/app" || match[1] === "firebase/auth")) {
-        offenders.push(rel);
+      for (const match of text.matchAll(FIREBASE_IMPORT_RE)) {
+        if (match[1] === "firebase/app" || match[1] === "firebase/auth") {
+          offenders.push(rel);
+          break;
+        }
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  /**
+   * Tech-lead review finding 2 (R-06 sign-in PR): the scanner above only
+   * checked the FIRST Firebase import per file via `.exec`, and only matched
+   * the `from "..."` form — a side-effect import or a dynamic `import(...)`
+   * slipped past undetected. These cases exercise the matcher directly so a
+   * regression here fails loudly instead of silently passing the file scan.
+   */
+  describe("matcher catches side-effect, dynamic, and non-first imports", () => {
+    function bannedFirebaseModules(text: string): string[] {
+      const hits: string[] = [];
+      for (const match of text.matchAll(FIREBASE_IMPORT_RE)) {
+        if (match[1] === "firebase/app" || match[1] === "firebase/auth") {
+          hits.push(match[1]);
+        }
+      }
+      return hits;
+    }
+
+    it("catches a plain side-effect import", () => {
+      const text = `import "firebase/auth";\n`;
+      expect(bannedFirebaseModules(text)).toEqual(["firebase/auth"]);
+    });
+
+    it("catches a dynamic import", () => {
+      const text = `async function f() { await import("firebase/app"); }\n`;
+      expect(bannedFirebaseModules(text)).toEqual(["firebase/app"]);
+    });
+
+    it("catches the second Firebase import when only the second is banned", () => {
+      const text = [
+        `import { getAnalytics } from "firebase/analytics";`,
+        `import { getAuth } from "firebase/auth";`,
+        "",
+      ].join("\n");
+      expect(bannedFirebaseModules(text)).toEqual(["firebase/auth"]);
+    });
   });
 });
