@@ -637,6 +637,58 @@ describe("gate", () => {
     });
   });
 
+  describe("evaluateGate v3 (supervisor_decision: reject, Task 15)", () => {
+    it("COMPLAINT, confidence 0.95, 3 evidence, no conflict, reject -> question, supervisor_rejected, no question_id", () => {
+      const result = evaluateGate({
+        category: "COMPLAINT",
+        confidence: 0.95,
+        evidence_line_ids: ["a", "b", "c"],
+        label_conflict: false,
+        supervisor_decision: { chosen_category: null },
+      });
+      expect(result.verdict).toBe("question");
+      expect(result.fired_rule).toBe("supervisor_rejected");
+      expect(result.gate_version).toBe("3");
+      expect(result.checks[0]).toEqual({ rule: "supervisor_rejected", passed: false });
+      expect(result.question_id).toBeUndefined();
+    });
+
+    it("ROUTINE_OPS, confidence 0.99, 5 evidence (a v1 fact) + reject -> still question", () => {
+      const result = evaluateGate({
+        category: "ROUTINE_OPS",
+        confidence: 0.99,
+        evidence_line_ids: ["a", "b", "c", "d", "e"],
+        label_conflict: false,
+        supervisor_decision: { chosen_category: null },
+      });
+      expect(result.verdict).toBe("question");
+      expect(result.fired_rule).toBe("supervisor_rejected");
+    });
+
+    it("0 evidence + reject -> still fired_rule supervisor_rejected (not no_evidence)", () => {
+      const result = evaluateGate({
+        category: "ROUTINE_OPS",
+        confidence: 0.5,
+        evidence_line_ids: [],
+        label_conflict: false,
+        supervisor_decision: { chosen_category: null },
+      });
+      expect(result.fired_rule).toBe("supervisor_rejected");
+      expect(result.verdict).toBe("question");
+    });
+
+    it("GateDecisionSchema.parse accepts the reject output", () => {
+      const result = evaluateGate({
+        category: "COMPLAINT",
+        confidence: 0.95,
+        evidence_line_ids: ["a", "b", "c"],
+        label_conflict: false,
+        supervisor_decision: { chosen_category: null },
+      });
+      expect(() => GateDecisionSchema.parse(result)).not.toThrow();
+    });
+  });
+
   describe("expireAtDebriefEnd", () => {
     const H = 3600_000;
 

@@ -16,12 +16,16 @@ import { NEEDS_SUPERVISOR_CONFIRM, ALWAYS_QUESTION, FACT_THRESHOLD, type Categor
  * waived (a human just confirmed it happened; only `invalid_label`,
  * `needs_supervisor_confirm` and `no_evidence` can still block a fact).
  *
- * v3 (R-06 Task 10, `supervisor_decision` present): a supervisor who has
- * read the evidence confirms or overrides a category — re-runs the same
- * checks with `label_conflict`, `always_question`, `needs_supervisor_confirm`
- * and `below_threshold` waived; only `invalid_label` and `no_evidence` can
- * still block a fact (`supervisor_confirmed`). `staff_answer` and
- * `supervisor_decision` are mutually exclusive — passing both throws.
+ * v3 (R-06 Task 10/15, `supervisor_decision` present): a supervisor who has
+ * read the evidence either confirms/overrides a category (`chosen_category`
+ * a `WorkCategory`) — re-runs the same checks with `label_conflict`,
+ * `always_question`, `needs_supervisor_confirm` and `below_threshold`
+ * waived; only `invalid_label` and `no_evidence` can still block a fact
+ * (`supervisor_confirmed`) — or rejects the label outright
+ * (`chosen_category: null`, same convention as a staff NO): always a
+ * question (`supervisor_rejected`), even with full evidence, since a
+ * reject is never a fact. `staff_answer` and `supervisor_decision` are
+ * mutually exclusive — passing both throws.
  *
  * Pure functions, no I/O.
  */
@@ -36,6 +40,7 @@ export type GateRule =
   | "below_threshold"
   | "staff_confirmed"
   | "supervisor_confirmed"
+  | "supervisor_rejected"
   | "passed";
 
 const GATE_RULES = [
@@ -48,6 +53,7 @@ const GATE_RULES = [
   "below_threshold",
   "staff_confirmed",
   "supervisor_confirmed",
+  "supervisor_rejected",
   "passed",
 ] as const;
 
@@ -82,8 +88,11 @@ export type QuestionStatus = "open" | "unverified" | "answered";
 /** A debrief YES/NO answer feeding the gate (R-07). `chosen_category: null` is a NO (staff rejected the label). */
 export type StaffAnswerInput = { question_id: string; chosen_category: WorkCategory | null };
 
-/** A supervisor confirm/override decision feeding the gate (R-06 Task 10). */
-export type SupervisorDecisionInput = { chosen_category: WorkCategory };
+/**
+ * A supervisor confirm/override/reject decision feeding the gate (R-06 Task
+ * 10/15). `chosen_category: null` is a reject (same convention as a staff NO).
+ */
+export type SupervisorDecisionInput = { chosen_category: WorkCategory | null };
 
 interface BaseCheckResult {
   checks: Array<{ rule: GateRule; passed: boolean; waived?: boolean }>;
@@ -332,13 +341,40 @@ function evaluateSupervisorConfirmed(input: {
   };
 }
 
+/**
+ * A supervisor reject (R-06 Task 15, v4): the supervisor read the evidence
+ * and decided the labelled thing did not happen as labelled. Always a
+ * question, whatever the evidence — a reject is never a fact. The v1
+ * checks against the model's own category are still computed and logged
+ * (for the audit trail), but never change the verdict here — same shape as
+ * `evaluateStaffRejected`, no waives.
+ */
+function evaluateSupervisorRejected(input: {
+  category: WorkCategory;
+  confidence: number;
+  evidence_line_ids: readonly string[];
+  label_conflict: boolean;
+}): GateDecision {
+  const base = computeBaseChecks({ ...input, waivedRules: NO_WAIVES });
+  const checks = [{ rule: "supervisor_rejected" as const, passed: false }, ...base.checks];
+  return {
+    verdict: "question",
+    fired_rule: "supervisor_rejected",
+    checks,
+    category: base.finalCategory,
+    confidence: base.normalizedConfidence,
+    threshold: base.threshold,
+    evidence_count: base.evidenceCount,
+    gate_version: "3",
+    model_category: base.finalCategory,
+  };
+}
 
 /**
  * Evaluates the evidence gate for a thread. With no `staff_answer` and no
  * `supervisor_decision`, this is v1, unchanged. With a `supervisor_decision`,
- * this is v3 (confirm/override); else with a `staff_answer`, this is v2 (see
- * the module doc). `staff_answer` and `supervisor_decision` together is a
- * caller bug — throws.
+ * this is v3; else with a `staff_answer`, this is v2 (see the module doc).
+ * `staff_answer` and `supervisor_decision` together is a caller bug — throws.
  */
 export function evaluateGate(input: {
   category: WorkCategory;
@@ -355,6 +391,9 @@ export function evaluateGate(input: {
   }
 
   if (supervisor_decision) {
+    if (supervisor_decision.chosen_category === null) {
+      return evaluateSupervisorRejected({ category, confidence, evidence_line_ids, label_conflict });
+    }
     return evaluateSupervisorConfirmed({
       modelCategory: category,
       chosenCategory: supervisor_decision.chosen_category,
