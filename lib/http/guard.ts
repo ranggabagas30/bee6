@@ -33,8 +33,16 @@ export function extractBearerToken(req: {
  */
 export async function requireClaims(req: NextRequest): Promise<CustomClaims> {
   const idToken = extractBearerToken(req);
-  const { claims } = await verifyIdToken(idToken);
-  const parsed = CustomClaimsSchema.safeParse(claims);
+  let verified: Awaited<ReturnType<typeof verifyIdToken>>;
+  try {
+    verified = await verifyIdToken(idToken);
+  } catch {
+    // Expired, revoked, malformed, wrong project, or an opaque device token: all
+    // 401, so the browser refreshes its token once and retries. Never log the
+    // token.
+    throw new UnauthorizedError("Invalid or expired token");
+  }
+  const parsed = CustomClaimsSchema.safeParse(verified.claims);
   if (!parsed.success) {
     throw new UnauthorizedError("Token is missing outlet/role claims");
   }
