@@ -14,8 +14,12 @@ const CONFIG: FirebaseWebConfig = {
 };
 
 const replace = vi.fn();
+// A stable object, like the real next/navigation useRouter() — not a new
+// object per call — so the redirect effect's `router` dependency doesn't
+// spuriously change across re-renders in these tests.
+const ROUTER = { replace };
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace }),
+  useRouter: () => ROUTER,
 }));
 
 const getClientAuth = vi.fn();
@@ -197,6 +201,82 @@ describe("SignInScreen", () => {
         expect(JSON.stringify(call)).not.toContain(secretPassword);
       }
     }
+  });
+
+  describe("postAuthSession race (tech-lead finding 1)", () => {
+    // signInWithEmailAndPassword resolving flips the mocked hook's signed_in
+    // status *before* postAuthSession has returned — exactly like Firebase's
+    // real onAuthStateChanged listener firing early. These tests force a
+    // rerender right after that flip (simulating the listener-driven
+    // re-render) while postAuthSession is still pending, then resolve it
+    // under our control.
+    function controlledPostAuth() {
+      let resolvePostAuth: (value: string) => void = () => {};
+      const promise = new Promise<string>((resolve) => {
+        resolvePostAuth = resolve;
+      });
+      postAuthSession.mockReturnValue(promise);
+      return (value: string) => resolvePostAuth(value);
+    }
+
+    async function signInAndGoStale(rerender: (node: JSX.Element) => void) {
+      signInWithEmailAndPassword.mockImplementation(async () => {
+        authUserState = { status: "signed_in", user: FAKE_USER } as unknown as AuthUserState;
+        return { user: FAKE_USER };
+      });
+      fireEvent.change(screen.getByLabelText("Email"), { target: { value: "a@b.c" } });
+      fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } });
+      fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      // The real onAuthStateChanged listener would drive this re-render; we
+      // force it here since the mock hook isn't itself reactive.
+      rerender(
+        <LangProvider initial="en">
+          <SignInScreen config={CONFIG} />
+        </LangProvider>,
+      );
+    }
+
+    it("denied: does not redirect while postAuthSession is pending, then signs out and shows the denied message without ever redirecting", async () => {
+      const resolvePostAuth = controlledPostAuth();
+      const { rerender } = renderScreen();
+
+      await signInAndGoStale(rerender);
+
+      expect(replace).not.toHaveBeenCalled();
+
+      await act(async () => {
+        resolvePostAuth("denied");
+        await Promise.resolve();
+      });
+
+      await waitFor(() =>
+        expect(document.body.textContent).toContain("This account has no access to bee6."),
+      );
+      expect(signOut).toHaveBeenCalledWith(FAKE_AUTH);
+      expect(replace).not.toHaveBeenCalled();
+    });
+
+    it("ok: does not redirect while postAuthSession is pending, then redirects exactly once", async () => {
+      const resolvePostAuth = controlledPostAuth();
+      const { rerender } = renderScreen();
+
+      await signInAndGoStale(rerender);
+
+      expect(replace).not.toHaveBeenCalled();
+
+      await act(async () => {
+        resolvePostAuth("ok");
+        await Promise.resolve();
+      });
+
+      await waitFor(() => expect(replace).toHaveBeenCalledTimes(1));
+      expect(replace).toHaveBeenCalledWith("/day");
+    });
   });
 
   it("toggling EN -> ID re-renders a shown message in ID", () => {

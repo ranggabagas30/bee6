@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import {
@@ -55,12 +55,22 @@ export function SignInScreen({ config }: { config: FirebaseWebConfig | null }) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [messageKey, setMessageKey] = useState<DictKey | undefined>(undefined);
+  // signInWithEmailAndPassword resolves internally and fires
+  // onAuthStateChanged with "signed_in" *before* postAuthSession has
+  // returned. The redirect effect below would otherwise race ahead of the
+  // denied/network/error handling in handleSubmit and redirect to /day
+  // before an error message ever shows. A ref (not `busy` state) guards
+  // this: clearing `busy` could re-run the effect while authUser.status
+  // still reads "signed_in", since Firebase's listener delivery is async —
+  // the ref lets handleSubmit own exactly when the effect is allowed to act
+  // on a "signed_in" status it did not itself just confirm.
+  const signingInRef = useRef(false);
 
   // An already signed-in Firebase user (e.g. a previous visit) skips the
   // form and goes straight to /day — no POST, since the session was already
   // linked.
   useEffect(() => {
-    if (authUser.status === "signed_in") {
+    if (authUser.status === "signed_in" && !signingInRef.current) {
       router.replace("/day");
     }
   }, [authUser.status, router]);
@@ -90,12 +100,14 @@ export function SignInScreen({ config }: { config: FirebaseWebConfig | null }) {
 
     setBusy(true);
     setMessageKey(undefined);
+    signingInRef.current = true;
 
     let credUser: Awaited<ReturnType<typeof signInWithEmailAndPassword>>["user"];
     try {
       const cred = await signInWithEmailAndPassword(auth, trimmedEmail, password);
       credUser = cred.user;
     } catch (error) {
+      signingInRef.current = false;
       setPassword("");
       setMessageKey(signInErrorKey(error));
       setBusy(false);
@@ -104,11 +116,14 @@ export function SignInScreen({ config }: { config: FirebaseWebConfig | null }) {
 
     const result = await postAuthSession(credUser);
     if (result === "ok") {
+      // signingInRef.current stays true: this is the only redirect for this
+      // sign-in, so the stale-effect guard must keep blocking the effect.
       router.replace("/day");
       return;
     }
 
     await signOut(auth);
+    signingInRef.current = false;
     setBusy(false);
     setMessageKey(
       result === "denied"
