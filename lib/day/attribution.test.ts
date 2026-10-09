@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, autoStopAtMs, zonedTimeToEpochMs } from "@/lib/capture/calendar";
+import { autoStopAtMs, zonedTimeToEpochMs } from "@/lib/capture/calendar";
 import { attributedBusinessDate, sessionInterval, type AttributionSession } from "@/lib/day/attribution";
 import type { WeeklyHours } from "@/lib/firestore/schema";
 
