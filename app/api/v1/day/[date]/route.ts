@@ -4,6 +4,7 @@ import { jsonOk } from "@/lib/http/respond";
 import { requireClaims } from "@/lib/http/guard";
 import { getDayRecord } from "@/lib/day/service";
 import { firestoreDayStore } from "@/lib/firestore/day-store";
+import { readThreadHandleKey } from "@/lib/day/thread-handle";
 
 /**
  * GET /api/v1/day/{date} (web spec §6.2, §6.6.5; technical spec §4.3, §4.4).
@@ -25,6 +26,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ date
       claims,
       param: date,
       now_ms: Date.now(),
+      handleKey: readThreadHandleKey(),
     });
     const res = jsonOk(data);
     res.headers.set("Cache-Control", "private, no-store");

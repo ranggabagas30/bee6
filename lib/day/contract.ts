@@ -106,8 +106,29 @@ export const SupervisorThreadSchema = z
     evidence_more: z.number().int().min(0),
     staff_answer: StaffAnswerSchema.nullable(),
     runner_up: RunnerUpSchema.nullable(), // Task 11; supervisor-only (model reasoning about the speech)
+    /** Task 10: the opaque, encrypted thread id for POST /api/v1/threads/{handle}/confirm.
+     * `null` only when THREAD_HANDLE_KEY is not configured (no action is possible then). */
+    handle: z.string().min(1).max(512).nullable(),
+    /** Task 10: eligibility — the staff have answered this thread's question and it is not unverified. */
+    can_review: z.boolean(),
   })
   .strict();
+
+/** POST /api/v1/threads/{handle}/confirm body (Task 10/15; `labels:confirm`, supervisor only). */
+export const ConfirmBodySchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("confirm") }).strict(),
+  z.object({ action: z.literal("override"), category: WorkCategorySchema }).strict(),
+]);
+export type ConfirmBody = z.infer<typeof ConfirmBodySchema>;
+
+export const ConfirmResponseSchema = z
+  .object({
+    result: z.enum(["confirmed", "unchanged"]),
+    category: WorkCategorySchema,
+    display_status: z.literal("fact_supervisor_confirmed"),
+  })
+  .strict();
+export type ConfirmResponse = z.infer<typeof ConfirmResponseSchema>;
 
 export const DayRecordResponseSchema = z.discriminatedUnion("view", [
   z

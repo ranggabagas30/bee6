@@ -8,6 +8,7 @@ import type { Category, WorkCategory } from "@/lib/pipeline/categories";
 import { threadQuestionId } from "@/lib/pipeline/question-ids";
 import { attributedBusinessDate } from "@/lib/day/attribution";
 import { dayStatus } from "@/lib/day/day-status";
+import { sealThreadHandle } from "@/lib/day/thread-handle";
 import {
   FACT_STATUSES,
   deriveDisplayStatus,
@@ -93,9 +94,9 @@ function isWorkCategory(c: Category): c is WorkCategory {
 
 export async function getDayRecord(
   store: DayStore,
-  input: { claims: CustomClaims; param: string; now_ms: number },
+  input: { claims: CustomClaims; param: string; now_ms: number; handleKey: Buffer | null },
 ): Promise<DayRecordResponse> {
-  const { claims, param, now_ms } = input;
+  const { claims, param, now_ms, handleKey } = input;
 
   // 1. Permission + view.
   assertPermission(claims, "day:read:summary");
@@ -154,11 +155,19 @@ export async function getDayRecord(
   }
 
   // 9. Supervisor-only: questions (and, for answered ones, corrections).
+  // Every non-fact row AND every staff- or supervisor-confirmed fact needs
+  // its question fetched: a plain model fact has no question to show, but a
+  // confirmed one must still report `can_review` correctly (Task 10.5).
   let questions: Map<string, DayQuestionRow> | undefined;
   let corrections: Map<string, DayCorrectionRow> | undefined;
   if (supervisorView) {
     const questionIds = kept
-      .filter((k) => k.row.status !== "fact" || k.row.label_source === "staff_confirmed")
+      .filter(
+        (k) =>
+          k.row.status !== "fact" ||
+          k.row.label_source === "staff_confirmed" ||
+          k.row.label_source === "supervisor_confirmed",
+      )
       .map((k) => threadQuestionId(k.row.thread_id));
     questions = await store.getQuestions(questionIds);
     const correctionIds = questionIds.filter((qid) => questions!.get(qid)?.status === "answered");
@@ -204,6 +213,13 @@ export async function getDayRecord(
         ? { answer: correction?.answer ?? question.answer, reason: correction?.reason_text ?? null }
         : null;
 
+    // Task 10.5: the opaque handle a supervisor's confirm/override/reject
+    // call names this thread by, and the eligibility rule computed from it —
+    // the staff must have answered the question, and the thread must not be
+    // unverified (docs/tasks/R-06.md Task 10, "Eligibility rule").
+    const handle = handleKey ? sealThreadHandle(row.thread_id, claims.outlet_id, handleKey) : null;
+    const canReview = handle !== null && row.status !== "unverified" && question?.status === "answered";
+
     // Task 11: a runner-up equal to the chosen category is not a "second
     // choice" at all (either absent, or it became the chosen category after
     // a staff/supervisor confirmed_category) — null in both cases.
@@ -222,6 +238,8 @@ export async function getDayRecord(
       evidence_more: more,
       staff_answer: staffAnswer,
       runner_up: runnerUp,
+      handle,
+      can_review: canReview,
     } as SupervisorThread;
   });
 

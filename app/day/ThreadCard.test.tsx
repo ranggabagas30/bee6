@@ -35,6 +35,8 @@ const SUPERVISOR_THREAD: SupervisorThread = {
   evidence_more: 5,
   staff_answer: null,
   runner_up: null,
+  handle: null,
+  can_review: false,
 };
 
 function renderOwner(thread: OwnerThread = OWNER_THREAD) {

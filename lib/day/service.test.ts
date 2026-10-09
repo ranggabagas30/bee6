@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { randomBytes } from "node:crypto";
 import { addDays, autoStopAtMs, zonedTimeToEpochMs } from "@/lib/capture/calendar";
 import { ForbiddenError, NotFoundError } from "@/lib/http/errors";
 import type { CustomClaims } from "@/lib/auth/roles";
@@ -12,6 +13,7 @@ import {
   type DayThreadRow,
 } from "@/lib/day/service";
 import type { OwnerThread, SupervisorThread } from "@/lib/day/contract";
+import { openThreadHandle } from "@/lib/day/thread-handle";
 import type { CaptureSession, Outlet, ThreadLine, WeeklyHours } from "@/lib/firestore/schema";
 
 const JKT = "Asia/Jakarta";
@@ -263,7 +265,7 @@ const dayMixFixture: Fixture = emptyFixture({
 describe("getDayRecord — owner vs supervisor shape (the day mix)", () => {
   it("owner: 4 fact rows only, no question_count, listThreads withText:false, no question/correction reads, no sentinel leak", async () => {
     const store = new FakeDayStore(OUTLET_ID, dayMixFixture);
-    const result = await getDayRecord(store, { claims: OWNER_CLAIMS, param: "today", now_ms: at("12:00") });
+    const result = await getDayRecord(store, { claims: OWNER_CLAIMS, param: "today", now_ms: at("12:00"), handleKey: null });
 
     expect(result.view).toBe("owner");
     expect(result.threads).toHaveLength(4);
@@ -283,7 +285,7 @@ describe("getDayRecord — owner vs supervisor shape (the day mix)", () => {
 
   it("supervisor: all 9 threads, question_count 5, ordered evidence, staff answers, no device/thread id leak", async () => {
     const store = new FakeDayStore(OUTLET_ID, dayMixFixture);
-    const result = await getDayRecord(store, { claims: SUPERVISOR_CLAIMS, param: "today", now_ms: at("12:00") });
+    const result = await getDayRecord(store, { claims: SUPERVISOR_CLAIMS, param: "today", now_ms: at("12:00"), handleKey: null });
 
     expect(result.view).toBe("supervisor");
     expect(result.threads).toHaveLength(9);
@@ -313,7 +315,7 @@ describe("getDayRecord — owner vs supervisor shape (the day mix)", () => {
 
   it("supervisor getQuestions is requested only for non-fact rows plus staff_confirmed facts", async () => {
     const store = new FakeDayStore(OUTLET_ID, dayMixFixture);
-    await getDayRecord(store, { claims: SUPERVISOR_CLAIMS, param: "today", now_ms: at("12:00") });
+    await getDayRecord(store, { claims: SUPERVISOR_CLAIMS, param: "today", now_ms: at("12:00"), handleKey: null });
     // status !== "fact" (rows 4,5,6,7,8) plus staff_confirmed facts (row 3).
     expect(new Set(store.calls.getQuestionsIds)).toEqual(
       new Set([3, 4, 5, 6, 7, 8].map((n) => threadQuestionId(threadId(n)))),
@@ -323,9 +325,102 @@ describe("getDayRecord — owner vs supervisor shape (the day mix)", () => {
   it("owner day with only questions has threads: [] and fact_count: 0", async () => {
     const onlyQuestions = dayMixThreads.filter((t) => t.status !== "fact");
     const store = new FakeDayStore(OUTLET_ID, emptyFixture({ sessions: [daySession], threads: onlyQuestions }));
-    const result = await getDayRecord(store, { claims: OWNER_CLAIMS, param: "today", now_ms: at("12:00") });
+    const result = await getDayRecord(store, { claims: OWNER_CLAIMS, param: "today", now_ms: at("12:00"), handleKey: null });
     expect(result.threads).toEqual([]);
     expect(result.day.fact_count).toBe(0);
+  });
+});
+
+describe("getDayRecord — handle and can_review (Task 10.5)", () => {
+  const HANDLE_KEY = randomBytes(32);
+
+  const supervisorConfirmedFact = mkRow(9, "COMPLAINT", "fact", "FACT-SUPERVISOR-CONFIRMED", {
+    label_source: "supervisor_confirmed",
+    confirmed_category: "COMPLAINT",
+    excluded_from_evidence: false,
+  });
+
+  const handleFixture: Fixture = emptyFixture({
+    sessions: [daySession],
+    threads: [...dayMixThreads, supervisorConfirmedFact],
+    questions: [
+      ...dayMixFixture.questions,
+      { outlet_id: OUTLET_ID, question_id: threadQuestionId(threadId(9)), status: "answered", answer: "yes" },
+    ],
+    corrections: dayMixFixture.corrections,
+  });
+
+  it("a supervisor row's handle opens back to its thread id", async () => {
+    const store = new FakeDayStore(OUTLET_ID, handleFixture);
+    const result = await getDayRecord(store, {
+      claims: SUPERVISOR_CLAIMS,
+      param: "today",
+      now_ms: at("12:00"),
+      handleKey: HANDLE_KEY,
+    });
+    const threads = result.threads as SupervisorThread[];
+    const row = threads.find((t) => t.summary === "QSUM-SENTINEL-3")!;
+    expect(row.handle).not.toBeNull();
+    expect(openThreadHandle(row.handle!, OUTLET_ID, HANDLE_KEY)).toBe(threadId(6));
+  });
+
+  it("can_review is true for an answered COMPLAINT, a NO-rejected row, a staff-confirmed fact and a supervisor-confirmed fact", async () => {
+    const store = new FakeDayStore(OUTLET_ID, handleFixture);
+    const result = await getDayRecord(store, {
+      claims: SUPERVISOR_CLAIMS,
+      param: "today",
+      now_ms: at("12:00"),
+      handleKey: HANDLE_KEY,
+    });
+    const threads = result.threads as SupervisorThread[];
+    const bySummary = (s: string) => threads.find((t) => t.summary === s)!;
+    expect(bySummary("QSUM-SENTINEL-3").can_review).toBe(true); // COMPLAINT, answered yes
+    expect(bySummary("QSUM-SENTINEL-4").can_review).toBe(true); // NO-rejected
+    expect(bySummary("FACT-4").can_review).toBe(true); // staff-confirmed fact
+    expect(bySummary("FACT-SUPERVISOR-CONFIRMED").can_review).toBe(true); // supervisor-confirmed fact
+  });
+
+  it("can_review is false for an open question, an unverified thread and a model fact without a question", async () => {
+    const store = new FakeDayStore(OUTLET_ID, handleFixture);
+    const result = await getDayRecord(store, {
+      claims: SUPERVISOR_CLAIMS,
+      param: "today",
+      now_ms: at("12:00"),
+      handleKey: HANDLE_KEY,
+    });
+    const threads = result.threads as SupervisorThread[];
+    const bySummary = (s: string) => threads.find((t) => t.summary === s)!;
+    expect(bySummary("QSUM-SENTINEL-2").can_review).toBe(false); // question still open
+    expect(bySummary("QSUM-SENTINEL-5").can_review).toBe(false); // unverified
+    expect(bySummary("FACT-1").can_review).toBe(false); // model fact, no question
+  });
+
+  it("key null -> every handle is null and can_review is false", async () => {
+    const store = new FakeDayStore(OUTLET_ID, handleFixture);
+    const result = await getDayRecord(store, {
+      claims: SUPERVISOR_CLAIMS,
+      param: "today",
+      now_ms: at("12:00"),
+      handleKey: null,
+    });
+    const threads = result.threads as SupervisorThread[];
+    for (const t of threads) {
+      expect(t.handle).toBeNull();
+      expect(t.can_review).toBe(false);
+    }
+  });
+
+  it("the owner JSON still has no handle or can_review", async () => {
+    const store = new FakeDayStore(OUTLET_ID, handleFixture);
+    const result = await getDayRecord(store, {
+      claims: OWNER_CLAIMS,
+      param: "today",
+      now_ms: at("12:00"),
+      handleKey: HANDLE_KEY,
+    });
+    const json = JSON.stringify(result);
+    expect(json).not.toContain("handle");
+    expect(json).not.toContain("can_review");
   });
 });
 
@@ -341,7 +436,7 @@ describe("getDayRecord — runner-up (Task 11)", () => {
       OUTLET_ID,
       emptyFixture({ sessions: [daySession], threads: [differs, blank] }),
     );
-    const result = await getDayRecord(store, { claims: SUPERVISOR_CLAIMS, param: "today", now_ms: at("12:00") });
+    const result = await getDayRecord(store, { claims: SUPERVISOR_CLAIMS, param: "today", now_ms: at("12:00"), handleKey: null });
     const threads = result.threads as SupervisorThread[];
     expect(threads.find((t) => t.summary === "QSUM-RUNUP-1")!.runner_up).toEqual({
       category: "CUSTOMER_SERVICE",
@@ -358,7 +453,7 @@ describe("getDayRecord — runner-up (Task 11)", () => {
       runner_up: { category: "COMPLAINT", why_not: "RUNUP-SENTINEL-EQ" },
     });
     const store = new FakeDayStore(OUTLET_ID, emptyFixture({ sessions: [daySession], threads: [equal] }));
-    const result = await getDayRecord(store, { claims: SUPERVISOR_CLAIMS, param: "today", now_ms: at("12:00") });
+    const result = await getDayRecord(store, { claims: SUPERVISOR_CLAIMS, param: "today", now_ms: at("12:00"), handleKey: null });
     const row = (result.threads as SupervisorThread[])[0]!;
     expect(row.runner_up).toBeNull();
   });
@@ -370,7 +465,7 @@ describe("getDayRecord — runner-up (Task 11)", () => {
       runner_up: { category: "CUSTOMER_SERVICE", why_not: "RUNUP-SENTINEL-CONFIRMED" },
     });
     const store = new FakeDayStore(OUTLET_ID, emptyFixture({ sessions: [daySession], threads: [confirmed] }));
-    const result = await getDayRecord(store, { claims: SUPERVISOR_CLAIMS, param: "today", now_ms: at("12:00") });
+    const result = await getDayRecord(store, { claims: SUPERVISOR_CLAIMS, param: "today", now_ms: at("12:00"), handleKey: null });
     const row = (result.threads as SupervisorThread[])[0]!;
     expect(row.runner_up).toBeNull();
   });
@@ -380,7 +475,7 @@ describe("getDayRecord — runner-up (Task 11)", () => {
       runner_up: { category: "NON_WORK", why_not: "RUNUP-SENTINEL-NONWORK" },
     });
     const store = new FakeDayStore(OUTLET_ID, emptyFixture({ sessions: [daySession], threads: [row] }));
-    const result = await getDayRecord(store, { claims: SUPERVISOR_CLAIMS, param: "today", now_ms: at("12:00") });
+    const result = await getDayRecord(store, { claims: SUPERVISOR_CLAIMS, param: "today", now_ms: at("12:00"), handleKey: null });
     expect((result.threads as SupervisorThread[])[0]!.runner_up).toEqual({
       category: "NON_WORK",
       why_not: "RUNUP-SENTINEL-NONWORK",
@@ -392,7 +487,7 @@ describe("getDayRecord — runner-up (Task 11)", () => {
       runner_up: { category: "CUSTOMER_SERVICE", why_not: "RUNUP-SENTINEL-OWNER" },
     });
     const store = new FakeDayStore(OUTLET_ID, emptyFixture({ sessions: [daySession], threads: [row] }));
-    const result = await getDayRecord(store, { claims: OWNER_CLAIMS, param: "today", now_ms: at("12:00") });
+    const result = await getDayRecord(store, { claims: OWNER_CLAIMS, param: "today", now_ms: at("12:00"), handleKey: null });
     expect(JSON.stringify(result)).not.toContain("RUNUP-SENTINEL-OWNER");
   });
 });
@@ -401,7 +496,7 @@ describe("getDayRecord — permission and outlet guard", () => {
   it("staff claims are forbidden before any store call", async () => {
     const store = new FakeDayStore(OUTLET_ID, emptyFixture());
     await expect(
-      getDayRecord(store, { claims: STAFF_CLAIMS, param: "today", now_ms: at("12:00") }),
+      getDayRecord(store, { claims: STAFF_CLAIMS, param: "today", now_ms: at("12:00"), handleKey: null }),
     ).rejects.toBeInstanceOf(ForbiddenError);
     expect(store.calls.listThreads).toBeUndefined();
   });
@@ -409,7 +504,7 @@ describe("getDayRecord — permission and outlet guard", () => {
   it("device claims are forbidden before any store call", async () => {
     const store = new FakeDayStore(OUTLET_ID, emptyFixture());
     await expect(
-      getDayRecord(store, { claims: DEVICE_CLAIMS, param: "today", now_ms: at("12:00") }),
+      getDayRecord(store, { claims: DEVICE_CLAIMS, param: "today", now_ms: at("12:00"), handleKey: null }),
     ).rejects.toBeInstanceOf(ForbiddenError);
     expect(store.calls.listThreads).toBeUndefined();
   });
@@ -417,7 +512,7 @@ describe("getDayRecord — permission and outlet guard", () => {
   it("a missing outlet doc is NotFoundError", async () => {
     const store = new FakeDayStore(OUTLET_ID, emptyFixture({ outlet: null }));
     await expect(
-      getDayRecord(store, { claims: OWNER_CLAIMS, param: "today", now_ms: at("12:00") }),
+      getDayRecord(store, { claims: OWNER_CLAIMS, param: "today", now_ms: at("12:00"), handleKey: null }),
     ).rejects.toBeInstanceOf(NotFoundError);
   });
 
@@ -427,7 +522,7 @@ describe("getDayRecord — permission and outlet guard", () => {
       emptyFixture({ outlet: makeOutlet({ outlet_id: FOREIGN_OUTLET_ID }) }),
     );
     await expect(
-      getDayRecord(store, { claims: OWNER_CLAIMS, param: "today", now_ms: at("12:00") }),
+      getDayRecord(store, { claims: OWNER_CLAIMS, param: "today", now_ms: at("12:00"), handleKey: null }),
     ).rejects.toBeInstanceOf(ForbiddenError);
   });
 });
@@ -438,8 +533,7 @@ describe("getDayRecord — date param resolution", () => {
     const result = await getDayRecord(store, {
       claims: OWNER_CLAIMS,
       param: "today",
-      now_ms: at("00:30", SAT),
-    });
+      now_ms: at("00:30", SAT), handleKey: null });
     expect(result.day.date).toBe(FRI);
     expect(result.day.today).toBe(FRI);
   });
@@ -448,14 +542,14 @@ describe("getDayRecord — date param resolution", () => {
     const store = new FakeDayStore(OUTLET_ID, emptyFixture());
     const tomorrow = addDays(FRI, 1);
     await expect(
-      getDayRecord(store, { claims: OWNER_CLAIMS, param: tomorrow, now_ms: at("12:00") }),
+      getDayRecord(store, { claims: OWNER_CLAIMS, param: tomorrow, now_ms: at("12:00"), handleKey: null }),
     ).rejects.toMatchObject({ message: "date_in_future" });
   });
 
   it("an impossible calendar date is 422 invalid_date", async () => {
     const store = new FakeDayStore(OUTLET_ID, emptyFixture());
     await expect(
-      getDayRecord(store, { claims: OWNER_CLAIMS, param: "2026-02-30", now_ms: at("12:00") }),
+      getDayRecord(store, { claims: OWNER_CLAIMS, param: "2026-02-30", now_ms: at("12:00"), handleKey: null }),
     ).rejects.toMatchObject({ message: "invalid_date" });
   });
 
@@ -464,8 +558,7 @@ describe("getDayRecord — date param resolution", () => {
     const result = await getDayRecord(store, {
       claims: OWNER_CLAIMS,
       param: "2026-09-01",
-      now_ms: at("12:00"),
-    });
+      now_ms: at("12:00"), handleKey: null });
     expect(result.threads).toEqual([]);
   });
 });
@@ -514,11 +607,11 @@ describe("getDayRecord — attribution at the service level", () => {
         threads: [crossMidnightThread, discardedThread],
       }),
     );
-    const friResult = await getDayRecord(store, { claims: OWNER_CLAIMS, param: FRI, now_ms: at("12:00") });
+    const friResult = await getDayRecord(store, { claims: OWNER_CLAIMS, param: FRI, now_ms: at("12:00"), handleKey: null });
     expect(friResult.threads.map((t) => t.summary)).toEqual(["FACT-CROSS"]);
     expect(friResult.day.sessions_cancelled).toBe(1);
 
-    const satResult = await getDayRecord(store, { claims: OWNER_CLAIMS, param: SAT, now_ms: at("12:00", SAT) });
+    const satResult = await getDayRecord(store, { claims: OWNER_CLAIMS, param: SAT, now_ms: at("12:00", SAT), handleKey: null });
     expect(satResult.threads).toEqual([]);
     expect(satResult.day.sessions_cancelled).toBe(0);
   });
@@ -541,7 +634,7 @@ describe("getDayRecord — row scoping", () => {
         corrections: [{ outlet_id: FOREIGN_OUTLET_ID, question_id: threadQuestionId(threadId(102)), answer: "yes", reason_text: "LEAKED" }],
       }),
     );
-    const result = await getDayRecord(store, { claims: SUPERVISOR_CLAIMS, param: "today", now_ms: at("12:00") });
+    const result = await getDayRecord(store, { claims: SUPERVISOR_CLAIMS, param: "today", now_ms: at("12:00"), handleKey: null });
     expect(result.threads).toHaveLength(1);
     const row = result.threads[0] as SupervisorThread;
     expect(row.summary).toBe("QSUM-KEPT");
@@ -567,14 +660,14 @@ describe("getDayRecord — truncation", () => {
 
   it("1001 raw rows -> 1000 returned, truncated: true", async () => {
     const store = new FakeDayStore(OUTLET_ID, emptyFixture({ sessions: [daySession], threads: manyFacts(1001) }));
-    const result = await getDayRecord(store, { claims: SUPERVISOR_CLAIMS, param: "today", now_ms: at("12:00") });
+    const result = await getDayRecord(store, { claims: SUPERVISOR_CLAIMS, param: "today", now_ms: at("12:00"), handleKey: null });
     expect(result.threads).toHaveLength(1000);
     expect(result.day.truncated).toBe(true);
   });
 
   it("1000 raw rows -> truncated: false", async () => {
     const store = new FakeDayStore(OUTLET_ID, emptyFixture({ sessions: [daySession], threads: manyFacts(1000) }));
-    const result = await getDayRecord(store, { claims: SUPERVISOR_CLAIMS, param: "today", now_ms: at("12:00") });
+    const result = await getDayRecord(store, { claims: SUPERVISOR_CLAIMS, param: "today", now_ms: at("12:00"), handleKey: null });
     expect(result.threads).toHaveLength(1000);
     expect(result.day.truncated).toBe(false);
   });
@@ -588,7 +681,7 @@ describe("getDayRecord — sort order", () => {
       { outlet_id: OUTLET_ID, thread_id: "unit_a", device_id: DEVICE, category: "ROUTINE_OPS", confidence: 0.9, first_line_start_ms: ms, last_line_end_ms: ms + 1000, summary: "A", status: "fact" },
     ];
     const store = new FakeDayStore(OUTLET_ID, emptyFixture({ sessions: [daySession], threads }));
-    const result = await getDayRecord(store, { claims: OWNER_CLAIMS, param: "today", now_ms: at("12:00") });
+    const result = await getDayRecord(store, { claims: OWNER_CLAIMS, param: "today", now_ms: at("12:00"), handleKey: null });
     expect(result.threads.map((t) => t.summary)).toEqual(["A", "Z"]);
     expect(result.threads.map((t) => t.row)).toEqual([0, 1]);
   });
@@ -645,13 +738,12 @@ describe("getDayRecord — response payload budget", () => {
     const supervisorResult = await getDayRecord(store, {
       claims: SUPERVISOR_CLAIMS,
       param: "today",
-      now_ms: at("12:00"),
-    });
+      now_ms: at("12:00"), handleKey: null });
     expect(supervisorResult.threads).toHaveLength(400);
     expect(JSON.stringify(supervisorResult).length).toBeLessThan(500_000);
 
     const ownerStore = new FakeDayStore(OUTLET_ID, emptyFixture({ sessions: [daySession], threads }));
-    const ownerResult = await getDayRecord(ownerStore, { claims: OWNER_CLAIMS, param: "today", now_ms: at("12:00") });
+    const ownerResult = await getDayRecord(ownerStore, { claims: OWNER_CLAIMS, param: "today", now_ms: at("12:00"), handleKey: null });
     expect(ownerResult.threads).toHaveLength(400);
     expect(JSON.stringify(ownerResult).length).toBeLessThan(150_000);
   });
