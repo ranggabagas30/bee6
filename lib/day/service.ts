@@ -106,9 +106,10 @@ function isWorkCategory(c: Category): c is WorkCategory {
 
 export async function getDayRecord(
   store: DayStore,
-  input: { claims: CustomClaims; param: string; now_ms: number; handleKey: Buffer | null },
+  input: { claims: CustomClaims; param: string; now_ms: number; handleKey?: Buffer | null },
 ): Promise<DayRecordResponse> {
-  const { claims, param, now_ms, handleKey } = input;
+  const { claims, param, now_ms } = input;
+  const handleKey = input.handleKey ?? null;
 
   // 1. Permission + view.
   assertPermission(claims, "day:read:summary");
