@@ -446,8 +446,13 @@ export const ThreadSchema = z
      * marks a staff NO (the thread stays `open`/visible to a supervisor but
      * is never counted as evidence) — independent of `label_source`, since
      * a NO never sets `staff_confirmed`.
+     *
+     * R-06 Task 10: `"supervisor_confirmed"` is set alongside
+     * `confirmed_category` the same way, by `POST /api/v1/threads/{id}/confirm`
+     * (`action: "confirm" | "override"`); it also writes
+     * `excluded_from_evidence: false` explicitly (undoing an earlier reject).
      */
-    label_source: z.enum(["model", "staff_confirmed"]).optional(),
+    label_source: z.enum(["model", "staff_confirmed", "supervisor_confirmed"]).optional(),
     confirmed_category: CategorySchema.optional(),
     excluded_from_evidence: z.boolean().optional(),
   })

@@ -754,6 +754,44 @@ describe("firestoreTickStore.writeUnitResult", () => {
     });
   });
 
+  it("R-06 (Task 10.3): a supervisor_confirmed thread keeps its supervisor fields (and status 'fact') on a later continuation", async () => {
+    const existing = asDoc({
+      ...makeThread({ thread_id: "t1", status: "fact" }),
+      label_source: "supervisor_confirmed",
+      confirmed_category: "COMPLAINT",
+      excluded_from_evidence: false,
+    });
+    const { db, collections } = fakeDb({ [COLLECTIONS.threads]: { t1: existing } });
+    const store = firestoreTickStore(db);
+
+    const continuation = makeThread({
+      thread_id: "t1",
+      status: "open", // the tick's own fresh gate call, re-opened by new evidence
+      category: "ROUTINE_OPS", // a later unit's own label — the supervisor decision still stands
+      confidence: 0.5,
+      lines: [{ line_id: "s1#1", start_ms: 3000, end_ms: 6000, text: "more lines" }],
+    });
+
+    await store.writeUnitResult(OUTLET, DEVICE, {
+      threads: [continuation],
+      questions: [],
+      ledger: { outlet_id: OUTLET, device_id: DEVICE, unit_key: "u1", line_ids: [], status: "done", attempts: 1, labelled_at_ms: 2000 },
+      blank_line_ids: [],
+    });
+
+    const stored = collections.get(COLLECTIONS.threads)?.get("t1");
+    expect(stored).toMatchObject({
+      status: "fact",
+      label_source: "supervisor_confirmed",
+      confirmed_category: "COMPLAINT",
+      excluded_from_evidence: false,
+      gate: existing.gate, // the supervisor decision's own gate, not the tick's fresh one
+      // new lines still merge in:
+      lines: continuation.lines,
+      confidence: continuation.confidence,
+    });
+  });
+
   it("R-07 (Task 5.2): a NO-rejected (excluded_from_evidence) thread keeps that flag on a later continuation", async () => {
     const existing = asDoc({
       ...makeThread({ thread_id: "t1", status: "open" }),
