@@ -7,7 +7,7 @@ import { openThreadHandle } from "@/lib/day/thread-handle";
 import { ConfirmBodySchema, ConfirmResponseSchema, type ConfirmBody, type ConfirmResponse } from "@/lib/day/contract";
 import type { AuditLog, Question, Thread } from "@/lib/firestore/schema";
 import type { Category, WorkCategory } from "@/lib/pipeline/categories";
-import type { DayStore } from "@/lib/day/service";
+import type { ConfirmStore } from "@/lib/day/service";
 
 /**
  * Supervisor confirm/override/reject (R-06 Task 10 + Task 15 (v4),
@@ -194,7 +194,7 @@ export function planConfirm(input: {
  * a handle decrypts.
  */
 export async function confirmThreadLabel(
-  store: Pick<DayStore, "transactConfirm">,
+  store: ConfirmStore,
   input: { claims: CustomClaims; handle: string; rawBody: unknown; now_ms: number; handleKey: Buffer | null },
 ): Promise<ConfirmResponse> {
   const { claims, handle, rawBody, now_ms, handleKey } = input;

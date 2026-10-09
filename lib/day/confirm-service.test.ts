@@ -4,7 +4,7 @@ import { evaluateGate } from "@/lib/pipeline/gate";
 import { ForbiddenError, ServiceUnavailableError } from "@/lib/http/errors";
 import type { CustomClaims } from "@/lib/auth/roles";
 import type { Question, Thread } from "@/lib/firestore/schema";
-import type { DayStore } from "@/lib/day/service";
+import type { ConfirmStore } from "@/lib/day/service";
 
 const OUTLET = "o1";
 const FOREIGN_OUTLET = "o2";
@@ -421,7 +421,7 @@ describe("confirmThreadLabel", () => {
   const CLAIMS_OWNER: CustomClaims = { outlet_id: OUTLET, role: "owner" };
   const KEY = Buffer.alloc(32, 7);
 
-  function storeWith(result: ConfirmPlan): Pick<DayStore, "transactConfirm"> & { transactConfirm: ReturnType<typeof vi.fn> } {
+  function storeWith(result: ConfirmPlan): ConfirmStore & { transactConfirm: ReturnType<typeof vi.fn> } {
     return { transactConfirm: vi.fn(async () => result) };
   }
 

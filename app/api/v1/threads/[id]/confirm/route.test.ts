@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import { POST } from "./route";
 import * as dayStoreModule from "@/lib/firestore/day-store";
 import * as threadHandleModule from "@/lib/day/thread-handle";
-import type { DayStore } from "@/lib/day/service";
+import type { ConfirmStore, DayStore } from "@/lib/day/service";
 
 /**
  * Same mocking technique as `app/api/v1/day/[date]/route.test.ts`: real
@@ -50,7 +50,7 @@ function ownerClaims() {
   });
 }
 
-function fakeStore(overrides: Partial<DayStore> = {}): DayStore {
+function fakeStore(overrides: Partial<DayStore & ConfirmStore> = {}): DayStore & ConfirmStore {
   return {
     getOutlet: async () => null,
     listSessions: async () => [],

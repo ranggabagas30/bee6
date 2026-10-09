@@ -87,6 +87,14 @@ export interface DayStore {
   getCorrections(ids: readonly string[]): Promise<Map<string, DayCorrectionRow>>;
   /** Devices with `outlet_id`, `revoked` false, `paired_at` non-null. */
   countPairedDevices(): Promise<number>;
+}
+
+/**
+ * The confirm/override/reject write surface (R-06 Task 10.6), kept separate
+ * from `DayStore` so a fake that only needs the read-only day record (e.g.
+ * PR-8's owner-home tests) never has to implement it.
+ */
+export interface ConfirmStore {
   /**
    * One Firestore transaction (R-06 Task 10.6): re-reads the thread and its
    * question, calls `plan(snapshot)`, and on a `"write"` plan applies the

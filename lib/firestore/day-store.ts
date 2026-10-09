@@ -13,7 +13,7 @@ import {
   parseOutletDoc,
   type CaptureSession,
 } from "@/lib/firestore/schema";
-import type { DayCorrectionRow, DayQuestionRow, DayStore, DayThreadRow } from "@/lib/day/service";
+import type { ConfirmStore, DayCorrectionRow, DayQuestionRow, DayStore, DayThreadRow } from "@/lib/day/service";
 import type { ConfirmPlan, ConfirmTxSnapshot } from "@/lib/day/confirm-service";
 
 /**
@@ -142,7 +142,7 @@ async function getByIdsFieldMasked<T extends { outlet_id: string }>(
   return map;
 }
 
-export function firestoreDayStore(outletId: string, db: Firestore = adminDb()): DayStore {
+export function firestoreDayStore(outletId: string, db: Firestore = adminDb()): DayStore & ConfirmStore {
   return {
     async getOutlet() {
       const doc = await db.collection(COLLECTIONS.outlets).doc(outletId).get();
