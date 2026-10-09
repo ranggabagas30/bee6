@@ -13,6 +13,7 @@ import {
 import { zonedTimeToEpochMs } from "@/lib/capture/calendar";
 import { attributedBusinessDate } from "@/lib/day/attribution";
 import { deriveDisplayStatus, type DisplayStatus } from "@/lib/day/derive";
+import { threadQuestionId } from "@/lib/pipeline/question-ids";
 import {
   CaptureSessionSchema,
   CorrectionSchema,
@@ -63,12 +64,34 @@ describe("buildDayFixture", () => {
     for (const c of build.corrections) expect(CorrectionSchema.safeParse(c).success).toBe(true);
   });
 
-  it("every thread/question/correction id starts with fixture_; the session id is fixture-device:<uuid>", () => {
+  it("every thread id starts with fixture_; the session id is fixture-device:<uuid>", () => {
     for (const t of build.threads) expect(t.thread_id.startsWith("fixture_")).toBe(true);
-    for (const q of build.questions) expect(q.question_id.startsWith("fixture_")).toBe(true);
-    for (const c of build.corrections) expect(c.correction_id.startsWith("fixture_")).toBe(true);
     expect(build.session.device_id).toBe(FIXTURE_DEVICE_ID);
     expect(`${build.session.device_id}:${build.session.session_id}`).toBe(fixtureSessionDocId(DATE));
+  });
+
+  it("a thread's gate question/correction id is the real q_thread_<thread_id> convention, not a hand-built one", () => {
+    const gateQuestions = build.questions.filter((q) => q.kind === "gate");
+    expect(gateQuestions.length).toBeGreaterThan(0);
+    for (const q of gateQuestions) {
+      expect(q.question_id).toBe(threadQuestionId(q.thread_id as string));
+      expect(q.question_id.startsWith("q_thread_fixture_thread_")).toBe(true);
+    }
+    const gateCorrections = build.corrections.filter((c) => c.thread_id !== null);
+    expect(gateCorrections.length).toBeGreaterThan(0);
+    for (const c of gateCorrections) {
+      expect(c.correction_id).toBe(threadQuestionId(c.thread_id as string));
+      expect(c.correction_id.startsWith("q_thread_fixture_thread_")).toBe(true);
+    }
+  });
+
+  it("every unlabelled_unit question/correction id still starts with fixture_ (not thread-tied)", () => {
+    for (const q of build.questions.filter((q) => q.kind === "unlabelled_unit")) {
+      expect(q.question_id.startsWith("fixture_")).toBe(true);
+    }
+    for (const c of build.corrections.filter((c) => c.thread_id === null)) {
+      expect(c.correction_id.startsWith("fixture_")).toBe(true);
+    }
   });
 
   it("no fixture doc id or field contains the real demo device id", () => {
@@ -77,10 +100,14 @@ describe("buildDayFixture", () => {
   });
 
   it("the mix yields every DisplayStatus except fact_supervisor_confirmed and rejected_by_supervisor", () => {
-    const questionByThreadId = new Map(build.questions.filter((q) => q.thread_id).map((q) => [q.thread_id as string, q]));
+    // Mirrors `lib/day/service.ts`'s real join: questions keyed by doc id
+    // (= question_id), looked up via `threadQuestionId(thread_id)` — never
+    // by a `thread_id` field on the question — so this test would catch a
+    // fixture/real-service id-convention mismatch, not just an id prefix.
+    const questionByQid = new Map(build.questions.map((q) => [q.question_id, q]));
     const statuses = new Set<DisplayStatus>();
     for (const t of build.threads) {
-      const q = questionByThreadId.get(t.thread_id);
+      const q = questionByQid.get(threadQuestionId(t.thread_id));
       const effectiveCategory = (t.confirmed_category ?? t.category) as Exclude<typeof t.category, "NON_WORK">;
       statuses.add(
         deriveDisplayStatus(

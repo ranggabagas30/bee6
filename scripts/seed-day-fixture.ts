@@ -26,6 +26,7 @@ import { COLLECTIONS } from "@/lib/firestore/collections";
 import { addDays, businessDateOf, zonedTimeToEpochMs } from "@/lib/capture/calendar";
 import { evaluateGate, type GateDecision } from "@/lib/pipeline/gate";
 import { NEEDS_SUPERVISOR_CONFIRM, type Category, type WorkCategory } from "@/lib/pipeline/categories";
+import { threadQuestionId } from "@/lib/pipeline/question-ids";
 import {
   AUTO_STOP_AFTER_CLOSE_MIN,
   CaptureSessionSchema,
@@ -232,7 +233,11 @@ export function buildDayFixture(input: BuildDayFixtureInput): BuildDayFixtureRes
     const lengthMs = ((i % 4) + 1) * 60_000;
     const endMs = Math.min(startMs + lengthMs, windowEndMs - 1);
     const threadId = `fixture_thread_${date}_${i}`;
-    const questionId = `fixture_question_${date}_${i}`;
+    // The real convention (`lib/pipeline/question-ids.ts`): a thread's gate
+    // question id is always `q_thread_<thread_id>`, never hand-built — this
+    // is what `lib/day/service.ts` looks up by, so fixture gate questions
+    // and corrections must use it too.
+    const questionId = threadQuestionId(threadId);
     const lineCount = 3 + (i % 6);
     const lines = buildLines(threadId, startMs, endMs, lineCount, i);
     const lineIds = lines.map((l) => l.line_id);
