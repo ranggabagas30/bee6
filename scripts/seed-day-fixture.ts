@@ -721,24 +721,32 @@ async function deleteFixture(db: Firestore, date: string): Promise<void> {
   const dayStartMs = zonedTimeToEpochMs(date, "00:00", FIXTURE_TZ);
   const dayEndMs = zonedTimeToEpochMs(addDays(date, 1), "00:00", FIXTURE_TZ);
 
+  // `outlet_id ==` + the `first_line_start_ms` range is the same composite
+  // the day record's own query needs (R-06 §9 already creates it); adding
+  // `device_id ==` on top would need a second composite index nothing in
+  // §9 creates, so `device_id` is filtered in memory instead.
   const threadSnap = await db
     .collection(COLLECTIONS.threads)
     .where("outlet_id", "==", FIXTURE_OUTLET_ID)
-    .where("device_id", "==", FIXTURE_DEVICE_ID)
     .where("first_line_start_ms", ">=", dayStartMs)
     .where("first_line_start_ms", "<", dayEndMs)
     .get();
-  const threadIds = threadSnap.docs.map((d) => d.id);
-  await commitDeletes(db, threadSnap.docs.map((d) => d.ref));
+  const threadDocs = threadSnap.docs.filter((d) => d.data().device_id === FIXTURE_DEVICE_ID);
+  const threadIds = threadDocs.map((d) => d.id);
+  await commitDeletes(db, threadDocs.map((d) => d.ref));
 
+  // Equality-only (`outlet_id ==`, `device_id ==`) needs no composite index;
+  // the `window_start_ms` range is filtered in memory instead.
   const questionSnap = await db
     .collection(COLLECTIONS.questions)
     .where("outlet_id", "==", FIXTURE_OUTLET_ID)
     .where("device_id", "==", FIXTURE_DEVICE_ID)
-    .where("window_start_ms", ">=", dayStartMs)
-    .where("window_start_ms", "<", dayEndMs)
     .get();
-  await commitDeletes(db, questionSnap.docs.map((d) => d.ref));
+  const questionDocs = questionSnap.docs.filter((d) => {
+    const windowStart = d.data().window_start_ms;
+    return typeof windowStart === "number" && windowStart >= dayStartMs && windowStart < dayEndMs;
+  });
+  await commitDeletes(db, questionDocs.map((d) => d.ref));
 
   const correctionSnap = await db
     .collection(COLLECTIONS.corrections)
@@ -766,7 +774,7 @@ async function deleteFixture(db: Firestore, date: string): Promise<void> {
   }
 
   console.log(
-    `[seed-day-fixture] deleted date=${date}: ${threadIds.length} threads, ${questionSnap.size} questions, ` +
+    `[seed-day-fixture] deleted date=${date}: ${threadIds.length} threads, ${questionDocs.length} questions, ` +
       `${correctionSnap.size} corrections, session=${sessionSnap.exists ? 1 : 0}`,
   );
 }
