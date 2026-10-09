@@ -721,10 +721,11 @@ async function deleteFixture(db: Firestore, date: string): Promise<void> {
   const dayStartMs = zonedTimeToEpochMs(date, "00:00", FIXTURE_TZ);
   const dayEndMs = zonedTimeToEpochMs(addDays(date, 1), "00:00", FIXTURE_TZ);
 
-  // `outlet_id ==` + the `first_line_start_ms` range is the same composite
-  // the day record's own query needs (R-06 §9 already creates it); adding
-  // `device_id ==` on top would need a second composite index nothing in
-  // §9 creates, so `device_id` is filtered in memory instead.
+  // Collect every id first; nothing is deleted yet. `outlet_id ==` + the
+  // `first_line_start_ms` range is the same composite the day record's own
+  // query needs (R-06 §9 already creates it); adding `device_id ==` on top
+  // would need a second composite index nothing in §9 creates, so
+  // `device_id` is filtered in memory instead.
   const threadSnap = await db
     .collection(COLLECTIONS.threads)
     .where("outlet_id", "==", FIXTURE_OUTLET_ID)
@@ -733,7 +734,6 @@ async function deleteFixture(db: Firestore, date: string): Promise<void> {
     .get();
   const threadDocs = threadSnap.docs.filter((d) => d.data().device_id === FIXTURE_DEVICE_ID);
   const threadIds = threadDocs.map((d) => d.id);
-  await commitDeletes(db, threadDocs.map((d) => d.ref));
 
   // Equality-only (`outlet_id ==`, `device_id ==`) needs no composite index;
   // the `window_start_ms` range is filtered in memory instead.
@@ -746,7 +746,6 @@ async function deleteFixture(db: Firestore, date: string): Promise<void> {
     const windowStart = d.data().window_start_ms;
     return typeof windowStart === "number" && windowStart >= dayStartMs && windowStart < dayEndMs;
   });
-  await commitDeletes(db, questionDocs.map((d) => d.ref));
 
   const correctionSnap = await db
     .collection(COLLECTIONS.corrections)
@@ -754,13 +753,15 @@ async function deleteFixture(db: Firestore, date: string): Promise<void> {
     .where("answered_device_id", "==", FIXTURE_DEVICE_ID)
     .where("debrief_business_date", "==", date)
     .get();
-  await commitDeletes(db, correctionSnap.docs.map((d) => d.ref));
 
   const sessionRef = db.collection(COLLECTIONS.captureSessions).doc(fixtureSessionDocId(date));
   const sessionSnap = await sessionRef.get();
-  if (sessionSnap.exists) await sessionRef.delete();
 
-  // Task 10's QA writes audit_log entries against fixture thread ids; clean those up too.
+  // Delete audit_log entries referencing these threads FIRST: Task 10's QA
+  // writes audit_log entries against fixture thread ids, and if a re-run
+  // deleted the threads before this step and then failed partway (index,
+  // network), it could no longer find the now-deleted threads to locate
+  // these orphaned audit entries.
   for (let i = 0; i < threadIds.length; i += IN_QUERY_CHUNK) {
     const chunk = threadIds.slice(i, i + IN_QUERY_CHUNK);
     if (chunk.length === 0) continue;
@@ -772,6 +773,12 @@ async function deleteFixture(db: Firestore, date: string): Promise<void> {
       .get();
     await commitDeletes(db, auditSnap.docs.map((d) => d.ref));
   }
+
+  // Only now delete threads, questions, corrections, and the session.
+  await commitDeletes(db, threadDocs.map((d) => d.ref));
+  await commitDeletes(db, questionDocs.map((d) => d.ref));
+  await commitDeletes(db, correctionSnap.docs.map((d) => d.ref));
+  if (sessionSnap.exists) await sessionRef.delete();
 
   console.log(
     `[seed-day-fixture] deleted date=${date}: ${threadIds.length} threads, ${questionDocs.length} questions, ` +
