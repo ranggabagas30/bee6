@@ -46,16 +46,25 @@ function renderActions(t: SupervisorThread, onDone: () => void = () => {}, lang:
 }
 
 describe("ThreadActions", () => {
-  it("awaiting_supervisor row shows both Confirm and Change category", () => {
+  it("awaiting_supervisor row shows three buttons: Confirm, Change category, Reject", () => {
     renderActions(thread({ display_status: "awaiting_supervisor" }));
     expect(screen.queryByText("Confirm")).not.toBeNull();
     expect(screen.queryByText("Change category")).not.toBeNull();
+    expect(screen.queryByText("Reject")).not.toBeNull();
   });
 
-  it("fact_staff_confirmed row shows only Change category", () => {
+  it("fact_staff_confirmed row shows Change category + Reject (no Confirm)", () => {
     renderActions(thread({ display_status: "fact_staff_confirmed" }));
     expect(screen.queryByText("Confirm")).toBeNull();
     expect(screen.queryByText("Change category")).not.toBeNull();
+    expect(screen.queryByText("Reject")).not.toBeNull();
+  });
+
+  it("rejected_by_supervisor row shows Confirm + Change category (no Reject)", () => {
+    renderActions(thread({ display_status: "rejected_by_supervisor" }));
+    expect(screen.queryByText("Confirm")).not.toBeNull();
+    expect(screen.queryByText("Change category")).not.toBeNull();
+    expect(screen.queryByText("Reject")).toBeNull();
   });
 
   it("Confirm sends one POST with { action: 'confirm' } to the encoded handle path; onDone fires once", async () => {
@@ -153,5 +162,86 @@ describe("ThreadActions", () => {
     const select = screen.queryByLabelText("Kategori baru");
     expect(select).not.toBeNull();
     expect(screen.queryByText("Keluhan pelanggan")).not.toBeNull();
+  });
+
+  describe("reject (v4, Task 15.6)", () => {
+    it("Reject opens an inline confirm with the question text; no request yet", () => {
+      renderActions(thread());
+      fireEvent.click(screen.getByText("Reject"));
+      expect(screen.queryByText("Reject this note? It will not count as evidence.")).not.toBeNull();
+      expect(authedPostJson).not.toHaveBeenCalled();
+    });
+
+    it("Cancel on the reject panel sends no request and returns focus to Reject", () => {
+      renderActions(thread());
+      const rejectButton = screen.getByText("Reject");
+      fireEvent.click(rejectButton);
+      fireEvent.click(screen.getByText("Cancel"));
+      expect(authedPostJson).not.toHaveBeenCalled();
+      expect(screen.queryByText("Reject this note? It will not count as evidence.")).toBeNull();
+      expect(document.activeElement).toBe(rejectButton);
+    });
+
+    it("Yes, reject sends one POST { action: 'reject' }; onDone fires once", async () => {
+      authedPostJson.mockResolvedValueOnce({ kind: "ok", data: {} });
+      const onDone = vi.fn();
+      renderActions(thread({ handle: "has space/slash" }), onDone);
+
+      fireEvent.click(screen.getByText("Reject"));
+      fireEvent.click(screen.getByText("Yes, reject"));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(authedPostJson).toHaveBeenCalledTimes(1);
+      expect(authedPostJson).toHaveBeenCalledWith(
+        AUTH,
+        `/api/v1/threads/${encodeURIComponent("has space/slash")}/confirm`,
+        { action: "reject" },
+        expect.anything(),
+      );
+      expect(onDone).toHaveBeenCalledTimes(1);
+    });
+
+    it("double tap on Yes, reject sends only one request", async () => {
+      let resolveFn: (value: unknown) => void = () => {};
+      authedPostJson.mockImplementationOnce(
+        () => new Promise((resolve) => { resolveFn = resolve; }),
+      );
+      renderActions(thread());
+
+      fireEvent.click(screen.getByText("Reject"));
+      fireEvent.click(screen.getByText("Yes, reject"));
+      fireEvent.click(screen.getByText("Saving…"));
+      fireEvent.click(screen.getByText("Saving…"));
+
+      expect(authedPostJson).toHaveBeenCalledTimes(1);
+      resolveFn({ kind: "ok", data: {} });
+      await Promise.resolve();
+    });
+
+    it("opening Change category closes an open reject panel", () => {
+      renderActions(thread());
+      fireEvent.click(screen.getByText("Reject"));
+      expect(screen.queryByText("Reject this note? It will not count as evidence.")).not.toBeNull();
+      fireEvent.click(screen.getByText("Change category"));
+      expect(screen.queryByText("Reject this note? It will not count as evidence.")).toBeNull();
+      expect(screen.queryByLabelText("New category")).not.toBeNull();
+    });
+
+    it("opening Reject closes an open change-category panel", () => {
+      renderActions(thread());
+      fireEvent.click(screen.getByText("Change category"));
+      expect(screen.queryByLabelText("New category")).not.toBeNull();
+      fireEvent.click(screen.getByText("Reject"));
+      expect(screen.queryByLabelText("New category")).toBeNull();
+      expect(screen.queryByText("Reject this note? It will not count as evidence.")).not.toBeNull();
+    });
+
+    it("ID toggle switches Reject button and panel text", () => {
+      renderActions(thread(), () => {}, "id");
+      fireEvent.click(screen.getByText("Tolak"));
+      expect(screen.queryByText("Tolak catatan ini? Catatan ini tidak dihitung sebagai bukti.")).not.toBeNull();
+      expect(screen.queryByText("Ya, tolak")).not.toBeNull();
+    });
   });
 });

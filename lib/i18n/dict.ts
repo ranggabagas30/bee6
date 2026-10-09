@@ -253,6 +253,11 @@ export const ID = {
   "C-act-busy": "Menyimpan…", // PROVISIONAL
   "C-act-blocked": "Tidak bisa dikonfirmasi: tidak ada baris bukti.", // PROVISIONAL
   "C-act-stale": "Catatan ini berubah. Menampilkan yang terbaru.", // PROVISIONAL
+
+  // Supervisor reject (R-06 Task 15, v4), appended to the Task 10 block.
+  "C-act-reject": "Tolak", // PROVISIONAL
+  "C-act-reject-q": "Tolak catatan ini? Catatan ini tidak dihitung sebagai bukti.", // PROVISIONAL
+  "C-act-reject-yes": "Ya, tolak", // PROVISIONAL
 } as const;
 
 export type DictKey = keyof typeof ID;
@@ -480,6 +485,11 @@ export const EN: Record<DictKey, string> = {
   "C-act-busy": "Saving…",
   "C-act-blocked": "Cannot confirm: no evidence lines.",
   "C-act-stale": "This note changed. Showing the latest.",
+
+  // Supervisor reject (R-06 Task 15, v4), appended to the Task 10 block.
+  "C-act-reject": "Reject",
+  "C-act-reject-q": "Reject this note? It will not count as evidence.",
+  "C-act-reject-yes": "Yes, reject",
 };
 
 export const DICT: Record<Lang, Record<DictKey, string>> = { id: ID, en: EN };
