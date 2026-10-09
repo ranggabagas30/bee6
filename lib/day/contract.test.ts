@@ -172,6 +172,18 @@ describe("ConfirmBodySchema", () => {
   it("rejects an unknown action", () => {
     expect(ConfirmBodySchema.safeParse({ action: "delete" }).success).toBe(false);
   });
+
+  it("accepts { action: 'reject' } (v4, Task 15)", () => {
+    expect(ConfirmBodySchema.safeParse({ action: "reject" }).success).toBe(true);
+  });
+
+  it("rejects a reject body carrying a category (strict)", () => {
+    expect(ConfirmBodySchema.safeParse({ action: "reject", category: "COMPLAINT" }).success).toBe(false);
+  });
+
+  it("rejects a reject body carrying free text (no reason is ever accepted)", () => {
+    expect(ConfirmBodySchema.safeParse({ action: "reject", reason: "x" }).success).toBe(false);
+  });
 });
 
 describe("ConfirmResponseSchema", () => {
@@ -193,6 +205,16 @@ describe("ConfirmResponseSchema", () => {
         display_status: "fact",
       }).success,
     ).toBe(false);
+  });
+
+  it("accepts a rejected response (v4, Task 15)", () => {
+    expect(
+      ConfirmResponseSchema.safeParse({
+        result: "rejected",
+        category: "COMPLAINT",
+        display_status: "rejected_by_supervisor",
+      }).success,
+    ).toBe(true);
   });
 });
 

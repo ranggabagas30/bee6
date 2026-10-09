@@ -230,6 +230,190 @@ describe("planConfirm", () => {
     if (plan.kind !== "write") throw new Error("expected write");
     expect(JSON.stringify(plan.response)).not.toContain(THREAD_ID);
   });
+
+  describe("reject (v4, Task 15)", () => {
+    it("COMPLAINT YES (open, answered) + reject -> write, patch exactly the five keys, status open, excluded true, gate fired_rule supervisor_rejected, audit action thread.supervisor_reject, to_category null, actor_role supervisor", () => {
+      const plan = planConfirm({
+        snap: { thread: makeThread(), question: makeQuestion() },
+        outlet_id: OUTLET,
+        body: { action: "reject" },
+        now_ms: NOW,
+      });
+      expect(plan.kind).toBe("write");
+      if (plan.kind !== "write") throw new Error("expected write");
+      expect(Object.keys(plan.thread_patch).sort()).toEqual(
+        ["excluded_from_evidence", "gate", "label_source", "status", "updated_at_ms"].sort(),
+      );
+      expect(plan.thread_patch).toMatchObject({
+        status: "open",
+        label_source: "supervisor_rejected",
+        excluded_from_evidence: true,
+        updated_at_ms: NOW,
+      });
+      expect(plan.thread_patch.gate?.fired_rule).toBe("supervisor_rejected");
+      expect(plan.audit.action).toBe("thread.supervisor_reject");
+      expect(plan.audit.actor_role).toBe("supervisor");
+      expect(plan.audit.details).toMatchObject({ to_category: null });
+      expect(plan.response).toEqual({
+        result: "rejected",
+        category: "COMPLAINT",
+        display_status: "rejected_by_supervisor",
+      });
+    });
+
+    it("a staff-confirmed fact + reject -> write, previous_status: fact", () => {
+      const thread = makeThread({
+        status: "fact",
+        label_source: "staff_confirmed",
+        confirmed_category: "COMPLAINT",
+      });
+      const plan = planConfirm({
+        snap: { thread, question: makeQuestion() },
+        outlet_id: OUTLET,
+        body: { action: "reject" },
+        now_ms: NOW,
+      });
+      expect(plan.kind).toBe("write");
+      if (plan.kind !== "write") throw new Error("expected write");
+      expect(plan.audit.details).toMatchObject({ previous_status: "fact" });
+    });
+
+    it("a supervisor-confirmed fact + reject -> write", () => {
+      const thread = makeThread({
+        status: "fact",
+        label_source: "supervisor_confirmed",
+        confirmed_category: "COMPLAINT",
+      });
+      const plan = planConfirm({
+        snap: { thread, question: makeQuestion() },
+        outlet_id: OUTLET,
+        body: { action: "reject" },
+        now_ms: NOW,
+      });
+      expect(plan.kind).toBe("write");
+    });
+
+    it("a NO-excluded (rejected_by_staff) row + reject -> write, was_excluded: true", () => {
+      const thread = makeThread({ excluded_from_evidence: true, label_source: "model" });
+      const plan = planConfirm({
+        snap: { thread, question: makeQuestion({ answer: "no" }) },
+        outlet_id: OUTLET,
+        body: { action: "reject" },
+        now_ms: NOW,
+      });
+      expect(plan.kind).toBe("write");
+      if (plan.kind !== "write") throw new Error("expected write");
+      expect(plan.audit.details).toMatchObject({ was_excluded: true });
+    });
+
+    it("already rejected -> unchanged, nothing written", () => {
+      const thread = makeThread({
+        status: "open",
+        label_source: "supervisor_rejected",
+        excluded_from_evidence: true,
+      });
+      const plan = planConfirm({
+        snap: { thread, question: makeQuestion() },
+        outlet_id: OUTLET,
+        body: { action: "reject" },
+        now_ms: NOW,
+      });
+      expect(plan).toEqual({
+        kind: "unchanged",
+        response: { result: "unchanged", category: "COMPLAINT", display_status: "rejected_by_supervisor" },
+      });
+    });
+
+    it("zero evidence + reject -> still write (never gate_blocked; a reject needs no evidence)", () => {
+      const thread = makeThread({ evidence_line_ids: [] });
+      const plan = planConfirm({
+        snap: { thread, question: makeQuestion() },
+        outlet_id: OUTLET,
+        body: { action: "reject" },
+        now_ms: NOW,
+      });
+      expect(plan.kind).toBe("write");
+    });
+
+    it("question open + reject -> not_reviewable", () => {
+      const plan = planConfirm({
+        snap: { thread: makeThread(), question: makeQuestion({ status: "open" }) },
+        outlet_id: OUTLET,
+        body: { action: "reject" },
+        now_ms: NOW,
+      });
+      expect(plan.kind).toBe("not_reviewable");
+    });
+
+    it("unverified thread + reject -> not_reviewable", () => {
+      const plan = planConfirm({
+        snap: { thread: makeThread({ status: "unverified" }), question: makeQuestion() },
+        outlet_id: OUTLET,
+        body: { action: "reject" },
+        now_ms: NOW,
+      });
+      expect(plan.kind).toBe("not_reviewable");
+    });
+
+    it("foreign-outlet thread + reject -> not_found", () => {
+      const plan = planConfirm({
+        snap: { thread: makeThread({ outlet_id: FOREIGN_OUTLET }), question: makeQuestion() },
+        outlet_id: OUTLET,
+        body: { action: "reject" },
+        now_ms: NOW,
+      });
+      expect(plan.kind).toBe("not_found");
+    });
+
+    it("NON_WORK effective category + reject -> not_reviewable", () => {
+      const thread = makeThread({ confirmed_category: "NON_WORK" });
+      const plan = planConfirm({
+        snap: { thread, question: makeQuestion() },
+        outlet_id: OUTLET,
+        body: { action: "reject" },
+        now_ms: NOW,
+      });
+      expect(plan.kind).toBe("not_reviewable");
+    });
+
+    it("JSON.stringify(plan.response) has no thread id", () => {
+      const plan = planConfirm({
+        snap: { thread: makeThread(), question: makeQuestion() },
+        outlet_id: OUTLET,
+        body: { action: "reject" },
+        now_ms: NOW,
+      });
+      expect(plan.kind).toBe("write");
+      if (plan.kind !== "write") throw new Error("expected write");
+      expect(JSON.stringify(plan.response)).not.toContain(THREAD_ID);
+    });
+
+    it("round trip: reject, then confirm on the patched snapshot -> write with status fact, excluded false, supervisor_confirmed", () => {
+      const rejectPlan = planConfirm({
+        snap: { thread: makeThread(), question: makeQuestion() },
+        outlet_id: OUTLET,
+        body: { action: "reject" },
+        now_ms: NOW,
+      });
+      expect(rejectPlan.kind).toBe("write");
+      if (rejectPlan.kind !== "write") throw new Error("expected write");
+
+      const rejectedThread: Thread = { ...makeThread(), ...rejectPlan.thread_patch } as Thread;
+      const confirmPlan = planConfirm({
+        snap: { thread: rejectedThread, question: makeQuestion() },
+        outlet_id: OUTLET,
+        body: { action: "confirm" },
+        now_ms: NOW + 1,
+      });
+      expect(confirmPlan.kind).toBe("write");
+      if (confirmPlan.kind !== "write") throw new Error("expected write");
+      expect(confirmPlan.thread_patch).toMatchObject({
+        status: "fact",
+        excluded_from_evidence: false,
+        label_source: "supervisor_confirmed",
+      });
+    });
+  });
 });
 
 describe("confirmThreadLabel", () => {
@@ -353,5 +537,35 @@ describe("confirmThreadLabel", () => {
         handleKey: KEY,
       }),
     ).rejects.toMatchObject({ statusCode: 409, code: "GATE_BLOCKED" });
+  });
+
+  describe("reject (v4, Task 15)", () => {
+    it("owner claims + { action: 'reject' } -> ForbiddenError, transactConfirm never called", async () => {
+      const store = storeWith({ kind: "not_found" });
+      await expect(
+        confirmThreadLabel(store, {
+          claims: CLAIMS_OWNER,
+          handle: "whatever",
+          rawBody: { action: "reject" },
+          now_ms: 0,
+          handleKey: KEY,
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      expect(store.transactConfirm).not.toHaveBeenCalled();
+    });
+
+    it("{ action: 'reject', category: 'X' } -> 400 before transactConfirm", async () => {
+      const store = storeWith({ kind: "not_found" });
+      await expect(
+        confirmThreadLabel(store, {
+          claims: CLAIMS_SUPERVISOR,
+          handle: "whatever",
+          rawBody: { action: "reject", category: "COMPLAINT" },
+          now_ms: 0,
+          handleKey: KEY,
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+      expect(store.transactConfirm).not.toHaveBeenCalled();
+    });
   });
 });

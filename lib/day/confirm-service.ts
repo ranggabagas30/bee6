@@ -10,15 +10,18 @@ import type { Category, WorkCategory } from "@/lib/pipeline/categories";
 import type { DayStore } from "@/lib/day/service";
 
 /**
- * Supervisor confirm/override (R-06 Task 10, `docs/tasks/R-06.md` §5 Task
- * 10.6). `planConfirm` is the pure transaction planner, called INSIDE the
- * store's `transactConfirm` with a fresh snapshot (a racing tick, a second
- * supervisor, or a staff answer that just landed may have changed the
- * thread/question since the route's own pre-check), so every terminal
- * state is re-derived here, never assumed — same discipline as R-07's
- * `planAnswerCommit`. `confirmThreadLabel` is the thin orchestrator the
- * route calls: permission check, handle decryption, body validation, then
- * the transaction.
+ * Supervisor confirm/override/reject (R-06 Task 10 + Task 15 (v4),
+ * `docs/tasks/R-06.md` §5 Task 10.6/15.4). `planConfirm` is the pure
+ * transaction planner, called INSIDE the store's `transactConfirm` with a
+ * fresh snapshot (a racing tick, a second supervisor, or a staff answer
+ * that just landed may have changed the thread/question since the route's
+ * own pre-check), so every terminal state is re-derived here, never
+ * assumed — same discipline as R-07's `planAnswerCommit`. `confirmThreadLabel`
+ * is the thin orchestrator the route calls: permission check, handle
+ * decryption, body validation, then the transaction. One route, one body
+ * schema (`action: "confirm" | "override" | "reject"`) — see
+ * `docs/tasks/R-06.md` §1 "One write route, through the gate" for why a
+ * reject is not a second route.
  */
 
 export interface ConfirmTxSnapshot {
@@ -34,7 +37,7 @@ export type ConfirmPlan =
   | { kind: "gate_blocked"; fired_rule: GateRule };
 
 /**
- * The pure decision for one confirm/override call against a fresh
+ * The pure decision for one confirm/override/reject call against a fresh
  * transaction snapshot. Never does I/O; the store applies the resulting
  * patch/audit only on a `"write"` plan.
  */
@@ -53,6 +56,9 @@ export function planConfirm(input: {
   }
 
   // 2. Eligibility: not unverified, and the staff have answered the question.
+  // Exactly Task 10's rule — unchanged for a reject (v4 Q-C): a reject needs
+  // the same "staff already answered" guard so it can never race a staff
+  // answer, and a model fact with no question is not reviewable either.
   if (
     thread.status === "unverified" ||
     !question ||
@@ -62,16 +68,73 @@ export function planConfirm(input: {
     return { kind: "not_reviewable" };
   }
 
-  // 3. The chosen category.
+  // 3. current: the effective category today. Only a corrupt doc can have
+  // this be NON_WORK (the day record already drops NON_WORK rows) — but
+  // it's checked for all three actions, since a reject on a corrupt doc is
+  // just as meaningless as a confirm of one.
   const current: Category = thread.confirmed_category ?? thread.category;
-  const chosen: Category = body.action === "confirm" ? current : body.category;
-  // Only possible on a confirm of a corrupt doc (the day record already
-  // drops NON_WORK rows, so this is defensive, not a normal path).
-  if (chosen === "NON_WORK") {
+  if (current === "NON_WORK") {
     return { kind: "not_reviewable" };
   }
 
-  // 4. Idempotent: the exact same decision already stands.
+  if (body.action === "reject") {
+    // 4a. Idempotent: already rejected.
+    if (
+      thread.label_source === "supervisor_rejected" &&
+      thread.excluded_from_evidence === true &&
+      thread.status === "open"
+    ) {
+      return {
+        kind: "unchanged",
+        response: { result: "unchanged", category: current, display_status: "rejected_by_supervisor" },
+      };
+    }
+
+    // 4b. The gate — a reject must never return "fact" (hard rule #10's bug
+    // guard: the transaction aborts rather than silently writing a fact
+    // under a reject action).
+    const gate: GateDecision = evaluateGate({
+      category: thread.category as WorkCategory,
+      confidence: thread.confidence,
+      evidence_line_ids: thread.evidence_line_ids,
+      label_conflict: thread.label_conflict,
+      supervisor_decision: { chosen_category: null },
+    });
+    if (gate.verdict !== "question") {
+      throw new Error("gate: supervisor reject returned fact");
+    }
+
+    // 4c. Write.
+    const wasExcluded = thread.excluded_from_evidence === true;
+    return {
+      kind: "write",
+      thread_patch: {
+        gate,
+        status: "open",
+        label_source: "supervisor_rejected",
+        excluded_from_evidence: true,
+        updated_at_ms: now_ms,
+      },
+      audit: {
+        actor_role: "supervisor",
+        action: "thread.supervisor_reject",
+        target_type: "thread",
+        target_id: thread.thread_id,
+        details: {
+          from_category: current,
+          to_category: null,
+          previous_status: thread.status,
+          was_excluded: wasExcluded,
+        },
+      },
+      response: { result: "rejected", category: current, display_status: "rejected_by_supervisor" },
+    };
+  }
+
+  // confirm / override.
+  const chosen: WorkCategory = body.action === "confirm" ? (current as WorkCategory) : body.category;
+
+  // 5. Idempotent: the exact same decision already stands.
   if (
     thread.label_source === "supervisor_confirmed" &&
     thread.status === "fact" &&
@@ -83,7 +146,7 @@ export function planConfirm(input: {
     };
   }
 
-  // 5. The gate — the only code that decides fact vs not-a-fact.
+  // 6. The gate — the only code that decides fact vs not-a-fact.
   const gate: GateDecision = evaluateGate({
     category: thread.category as WorkCategory,
     confidence: thread.confidence,
@@ -95,7 +158,8 @@ export function planConfirm(input: {
     return { kind: "gate_blocked", fired_rule: gate.fired_rule };
   }
 
-  // 6. Write.
+  // 7. Write. A confirm/override after an earlier reject restores the row
+  // to a fact (excluded_from_evidence: false undoes the reject).
   const wasExcluded = thread.excluded_from_evidence === true;
   return {
     kind: "write",

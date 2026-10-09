@@ -114,18 +114,25 @@ export const SupervisorThreadSchema = z
   })
   .strict();
 
-/** POST /api/v1/threads/{handle}/confirm body (Task 10/15; `labels:confirm`, supervisor only). */
+/**
+ * POST /api/v1/threads/{id}/confirm body (Task 10/15; `labels:confirm`,
+ * supervisor only). `reject` (v4, Task 15) takes no category — a reject
+ * never needs one, and no free text (hard rule #3 needs no SDP pass
+ * because nothing typed here is ever stored).
+ */
 export const ConfirmBodySchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("confirm") }).strict(),
   z.object({ action: z.literal("override"), category: WorkCategorySchema }).strict(),
+  z.object({ action: z.literal("reject") }).strict(),
 ]);
 export type ConfirmBody = z.infer<typeof ConfirmBodySchema>;
 
 export const ConfirmResponseSchema = z
   .object({
-    result: z.enum(["confirmed", "unchanged"]),
+    result: z.enum(["confirmed", "rejected", "unchanged"]),
+    /** The row's effective category after the call (reject: unchanged). */
     category: WorkCategorySchema,
-    display_status: z.literal("fact_supervisor_confirmed"),
+    display_status: z.enum(["fact_supervisor_confirmed", "rejected_by_supervisor"]),
   })
   .strict();
 export type ConfirmResponse = z.infer<typeof ConfirmResponseSchema>;
