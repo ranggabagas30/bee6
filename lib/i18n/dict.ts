@@ -258,6 +258,12 @@ export const ID = {
   "C-act-reject": "Tolak", // PROVISIONAL
   "C-act-reject-q": "Tolak catatan ini? Catatan ini tidak dihitung sebagai bukti.", // PROVISIONAL
   "C-act-reject-yes": "Ya, tolak", // PROVISIONAL
+
+  // /home (R-06 Task 14a) — owner home, "today in 5 lines".
+  "C-home-title": "Hari ini", // PROVISIONAL
+  "C-home-more": "+{N} lagi di catatan hari", // PROVISIONAL
+  "C-home-to-day": "Buka catatan hari", // PROVISIONAL
+  "C-day-to-home": "Beranda", // PROVISIONAL
 } as const;
 
 export type DictKey = keyof typeof ID;
@@ -490,6 +496,12 @@ export const EN: Record<DictKey, string> = {
   "C-act-reject": "Reject",
   "C-act-reject-q": "Reject this note? It will not count as evidence.",
   "C-act-reject-yes": "Yes, reject",
+
+  // /home (R-06 Task 14a) — owner home, "today in 5 lines".
+  "C-home-title": "Today",
+  "C-home-more": "+{N} more in the day record",
+  "C-home-to-day": "Open the day record",
+  "C-day-to-home": "Home",
 };
 
 export const DICT: Record<Lang, Record<DictKey, string>> = { id: ID, en: EN };
