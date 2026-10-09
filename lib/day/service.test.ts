@@ -171,6 +171,12 @@ class FakeDayStore implements DayStore {
   async countPairedDevices(): Promise<number> {
     return this.fixture.pairedDeviceCount;
   }
+
+  // Not exercised by any getDayRecord test (Task 10's own tests cover it
+  // against a dedicated fake) — present only so FakeDayStore satisfies DayStore.
+  transactConfirm(): never {
+    throw new Error("transactConfirm is not used by getDayRecord tests");
+  }
 }
 
 // ── the "day mix" fixture shared by the owner/supervisor shape tests ────────

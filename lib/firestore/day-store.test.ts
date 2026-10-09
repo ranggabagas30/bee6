@@ -28,6 +28,13 @@ interface FakeDocSnap {
 interface FakeDocRef {
   id: string;
   get(): Promise<FakeDocSnap>;
+  set(data: Record<string, unknown>): Promise<void>;
+  update(patch: Record<string, unknown>): Promise<void>;
+}
+interface FakeTx {
+  get(ref: FakeDocRef): Promise<FakeDocSnap>;
+  set(ref: FakeDocRef, data: Record<string, unknown>): void;
+  update(ref: FakeDocRef, patch: Record<string, unknown>): void;
 }
 interface FakeQuery {
   where(field: string, op: string, value: unknown): FakeQuery;
@@ -109,12 +116,21 @@ function fakeDb(seed: Record<string, Record<string, Record<string, unknown>>> = 
     };
   }
 
+  let autoIdCounter = 0;
+
   function doc(name: string, id: string): FakeDocRef {
     return {
       id,
       async get() {
         const data = col(name).get(id);
         return { id, exists: data !== undefined, data: () => data };
+      },
+      async set(data: Record<string, unknown>) {
+        col(name).set(id, data);
+      },
+      async update(patch: Record<string, unknown>) {
+        const existing = col(name).get(id) ?? {};
+        col(name).set(id, { ...existing, ...patch });
       },
     };
   }
@@ -131,10 +147,23 @@ function fakeDb(seed: Record<string, Record<string, Record<string, unknown>>> = 
         select(...fields: string[]) {
           return makeQuery(name, [], undefined, undefined, fields);
         },
-        doc(id: string) {
-          return doc(name, id);
+        doc(id?: string) {
+          autoIdCounter += 1;
+          return doc(name, id ?? `auto-${autoIdCounter}`);
         },
       };
+    },
+    async runTransaction(fn: (tx: FakeTx) => Promise<unknown>) {
+      const tx: FakeTx = {
+        get: (ref) => ref.get(),
+        set: (ref, data) => {
+          void ref.set(data);
+        },
+        update: (ref, patch) => {
+          void ref.update(patch);
+        },
+      };
+      return fn(tx);
     },
     async getAll(...args: unknown[]) {
       const maybeOptions = args[args.length - 1];
@@ -441,5 +470,100 @@ describe("firestoreDayStore.countPairedDevices", () => {
     });
     const store = firestoreDayStore(OUTLET_ID, db);
     await expect(store.countPairedDevices()).resolves.toBe(1);
+  });
+});
+
+describe("firestoreDayStore.transactConfirm (R-06 Task 10.6)", () => {
+  const THREAD_ID = "unit_dev-1_w1:0";
+  const QUESTION_ID = "q_thread_unit_dev-1_w1:0";
+
+  it("writes the thread patch with tx.update and one audit_log doc only on a write plan", async () => {
+    const { db, collections } = fakeDb({
+      [COLLECTIONS.threads]: { [THREAD_ID]: makeThread({ status: "open" }) },
+      [COLLECTIONS.questions]: { [QUESTION_ID]: makeQuestion({ status: "answered", answer: "yes", answered_at_ms: 1_500 }) },
+    });
+    const store = firestoreDayStore(OUTLET_ID, db);
+
+    const plan = await store.transactConfirm(THREAD_ID, QUESTION_ID, (snap) => {
+      expect(snap.thread).not.toBeNull();
+      expect(snap.question).not.toBeNull();
+      return {
+        kind: "write",
+        thread_patch: { status: "fact", label_source: "supervisor_confirmed" },
+        audit: {
+          actor_role: "supervisor",
+          action: "thread.supervisor_confirm",
+          target_type: "thread",
+          target_id: THREAD_ID,
+          details: { from_category: "ROUTINE_OPS", to_category: "ROUTINE_OPS", previous_status: "open", was_excluded: false },
+        },
+        response: { result: "confirmed", category: "ROUTINE_OPS", display_status: "fact_supervisor_confirmed" },
+      };
+    });
+
+    expect(plan.kind).toBe("write");
+    const storedThread = collections.get(COLLECTIONS.threads)?.get(THREAD_ID);
+    expect(storedThread).toMatchObject({ status: "fact", label_source: "supervisor_confirmed" });
+
+    const auditDocs = Array.from(collections.get(COLLECTIONS.auditLog)?.values() ?? []);
+    expect(auditDocs).toHaveLength(1);
+    expect(auditDocs[0]).toMatchObject({
+      outlet_id: OUTLET_ID,
+      actor_role: "supervisor",
+      action: "thread.supervisor_confirm",
+      target_id: THREAD_ID,
+    });
+  });
+
+  it("writes nothing on every other plan kind", async () => {
+    const { db, collections } = fakeDb({
+      [COLLECTIONS.threads]: { [THREAD_ID]: makeThread({ status: "open" }) },
+      [COLLECTIONS.questions]: { [QUESTION_ID]: makeQuestion({ status: "answered", answer: "yes", answered_at_ms: 1_500 }) },
+    });
+    const store = firestoreDayStore(OUTLET_ID, db);
+
+    for (const result of [
+      { kind: "not_found" as const },
+      { kind: "not_reviewable" as const },
+      { kind: "gate_blocked" as const, fired_rule: "no_evidence" as const },
+      {
+        kind: "unchanged" as const,
+        response: { result: "unchanged" as const, category: "ROUTINE_OPS" as const, display_status: "fact_supervisor_confirmed" as const },
+      },
+    ]) {
+      const plan = await store.transactConfirm(THREAD_ID, QUESTION_ID, () => result);
+      expect(plan).toEqual(result);
+    }
+
+    const storedThread = collections.get(COLLECTIONS.threads)?.get(THREAD_ID);
+    expect(storedThread).toEqual(makeThread({ status: "open" }));
+    expect(collections.get(COLLECTIONS.auditLog)?.size ?? 0).toBe(0);
+  });
+
+  it("a malformed thread doc -> snapshot thread: null", async () => {
+    const { db } = fakeDb({
+      [COLLECTIONS.threads]: { [THREAD_ID]: { outlet_id: OUTLET_ID } }, // missing every required field
+      [COLLECTIONS.questions]: { [QUESTION_ID]: makeQuestion({ status: "answered", answer: "yes", answered_at_ms: 1_500 }) },
+    });
+    const store = firestoreDayStore(OUTLET_ID, db);
+
+    let sawThread: unknown = "not-set";
+    await store.transactConfirm(THREAD_ID, QUESTION_ID, (snap) => {
+      sawThread = snap.thread;
+      return { kind: "not_found" };
+    });
+    expect(sawThread).toBeNull();
+  });
+
+  it("a missing thread doc -> snapshot thread: null, question: null", async () => {
+    const { db } = fakeDb({});
+    const store = firestoreDayStore(OUTLET_ID, db);
+
+    let snapSeen: { thread: unknown; question: unknown } | null = null;
+    await store.transactConfirm(THREAD_ID, QUESTION_ID, (snap) => {
+      snapSeen = snap;
+      return { kind: "not_found" };
+    });
+    expect(snapSeen).toEqual({ thread: null, question: null });
   });
 });

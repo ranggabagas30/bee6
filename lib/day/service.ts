@@ -9,6 +9,7 @@ import { threadQuestionId } from "@/lib/pipeline/question-ids";
 import { attributedBusinessDate } from "@/lib/day/attribution";
 import { dayStatus } from "@/lib/day/day-status";
 import { sealThreadHandle } from "@/lib/day/thread-handle";
+import type { ConfirmPlan, ConfirmTxSnapshot } from "@/lib/day/confirm-service";
 import {
   FACT_STATUSES,
   deriveDisplayStatus,
@@ -86,6 +87,17 @@ export interface DayStore {
   getCorrections(ids: readonly string[]): Promise<Map<string, DayCorrectionRow>>;
   /** Devices with `outlet_id`, `revoked` false, `paired_at` non-null. */
   countPairedDevices(): Promise<number>;
+  /**
+   * One Firestore transaction (R-06 Task 10.6): re-reads the thread and its
+   * question, calls `plan(snapshot)`, and on a `"write"` plan applies the
+   * thread patch plus one `audit_log` entry — nothing else ever writes a
+   * thread's fact/label fields (hard rule #10).
+   */
+  transactConfirm(
+    threadId: string,
+    questionId: string,
+    plan: (s: ConfirmTxSnapshot) => ConfirmPlan,
+  ): Promise<ConfirmPlan>;
 }
 
 function isWorkCategory(c: Category): c is WorkCategory {

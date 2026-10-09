@@ -38,6 +38,9 @@ function fakeStore(overrides: Partial<DayStore> = {}): DayStore {
     getQuestions: async () => new Map(),
     getCorrections: async () => new Map(),
     countPairedDevices: async () => 0,
+    transactConfirm: () => {
+      throw new Error("transactConfirm is not used by the GET /day route");
+    },
     ...overrides,
   };
 }
