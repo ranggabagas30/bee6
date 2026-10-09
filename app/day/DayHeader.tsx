@@ -18,6 +18,14 @@ const NAV_BUTTON_STYLE: CSSProperties = {
   cursor: "pointer",
 };
 
+// Link, not a button — stays text-only, but the tappable area still reaches
+// the 48px minimum (CLAUDE.md §2 global constraint).
+const HOME_LINK_STYLE: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  minHeight: 48,
+};
+
 const MODE_KEY: Record<SupervisorDayHeader["capture_mode"], DictKey> = {
   room: "C-day-mode-room",
   wearable: "C-day-mode-wearable",
@@ -89,7 +97,9 @@ export function DayHeader({
 
       {view === "owner" && (
         <p>
-          <Link href="/home">{t(lang, "C-day-to-home")}</Link>
+          <Link href="/home" style={HOME_LINK_STYLE}>
+            {t(lang, "C-day-to-home")}
+          </Link>
         </p>
       )}
     </header>

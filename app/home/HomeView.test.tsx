@@ -50,6 +50,12 @@ describe("HomeView", () => {
     expect(link.getAttribute("href")).toBe("/day/2026-10-09");
   });
 
+  it("the '+N more' link meets the 48px touch-target minimum (CLAUDE.md §2 global constraint)", () => {
+    renderView(baseData({ more: 4 }));
+    const link = screen.getByRole("link", { name: "+4 more in the day record" }) as HTMLAnchorElement;
+    expect(link.style.minHeight).toBe("48px");
+  });
+
   it("more === 0 shows no '+N more' link", () => {
     renderView(baseData({ more: 0 }));
     expect(screen.queryByText(/more in the day record/)).toBeNull();
@@ -59,6 +65,12 @@ describe("HomeView", () => {
     renderView(baseData());
     const link = screen.getByRole("link", { name: "Open the day record" });
     expect(link.getAttribute("href")).toBe("/day/2026-10-09");
+  });
+
+  it("the 'Open the day record' link meets the 48px touch-target minimum (CLAUDE.md §2 global constraint)", () => {
+    renderView(baseData());
+    const link = screen.getByRole("link", { name: "Open the day record" }) as HTMLAnchorElement;
+    expect(link.style.minHeight).toBe("48px");
   });
 
   it("no lines shows the owner empty line", () => {

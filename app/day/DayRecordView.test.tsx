@@ -115,6 +115,16 @@ describe("DayRecordView — owner shape", () => {
     const link = screen.getByRole("link", { name: "Home" });
     expect(link.getAttribute("href")).toBe("/home");
   });
+
+  it("the Home link meets the 48px touch-target minimum (CLAUDE.md §2 global constraint)", () => {
+    const data: DayRecordResponse = { view: "owner", day: OWNER_HEADER_BASE, threads: [] };
+    renderView(data);
+    const link = screen.getByRole("link", { name: "Home" }) as HTMLAnchorElement;
+    expect(link.style.minHeight).toBe("48px");
+    // jsdom has no layout engine, so getBoundingClientRect() cannot confirm
+    // the real rendered height; the inline style is the load-bearing check
+    // here (real-browser measurement should be re-confirmed by QA).
+  });
 });
 
 describe("DayRecordView — supervisor shape", () => {

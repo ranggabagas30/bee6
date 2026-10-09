@@ -15,6 +15,14 @@ import { CATEGORY_KEY } from "@/lib/day/view-model";
 const CONTAINER_STYLE: CSSProperties = { maxWidth: 720, margin: "0 auto", padding: 16, boxSizing: "border-box" };
 const LIST_STYLE: CSSProperties = { listStyle: "none", margin: 0, padding: 0 };
 
+// Links, not buttons — stay text-only, but the tappable area still reaches
+// the 48px minimum (CLAUDE.md §2 global constraint).
+const LINK_STYLE: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  minHeight: 48,
+};
+
 export function HomeView({ data }: { data: HomeResponse }) {
   const { lang } = useLang();
 
@@ -49,12 +57,16 @@ export function HomeView({ data }: { data: HomeResponse }) {
 
       {data.more > 0 && (
         <p>
-          <Link href={`/day/${data.today}`}>{t(lang, "C-home-more", { N: data.more })}</Link>
+          <Link href={`/day/${data.today}`} style={LINK_STYLE}>
+            {t(lang, "C-home-more", { N: data.more })}
+          </Link>
         </p>
       )}
 
       <p>
-        <Link href={`/day/${data.today}`}>{t(lang, "C-home-to-day")}</Link>
+        <Link href={`/day/${data.today}`} style={LINK_STYLE}>
+          {t(lang, "C-home-to-day")}
+        </Link>
       </p>
     </div>
   );
