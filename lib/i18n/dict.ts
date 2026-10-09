@@ -185,6 +185,64 @@ export const ID = {
   "C-signin-config": "Masuk belum disiapkan di server ini.", // PROVISIONAL
   "C-srv-generic": "Ada masalah. Coba lagi.", // PROVISIONAL
   "C-web-signout": "Keluar", // PROVISIONAL
+
+  // /day (R-06 Task 6) — the day record screen, owner and supervisor.
+  "C-day-title": "Catatan hari", // PROVISIONAL
+  "C-day-prev": "Hari sebelumnya", // PROVISIONAL (aria-label)
+  "C-day-next": "Hari berikutnya", // PROVISIONAL (aria-label)
+  "C-day-off-closed": "Libur / tutup", // UX-03 §14 reference
+  "C-day-pending": "Belum dimulai", // PROVISIONAL
+  "C-day-cancelled": "Sesi dibatalkan: {N}", // UX-03 §14 reference
+  "C-day-mode-room": "Mode: ruangan", // web spec §4.3
+  "C-day-mode-wearable": "Mode: wearable", // web spec §4.3
+  "C-day-mode-none": "Mode: belum ada HP terpasang", // PROVISIONAL
+  "C-day-counts": "Fakta: {facts} · Pertanyaan: {questions}", // PROVISIONAL (supervisor)
+  "C-day-counts-owner": "Fakta: {facts}", // PROVISIONAL (owner)
+  "C-day-filter-group": "Saring menurut kategori", // PROVISIONAL
+  "C-day-filter-all": "Semua ({N})", // PROVISIONAL
+  "C-day-filter-cat": "{label} ({N})", // PROVISIONAL
+  "C-day-empty": "Tidak ada catatan kerja untuk tanggal ini.", // PROVISIONAL
+  "C-day-empty-2": "Catatan muncul beberapa menit setelah percakapan.", // PROVISIONAL
+  "C-day-empty-owner": "Belum ada fakta terkonfirmasi untuk tanggal ini.", // PROVISIONAL (owner)
+  "C-day-truncated": "Menampilkan {N} catatan pertama.", // PROVISIONAL
+  "C-day-time": "{start}–{end}", // PROVISIONAL
+  "C-day-confidence": "Keyakinan {pct}%", // PROVISIONAL
+  "C-day-no-summary": "Tidak ada ringkasan.", // PROVISIONAL
+  "C-day-evidence": "Bukti", // PROVISIONAL
+  "C-day-evidence-more": "+{N} baris lagi", // PROVISIONAL
+  "C-day-ans-yes": "Seorang staf menjawab Ya:", // R-07 ux-notes §4.4
+  "C-day-ans-no": "Seorang staf menjawab Tidak:", // R-07 ux-notes §4.4
+  "C-day-st-fact": "Fakta", // PROVISIONAL
+  "C-day-st-fact-staff": "Fakta, dikonfirmasi staf", // PROVISIONAL
+  "C-day-st-fact-supervisor": "Fakta, dikonfirmasi supervisor", // PROVISIONAL
+  "C-day-st-open": "Pertanyaan, menunggu debrief", // PROVISIONAL
+  "C-day-st-answered": "Sudah dijawab, belum jadi fakta", // PROVISIONAL
+  "C-day-st-supervisor": "Menunggu supervisor", // PROVISIONAL
+  "C-day-st-rejected": "Ditolak staf", // UX-03 §14 / R-07 ux-notes §4.4
+  "C-day-st-rejected-supervisor": "Ditolak supervisor", // PROVISIONAL (v4, Task 15.0)
+  "C-day-st-unverified": "Tidak terverifikasi", // PROVISIONAL
+  "C-day-err": "Catatan belum bisa dimuat.", // PROVISIONAL
+  "C-day-retry": "Coba lagi", // PROVISIONAL
+  "C-day-forbidden": "Akun ini tidak bisa melihat catatan hari.", // PROVISIONAL
+  "C-day-invalid": "Tanggal ini tidak tersedia.", // PROVISIONAL
+  "C-day-to-today": "Ke hari ini", // PROVISIONAL
+  "C-day-loading": "Memuat…", // PROVISIONAL
+  "C-cat-ROUTINE_OPS": "Pekerjaan rutin", // PROVISIONAL (Q-U23 family)
+  "C-cat-CUSTOMER_SERVICE": "Layanan pelanggan", // PROVISIONAL
+  "C-cat-TRAINING": "Pelatihan", // PROVISIONAL
+  "C-cat-STAFF_CONSULT": "Pertanyaan staf", // PROVISIONAL
+  "C-cat-CORRECTION": "Koreksi", // PROVISIONAL
+  "C-cat-PHONE_CALL": "Telepon", // PROVISIONAL
+  "C-cat-EVENT": "Acara terencana", // PROVISIONAL
+  "C-cat-COMPLAINT": "Keluhan pelanggan", // PROVISIONAL
+  "C-cat-SAFETY_INCIDENT": "Insiden keselamatan", // PROVISIONAL
+  "C-cat-SECURITY_INCIDENT": "Insiden keamanan", // PROVISIONAL
+  "C-cat-DISRUPTION": "Gangguan operasional", // PROVISIONAL
+
+  // Runner-up panel (R-06 Task 11), appended to the PR-3 block.
+  "C-day-runnerup": "Pilihan kedua: {label}", // PROVISIONAL
+  "C-day-runnerup-none": "Tidak ada alasan.", // PROVISIONAL
+  "C-cat-NON_WORK": "Bukan obrolan kerja", // PROVISIONAL
 } as const;
 
 export type DictKey = keyof typeof ID;
@@ -344,6 +402,64 @@ export const EN: Record<DictKey, string> = {
   "C-signin-config": "Sign-in is not set up on this server.",
   "C-srv-generic": "Something went wrong. Try again.",
   "C-web-signout": "Sign out",
+
+  // /day (R-06 Task 6) — the day record screen, owner and supervisor.
+  "C-day-title": "Day record",
+  "C-day-prev": "Previous day",
+  "C-day-next": "Next day",
+  "C-day-off-closed": "Off / closed",
+  "C-day-pending": "Not started yet",
+  "C-day-cancelled": "Sessions cancelled: {N}",
+  "C-day-mode-room": "Mode: room",
+  "C-day-mode-wearable": "Mode: wearable",
+  "C-day-mode-none": "Mode: no phone paired",
+  "C-day-counts": "Facts: {facts} · Questions: {questions}",
+  "C-day-counts-owner": "Facts: {facts}",
+  "C-day-filter-group": "Filter by category",
+  "C-day-filter-all": "All ({N})",
+  "C-day-filter-cat": "{label} ({N})",
+  "C-day-empty": "No work notes for this date.",
+  "C-day-empty-2": "Notes appear a few minutes after people speak.",
+  "C-day-empty-owner": "No confirmed facts for this date yet.",
+  "C-day-truncated": "Showing the first {N} notes.",
+  "C-day-time": "{start}–{end}",
+  "C-day-confidence": "Confidence {pct}%",
+  "C-day-no-summary": "No summary.",
+  "C-day-evidence": "Evidence",
+  "C-day-evidence-more": "+{N} more lines",
+  "C-day-ans-yes": "A staff member answered Yes:",
+  "C-day-ans-no": "A staff member answered No:",
+  "C-day-st-fact": "Fact",
+  "C-day-st-fact-staff": "Fact, confirmed by staff",
+  "C-day-st-fact-supervisor": "Fact, confirmed by supervisor",
+  "C-day-st-open": "Question, waiting for the debrief",
+  "C-day-st-answered": "Answered, not a fact yet",
+  "C-day-st-supervisor": "Waiting for supervisor",
+  "C-day-st-rejected": "Rejected by staff",
+  "C-day-st-rejected-supervisor": "Rejected by supervisor",
+  "C-day-st-unverified": "Unverified",
+  "C-day-err": "Could not load the notes.",
+  "C-day-retry": "Try again",
+  "C-day-forbidden": "This account cannot see the day record.",
+  "C-day-invalid": "This date is not available.",
+  "C-day-to-today": "Go to today",
+  "C-day-loading": "Loading…",
+  "C-cat-ROUTINE_OPS": "Routine work",
+  "C-cat-CUSTOMER_SERVICE": "Customer service",
+  "C-cat-TRAINING": "Training",
+  "C-cat-STAFF_CONSULT": "Staff question",
+  "C-cat-CORRECTION": "Correction",
+  "C-cat-PHONE_CALL": "Phone call",
+  "C-cat-EVENT": "Planned event",
+  "C-cat-COMPLAINT": "Customer complaint",
+  "C-cat-SAFETY_INCIDENT": "Safety incident",
+  "C-cat-SECURITY_INCIDENT": "Security incident",
+  "C-cat-DISRUPTION": "Disruption",
+
+  // Runner-up panel (R-06 Task 11), appended to the PR-3 block.
+  "C-day-runnerup": "Second choice: {label}",
+  "C-day-runnerup-none": "No reason given.",
+  "C-cat-NON_WORK": "Not work talk",
 };
 
 export const DICT: Record<Lang, Record<DictKey, string>> = { id: ID, en: EN };
