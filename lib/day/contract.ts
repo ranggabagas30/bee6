@@ -14,8 +14,10 @@ import { CaptureModeSchema } from "@/lib/capture/contract";
 export const DAY_THREAD_CAP = 1000;
 export const EVIDENCE_LINES_MAX = 20;
 
-const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-const hm = z.string().regex(/^\d{2}:\d{2}$/);
+// Exported for `lib/home/contract.ts` (Task 14a), which reuses the same
+// "business date" / "HH:MM" wire shapes rather than redefining them.
+export const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+export const hm = z.string().regex(/^\d{2}:\d{2}$/);
 
 /** A real calendar date: "2026-02-30" fails (round-trip through Date.UTC). */
 export function isRealDate(s: string): boolean {
