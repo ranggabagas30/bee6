@@ -329,6 +329,74 @@ describe("getDayRecord — owner vs supervisor shape (the day mix)", () => {
   });
 });
 
+describe("getDayRecord — runner-up (Task 11)", () => {
+  it("passes a runner-up through when it differs from the effective category, mapping blank why_not to null", async () => {
+    const differs = mkRow(9, "COMPLAINT", "open", "QSUM-RUNUP-1", {
+      runner_up: { category: "CUSTOMER_SERVICE", why_not: "RUNUP-SENTINEL-1" },
+    });
+    const blank = mkRow(10, "COMPLAINT", "open", "QSUM-RUNUP-2", {
+      runner_up: { category: "CUSTOMER_SERVICE", why_not: "   " },
+    });
+    const store = new FakeDayStore(
+      OUTLET_ID,
+      emptyFixture({ sessions: [daySession], threads: [differs, blank] }),
+    );
+    const result = await getDayRecord(store, { claims: SUPERVISOR_CLAIMS, param: "today", now_ms: at("12:00") });
+    const threads = result.threads as SupervisorThread[];
+    expect(threads.find((t) => t.summary === "QSUM-RUNUP-1")!.runner_up).toEqual({
+      category: "CUSTOMER_SERVICE",
+      why_not: "RUNUP-SENTINEL-1",
+    });
+    expect(threads.find((t) => t.summary === "QSUM-RUNUP-2")!.runner_up).toEqual({
+      category: "CUSTOMER_SERVICE",
+      why_not: null,
+    });
+  });
+
+  it("maps a runner-up equal to the effective (model) category to null", async () => {
+    const equal = mkRow(11, "COMPLAINT", "open", "QSUM-RUNUP-3", {
+      runner_up: { category: "COMPLAINT", why_not: "RUNUP-SENTINEL-EQ" },
+    });
+    const store = new FakeDayStore(OUTLET_ID, emptyFixture({ sessions: [daySession], threads: [equal] }));
+    const result = await getDayRecord(store, { claims: SUPERVISOR_CLAIMS, param: "today", now_ms: at("12:00") });
+    const row = (result.threads as SupervisorThread[])[0]!;
+    expect(row.runner_up).toBeNull();
+  });
+
+  it("maps a runner-up equal to a staff/supervisor-confirmed effective category to null", async () => {
+    const confirmed = mkRow(12, "ROUTINE_OPS", "fact", "QSUM-RUNUP-4", {
+      label_source: "staff_confirmed",
+      confirmed_category: "CUSTOMER_SERVICE",
+      runner_up: { category: "CUSTOMER_SERVICE", why_not: "RUNUP-SENTINEL-CONFIRMED" },
+    });
+    const store = new FakeDayStore(OUTLET_ID, emptyFixture({ sessions: [daySession], threads: [confirmed] }));
+    const result = await getDayRecord(store, { claims: SUPERVISOR_CLAIMS, param: "today", now_ms: at("12:00") });
+    const row = (result.threads as SupervisorThread[])[0]!;
+    expect(row.runner_up).toBeNull();
+  });
+
+  it("passes a NON_WORK runner-up through unchanged", async () => {
+    const row = mkRow(13, "COMPLAINT", "open", "QSUM-RUNUP-5", {
+      runner_up: { category: "NON_WORK", why_not: "RUNUP-SENTINEL-NONWORK" },
+    });
+    const store = new FakeDayStore(OUTLET_ID, emptyFixture({ sessions: [daySession], threads: [row] }));
+    const result = await getDayRecord(store, { claims: SUPERVISOR_CLAIMS, param: "today", now_ms: at("12:00") });
+    expect((result.threads as SupervisorThread[])[0]!.runner_up).toEqual({
+      category: "NON_WORK",
+      why_not: "RUNUP-SENTINEL-NONWORK",
+    });
+  });
+
+  it("the owner response never carries a runner-up sentinel", async () => {
+    const row = mkRow(14, "ROUTINE_OPS", "fact", "FACT-RUNUP", {
+      runner_up: { category: "CUSTOMER_SERVICE", why_not: "RUNUP-SENTINEL-OWNER" },
+    });
+    const store = new FakeDayStore(OUTLET_ID, emptyFixture({ sessions: [daySession], threads: [row] }));
+    const result = await getDayRecord(store, { claims: OWNER_CLAIMS, param: "today", now_ms: at("12:00") });
+    expect(JSON.stringify(result)).not.toContain("RUNUP-SENTINEL-OWNER");
+  });
+});
+
 describe("getDayRecord — permission and outlet guard", () => {
   it("staff claims are forbidden before any store call", async () => {
     const store = new FakeDayStore(OUTLET_ID, emptyFixture());
@@ -527,17 +595,21 @@ describe("getDayRecord — sort order", () => {
 });
 
 describe("getDayRecord — response payload budget", () => {
-  it("400 rows with evidence/summary/reason near the wire caps stay under the byte budget", async () => {
-    // §7's budget for this PR (before Task 11's runner-up field exists) is
-    // supervisor < 400 000 bytes / owner < 150 000 bytes, for 400 threads.
-    // The plan's literal worst case (120-char evidence lines, 250-char
-    // summaries, 300-char reasons on every one of 200 answered rows) lands
-    // at ~414 KB with this schema's actual per-field JSON overhead — just
-    // over budget — so this fixture uses slightly tighter near-cap sizes
-    // that still exercise the same stress shape (every row has 3 evidence
-    // lines; half carry a staff_answer reason) while fitting the §7 number.
+  it("400 rows with evidence/summary/reason/runner-up near the wire caps stay under the byte budget", async () => {
+    // §7's budget (tech-lead PR-2 review, revised again by the PR-2 review
+    // for Task 11's runner-up field) is supervisor < 500 000 bytes / owner
+    // < 150 000 bytes, for 400 threads. The plan's literal worst case
+    // (120-char evidence lines, 250-char summaries, 300-char reasons on
+    // every one of 200 answered rows) lands at ~414 KB with this schema's
+    // actual per-field JSON overhead before runner-up — just over the
+    // original 400 000 budget — so this fixture uses slightly tighter
+    // near-cap sizes (kept identical across Task 5 and Task 11 per the
+    // plan's instruction not to let the fixture silently shrink) that still
+    // exercise the same stress shape, plus a 200-char runner-up on every
+    // supervisor row, against the revised 500 000-byte ceiling.
     const summary = "S".repeat(200);
     const reason = "R".repeat(250);
+    const whyNot = "W".repeat(200);
     const evidenceLines: ThreadLine[] = [
       { line_id: "a", start_ms: at("10:00"), end_ms: at("10:00") + 1000, text: "E".repeat(100) },
       { line_id: "b", start_ms: at("10:01"), end_ms: at("10:01") + 1000, text: "E".repeat(100) },
@@ -555,6 +627,7 @@ describe("getDayRecord — response payload budget", () => {
       status: "fact" as const,
       lines: evidenceLines,
       evidence_line_ids: ["a", "b", "c"],
+      runner_up: { category: "CUSTOMER_SERVICE" as const, why_not: whyNot },
       ...(i < 200 ? { label_source: "staff_confirmed" as const } : {}),
     }));
     const questions: DayQuestionRow[] = threads
@@ -575,7 +648,7 @@ describe("getDayRecord — response payload budget", () => {
       now_ms: at("12:00"),
     });
     expect(supervisorResult.threads).toHaveLength(400);
-    expect(JSON.stringify(supervisorResult).length).toBeLessThan(400_000);
+    expect(JSON.stringify(supervisorResult).length).toBeLessThan(500_000);
 
     const ownerStore = new FakeDayStore(OUTLET_ID, emptyFixture({ sessions: [daySession], threads }));
     const ownerResult = await getDayRecord(ownerStore, { claims: OWNER_CLAIMS, param: "today", now_ms: at("12:00") });

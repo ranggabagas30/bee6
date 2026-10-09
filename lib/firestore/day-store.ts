@@ -42,7 +42,7 @@ const THREAD_BASE_FIELDS = [
   "excluded_from_evidence",
 ] as const;
 
-const THREAD_WITH_TEXT_FIELDS = [...THREAD_BASE_FIELDS, "lines", "evidence_line_ids"] as const;
+const THREAD_WITH_TEXT_FIELDS = [...THREAD_BASE_FIELDS, "lines", "evidence_line_ids", "runner_up"] as const;
 
 const THREAD_BASE_SHAPE = ThreadSchema.pick({
   outlet_id: true,
@@ -74,6 +74,7 @@ const THREAD_WITH_TEXT_SHAPE = ThreadSchema.pick({
   excluded_from_evidence: true,
   lines: true,
   evidence_line_ids: true,
+  runner_up: true,
 });
 
 const QUESTION_FIELDS = ["outlet_id", "question_id", "status", "answer"] as const;
