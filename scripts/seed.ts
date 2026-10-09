@@ -186,7 +186,7 @@ function parseProjectArg(argv: string[]): ProjectKind {
 }
 
 /** Refuses to seed demo data into the pilot project (and vice versa). */
-function assertProjectMatchesEnv(project: ProjectKind): void {
+export function assertProjectMatchesEnv(project: ProjectKind): void {
   const demoMode = (process.env.DEMO_MODE ?? "").toLowerCase() === "true";
   if (project === "demo" && !demoMode) {
     throw new Error(

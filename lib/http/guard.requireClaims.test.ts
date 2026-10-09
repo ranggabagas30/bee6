@@ -26,6 +26,45 @@ afterEach(() => {
 });
 
 describe("requireClaims (end-to-end through the guard, not just the pure fns)", () => {
+  it("maps a verifyIdToken failure (expired/revoked/malformed token) to 401, not 500", async () => {
+    const { requireClaims } = await import("@/lib/http/guard");
+    const { UnauthorizedError } = await import("@/lib/http/errors");
+    verifyIdToken.mockRejectedValueOnce(new Error("auth/id-token-expired"));
+    await expect(
+      requireClaims(fakeRequest("Bearer expired.token")),
+    ).rejects.toThrow(UnauthorizedError);
+  });
+
+  it("handleApiError of a verifyIdToken failure responds 401 UNAUTHORIZED", async () => {
+    const { requireClaims } = await import("@/lib/http/guard");
+    const { handleApiError } = await import("@/lib/http/errors");
+    verifyIdToken.mockRejectedValueOnce(new Error("auth/id-token-expired"));
+    let caught: unknown;
+    try {
+      await requireClaims(fakeRequest("Bearer expired.token"));
+    } catch (error) {
+      caught = error;
+    }
+    const res = handleApiError(caught);
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.error.code).toBe("UNAUTHORIZED");
+  });
+
+  it("never includes the bearer token string in the thrown error's message", async () => {
+    const { requireClaims } = await import("@/lib/http/guard");
+    verifyIdToken.mockRejectedValueOnce(new Error("auth/id-token-expired"));
+    const secretToken = "expired.secret.token.value";
+    let caught: unknown;
+    try {
+      await requireClaims(fakeRequest(`Bearer ${secretToken}`));
+    } catch (error) {
+      caught = error;
+    }
+    const message = caught instanceof Error ? caught.message : String(caught);
+    expect(message).not.toContain(secretToken);
+  });
+
   it("returns full claims for a token carrying outlet_id + role", async () => {
     const { requireClaims } = await import("@/lib/http/guard");
     verifyIdToken.mockResolvedValueOnce({
