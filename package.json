@@ -17,6 +17,7 @@
     "test:watch": "vitest",
     "probe": "tsx scripts/probe.ts",
     "seed": "tsx scripts/seed.ts",
+    "provision:web-user": "tsx scripts/provision-web-user.ts",
     "eval": "tsx scripts/eval.ts",
     "eval:redaction": "tsx scripts/eval-redaction.ts",
     "eval:label": "tsx scripts/eval-label.ts",
