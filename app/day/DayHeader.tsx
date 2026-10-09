@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import Link from "next/link";
 import { useLang } from "@/lib/i18n/context";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import { dayLabel } from "@/lib/i18n/format";
@@ -85,6 +86,12 @@ export function DayHeader({
       <p>{t(lang, MODE_KEY[day.capture_mode])}</p>
 
       {day.truncated && <p>{t(lang, "C-day-truncated", { N: threadCount })}</p>}
+
+      {view === "owner" && (
+        <p>
+          <Link href="/home">{t(lang, "C-day-to-home")}</Link>
+        </p>
+      )}
     </header>
   );
 }
