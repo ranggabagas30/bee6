@@ -43,13 +43,17 @@ vi.mock("@/lib/auth/client/use-auth-user", () => ({
 }));
 
 const FAKE_AUTH = { kind: "fake-auth" };
-const FAKE_USER = { uid: "u1" };
+const getIdTokenResult = vi.fn();
+const FAKE_USER = { uid: "u1", getIdTokenResult };
 
 let consoleSpies: ReturnType<typeof vi.spyOn>[] = [];
 
 beforeEach(() => {
   authUserState = { status: "signed_out" };
   getClientAuth.mockReturnValue(FAKE_AUTH);
+  // Supervisor by default: existing tests below assert the non-owner
+  // redirect target ("/day") unless a test overrides this for the owner case.
+  getIdTokenResult.mockResolvedValue({ claims: { role: "supervisor" } });
   consoleSpies = ["log", "info", "warn", "error"].map((method) =>
     vi.spyOn(console, method as "log").mockImplementation(() => {}),
   );
@@ -63,6 +67,7 @@ afterEach(() => {
   signOut.mockReset();
   postAuthSession.mockReset();
   getClientAuth.mockReset();
+  getIdTokenResult.mockReset();
 });
 
 function renderScreen(initial: "en" | "id" = "en") {
@@ -167,7 +172,7 @@ describe("SignInScreen", () => {
     expect(signOut).toHaveBeenCalledWith(FAKE_AUTH);
   });
 
-  it("postAuthSession -> ok navigates to /day", async () => {
+  it("postAuthSession -> ok navigates to /day (supervisor claims)", async () => {
     signInWithEmailAndPassword.mockResolvedValue({ user: FAKE_USER });
     postAuthSession.mockResolvedValue("ok");
     renderScreen();
@@ -178,13 +183,46 @@ describe("SignInScreen", () => {
     expect(signOut).not.toHaveBeenCalled();
   });
 
-  it("an already signed-in user on mount replaces to /day without posting a session", async () => {
+  it("postAuthSession -> ok navigates to /home for owner claims (R-06 Task 14a)", async () => {
+    getIdTokenResult.mockResolvedValue({ claims: { role: "owner" } });
+    signInWithEmailAndPassword.mockResolvedValue({ user: FAKE_USER });
+    postAuthSession.mockResolvedValue("ok");
+    renderScreen();
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "a@b.c" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/home"));
+  });
+
+  it("postAuthSession -> ok falls back to /day when getIdTokenResult rejects", async () => {
+    getIdTokenResult.mockRejectedValue(new Error("boom"));
+    signInWithEmailAndPassword.mockResolvedValue({ user: FAKE_USER });
+    postAuthSession.mockResolvedValue("ok");
+    renderScreen();
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "a@b.c" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/day"));
+  });
+
+  it("an already signed-in user on mount replaces to /day without posting a session (supervisor claims)", async () => {
     authUserState = {
       status: "signed_in",
       user: FAKE_USER,
     } as unknown as AuthUserState;
     renderScreen();
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/day"));
+    expect(postAuthSession).not.toHaveBeenCalled();
+  });
+
+  it("an already signed-in owner on mount replaces to /home", async () => {
+    getIdTokenResult.mockResolvedValue({ claims: { role: "owner" } });
+    authUserState = {
+      status: "signed_in",
+      user: FAKE_USER,
+    } as unknown as AuthUserState;
+    renderScreen();
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/home"));
     expect(postAuthSession).not.toHaveBeenCalled();
   });
 

@@ -7,6 +7,7 @@ import {
   getClientAuth,
   signInWithEmailAndPassword,
   signOut,
+  type User,
 } from "@/lib/auth/client/firebase-client";
 import { postAuthSession } from "@/lib/auth/client/api";
 import { useAuthUser } from "@/lib/auth/client/use-auth-user";
@@ -25,7 +26,21 @@ import { WebTopBar } from "@/app/web/WebTopBar";
  * already-"signed_in" user) only to bounce straight back with no message
  * (CLAUDE.md hard rule #6: every read/write is server-checked, so a claims-less
  * session can never do anything useful here).
+ *
+ * Owner start page (R-06 Task 14a, Rangga v4 Q-G): `/home`; every other role
+ * lands on `/day`. `redirectTarget` reads the fresh ID token's own `role`
+ * claim — navigation only, since every route still enforces role + outlet on
+ * the server — and falls back to `/day` if the token result cannot be read.
  */
+
+async function redirectTarget(user: User): Promise<"/home" | "/day"> {
+  try {
+    const r = await user.getIdTokenResult();
+    return r.claims.role === "owner" ? "/home" : "/day";
+  } catch {
+    return "/day";
+  }
+}
 
 const PAGE_STYLE: CSSProperties = { maxWidth: 360, margin: "0 auto", padding: 24 };
 const INPUT_STYLE: CSSProperties = {
@@ -67,13 +82,13 @@ export function SignInScreen({ config }: { config: FirebaseWebConfig | null }) {
   const signingInRef = useRef(false);
 
   // An already signed-in Firebase user (e.g. a previous visit) skips the
-  // form and goes straight to /day — no POST, since the session was already
-  // linked.
+  // form and goes straight to its role's start page — no POST, since the
+  // session was already linked.
   useEffect(() => {
     if (authUser.status === "signed_in" && !signingInRef.current) {
-      router.replace("/day");
+      void redirectTarget(authUser.user).then((target) => router.replace(target));
     }
-  }, [authUser.status, router]);
+  }, [authUser, router]);
 
   if (!config) {
     return (
@@ -118,7 +133,7 @@ export function SignInScreen({ config }: { config: FirebaseWebConfig | null }) {
     if (result === "ok") {
       // signingInRef.current stays true: this is the only redirect for this
       // sign-in, so the stale-effect guard must keep blocking the effect.
-      router.replace("/day");
+      router.replace(await redirectTarget(credUser));
       return;
     }
 
