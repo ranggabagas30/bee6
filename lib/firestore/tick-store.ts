@@ -324,6 +324,7 @@ export function firestoreTickStore(db: Firestore = adminDb()): TickStore {
             const staffDecisionStands =
               stored.label_source === "staff_confirmed" ||
               stored.label_source === "supervisor_confirmed" ||
+              stored.label_source === "supervisor_rejected" ||
               stored.excluded_from_evidence === true;
             if (staffDecisionStands) {
               tx.set(ref, { ...newDoc, ...carryOverStaffFields(stored) });

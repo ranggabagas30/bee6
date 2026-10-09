@@ -46,7 +46,7 @@ export interface DayThreadRow {
   last_line_end_ms: number;
   summary: string;
   status: "fact" | "open" | "unverified";
-  label_source?: "model" | "staff_confirmed" | "supervisor_confirmed";
+  label_source?: "model" | "staff_confirmed" | "supervisor_confirmed" | "supervisor_rejected";
   confirmed_category?: Category;
   excluded_from_evidence?: boolean;
   /** Present only when `withText` was requested (supervisor path). */
