@@ -23,12 +23,16 @@ const MAX_HANDLE_LENGTH = 512;
  * throws) — callers treat a `null` key as "the confirm route is not
  * configured yet" (503), not a crash.
  */
-/** Standard base64, with or without `=` padding; `Buffer.from` silently drops
- * invalid characters instead of throwing, so this guards the format itself. */
+/** Standard, padded base64 (the `raw.length % 4 !== 0` check below rejects
+ * unpadded input); `Buffer.from` silently drops invalid characters instead
+ * of throwing, so this guards the format itself. */
 const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
 
 export function readThreadHandleKey(env: Record<string, string | undefined> = process.env): Buffer | null {
-  const raw = env.THREAD_HANDLE_KEY;
+  // Secret Manager provisioning (`openssl rand -base64 32` piped via
+  // `--data-file=-`) commonly leaves a trailing newline; trim it so that
+  // doesn't silently turn every handle null (and can_review false everywhere).
+  const raw = env.THREAD_HANDLE_KEY?.trim();
   if (!raw) return null;
   if (!BASE64_RE.test(raw) || raw.length % 4 !== 0) return null;
   const key = Buffer.from(raw, "base64");

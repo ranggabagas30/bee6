@@ -25,6 +25,13 @@ describe("thread-handle", () => {
       expect(readThreadHandleKey({})).toBeNull();
     });
 
+    it("32-byte base64 with a trailing newline (Secret Manager --data-file=- provisioning) -> a 32-byte Buffer", () => {
+      const key = readThreadHandleKey({ THREAD_HANDLE_KEY: `${KEY.toString("base64")}\n` });
+      expect(key).not.toBeNull();
+      expect(key?.length).toBe(32);
+      expect(key?.equals(KEY)).toBe(true);
+    });
+
     it("not base64 -> null", () => {
       expect(readThreadHandleKey({ THREAD_HANDLE_KEY: "!!! not base64 !!!" })).toBeNull();
     });
