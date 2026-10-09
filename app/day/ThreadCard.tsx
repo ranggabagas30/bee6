@@ -4,6 +4,7 @@ import { useLang } from "@/lib/i18n/context";
 import { t } from "@/lib/i18n/dict";
 import { CATEGORY_KEY, RUNNER_UP_KEY, STATUS_KEY } from "@/lib/day/view-model";
 import type { OwnerThread, SupervisorThread } from "@/lib/day/contract";
+import { ThreadActions } from "@/app/day/ThreadActions";
 
 /**
  * One thread row (R-06 Task 7.5). The owner/supervisor split is a TypeScript
@@ -12,10 +13,9 @@ import type { OwnerThread, SupervisorThread } from "@/lib/day/contract";
  * hard rule #7): a `SupervisorThread` is never constructed for an owner
  * caller in the first place.
  *
- * `onReload` and `auth` on the supervisor variant are not used by this task
- * (Task 10's `ThreadActions`, rendered here only once `can_review` exists,
- * is the first consumer) — kept on the type now so PR-5 slots in without a
- * signature change.
+ * `onReload`/`auth` feed `ThreadActions` (R-06 Task 10), rendered below only
+ * when the server says the row is reviewable (`can_review && handle !==
+ * null`) — this component never re-derives eligibility itself.
  */
 
 const CARD_STYLE: CSSProperties = {
@@ -103,6 +103,9 @@ export function ThreadCard(props: ThreadCardProps) {
                 {thread.runner_up.why_not === null ? t(lang, "C-day-runnerup-none") : thread.runner_up.why_not}
               </p>
             </details>
+          )}
+          {thread.can_review && thread.handle !== null && (
+            <ThreadActions thread={thread} auth={props.auth} onDone={props.onReload} />
           )}
         </>
       )}

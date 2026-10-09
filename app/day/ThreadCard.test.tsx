@@ -83,6 +83,23 @@ describe("ThreadCard — owner", () => {
   });
 });
 
+describe("ThreadCard — supervisor actions gating (Task 10)", () => {
+  it("can_review: false renders no ThreadActions buttons", () => {
+    const { container } = renderSupervisor({ ...SUPERVISOR_THREAD, can_review: false, handle: null });
+    expect(container.querySelector("button")).toBeNull();
+  });
+
+  it("can_review: true with a handle renders the Confirm / Change category buttons", () => {
+    const { container } = renderSupervisor({
+      ...SUPERVISOR_THREAD,
+      can_review: true,
+      handle: "HANDLE-SENTINEL",
+    });
+    expect(container.textContent).toContain("Confirm");
+    expect(container.textContent).toContain("Change category");
+  });
+});
+
 describe("ThreadCard — supervisor", () => {
   it("shows evidence lines in order and the +N more line", () => {
     const { container } = renderSupervisor();

@@ -243,6 +243,16 @@ export const ID = {
   "C-day-runnerup": "Pilihan kedua: {label}", // PROVISIONAL
   "C-day-runnerup-none": "Tidak ada alasan.", // PROVISIONAL
   "C-cat-NON_WORK": "Bukan obrolan kerja", // PROVISIONAL
+
+  // Supervisor confirm/override (R-06 Task 10), appended to the PR-5 block.
+  "C-act-confirm": "Konfirmasi", // PROVISIONAL
+  "C-act-change": "Ubah kategori", // PROVISIONAL
+  "C-act-select": "Kategori baru", // PROVISIONAL
+  "C-act-save": "Simpan", // PROVISIONAL
+  "C-act-cancel": "Batal", // PROVISIONAL
+  "C-act-busy": "Menyimpan…", // PROVISIONAL
+  "C-act-blocked": "Tidak bisa dikonfirmasi: tidak ada baris bukti.", // PROVISIONAL
+  "C-act-stale": "Catatan ini berubah. Menampilkan yang terbaru.", // PROVISIONAL
 } as const;
 
 export type DictKey = keyof typeof ID;
@@ -460,6 +470,16 @@ export const EN: Record<DictKey, string> = {
   "C-day-runnerup": "Second choice: {label}",
   "C-day-runnerup-none": "No reason given.",
   "C-cat-NON_WORK": "Not work talk",
+
+  // Supervisor confirm/override (R-06 Task 10), appended to the PR-5 block.
+  "C-act-confirm": "Confirm",
+  "C-act-change": "Change category",
+  "C-act-select": "New category",
+  "C-act-save": "Save",
+  "C-act-cancel": "Cancel",
+  "C-act-busy": "Saving…",
+  "C-act-blocked": "Cannot confirm: no evidence lines.",
+  "C-act-stale": "This note changed. Showing the latest.",
 };
 
 export const DICT: Record<Lang, Record<DictKey, string>> = { id: ID, en: EN };
