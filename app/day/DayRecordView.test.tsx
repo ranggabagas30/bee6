@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { LangProvider, useLang } from "@/lib/i18n/context";
+import { dayLabel } from "@/lib/i18n/format";
 import type { Auth } from "@/lib/auth/client/firebase-client";
 import type { DayRecordResponse, OwnerThread, SupervisorThread } from "@/lib/day/contract";
 import { DayRecordView } from "@/app/day/DayRecordView";
@@ -238,7 +239,7 @@ describe("DayRecordView — category filter", () => {
         </button>
       );
     }
-    render(
+    const { container } = render(
       <LangProvider initial="en">
         <LangToggle />
         <DayRecordView data={data} auth={AUTH} onPrev={() => {}} onNext={() => {}} onReload={() => {}} />
@@ -250,6 +251,67 @@ describe("DayRecordView — category filter", () => {
     fireEvent.click(screen.getByRole("button", { name: "toggle-lang" }));
     expect(screen.getAllByRole("article")).toHaveLength(2);
     expect(screen.getByText("Keluhan pelanggan (2)")).not.toBeNull();
+
+    // Chrome (status/date labels) switches language, but the content text
+    // the two remaining cards carry (their summaries — here standing in for
+    // the thread's identity, "C1"/"C2") is untouched, and the old-language
+    // chrome text is gone, not merely duplicated alongside the new one.
+    expect(screen.getByText("C1")).not.toBeNull();
+    expect(screen.getByText("C2")).not.toBeNull();
+    expect(screen.getAllByText("Fakta").length).toBeGreaterThan(0);
+    expect(container.querySelector("h1")?.textContent).toBe(dayLabel("2026-10-08", "id"));
+    expect(container.textContent).not.toContain("Customer complaint");
+  });
+});
+
+describe("DayRecordView — language toggle preserves stored content", () => {
+  it("evidence lines, staff-answer reason, and runner-up why_not stay byte-identical across an EN -> ID toggle", () => {
+    function LangToggle() {
+      const { setLang } = useLang();
+      return (
+        <button type="button" onClick={() => setLang("id")}>
+          toggle-lang
+        </button>
+      );
+    }
+    const data: DayRecordResponse = {
+      view: "supervisor",
+      day: { ...OWNER_HEADER_BASE, question_count: 1 },
+      threads: [
+        supervisorThread({
+          row: 0,
+          display_status: "rejected_by_staff",
+          evidence: [{ hm: "10:01", text: "EVID-CONTENT-STRING" }],
+          evidence_more: 0,
+          staff_answer: { answer: "no", reason: "REASON-CONTENT-STRING" },
+          runner_up: { category: "ROUTINE_OPS", why_not: "WHY-NOT-CONTENT-STRING" },
+        }),
+      ],
+    };
+    const { container } = render(
+      <LangProvider initial="en">
+        <LangToggle />
+        <DayRecordView data={data} auth={AUTH} onPrev={() => {}} onNext={() => {}} onReload={() => {}} />
+      </LangProvider>,
+    );
+
+    const evidenceBefore = container.querySelector("blockquote")?.textContent;
+    const reasonBefore = container.querySelector("q")?.textContent;
+    const whyNotBefore = container.querySelector("details p")?.textContent;
+    // Sanity: the fixture content is actually present before toggling, not
+    // an accidental pass from two `undefined`s.
+    expect(evidenceBefore).toBe("10:01 «EVID-CONTENT-STRING»");
+    expect(reasonBefore).toBe("REASON-CONTENT-STRING");
+    expect(whyNotBefore).toBe("WHY-NOT-CONTENT-STRING");
+
+    fireEvent.click(screen.getByRole("button", { name: "toggle-lang" }));
+
+    const evidenceAfter = container.querySelector("blockquote")?.textContent;
+    const reasonAfter = container.querySelector("q")?.textContent;
+    const whyNotAfter = container.querySelector("details p")?.textContent;
+    expect(evidenceAfter).toBe(evidenceBefore);
+    expect(reasonAfter).toBe(reasonBefore);
+    expect(whyNotAfter).toBe(whyNotBefore);
   });
 });
 

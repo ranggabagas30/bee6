@@ -2,7 +2,7 @@
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { LangProvider } from "@/lib/i18n/context";
+import { LangProvider, useLang } from "@/lib/i18n/context";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import type { AuthUserState } from "@/lib/auth/client/use-auth-user";
 import type { DayRecordResponse } from "@/lib/day/contract";
@@ -207,5 +207,39 @@ describe("DayRecordApp", () => {
     await waitFor(() => expect(authedGetJson).toHaveBeenCalledTimes(2));
     expect(authedGetJson).toHaveBeenNthCalledWith(2, FAKE_AUTH, "/api/v1/day/today", expect.anything());
     expect(screen.getAllByRole("article")).toHaveLength(1);
+  });
+
+  it("switching language after load never refetches the day record", async () => {
+    function LangToggle() {
+      const { setLang } = useLang();
+      return (
+        <button type="button" onClick={() => setLang("id")}>
+          toggle-lang
+        </button>
+      );
+    }
+    const data = makeData({ day: baseHeader({ fact_count: 0 }) });
+    authedGetJson.mockResolvedValue({ kind: "ok", data });
+    render(
+      <LangProvider initial="en">
+        <LangToggle />
+        <DayRecordApp config={CONFIG} dateParam="today" />
+      </LangProvider>,
+    );
+    await waitFor(() => expect(authedGetJson).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "toggle-lang" }));
+
+    // Flush any pending microtasks/effects before asserting the negative, so
+    // a bug that triggers a second async fetch on toggle would show up here
+    // rather than racing past this assertion.
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // The language switch re-renders DayRecordView with new labels from the
+    // already-fetched data; it is not a reason to call the day-record API
+    // again.
+    expect(authedGetJson).toHaveBeenCalledTimes(1);
   });
 });
