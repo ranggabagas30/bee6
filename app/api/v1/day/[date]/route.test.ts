@@ -60,12 +60,10 @@ describe("GET /api/v1/day/{date}", () => {
     expect(verifyIdToken).not.toHaveBeenCalled();
   });
 
-  // Skipped on THIS branch only: `requireClaims` on `origin/develop` does not
-  // yet catch a rejecting `verifyIdToken` (it maps to 500, not 401) — that
-  // fix is PR-1's Task 1 (`lib/http/guard.ts`), built in parallel on a
-  // sibling branch, not landed here. The route itself needs no change once
-  // Task 1 merges: un-skip this to confirm. See R-06 plan §0 item 2 / Task 1.
-  it.skip("verifyIdToken throws -> 401 (never 500) — needs PR-1 Task 1 merged", async () => {
+  // PR-1's Task 1 (`lib/http/guard.ts`) landed on develop and this branch
+  // has rebased onto it, so `requireClaims` now maps a rejecting
+  // `verifyIdToken` to 401 instead of 500. See R-06 plan §0 item 2 / Task 1.
+  it("verifyIdToken throws -> 401 (never 500) — needs PR-1 Task 1 merged", async () => {
     verifyIdToken.mockRejectedValueOnce(new Error("auth/id-token-expired"));
     const response = await call("today", "Bearer bad.token");
     expect(response.status).toBe(401);
