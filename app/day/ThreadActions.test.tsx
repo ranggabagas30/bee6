@@ -11,9 +11,15 @@ vi.mock("@/lib/auth/client/api", () => ({
   authedPostJson: (...args: unknown[]) => authedPostJson(...args),
 }));
 
+const signOut = vi.fn();
+vi.mock("@/lib/auth/client/firebase-client", () => ({
+  signOut: (...args: unknown[]) => signOut(...args),
+}));
+
 afterEach(() => {
   cleanup();
   authedPostJson.mockReset();
+  signOut.mockReset();
 });
 
 const AUTH = { kind: "fake-auth" } as unknown as Auth;
@@ -138,6 +144,21 @@ describe("ThreadActions", () => {
     fireEvent.click(screen.getByText("Confirm"));
     expect(await screen.findByText("This note changed. Showing the latest.")).not.toBeNull();
     expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it("signed_out -> calls signOut so DayRecordApp's auth-state effect can redirect; onDone not called", async () => {
+    authedPostJson.mockResolvedValueOnce({ kind: "signed_out" });
+    signOut.mockResolvedValueOnce(undefined);
+    const onDone = vi.fn();
+    renderActions(thread(), onDone);
+
+    fireEvent.click(screen.getByText("Confirm"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(signOut).toHaveBeenCalledTimes(1);
+    expect(signOut).toHaveBeenCalledWith(AUTH);
+    expect(onDone).not.toHaveBeenCalled();
   });
 
   it("double tap while busy sends only one request", async () => {

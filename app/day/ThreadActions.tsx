@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import type { Auth } from "@/lib/auth/client/firebase-client";
+import { signOut, type Auth } from "@/lib/auth/client/firebase-client";
 import { authedPostJson } from "@/lib/auth/client/api";
 import { useLang } from "@/lib/i18n/context";
 import { t, type DictKey } from "@/lib/i18n/dict";
@@ -92,8 +92,14 @@ export function ThreadActions({
       return;
     }
     if (result.kind === "signed_out") {
-      // Same handling as the day fetch: DayRecordApp's own effect reacts
-      // to the signed-out auth state and redirects; nothing further here.
+      // This "signed_out" result comes from a 401 after a forced token
+      // refresh (e.g. claims revoked / account disabled) — Firebase's own
+      // auth state has not actually changed yet, so DayRecordApp's
+      // auth-state effect would never fire on its own. Force it to change
+      // (same pattern as DayRecordApp.tsx's fetch-effect handling) so that
+      // effect then correctly redirects to /sign-in, instead of leaving the
+      // user stuck on a dead button.
+      await signOut(auth);
       setPhase("idle");
       return;
     }
