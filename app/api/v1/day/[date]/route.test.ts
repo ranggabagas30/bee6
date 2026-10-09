@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { GET } from "./route";
 import * as dayStoreModule from "@/lib/firestore/day-store";
-import type { DayStore } from "@/lib/day/service";
+import type { ConfirmStore, DayStore } from "@/lib/day/service";
 
 /**
  * Mocks Firebase Admin's `verifyIdToken` (the same technique as
@@ -21,8 +21,12 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function fakeStore(overrides: Partial<DayStore> = {}): DayStore {
-  return {
+// This fake only needs `DayStore` — the GET /day route never calls
+// `transactConfirm`. It is cast to `DayStore & ConfirmStore` solely because
+// `firestoreDayStore` (the function this mocks) implements both; the real
+// `transactConfirm` test double lives in the confirm route's own test file.
+function fakeStore(overrides: Partial<DayStore> = {}): DayStore & ConfirmStore {
+  const store: DayStore = {
     getOutlet: async () => ({
       outlet_id: "outlet-1",
       name: "Test Outlet",
@@ -40,6 +44,7 @@ function fakeStore(overrides: Partial<DayStore> = {}): DayStore {
     countPairedDevices: async () => 0,
     ...overrides,
   };
+  return store as DayStore & ConfirmStore;
 }
 
 function getRequest(date: string, authorization?: string) {

@@ -35,6 +35,8 @@ const SUPERVISOR_THREAD: SupervisorThread = {
   evidence_more: 5,
   staff_answer: null,
   runner_up: null,
+  handle: null,
+  can_review: false,
 };
 
 function renderOwner(thread: OwnerThread = OWNER_THREAD) {
@@ -78,6 +80,23 @@ describe("ThreadCard — owner", () => {
   it("shows C-day-no-summary when the summary is blank", () => {
     const { container } = renderOwner({ ...OWNER_THREAD, summary: "   " });
     expect(container.textContent).toContain("No summary.");
+  });
+});
+
+describe("ThreadCard — supervisor actions gating (Task 10)", () => {
+  it("can_review: false renders no ThreadActions buttons", () => {
+    const { container } = renderSupervisor({ ...SUPERVISOR_THREAD, can_review: false, handle: null });
+    expect(container.querySelector("button")).toBeNull();
+  });
+
+  it("can_review: true with a handle renders the Confirm / Change category buttons", () => {
+    const { container } = renderSupervisor({
+      ...SUPERVISOR_THREAD,
+      can_review: true,
+      handle: "HANDLE-SENTINEL",
+    });
+    expect(container.textContent).toContain("Confirm");
+    expect(container.textContent).toContain("Change category");
   });
 });
 

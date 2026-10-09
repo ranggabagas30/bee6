@@ -1,17 +1,20 @@
-import type { Firestore } from "firebase-admin/firestore";
+import type { Firestore, Transaction } from "firebase-admin/firestore";
 import type { z } from "zod";
 import { adminDb } from "@/lib/firebase/admin";
 import { COLLECTIONS } from "@/lib/firestore/collections";
 import {
+  AuditLogSchema,
   CaptureSessionSchema,
   CorrectionSchema,
   DeviceSchema,
+  QuestionDocSchema,
   QuestionSchema,
   ThreadSchema,
   parseOutletDoc,
   type CaptureSession,
 } from "@/lib/firestore/schema";
-import type { DayCorrectionRow, DayQuestionRow, DayStore, DayThreadRow } from "@/lib/day/service";
+import type { ConfirmStore, DayCorrectionRow, DayQuestionRow, DayStore, DayThreadRow } from "@/lib/day/service";
+import type { ConfirmPlan, ConfirmTxSnapshot } from "@/lib/day/confirm-service";
 
 /**
  * Firestore-backed `DayStore` (R-06 Task 5, web spec §6.2). Same "pure
@@ -139,7 +142,7 @@ async function getByIdsFieldMasked<T extends { outlet_id: string }>(
   return map;
 }
 
-export function firestoreDayStore(outletId: string, db: Firestore = adminDb()): DayStore {
+export function firestoreDayStore(outletId: string, db: Firestore = adminDb()): DayStore & ConfirmStore {
   return {
     async getOutlet() {
       const doc = await db.collection(COLLECTIONS.outlets).doc(outletId).get();
@@ -229,6 +232,65 @@ export function firestoreDayStore(outletId: string, db: Firestore = adminDb()): 
         if (result.data.paired_at !== null && result.data.revoked !== true) count += 1;
       }
       return count;
+    },
+
+    /**
+     * One Firestore transaction (R-06 Task 10.6, web spec §6.2
+     * `POST /api/v1/threads/{id}/confirm`): re-reads the thread and its
+     * question, calls `plan(snapshot)`, and on a `"write"` plan applies the
+     * thread patch plus one `audit_log` entry — same "read everything, then
+     * write" shape as `firestoreDebriefStore.transactAnswer`, but a
+     * malformed thread/question doc here is dropped (`null` + logged)
+     * rather than thrown, since a stale or corrupted doc must surface as a
+     * clean 404/409, never a 500.
+     */
+    async transactConfirm(
+      threadId: string,
+      questionId: string,
+      plan: (s: ConfirmTxSnapshot) => ConfirmPlan,
+    ): Promise<ConfirmPlan> {
+      return db.runTransaction(async (tx: Transaction) => {
+        const threadRef = db.collection(COLLECTIONS.threads).doc(threadId);
+        const threadSnap = await tx.get(threadRef);
+        let thread: ConfirmTxSnapshot["thread"] = null;
+        if (threadSnap.exists) {
+          const parsed = ThreadSchema.safeParse(threadSnap.data());
+          if (parsed.success) {
+            thread = parsed.data;
+          } else {
+            logSkippedDoc("thread", threadSnap.id);
+          }
+        }
+
+        const questionRef = db.collection(COLLECTIONS.questions).doc(questionId);
+        const questionSnap = await tx.get(questionRef);
+        let question: ConfirmTxSnapshot["question"] = null;
+        if (questionSnap.exists) {
+          const parsed = QuestionDocSchema.safeParse(questionSnap.data());
+          if (parsed.success) {
+            question = parsed.data;
+          } else {
+            logSkippedDoc("question", questionSnap.id);
+          }
+        }
+
+        const result = plan({ thread, question });
+
+        if (result.kind === "write") {
+          tx.update(threadRef, result.thread_patch);
+          const auditRef = db.collection(COLLECTIONS.auditLog).doc();
+          tx.set(
+            auditRef,
+            AuditLogSchema.parse({
+              outlet_id: outletId,
+              ts: new Date().toISOString(),
+              ...result.audit,
+            }),
+          );
+        }
+
+        return result;
+      });
     },
   };
 }

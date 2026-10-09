@@ -306,19 +306,26 @@ export function firestoreTickStore(db: Firestore = adminDb()): TickStore {
         const questionSnaps = await Promise.all(questionRefs.map((ref) => tx.get(ref)));
 
         // ---- WRITE PHASE ----
-        // Threads (R-07, Task 5.2): a thread the staff decision already
-        // stands for (staff_confirmed, or excluded_from_evidence by a NO)
-        // keeps that decision — new lines still merge into the new doc,
-        // but label_source/confirmed_category/excluded_from_evidence/
+        // Threads (R-07 Task 5.2; R-06 Task 10): a thread the staff OR
+        // supervisor decision already stands for (staff_confirmed,
+        // supervisor_confirmed, or excluded_from_evidence by a NO) keeps
+        // that decision — new lines still merge into the new doc, but
+        // label_source/confirmed_category/excluded_from_evidence/
         // status/gate are carried over from the stored doc, never the
-        // tick's own fresh (re-opened) values.
+        // tick's own fresh (re-opened) values. Without this, the next tick
+        // that continues a supervisor-confirmed thread would silently
+        // re-open its question.
         for (let i = 0; i < threadDocs.length; i++) {
           const ref = threadRefs[i]!;
           const snap = threadSnaps[i]!;
           const newDoc = threadDocs[i]!;
           if (snap.exists) {
             const stored = snap.data() as Record<string, unknown>;
-            const staffDecisionStands = stored.label_source === "staff_confirmed" || stored.excluded_from_evidence === true;
+            const staffDecisionStands =
+              stored.label_source === "staff_confirmed" ||
+              stored.label_source === "supervisor_confirmed" ||
+              stored.label_source === "supervisor_rejected" ||
+              stored.excluded_from_evidence === true;
             if (staffDecisionStands) {
               tx.set(ref, { ...newDoc, ...carryOverStaffFields(stored) });
               continue;

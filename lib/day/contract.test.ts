@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  ConfirmBodySchema,
+  ConfirmResponseSchema,
   DayParamSchema,
   DayRecordResponseSchema,
   OwnerDayHeaderSchema,
@@ -109,6 +111,8 @@ describe("SupervisorThreadSchema", () => {
     evidence_more: 0,
     staff_answer: null,
     runner_up: null,
+    handle: null,
+    can_review: false,
   };
 
   it.each(["thread_id", "device_id", "answered_device_id", "question_id"])(
@@ -126,6 +130,91 @@ describe("SupervisorThreadSchema", () => {
   it("accepts exactly 20 evidence lines", () => {
     const evidence = Array.from({ length: 20 }, (_, i) => ({ hm: "10:00", text: `line ${i}` }));
     expect(SupervisorThreadSchema.safeParse({ ...baseSupervisorThread, evidence }).success).toBe(true);
+  });
+
+  it("requires handle (null allowed) and can_review", () => {
+    expect(SupervisorThreadSchema.safeParse({ ...baseSupervisorThread, handle: "abc123" }).success).toBe(true);
+    const { handle: _h, ...withoutHandle } = baseSupervisorThread;
+    expect(SupervisorThreadSchema.safeParse(withoutHandle).success).toBe(false);
+    const { can_review: _c, ...withoutCanReview } = baseSupervisorThread;
+    expect(SupervisorThreadSchema.safeParse(withoutCanReview).success).toBe(false);
+  });
+
+  it("rejects an empty-string or over-length handle", () => {
+    expect(SupervisorThreadSchema.safeParse({ ...baseSupervisorThread, handle: "" }).success).toBe(false);
+    expect(
+      SupervisorThreadSchema.safeParse({ ...baseSupervisorThread, handle: "a".repeat(513) }).success,
+    ).toBe(false);
+  });
+});
+
+describe("ConfirmBodySchema", () => {
+  it("accepts { action: 'confirm' }", () => {
+    expect(ConfirmBodySchema.safeParse({ action: "confirm" }).success).toBe(true);
+  });
+
+  it("accepts { action: 'override', category }", () => {
+    expect(ConfirmBodySchema.safeParse({ action: "override", category: "COMPLAINT" }).success).toBe(true);
+  });
+
+  it("rejects override with no category", () => {
+    expect(ConfirmBodySchema.safeParse({ action: "override" }).success).toBe(false);
+  });
+
+  it("rejects override with category NON_WORK", () => {
+    expect(ConfirmBodySchema.safeParse({ action: "override", category: "NON_WORK" }).success).toBe(false);
+  });
+
+  it("rejects confirm with an extra category key (strict)", () => {
+    expect(ConfirmBodySchema.safeParse({ action: "confirm", category: "COMPLAINT" }).success).toBe(false);
+  });
+
+  it("rejects an unknown action", () => {
+    expect(ConfirmBodySchema.safeParse({ action: "delete" }).success).toBe(false);
+  });
+
+  it("accepts { action: 'reject' } (v4, Task 15)", () => {
+    expect(ConfirmBodySchema.safeParse({ action: "reject" }).success).toBe(true);
+  });
+
+  it("rejects a reject body carrying a category (strict)", () => {
+    expect(ConfirmBodySchema.safeParse({ action: "reject", category: "COMPLAINT" }).success).toBe(false);
+  });
+
+  it("rejects a reject body carrying free text (no reason is ever accepted)", () => {
+    expect(ConfirmBodySchema.safeParse({ action: "reject", reason: "x" }).success).toBe(false);
+  });
+});
+
+describe("ConfirmResponseSchema", () => {
+  it("accepts a confirmed response", () => {
+    expect(
+      ConfirmResponseSchema.safeParse({
+        result: "confirmed",
+        category: "COMPLAINT",
+        display_status: "fact_supervisor_confirmed",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects display_status: fact", () => {
+    expect(
+      ConfirmResponseSchema.safeParse({
+        result: "confirmed",
+        category: "COMPLAINT",
+        display_status: "fact",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts a rejected response (v4, Task 15)", () => {
+    expect(
+      ConfirmResponseSchema.safeParse({
+        result: "rejected",
+        category: "COMPLAINT",
+        display_status: "rejected_by_supervisor",
+      }).success,
+    ).toBe(true);
   });
 });
 
@@ -185,6 +274,8 @@ describe("DayRecordResponseSchema", () => {
           evidence_more: 0,
           staff_answer: null,
           runner_up: null,
+          handle: null,
+          can_review: false,
         },
       ],
     });

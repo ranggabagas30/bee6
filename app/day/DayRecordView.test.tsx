@@ -47,6 +47,8 @@ function supervisorThread(overrides: Partial<SupervisorThread> = {}): Supervisor
     evidence_more: 0,
     staff_answer: null,
     runner_up: null,
+    handle: null,
+    can_review: false,
     ...overrides,
   };
 }

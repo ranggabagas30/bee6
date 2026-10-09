@@ -106,8 +106,36 @@ export const SupervisorThreadSchema = z
     evidence_more: z.number().int().min(0),
     staff_answer: StaffAnswerSchema.nullable(),
     runner_up: RunnerUpSchema.nullable(), // Task 11; supervisor-only (model reasoning about the speech)
+    /** Task 10: the opaque, encrypted thread id for POST /api/v1/threads/{handle}/confirm.
+     * `null` only when THREAD_HANDLE_KEY is not configured (no action is possible then). */
+    handle: z.string().min(1).max(512).nullable(),
+    /** Task 10: eligibility — the staff have answered this thread's question and it is not unverified. */
+    can_review: z.boolean(),
   })
   .strict();
+
+/**
+ * POST /api/v1/threads/{id}/confirm body (Task 10/15; `labels:confirm`,
+ * supervisor only). `reject` (v4, Task 15) takes no category — a reject
+ * never needs one, and no free text (hard rule #3 needs no SDP pass
+ * because nothing typed here is ever stored).
+ */
+export const ConfirmBodySchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("confirm") }).strict(),
+  z.object({ action: z.literal("override"), category: WorkCategorySchema }).strict(),
+  z.object({ action: z.literal("reject") }).strict(),
+]);
+export type ConfirmBody = z.infer<typeof ConfirmBodySchema>;
+
+export const ConfirmResponseSchema = z
+  .object({
+    result: z.enum(["confirmed", "rejected", "unchanged"]),
+    /** The row's effective category after the call (reject: unchanged). */
+    category: WorkCategorySchema,
+    display_status: z.enum(["fact_supervisor_confirmed", "rejected_by_supervisor"]),
+  })
+  .strict();
+export type ConfirmResponse = z.infer<typeof ConfirmResponseSchema>;
 
 export const DayRecordResponseSchema = z.discriminatedUnion("view", [
   z
