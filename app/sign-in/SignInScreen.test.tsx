@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { LangProvider, useLang } from "@/lib/i18n/context";
@@ -219,7 +220,7 @@ describe("SignInScreen", () => {
       return (value: string) => resolvePostAuth(value);
     }
 
-    async function signInAndGoStale(rerender: (node: JSX.Element) => void) {
+    async function signInAndGoStale(rerender: (node: ReactElement) => void) {
       signInWithEmailAndPassword.mockImplementation(async () => {
         authUserState = { status: "signed_in", user: FAKE_USER } as unknown as AuthUserState;
         return { user: FAKE_USER };
