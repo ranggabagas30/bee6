@@ -51,6 +51,8 @@ export interface DayThreadRow {
   lines?: ThreadLine[];
   /** Present only when `withText` was requested (supervisor path). */
   evidence_line_ids?: string[];
+  /** Present only when `withText` was requested (supervisor path). Task 11. */
+  runner_up?: { category: Category; why_not: string };
 }
 
 export interface DayQuestionRow {
@@ -202,12 +204,24 @@ export async function getDayRecord(
         ? { answer: correction?.answer ?? question.answer, reason: correction?.reason_text ?? null }
         : null;
 
+    // Task 11: a runner-up equal to the chosen category is not a "second
+    // choice" at all (either absent, or it became the chosen category after
+    // a staff/supervisor confirmed_category) — null in both cases.
+    const runnerUp =
+      !row.runner_up || row.runner_up.category === effective
+        ? null
+        : {
+            category: row.runner_up.category,
+            why_not: row.runner_up.why_not.trim() === "" ? null : row.runner_up.why_not,
+          };
+
     return {
       ...base,
       display_status: displayStatus,
       evidence,
       evidence_more: more,
       staff_answer: staffAnswer,
+      runner_up: runnerUp,
     } as SupervisorThread;
   });
 

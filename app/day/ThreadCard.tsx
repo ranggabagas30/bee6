@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import type { Auth } from "@/lib/auth/client/firebase-client";
 import { useLang } from "@/lib/i18n/context";
 import { t } from "@/lib/i18n/dict";
-import { CATEGORY_KEY, STATUS_KEY } from "@/lib/day/view-model";
+import { CATEGORY_KEY, RUNNER_UP_KEY, STATUS_KEY } from "@/lib/day/view-model";
 import type { OwnerThread, SupervisorThread } from "@/lib/day/contract";
 
 /**
@@ -39,6 +39,10 @@ const BADGE_STYLE: CSSProperties = {
 const EVIDENCE_HEADING_STYLE: CSSProperties = { fontWeight: 600, margin: "8px 0 4px 0" };
 
 const QUOTE_STYLE: CSSProperties = { margin: "0 0 4px 0", overflowWrap: "anywhere" };
+
+const RUNNER_UP_SUMMARY_STYLE: CSSProperties = { minHeight: 48, cursor: "pointer", display: "flex", alignItems: "center" };
+
+const RUNNER_UP_BODY_STYLE: CSSProperties = { overflowWrap: "anywhere", margin: "4px 0 0 0" };
 
 export type ThreadCardProps =
   | { view: "owner"; thread: OwnerThread }
@@ -89,6 +93,16 @@ export function ThreadCard(props: ThreadCardProps) {
                 </>
               )}
             </p>
+          )}
+          {thread.runner_up !== null && (
+            <details>
+              <summary style={RUNNER_UP_SUMMARY_STYLE}>
+                {t(lang, "C-day-runnerup", { label: t(lang, RUNNER_UP_KEY[thread.runner_up.category]) })}
+              </summary>
+              <p style={RUNNER_UP_BODY_STYLE}>
+                {thread.runner_up.why_not === null ? t(lang, "C-day-runnerup-none") : thread.runner_up.why_not}
+              </p>
+            </details>
           )}
         </>
       )}

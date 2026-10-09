@@ -4,6 +4,7 @@ import {
   DayRecordResponseSchema,
   OwnerDayHeaderSchema,
   OwnerThreadSchema,
+  RunnerUpSchema,
   SupervisorDayHeaderSchema,
   SupervisorThreadSchema,
 } from "@/lib/day/contract";
@@ -31,7 +32,18 @@ describe("DayParamSchema", () => {
 });
 
 describe("OwnerThreadSchema", () => {
-  it.each(["evidence", "staff_answer", "lines", "reason", "thread_id", "device_id", "question_id", "handle", "can_review"])(
+  it.each([
+    "evidence",
+    "staff_answer",
+    "lines",
+    "reason",
+    "thread_id",
+    "device_id",
+    "question_id",
+    "handle",
+    "can_review",
+    "runner_up",
+  ])(
     "rejects the extra key %s",
     (key) => {
       const result = OwnerThreadSchema.safeParse({ ...baseThread, display_status: "fact", [key]: "x" });
@@ -96,6 +108,7 @@ describe("SupervisorThreadSchema", () => {
     evidence: [],
     evidence_more: 0,
     staff_answer: null,
+    runner_up: null,
   };
 
   it.each(["thread_id", "device_id", "answered_device_id", "question_id"])(
@@ -171,9 +184,31 @@ describe("DayRecordResponseSchema", () => {
           evidence: [],
           evidence_more: 0,
           staff_answer: null,
+          runner_up: null,
         },
       ],
     });
     expect(result.success).toBe(true);
+  });
+});
+
+describe("RunnerUpSchema", () => {
+  it("accepts a work category and a NON_WORK category", () => {
+    expect(RunnerUpSchema.safeParse({ category: "CUSTOMER_SERVICE", why_not: "Not a service request." }).success).toBe(true);
+    expect(RunnerUpSchema.safeParse({ category: "NON_WORK", why_not: "Small talk." }).success).toBe(true);
+  });
+
+  it("accepts a null why_not", () => {
+    expect(RunnerUpSchema.safeParse({ category: "ROUTINE_OPS", why_not: null }).success).toBe(true);
+  });
+
+  it("rejects a blank why_not (the service maps blank to null before this parse)", () => {
+    expect(RunnerUpSchema.safeParse({ category: "ROUTINE_OPS", why_not: "" }).success).toBe(false);
+  });
+
+  it("rejects an extra key (strict)", () => {
+    expect(
+      RunnerUpSchema.safeParse({ category: "ROUTINE_OPS", why_not: "x", thread_id: "t1" }).success,
+    ).toBe(false);
   });
 });

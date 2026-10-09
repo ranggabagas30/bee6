@@ -34,6 +34,7 @@ const SUPERVISOR_THREAD: SupervisorThread = {
   ],
   evidence_more: 5,
   staff_answer: null,
+  runner_up: null,
 };
 
 function renderOwner(thread: OwnerThread = OWNER_THREAD) {
@@ -115,5 +116,56 @@ describe("ThreadCard — supervisor", () => {
   it("renders no staff-answer line when staff_answer is null", () => {
     const { container } = renderSupervisor({ ...SUPERVISOR_THREAD, staff_answer: null });
     expect(container.textContent).not.toContain("A staff member answered");
+  });
+});
+
+describe("ThreadCard — runner-up panel (Task 11)", () => {
+  it("renders one details with the second-choice summary and the why_not body", () => {
+    const { container } = renderSupervisor({
+      ...SUPERVISOR_THREAD,
+      runner_up: { category: "CUSTOMER_SERVICE", why_not: "RUNUP-SENTINEL-1" },
+    });
+    const details = container.querySelectorAll("details");
+    expect(details).toHaveLength(1);
+    expect(details[0]!.querySelector("summary")!.textContent).toBe(
+      "Second choice: Customer service",
+    );
+    expect(details[0]!.textContent).toContain("RUNUP-SENTINEL-1");
+  });
+
+  it("shows 'No reason given.' when why_not is null", () => {
+    const { container } = renderSupervisor({
+      ...SUPERVISOR_THREAD,
+      runner_up: { category: "ROUTINE_OPS", why_not: null },
+    });
+    expect(container.textContent).toContain("No reason given.");
+  });
+
+  it("renders no details when runner_up is null", () => {
+    const { container } = renderSupervisor({ ...SUPERVISOR_THREAD, runner_up: null });
+    expect(container.querySelector("details")).toBeNull();
+  });
+
+  it("owner card never renders a details, regardless of any stray data", () => {
+    const { container } = renderOwner();
+    expect(container.querySelector("details")).toBeNull();
+  });
+
+  it("switches language for the runner-up summary, keeping the body untranslated", () => {
+    const { container } = render(
+      <LangProvider initial="id">
+        <ThreadCard
+          view="supervisor"
+          thread={{
+            ...SUPERVISOR_THREAD,
+            runner_up: { category: "CUSTOMER_SERVICE", why_not: "fixed body text" },
+          }}
+          onReload={() => {}}
+          auth={{} as Auth}
+        />
+      </LangProvider>,
+    );
+    expect(container.querySelector("summary")!.textContent).toBe("Pilihan kedua: Layanan pelanggan");
+    expect(container.textContent).toContain("fixed body text");
   });
 });

@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { DictKey, ID } from "@/lib/i18n/dict";
 import { CATEGORIES, type WorkCategory } from "@/lib/pipeline/categories";
 import type { DisplayStatus } from "@/lib/day/derive";
-import { CATEGORY_KEY, STATUS_KEY, categoryOptions, filterThreads } from "@/lib/day/view-model";
+import {
+  CATEGORY_KEY,
+  RUNNER_UP_KEY,
+  STATUS_KEY,
+  categoryOptions,
+  filterThreads,
+} from "@/lib/day/view-model";
 
 const ALL_DISPLAY_STATUSES: readonly DisplayStatus[] = [
   "fact",
@@ -49,6 +55,20 @@ describe("CATEGORY_KEY", () => {
 
   it("has exactly the WorkCategory keys (no NON_WORK)", () => {
     expect(Object.keys(CATEGORY_KEY).sort()).toEqual([...WORK_CATEGORIES].sort());
+  });
+});
+
+describe("RUNNER_UP_KEY", () => {
+  it("covers every Category (incl. NON_WORK) with a real dict key", () => {
+    for (const category of CATEGORIES) {
+      const key = RUNNER_UP_KEY[category];
+      expect(key, category).toBeDefined();
+      expect(isDictKey(key), `${category} -> ${key}`).toBe(true);
+    }
+  });
+
+  it("has exactly the Category keys", () => {
+    expect(Object.keys(RUNNER_UP_KEY).sort()).toEqual([...CATEGORIES].sort());
   });
 });
 

@@ -45,6 +45,7 @@ function supervisorThread(overrides: Partial<SupervisorThread> = {}): Supervisor
     evidence: [],
     evidence_more: 0,
     staff_answer: null,
+    runner_up: null,
     ...overrides,
   };
 }

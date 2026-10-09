@@ -1,4 +1,4 @@
-import { CATEGORIES, type WorkCategory } from "@/lib/pipeline/categories";
+import { CATEGORIES, type Category, type WorkCategory } from "@/lib/pipeline/categories";
 import type { DisplayStatus } from "@/lib/day/derive";
 import type { DictKey } from "@/lib/i18n/dict";
 
@@ -40,6 +40,12 @@ export const CATEGORY_KEY: Record<WorkCategory, DictKey> = {
   SAFETY_INCIDENT: "C-cat-SAFETY_INCIDENT",
   SECURITY_INCIDENT: "C-cat-SECURITY_INCIDENT",
   DISRUPTION: "C-cat-DISRUPTION",
+};
+
+/** `Category` (incl. `NON_WORK`) -> the copy key for a runner-up label (Task 11.4). */
+export const RUNNER_UP_KEY: Record<Category, DictKey> = {
+  ...CATEGORY_KEY,
+  NON_WORK: "C-cat-NON_WORK",
 };
 
 export type CategoryFilterValue = "ALL" | WorkCategory;

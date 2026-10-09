@@ -326,6 +326,18 @@ describe("firestoreDayStore.listThreads", () => {
     expect(rows[0]!.evidence_line_ids).toEqual(t.evidence_line_ids);
   });
 
+  it("the supervisor field list includes runner_up (Task 11); the owner list does not", async () => {
+    const t = makeThread({ runner_up: { category: "CUSTOMER_SERVICE", why_not: "RUNUP-SENTINEL-1" } });
+    const { db } = fakeDb({ [COLLECTIONS.threads]: { t1: t } });
+    const store = firestoreDayStore(OUTLET_ID, db);
+
+    const supervisorRows = await store.listThreads(0, 10_000, { withText: true, limit: 100 });
+    expect(supervisorRows[0]!.runner_up).toEqual(t.runner_up);
+
+    const ownerRows = await store.listThreads(0, 10_000, { withText: false, limit: 100 });
+    expect(ownerRows[0]).not.toHaveProperty("runner_up");
+  });
+
   it("filters by first_line_start_ms range (inclusive start, exclusive end)", async () => {
     const inRange = makeThread({ thread_id: "in", first_line_start_ms: 5_000 });
     const atStart = makeThread({ thread_id: "at-start", first_line_start_ms: 1_000 });

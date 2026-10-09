@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { WorkCategorySchema } from "@/lib/pipeline/categories";
+import { CategorySchema, WorkCategorySchema } from "@/lib/pipeline/categories";
 import { CaptureModeSchema } from "@/lib/capture/contract";
 
 /**
@@ -88,6 +88,16 @@ export const StaffAnswerSchema = z
   })
   .strict();
 
+/** Stored text is SDP-redacted after the 200-char wire cap; tokens may lengthen it (Task 11). */
+export const RUNNER_UP_WHY_NOT_MAX = 2000;
+
+export const RunnerUpSchema = z
+  .object({
+    category: CategorySchema, // may be NON_WORK
+    why_not: z.string().min(1).max(RUNNER_UP_WHY_NOT_MAX).nullable(), // null when the stored text is blank
+  })
+  .strict();
+
 export const SupervisorThreadSchema = z
   .object({
     ...threadBase,
@@ -95,6 +105,7 @@ export const SupervisorThreadSchema = z
     evidence: z.array(EvidenceLineSchema).max(EVIDENCE_LINES_MAX),
     evidence_more: z.number().int().min(0),
     staff_answer: StaffAnswerSchema.nullable(),
+    runner_up: RunnerUpSchema.nullable(), // Task 11; supervisor-only (model reasoning about the speech)
   })
   .strict();
 
