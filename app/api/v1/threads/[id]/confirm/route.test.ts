@@ -163,4 +163,33 @@ describe("POST /api/v1/threads/{id}/confirm", () => {
     const text = await response.text();
     expect(text).not.toContain(THREAD_ID);
   });
+
+  it("supervisor reject -> 200, body result: 'rejected', no-store, no response contains the thread id (v4, Task 15)", async () => {
+    supervisorClaims();
+    const { sealThreadHandle } = await vi.importActual<typeof threadHandleModule>("@/lib/day/thread-handle");
+    const handle = sealThreadHandle(THREAD_ID, OUTLET, KEY);
+    vi.spyOn(threadHandleModule, "readThreadHandleKey").mockReturnValue(KEY);
+    const store = fakeStore({
+      transactConfirm: async () => ({
+        kind: "write",
+        thread_patch: {},
+        audit: {
+          actor_role: "supervisor",
+          action: "thread.supervisor_reject",
+          target_type: "thread",
+          target_id: THREAD_ID,
+          details: {},
+        },
+        response: { result: "rejected", category: "COMPLAINT", display_status: "rejected_by_supervisor" },
+      }),
+    });
+    vi.spyOn(dayStoreModule, "firestoreDayStore").mockReturnValue(store);
+
+    const response = await call(handle, { action: "reject" }, "Bearer supervisor.token");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    const body = await response.json();
+    expect(body.data.result).toBe("rejected");
+    expect(JSON.stringify(body)).not.toContain(THREAD_ID);
+  });
 });

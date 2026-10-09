@@ -430,6 +430,60 @@ describe("getDayRecord — handle and can_review (Task 10.5)", () => {
   });
 });
 
+describe("getDayRecord — supervisor reject (v4, Task 15.5)", () => {
+  const HANDLE_KEY = randomBytes(32);
+
+  const rejectedRow = mkRow(10, "COMPLAINT", "open", "QSUM-REJECTED-1", {
+    label_source: "supervisor_rejected",
+    confirmed_category: "COMPLAINT",
+    excluded_from_evidence: true,
+  });
+
+  const fixture: Fixture = emptyFixture({
+    sessions: [daySession],
+    threads: [...dayMixThreads, rejectedRow],
+    questions: [
+      ...dayMixFixture.questions,
+      { outlet_id: OUTLET_ID, question_id: threadQuestionId(threadId(10)), status: "answered", answer: "yes" },
+    ],
+    corrections: dayMixFixture.corrections,
+  });
+
+  it("a supervisor_rejected row (status open, excluded, question answered) -> display_status rejected_by_supervisor, can_review true, counted in question_count, not in fact_count", async () => {
+    const store = new FakeDayStore(OUTLET_ID, fixture);
+    const result = await getDayRecord(store, {
+      claims: SUPERVISOR_CLAIMS,
+      param: "today",
+      now_ms: at("12:00"),
+      handleKey: HANDLE_KEY,
+    });
+    const threads = result.threads as SupervisorThread[];
+    const row = threads.find((t) => t.summary === "QSUM-REJECTED-1")!;
+    expect(row.display_status).toBe("rejected_by_supervisor");
+    expect(row.can_review).toBe(true);
+    expect((result.day as { question_count: number }).question_count).toBeGreaterThanOrEqual(1);
+    const factCountFromRows = threads.filter((t) =>
+      ["fact", "fact_staff_confirmed", "fact_supervisor_confirmed"].includes(t.display_status),
+    ).length;
+    expect(result.day.fact_count).toBe(factCountFromRows);
+    expect(result.day.fact_count).not.toBe(threads.length); // the rejected row is not counted as a fact
+  });
+
+  it("the owner JSON has no row for the rejected thread and no QSUM-REJECTED sentinel; fact_count excludes it", async () => {
+    const store = new FakeDayStore(OUTLET_ID, fixture);
+    const result = await getDayRecord(store, {
+      claims: OWNER_CLAIMS,
+      param: "today",
+      now_ms: at("12:00"),
+      handleKey: HANDLE_KEY,
+    });
+    const json = JSON.stringify(result);
+    expect(json).not.toContain("QSUM-REJECTED-1");
+    // Owner fact_count is unaffected by the rejected row (still the 4 facts from the day mix).
+    expect(result.day.fact_count).toBe(4);
+  });
+});
+
 describe("getDayRecord — runner-up (Task 11)", () => {
   it("passes a runner-up through when it differs from the effective category, mapping blank why_not to null", async () => {
     const differs = mkRow(9, "COMPLAINT", "open", "QSUM-RUNUP-1", {
