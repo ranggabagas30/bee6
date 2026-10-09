@@ -101,6 +101,22 @@ export function SignInScreen({ config }: { config: FirebaseWebConfig | null }) {
     );
   }
 
+  // Firebase's auth-state restore has not resolved yet. Rendering the form
+  // here would briefly show empty, disabled fields on every reload before
+  // the redirect effect above ever gets a chance to fire for an
+  // already-signed-in user — so render the same loading placeholder the
+  // rest of this app uses (DayRecordApp/HomeApp) instead of the form.
+  if (authUser.status === "loading") {
+    return (
+      <main style={PAGE_STYLE}>
+        <WebTopBar auth={null} showSignOut={false} />
+        <p role="status" aria-live="polite">
+          {t(lang, "C-day-loading")}
+        </p>
+      </main>
+    );
+  }
+
   const disabled = authUser.status !== "signed_out" || busy;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {

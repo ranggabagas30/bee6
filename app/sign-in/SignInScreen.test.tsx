@@ -88,6 +88,28 @@ function LangToggle() {
 }
 
 describe("SignInScreen", () => {
+  it("authUser.status === 'loading' shows no form (avoids the sign-in flash on reload)", () => {
+    authUserState = { status: "loading" };
+    renderScreen();
+    expect(screen.queryByLabelText("Email")).toBeNull();
+    expect(screen.queryByLabelText("Password")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+  });
+
+  it("authUser.status transitioning loading -> signed_out shows the form", () => {
+    authUserState = { status: "loading" };
+    const { rerender } = renderScreen();
+    expect(screen.queryByLabelText("Email")).toBeNull();
+
+    authUserState = { status: "signed_out" };
+    rerender(
+      <LangProvider initial="en">
+        <SignInScreen config={CONFIG} />
+      </LangProvider>,
+    );
+    expect(screen.getByLabelText("Email")).not.toBeNull();
+  });
+
   it("config null shows C-signin-config and no form", () => {
     render(
       <LangProvider initial="en">
