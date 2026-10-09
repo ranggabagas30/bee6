@@ -59,3 +59,15 @@ with the licence.
 - **Vendored under:** `public/vendor/capture/ort/` (wasm binaries + loader
   modules), copied from node_modules by `scripts/vendor-capture-assets.mjs` at
   build time — served from our own origin, no CDN.
+
+## firebase
+- **Used for:** owner/supervisor sign-in in the browser (R-06) — the
+  `firebase/app` + `firebase/auth` modular SDK only (`signInWithEmailAndPassword`,
+  `onAuthStateChanged`, `signOut`, `getIdToken`). Still Google-only (hard rule
+  #1): this is Firebase Authentication, the same product as the server-side
+  `firebase-admin` SDK already in use. No other Firebase product
+  (`firebase/firestore`, `firebase/database`, `firebase/storage`) is imported
+  in browser code — enforced by `lib/auth/client/import-ban.test.ts`.
+- **License:** Apache-2.0
+- **Version:** 13.0.0
+- **Project:** https://github.com/firebase/firebase-js-sdk

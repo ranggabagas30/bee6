@@ -168,6 +168,23 @@ export const ID = {
   "C-d-over-one": "Terlalu panjang. Kurangi {N} karakter.",
   "C-d-done-unsent-one": "Masih ada {N} jawaban belum terkirim.",
   "C-d-done-skip-one": "{N} pertanyaan dilewati.",
+
+  // /sign-in (R-06 Task 4.8) — owner/supervisor email + password sign-in.
+  // All PROVISIONAL unless noted: UX-03 did not design this screen.
+  "C-signin-title": "Masuk", // PROVISIONAL
+  "C-signin-help": "Untuk pemilik dan supervisor. Akun disiapkan oleh bee6.", // PROVISIONAL
+  "C-signin-email": "Email", // PROVISIONAL
+  "C-signin-password": "Kata sandi", // PROVISIONAL
+  "C-signin-submit": "Masuk", // PROVISIONAL
+  "C-signin-busy": "Sedang masuk…", // PROVISIONAL
+  "C-signin-empty": "Isi email dan kata sandi.", // PROVISIONAL
+  "C-signin-bad": "Email atau kata sandi salah.", // PROVISIONAL
+  "C-signin-many": "Terlalu banyak percobaan. Tunggu beberapa menit.", // PROVISIONAL
+  "C-signin-denied": "Akun ini tidak punya akses ke bee6.", // PROVISIONAL
+  "C-signin-net": "Tidak ada koneksi. Coba lagi saat sinyal stabil.", // PROVISIONAL
+  "C-signin-config": "Masuk belum disiapkan di server ini.", // PROVISIONAL
+  "C-srv-generic": "Ada masalah. Coba lagi.", // PROVISIONAL
+  "C-web-signout": "Keluar", // PROVISIONAL
 } as const;
 
 export type DictKey = keyof typeof ID;
@@ -311,6 +328,22 @@ export const EN: Record<DictKey, string> = {
   "C-d-over-one": "Too long. Remove 1 character.",
   "C-d-done-unsent-one": "1 answer is not sent yet.",
   "C-d-done-skip-one": "1 question skipped.",
+
+  // /sign-in (R-06 Task 4.8) — owner/supervisor email + password sign-in.
+  "C-signin-title": "Sign in",
+  "C-signin-help": "For owners and supervisors. Accounts are set up by bee6.",
+  "C-signin-email": "Email",
+  "C-signin-password": "Password",
+  "C-signin-submit": "Sign in",
+  "C-signin-busy": "Signing in…",
+  "C-signin-empty": "Enter your email and password.",
+  "C-signin-bad": "Email or password is wrong.",
+  "C-signin-many": "Too many tries. Wait a few minutes.",
+  "C-signin-denied": "This account has no access to bee6.",
+  "C-signin-net": "No connection. Try again when the signal is stable.",
+  "C-signin-config": "Sign-in is not set up on this server.",
+  "C-srv-generic": "Something went wrong. Try again.",
+  "C-web-signout": "Sign out",
 };
 
 export const DICT: Record<Lang, Record<DictKey, string>> = { id: ID, en: EN };
