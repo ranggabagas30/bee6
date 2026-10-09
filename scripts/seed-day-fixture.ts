@@ -610,13 +610,23 @@ export interface FixtureGuardInput {
  * Asia/Jakarta. Pure: takes every fact as input, touches no env or Firestore
  * itself, so it is fully unit-tested.
  */
-export function assertFixtureAllowed(input: FixtureGuardInput): void {
+/**
+ * The project/env half of the guard — no Firestore read needed, so `main()`
+ * runs this before `adminDb()`/the outlet read (tech-lead finding 4).
+ */
+function assertFixtureProjectAllowed(
+  input: Pick<FixtureGuardInput, "demoModeEnv" | "assertProjectMatchesEnv">,
+): void {
   input.assertProjectMatchesEnv("demo");
   if ((input.demoModeEnv ?? "").toLowerCase() !== "true") {
     throw new Error(
       "Refusing to seed the day fixture without DEMO_MODE=true. This fixture is demo-project only.",
     );
   }
+}
+
+export function assertFixtureAllowed(input: FixtureGuardInput): void {
+  assertFixtureProjectAllowed(input);
   if (input.outletProjectKind !== "demo") {
     throw new Error(
       "Refusing to seed the day fixture: outlets/demo-outlet must have project_kind \"demo\".",
@@ -798,8 +808,11 @@ async function readDemoOutletProjectKind(db: Firestore): Promise<"pilot" | "demo
 
 async function main(): Promise<void> {
   const args = parseFixtureArgs(process.argv.slice(2));
-  const db = adminDb();
 
+  // Env checks first — no Firestore read yet (tech-lead finding 4).
+  assertFixtureProjectAllowed({ demoModeEnv: process.env.DEMO_MODE, assertProjectMatchesEnv });
+
+  const db = adminDb();
   const outletProjectKind = await readDemoOutletProjectKind(db);
   const todayBusinessDate = businessDateOf(Date.now(), FIXTURE_TZ);
   assertFixtureAllowed({
