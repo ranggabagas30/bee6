@@ -151,6 +151,20 @@ describe("buildDayFixture", () => {
     }
   });
 
+  it("every unverified question (both gate and unlabelled_unit kinds) expires at the session's debrief_ends_at_ms", () => {
+    const unverified = build.questions.filter((q) => q.status === "unverified");
+    expect(unverified.length).toBeGreaterThan(0);
+    // Verify at least one gate-kind (i % 20 === 17 or 18) and one unlabelled_unit-kind
+    const gateUnverified = unverified.filter((q) => q.kind === "gate");
+    const unlabelledUnverified = unverified.filter((q) => q.kind === "unlabelled_unit");
+    expect(gateUnverified.length).toBeGreaterThan(0);
+    expect(unlabelledUnverified.length).toBeGreaterThan(0);
+    // All unverified questions must expire at the session's debrief_ends_at_ms
+    for (const q of unverified) {
+      expect(q.expired_by_debrief_end_ms).toBe(build.session.debrief_ends_at_ms);
+    }
+  });
+
   it("scales to a smaller --threads count", () => {
     const small = buildDayFixture({ outlet_id: FIXTURE_OUTLET_ID, date: DATE, tz: FIXTURE_TZ, threads: 25 });
     expect(small.threads).toHaveLength(25);

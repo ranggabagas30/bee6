@@ -580,7 +580,7 @@ export function buildDayFixture(input: BuildDayFixtureInput): BuildDayFixtureRes
             window_start_ms: unlStart,
             window_end_ms: unlEnd,
             created_at_ms: unlStart,
-            expired_by_debrief_end_ms: unlEnd + 60 * 60_000,
+            expired_by_debrief_end_ms: session.debrief_ends_at_ms,
           }),
         );
       }
