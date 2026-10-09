@@ -27,7 +27,8 @@ export type Permission =
   | "reviews:verdict"
   | "sop:read"
   | "sop:diff"
-  | "questions:read";
+  | "questions:read"
+  | "home:read";
 
 /**
  * The permission table from web spec §2, as a set per principal role.
@@ -42,6 +43,7 @@ const ROLE_PERMISSIONS: Record<PrincipalRole, ReadonlySet<Permission>> = {
     "reviews:verdict",
     "sop:read",
     "sop:diff",
+    "home:read", // owner home, web spec §4.4
   ]),
   supervisor: new Set<Permission>([
     "day:read:summary",

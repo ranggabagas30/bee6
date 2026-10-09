@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import Link from "next/link";
 import { useLang } from "@/lib/i18n/context";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import { dayLabel } from "@/lib/i18n/format";
@@ -15,6 +16,14 @@ const NAV_BUTTON_STYLE: CSSProperties = {
   fontSize: 20,
   lineHeight: 1,
   cursor: "pointer",
+};
+
+// Link, not a button — stays text-only, but the tappable area still reaches
+// the 48px minimum (CLAUDE.md §2 global constraint).
+const HOME_LINK_STYLE: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  minHeight: 48,
 };
 
 const MODE_KEY: Record<SupervisorDayHeader["capture_mode"], DictKey> = {
@@ -85,6 +94,14 @@ export function DayHeader({
       <p>{t(lang, MODE_KEY[day.capture_mode])}</p>
 
       {day.truncated && <p>{t(lang, "C-day-truncated", { N: threadCount })}</p>}
+
+      {view === "owner" && (
+        <p>
+          <Link href="/home" style={HOME_LINK_STYLE}>
+            {t(lang, "C-day-to-home")}
+          </Link>
+        </p>
+      )}
     </header>
   );
 }

@@ -108,10 +108,33 @@ describe("DayRecordView — owner shape", () => {
     expect(container.textContent).toContain("No confirmed facts for this date yet.");
     expect(container.textContent).not.toContain("Notes appear a few minutes after people speak.");
   });
+
+  it("shows a Home link to /home (R-06 Task 14a)", () => {
+    const data: DayRecordResponse = { view: "owner", day: OWNER_HEADER_BASE, threads: [] };
+    renderView(data);
+    const link = screen.getByRole("link", { name: "Home" });
+    expect(link.getAttribute("href")).toBe("/home");
+  });
+
+  it("the Home link meets the 48px touch-target minimum (CLAUDE.md §2 global constraint)", () => {
+    const data: DayRecordResponse = { view: "owner", day: OWNER_HEADER_BASE, threads: [] };
+    renderView(data);
+    const link = screen.getByRole("link", { name: "Home" }) as HTMLAnchorElement;
+    expect(link.style.minHeight).toBe("48px");
+    // jsdom has no layout engine, so getBoundingClientRect() cannot confirm
+    // the real rendered height; the inline style is the load-bearing check
+    // here (real-browser measurement should be re-confirmed by QA).
+  });
 });
 
 describe("DayRecordView — supervisor shape", () => {
   const SUPERVISOR_HEADER = { ...OWNER_HEADER_BASE, question_count: 3 };
+
+  it("shows no Home link (owner view only)", () => {
+    const data: DayRecordResponse = { view: "supervisor", day: SUPERVISOR_HEADER, threads: [] };
+    renderView(data);
+    expect(screen.queryByRole("link", { name: "Home" })).toBeNull();
+  });
 
   it("shows evidence in order and the +N more line", () => {
     const data: DayRecordResponse = {

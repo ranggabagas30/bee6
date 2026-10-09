@@ -17,7 +17,14 @@ function claims(overrides: Partial<CustomClaims> = {}): CustomClaims {
 // The permission matrix straight from web spec §2 — the source of truth this
 // table-driven test guards against drift.
 const MATRIX: Record<PrincipalRole, Permission[]> = {
-  owner: ["day:read:summary", "proposals:approve", "reviews:verdict", "sop:read", "sop:diff"],
+  owner: [
+    "day:read:summary",
+    "proposals:approve",
+    "reviews:verdict",
+    "sop:read",
+    "sop:diff",
+    "home:read",
+  ],
   supervisor: [
     "day:read:summary",
     "day:read:evidence",
@@ -48,6 +55,7 @@ const ALL_PERMISSIONS: Permission[] = [
   "sop:read",
   "sop:diff",
   "questions:read",
+  "home:read",
 ];
 
 describe("permission table matches web spec §2", () => {
@@ -88,6 +96,12 @@ describe("assertPermission", () => {
 
   it("rejects a device trying to read the day record", () => {
     expect(() => assertPermission(claims({ role: "device" }), "day:read:summary")).toThrow(
+      ForbiddenError,
+    );
+  });
+
+  it("rejects a supervisor trying to read the owner home (owner-only)", () => {
+    expect(() => assertPermission(claims({ role: "supervisor" }), "home:read")).toThrow(
       ForbiddenError,
     );
   });

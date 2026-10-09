@@ -43,13 +43,17 @@ vi.mock("@/lib/auth/client/use-auth-user", () => ({
 }));
 
 const FAKE_AUTH = { kind: "fake-auth" };
-const FAKE_USER = { uid: "u1" };
+const getIdTokenResult = vi.fn();
+const FAKE_USER = { uid: "u1", getIdTokenResult };
 
 let consoleSpies: ReturnType<typeof vi.spyOn>[] = [];
 
 beforeEach(() => {
   authUserState = { status: "signed_out" };
   getClientAuth.mockReturnValue(FAKE_AUTH);
+  // Supervisor by default: existing tests below assert the non-owner
+  // redirect target ("/day") unless a test overrides this for the owner case.
+  getIdTokenResult.mockResolvedValue({ claims: { role: "supervisor" } });
   consoleSpies = ["log", "info", "warn", "error"].map((method) =>
     vi.spyOn(console, method as "log").mockImplementation(() => {}),
   );
@@ -63,6 +67,7 @@ afterEach(() => {
   signOut.mockReset();
   postAuthSession.mockReset();
   getClientAuth.mockReset();
+  getIdTokenResult.mockReset();
 });
 
 function renderScreen(initial: "en" | "id" = "en") {
@@ -83,6 +88,65 @@ function LangToggle() {
 }
 
 describe("SignInScreen", () => {
+  it("authUser.status === 'loading' shows no form (avoids the sign-in flash on reload)", () => {
+    authUserState = { status: "loading" };
+    renderScreen();
+    expect(screen.queryByLabelText("Email")).toBeNull();
+    expect(screen.queryByLabelText("Password")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+  });
+
+  it("authUser.status === 'signed_in' and not busy shows no form (closes the second flash window, tech-lead finding 2)", () => {
+    authUserState = { status: "signed_in", user: FAKE_USER } as unknown as AuthUserState;
+    renderScreen();
+    expect(screen.queryByLabelText("Email")).toBeNull();
+    expect(screen.queryByLabelText("Password")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+  });
+
+  it("authUser.status === 'signed_in' during an active submit (busy) keeps showing the form's busy state", async () => {
+    let resolveSignIn: (value: unknown) => void = () => {};
+    signInWithEmailAndPassword.mockImplementation(
+      () => new Promise((resolve) => (resolveSignIn = resolve)),
+    );
+    const { rerender } = renderScreen();
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "a@b.c" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    // Simulate the real onAuthStateChanged listener firing "signed_in"
+    // before signInWithEmailAndPassword (and postAuthSession) have resolved
+    // — the same race the "postAuthSession race" describe below covers.
+    authUserState = { status: "signed_in", user: FAKE_USER } as unknown as AuthUserState;
+    rerender(
+      <LangProvider initial="en">
+        <SignInScreen config={CONFIG} />
+      </LangProvider>,
+    );
+
+    expect(screen.getByLabelText("Email")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Signing in…" })).not.toBeNull();
+
+    await act(async () => {
+      resolveSignIn({ user: FAKE_USER });
+      await Promise.resolve();
+    });
+  });
+
+  it("authUser.status transitioning loading -> signed_out shows the form", () => {
+    authUserState = { status: "loading" };
+    const { rerender } = renderScreen();
+    expect(screen.queryByLabelText("Email")).toBeNull();
+
+    authUserState = { status: "signed_out" };
+    rerender(
+      <LangProvider initial="en">
+        <SignInScreen config={CONFIG} />
+      </LangProvider>,
+    );
+    expect(screen.getByLabelText("Email")).not.toBeNull();
+  });
+
   it("config null shows C-signin-config and no form", () => {
     render(
       <LangProvider initial="en">
@@ -167,7 +231,7 @@ describe("SignInScreen", () => {
     expect(signOut).toHaveBeenCalledWith(FAKE_AUTH);
   });
 
-  it("postAuthSession -> ok navigates to /day", async () => {
+  it("postAuthSession -> ok navigates to /day (supervisor claims)", async () => {
     signInWithEmailAndPassword.mockResolvedValue({ user: FAKE_USER });
     postAuthSession.mockResolvedValue("ok");
     renderScreen();
@@ -178,13 +242,46 @@ describe("SignInScreen", () => {
     expect(signOut).not.toHaveBeenCalled();
   });
 
-  it("an already signed-in user on mount replaces to /day without posting a session", async () => {
+  it("postAuthSession -> ok navigates to /home for owner claims (R-06 Task 14a)", async () => {
+    getIdTokenResult.mockResolvedValue({ claims: { role: "owner" } });
+    signInWithEmailAndPassword.mockResolvedValue({ user: FAKE_USER });
+    postAuthSession.mockResolvedValue("ok");
+    renderScreen();
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "a@b.c" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/home"));
+  });
+
+  it("postAuthSession -> ok falls back to /day when getIdTokenResult rejects", async () => {
+    getIdTokenResult.mockRejectedValue(new Error("boom"));
+    signInWithEmailAndPassword.mockResolvedValue({ user: FAKE_USER });
+    postAuthSession.mockResolvedValue("ok");
+    renderScreen();
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "a@b.c" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/day"));
+  });
+
+  it("an already signed-in user on mount replaces to /day without posting a session (supervisor claims)", async () => {
     authUserState = {
       status: "signed_in",
       user: FAKE_USER,
     } as unknown as AuthUserState;
     renderScreen();
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/day"));
+    expect(postAuthSession).not.toHaveBeenCalled();
+  });
+
+  it("an already signed-in owner on mount replaces to /home", async () => {
+    getIdTokenResult.mockResolvedValue({ claims: { role: "owner" } });
+    authUserState = {
+      status: "signed_in",
+      user: FAKE_USER,
+    } as unknown as AuthUserState;
+    renderScreen();
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/home"));
     expect(postAuthSession).not.toHaveBeenCalled();
   });
 
@@ -254,6 +351,19 @@ describe("SignInScreen", () => {
         resolvePostAuth("denied");
         await Promise.resolve();
       });
+
+      // setBusy(false) above can run slightly before Firebase's real
+      // onAuthStateChanged listener would report the sign-out (tech-lead:
+      // known-acceptable placeholder flash — see SignInScreen.tsx). This
+      // mocked hook isn't reactive to the signOut() call, so simulate the
+      // listener's eventual catch-up the same way signInAndGoStale simulates
+      // its earlier "signed_in" flip, before asserting the settled message.
+      authUserState = { status: "signed_out" };
+      rerender(
+        <LangProvider initial="en">
+          <SignInScreen config={CONFIG} />
+        </LangProvider>,
+      );
 
       await waitFor(() =>
         expect(document.body.textContent).toContain("This account has no access to bee6."),
