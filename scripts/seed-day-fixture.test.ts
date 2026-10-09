@@ -170,6 +170,60 @@ describe("buildDayFixture", () => {
     expect(small.threads).toHaveLength(25);
     for (const t of small.threads) expect(ThreadSchema.safeParse(t).success).toBe(true);
   });
+
+  // QA (live Firestore, bee6-playground demo project, 10 Oct): writeFixture's
+  // real batch.set() throws synchronously — "Cannot use \"undefined\" as a
+  // Firestore value (found in field \"excluded_from_evidence\")" — before any
+  // network write, so `npm run seed:day-fixture -- --date <past date>`
+  // currently cannot write a single document. zod's `.optional()` accepts
+  // `undefined` and ThreadSchema.safeParse(...).success stays true for these
+  // objects (so the schema-validity tests above never catch this), but the
+  // real Firestore client rejects any own-enumerable key whose value is the
+  // literal `undefined` (unlike a merely-absent key). Root cause: the Thread
+  // object literal in buildDayFixture always includes `label_source`,
+  // `confirmed_category`, `excluded_from_evidence` and `runner_up` as keys,
+  // bound to local variables that stay `undefined` on most buckets — unlike
+  // the real pipeline's own thread builder (`lib/pipeline/threads.ts`
+  // `if (runnerUp) thread.runner_up = runnerUp;`), which only assigns the key
+  // when there is a value. This test reproduces the exact Firestore
+  // constraint without needing live credentials.
+  it("no built doc (session/thread/question/correction) carries an explicit `undefined`-valued key (would throw in real Firestore's batch.set)", () => {
+    function findUndefinedKey(obj: Record<string, unknown>): string | null {
+      for (const [k, v] of Object.entries(obj)) {
+        if (v === undefined) return k;
+      }
+      return null;
+    }
+    const offender = findUndefinedKey(build.session as unknown as Record<string, unknown>);
+    expect({ doc: "session", offender }).toEqual({ doc: "session", offender: null });
+    for (const t of build.threads) {
+      const bad = findUndefinedKey(t as unknown as Record<string, unknown>);
+      if (bad) {
+        expect({ doc: `thread ${t.thread_id}`, offender: bad }).toEqual({
+          doc: `thread ${t.thread_id}`,
+          offender: null,
+        });
+      }
+    }
+    for (const q of build.questions) {
+      const bad = findUndefinedKey(q as unknown as Record<string, unknown>);
+      if (bad) {
+        expect({ doc: `question ${q.question_id}`, offender: bad }).toEqual({
+          doc: `question ${q.question_id}`,
+          offender: null,
+        });
+      }
+    }
+    for (const c of build.corrections) {
+      const bad = findUndefinedKey(c as unknown as Record<string, unknown>);
+      if (bad) {
+        expect({ doc: `correction ${c.correction_id}`, offender: bad }).toEqual({
+          doc: `correction ${c.correction_id}`,
+          offender: null,
+        });
+      }
+    }
+  });
 });
 
 describe("assertFixtureAllowed", () => {

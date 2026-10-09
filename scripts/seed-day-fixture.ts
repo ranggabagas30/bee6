@@ -484,7 +484,15 @@ export function buildDayFixture(input: BuildDayFixtureInput): BuildDayFixtureRes
         : undefined;
 
     const lastLine = lines[lines.length - 1]!;
-    const thread: Thread = ThreadSchema.parse({
+    // Optional fields are only assigned onto the object when they have an
+    // actual value for this bucket — never as an explicit `undefined` key.
+    // zod's `.optional()` accepts an explicit `undefined` value, but the real
+    // Firestore client rejects any own-enumerable key whose value is the
+    // literal `undefined` (`Cannot use "undefined" as a Firestore value`),
+    // so the raw object must omit the key entirely, matching the real
+    // pipeline's own thread builder (`lib/pipeline/threads.ts`:
+    // `if (runnerUp) thread.runner_up = runnerUp;`).
+    const threadInput: Record<string, unknown> = {
       outlet_id,
       thread_id: threadId,
       device_id: FIXTURE_DEVICE_ID,
@@ -496,16 +504,17 @@ export function buildDayFixture(input: BuildDayFixtureInput): BuildDayFixtureRes
       first_line_start_ms: lines[0]!.start_ms,
       last_line_end_ms: lastLine.end_ms,
       summary: buildSummary(i, category),
-      runner_up: runnerUp,
       label_conflict: false,
       status,
       gate,
       created_at_ms: lines[0]!.start_ms,
       updated_at_ms: lastLine.end_ms,
-      label_source: labelSource,
-      confirmed_category: confirmedCategory,
-      excluded_from_evidence: excludedFromEvidence,
-    });
+    };
+    if (runnerUp !== undefined) threadInput.runner_up = runnerUp;
+    if (labelSource !== undefined) threadInput.label_source = labelSource;
+    if (confirmedCategory !== undefined) threadInput.confirmed_category = confirmedCategory;
+    if (excludedFromEvidence !== undefined) threadInput.excluded_from_evidence = excludedFromEvidence;
+    const thread: Thread = ThreadSchema.parse(threadInput);
     outThreads.push(thread);
 
     // v3 (Task 12): every 40th index also writes one unlabelled_unit question,
