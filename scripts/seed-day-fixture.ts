@@ -451,7 +451,10 @@ export function buildDayFixture(input: BuildDayFixtureInput): BuildDayFixtureRes
             windowStart: startMs,
             windowEnd: endMs,
             status: "unverified",
-            expiredByDebriefEndMs: endMs + 60 * 60_000,
+            // The real pipeline expires an open question at the session's
+            // own `debrief_ends_at_ms` (`lib/pipeline/gate.ts`'s
+            // `expireAtDebriefEnd`), never at this thread's own end + 1h.
+            expiredByDebriefEndMs: session.debrief_ends_at_ms ?? undefined,
           }),
         );
         break;
