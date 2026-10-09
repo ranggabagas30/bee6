@@ -101,12 +101,19 @@ export function SignInScreen({ config }: { config: FirebaseWebConfig | null }) {
     );
   }
 
-  // Firebase's auth-state restore has not resolved yet. Rendering the form
-  // here would briefly show empty, disabled fields on every reload before
-  // the redirect effect above ever gets a chance to fire for an
-  // already-signed-in user — so render the same loading placeholder the
-  // rest of this app uses (DayRecordApp/HomeApp) instead of the form.
-  if (authUser.status === "loading") {
+  // Firebase's auth-state restore has not resolved yet (`loading`), OR the
+  // user is already signed in and the redirect effect above is about to
+  // navigate away (`signed_in` and not actively submitting via the form
+  // below). Both windows show the identical symptom — an empty, disabled
+  // form the user can't use before it's replaced by /home or /day — and the
+  // signed_in window can be the longer of the two on a cold Cloud Run start,
+  // since /home and /day are dynamic pages with no loading.tsx. `!busy`
+  // (not the signingInRef guard above, which only exists to stop the
+  // redirect effect from firing — reading a ref during render would trip the
+  // react-hooks refs lint rule) keeps this placeholder from hiding the
+  // form's own "Signing in…" busy state during an active submit, where
+  // status can flip to signed_in before postAuthSession has resolved.
+  if (authUser.status === "loading" || (authUser.status === "signed_in" && !busy)) {
     return (
       <main style={PAGE_STYLE}>
         <WebTopBar auth={null} showSignOut={false} />

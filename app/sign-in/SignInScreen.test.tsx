@@ -96,6 +96,43 @@ describe("SignInScreen", () => {
     expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
   });
 
+  it("authUser.status === 'signed_in' and not busy shows no form (closes the second flash window, tech-lead finding 2)", () => {
+    authUserState = { status: "signed_in", user: FAKE_USER } as unknown as AuthUserState;
+    renderScreen();
+    expect(screen.queryByLabelText("Email")).toBeNull();
+    expect(screen.queryByLabelText("Password")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+  });
+
+  it("authUser.status === 'signed_in' during an active submit (busy) keeps showing the form's busy state", async () => {
+    let resolveSignIn: (value: unknown) => void = () => {};
+    signInWithEmailAndPassword.mockImplementation(
+      () => new Promise((resolve) => (resolveSignIn = resolve)),
+    );
+    const { rerender } = renderScreen();
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "a@b.c" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    // Simulate the real onAuthStateChanged listener firing "signed_in"
+    // before signInWithEmailAndPassword (and postAuthSession) have resolved
+    // — the same race the "postAuthSession race" describe below covers.
+    authUserState = { status: "signed_in", user: FAKE_USER } as unknown as AuthUserState;
+    rerender(
+      <LangProvider initial="en">
+        <SignInScreen config={CONFIG} />
+      </LangProvider>,
+    );
+
+    expect(screen.getByLabelText("Email")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Signing in…" })).not.toBeNull();
+
+    await act(async () => {
+      resolveSignIn({ user: FAKE_USER });
+      await Promise.resolve();
+    });
+  });
+
   it("authUser.status transitioning loading -> signed_out shows the form", () => {
     authUserState = { status: "loading" };
     const { rerender } = renderScreen();
@@ -314,6 +351,19 @@ describe("SignInScreen", () => {
         resolvePostAuth("denied");
         await Promise.resolve();
       });
+
+      // setBusy(false) above can run slightly before Firebase's real
+      // onAuthStateChanged listener would report the sign-out (tech-lead:
+      // known-acceptable placeholder flash — see SignInScreen.tsx). This
+      // mocked hook isn't reactive to the signOut() call, so simulate the
+      // listener's eventual catch-up the same way signInAndGoStale simulates
+      // its earlier "signed_in" flip, before asserting the settled message.
+      authUserState = { status: "signed_out" };
+      rerender(
+        <LangProvider initial="en">
+          <SignInScreen config={CONFIG} />
+        </LangProvider>,
+      );
 
       await waitFor(() =>
         expect(document.body.textContent).toContain("This account has no access to bee6."),
