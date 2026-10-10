@@ -264,6 +264,11 @@ export const ID = {
   "C-home-more": "+{N} lagi di catatan hari", // PROVISIONAL
   "C-home-to-day": "Buka catatan hari", // PROVISIONAL
   "C-day-to-home": "Beranda", // PROVISIONAL
+
+  // Unlabelled moments (R-06 Task 12, PR-6), appended to the PR-3 block.
+  "C-day-unlabelled": "Belum berlabel", // PROVISIONAL
+  "C-day-unlabelled-help": "Tidak bisa dilabeli. Staf ditanya soal ini.", // PROVISIONAL
+  "C-day-filter-unlabelled": "Belum berlabel ({N})", // PROVISIONAL
 } as const;
 
 export type DictKey = keyof typeof ID;
@@ -502,6 +507,11 @@ export const EN: Record<DictKey, string> = {
   "C-home-more": "+{N} more in the day record",
   "C-home-to-day": "Open the day record",
   "C-day-to-home": "Home",
+
+  // Unlabelled moments (R-06 Task 12, PR-6), appended to the PR-3 block.
+  "C-day-unlabelled": "Not labelled",
+  "C-day-unlabelled-help": "Could not label this. Staff were asked about it.",
+  "C-day-filter-unlabelled": "Not labelled ({N})",
 };
 
 export const DICT: Record<Lang, Record<DictKey, string>> = { id: ID, en: EN };

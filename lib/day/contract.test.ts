@@ -9,6 +9,8 @@ import {
   RunnerUpSchema,
   SupervisorDayHeaderSchema,
   SupervisorThreadSchema,
+  SupervisorUnlabelledSchema,
+  UNLABELLED_CAP,
 } from "@/lib/day/contract";
 
 const baseThread = {
@@ -278,8 +280,111 @@ describe("DayRecordResponseSchema", () => {
           can_review: false,
         },
       ],
+      unlabelled: [],
     });
     expect(result.success).toBe(true);
+  });
+
+  it("rejects a supervisor response missing the unlabelled key (Task 12: required, not optional)", () => {
+    const result = DayRecordResponseSchema.safeParse({
+      view: "supervisor",
+      day: {
+        date: "2026-10-08",
+        today: "2026-10-08",
+        day_status: "on",
+        sessions_cancelled: 0,
+        capture_mode: "room",
+        fact_count: 0,
+        question_count: 0,
+        truncated: false,
+      },
+      threads: [],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("the owner variant rejects an extra unlabelled key (hard rule #7: an unlabelled unit can never reach the owner)", () => {
+    const result = DayRecordResponseSchema.safeParse({
+      view: "owner",
+      day: {
+        date: "2026-10-08",
+        today: "2026-10-08",
+        day_status: "on",
+        sessions_cancelled: 0,
+        capture_mode: "room",
+        fact_count: 0,
+        truncated: false,
+      },
+      threads: [],
+      unlabelled: [],
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("SupervisorUnlabelledSchema", () => {
+  const baseUnlabelled = {
+    key: 0,
+    after_row: null,
+    start_hm: "10:00",
+    end_hm: "10:02",
+    display_status: "question_open" as const,
+    staff_answer: null,
+  };
+
+  it("accepts a valid open row with after_row null", () => {
+    expect(SupervisorUnlabelledSchema.safeParse(baseUnlabelled).success).toBe(true);
+  });
+
+  it("accepts a valid answered row with after_row set and a staff answer", () => {
+    expect(
+      SupervisorUnlabelledSchema.safeParse({
+        ...baseUnlabelled,
+        after_row: 3,
+        display_status: "question_answered",
+        staff_answer: { answer: "yes", reason: "Because of X" },
+      }).success,
+    ).toBe(true);
+  });
+
+  it.each(["question_id", "device_id", "thread_id", "category", "summary", "confidence_pct", "evidence"])(
+    "rejects the extra key %s (strict; no id that embeds a device id, hard rule #7)",
+    (key) => {
+      const result = SupervisorUnlabelledSchema.safeParse({ ...baseUnlabelled, [key]: "x" });
+      expect(result.success).toBe(false);
+    },
+  );
+
+  it.each(["fact", "awaiting_supervisor", "rejected_by_staff", "rejected_by_supervisor"])(
+    "rejects a thread-only display_status %s",
+    (display_status) => {
+      const result = SupervisorUnlabelledSchema.safeParse({ ...baseUnlabelled, display_status });
+      expect(result.success).toBe(false);
+    },
+  );
+
+  it("rejects a negative after_row", () => {
+    expect(SupervisorUnlabelledSchema.safeParse({ ...baseUnlabelled, after_row: -1 }).success).toBe(false);
+  });
+
+  it(`DayRecordResponseSchema caps unlabelled at UNLABELLED_CAP (${UNLABELLED_CAP})`, () => {
+    const many = Array.from({ length: UNLABELLED_CAP + 1 }, (_, i) => ({ ...baseUnlabelled, key: i }));
+    const result = DayRecordResponseSchema.safeParse({
+      view: "supervisor",
+      day: {
+        date: "2026-10-08",
+        today: "2026-10-08",
+        day_status: "on",
+        sessions_cancelled: 0,
+        capture_mode: "room",
+        fact_count: 0,
+        question_count: UNLABELLED_CAP + 1,
+        truncated: true,
+      },
+      threads: [],
+      unlabelled: many,
+    });
+    expect(result.success).toBe(false);
   });
 });
 

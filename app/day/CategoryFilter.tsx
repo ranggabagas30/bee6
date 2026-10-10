@@ -20,10 +20,13 @@ const CHIP_STYLE: CSSProperties = {
 
 export function CategoryFilter({
   threads,
+  unlabelledCount = 0,
   value,
   onChange,
 }: {
   threads: readonly { category: WorkCategory }[];
+  /** Task 12: count for the "Not labelled" chip; 0 (default) on the owner view, which never has any. */
+  unlabelledCount?: number;
   value: CategoryFilterValue;
   onChange: (value: CategoryFilterValue) => void;
 }) {
@@ -42,7 +45,7 @@ export function CategoryFilter({
         onClick={() => onChange("ALL")}
         style={CHIP_STYLE}
       >
-        {t(lang, "C-day-filter-all", { N: threads.length })}
+        {t(lang, "C-day-filter-all", { N: threads.length + unlabelledCount })}
       </button>
       {options.map(({ category, count }) => (
         <button
@@ -55,6 +58,16 @@ export function CategoryFilter({
           {t(lang, "C-day-filter-cat", { label: t(lang, CATEGORY_KEY[category]), N: count })}
         </button>
       ))}
+      {unlabelledCount > 0 && (
+        <button
+          type="button"
+          aria-pressed={value === "UNLABELLED"}
+          onClick={() => onChange("UNLABELLED")}
+          style={CHIP_STYLE}
+        >
+          {t(lang, "C-day-filter-unlabelled", { N: unlabelledCount })}
+        </button>
+      )}
     </div>
   );
 }

@@ -11,8 +11,9 @@ import {
   type DayQuestionRow,
   type DayStore,
   type DayThreadRow,
+  type DayUnlabelledRow,
 } from "@/lib/day/service";
-import type { OwnerThread, SupervisorThread } from "@/lib/day/contract";
+import type { OwnerThread, SupervisorThread, SupervisorUnlabelled } from "@/lib/day/contract";
 import { openThreadHandle } from "@/lib/day/thread-handle";
 import type { CaptureSession, Outlet, ThreadLine, WeeklyHours } from "@/lib/firestore/schema";
 
@@ -88,6 +89,7 @@ interface Fixture {
   threads: DayThreadRow[];
   questions: DayQuestionRow[];
   corrections: DayCorrectionRow[];
+  unlabelled: DayUnlabelledRow[];
   pairedDeviceCount: number;
 }
 
@@ -98,6 +100,7 @@ function emptyFixture(overrides: Partial<Fixture> = {}): Fixture {
     threads: [],
     questions: [],
     corrections: [],
+    unlabelled: [],
     pairedDeviceCount: 1,
     ...overrides,
   };
@@ -115,9 +118,11 @@ class FakeDayStore implements DayStore {
     listThreads?: { fromMs: number; toMs: number; opts: { withText: boolean; limit: number } };
     getQuestionsIds?: readonly string[];
     getCorrectionsIds?: readonly string[];
+    listUnlabelledQuestions?: { fromMs: number; toMs: number; limit: number };
     getQuestionsCalled: number;
     getCorrectionsCalled: number;
-  } = { getQuestionsCalled: 0, getCorrectionsCalled: 0 };
+    listUnlabelledQuestionsCalled: number;
+  } = { getQuestionsCalled: 0, getCorrectionsCalled: 0, listUnlabelledQuestionsCalled: 0 };
 
   constructor(
     private readonly outletId: string,
@@ -166,6 +171,15 @@ class FakeDayStore implements DayStore {
       if (c && c.outlet_id === this.outletId) map.set(id, c);
     }
     return map;
+  }
+
+  async listUnlabelledQuestions(fromMs: number, toMs: number, limit: number): Promise<DayUnlabelledRow[]> {
+    this.calls.listUnlabelledQuestions = { fromMs, toMs, limit };
+    this.calls.listUnlabelledQuestionsCalled += 1;
+    return this.fixture.unlabelled
+      .filter((u) => u.window_start_ms >= fromMs && u.window_start_ms < toMs)
+      .sort((a, b) => a.window_start_ms - b.window_start_ms)
+      .slice(0, limit);
   }
 
   async countPairedDevices(): Promise<number> {
@@ -282,6 +296,7 @@ describe("getDayRecord — owner vs supervisor shape (the day mix)", () => {
     expect(store.calls.listThreads?.opts.withText).toBe(false);
     expect(store.calls.getQuestionsCalled).toBe(0);
     expect(store.calls.getCorrectionsCalled).toBe(0);
+    expect(store.calls.listUnlabelledQuestionsCalled).toBe(0); // Task 12: owner never calls this
 
     const json = JSON.stringify(result);
     for (const sentinel of ["QSUM-SENTINEL", "EVID-SENTINEL", "REASON-SENTINEL", "dev-SENTINEL-77", "q_thread_", "unit_"]) {
@@ -549,6 +564,314 @@ describe("getDayRecord — runner-up (Task 11)", () => {
     const store = new FakeDayStore(OUTLET_ID, emptyFixture({ sessions: [daySession], threads: [row] }));
     const result = await getDayRecord(store, { claims: OWNER_CLAIMS, param: "today", now_ms: at("12:00"), handleKey: null });
     expect(JSON.stringify(result)).not.toContain("RUNUP-SENTINEL-OWNER");
+  });
+});
+
+describe("getDayRecord — unlabelled moments (Task 12)", () => {
+  const threadA: DayThreadRow = {
+    outlet_id: OUTLET_ID,
+    thread_id: "unit_dev-SENTINEL-77_w1:0",
+    device_id: DEVICE,
+    category: "ROUTINE_OPS",
+    confidence: 0.9,
+    first_line_start_ms: at("10:00"),
+    last_line_end_ms: at("10:00") + 2 * 60_000,
+    summary: "UNL-FACT-A",
+    status: "fact",
+  };
+  const threadB: DayThreadRow = {
+    outlet_id: OUTLET_ID,
+    thread_id: "unit_dev-SENTINEL-77_w1:1",
+    device_id: DEVICE,
+    category: "ROUTINE_OPS",
+    confidence: 0.9,
+    first_line_start_ms: at("11:00"),
+    last_line_end_ms: at("11:00") + 2 * 60_000,
+    summary: "UNL-FACT-B",
+    status: "fact",
+  };
+  // Open, before every thread (window starts before threadA) -> after_row null.
+  const unlOpen: DayUnlabelledRow = {
+    outlet_id: OUTLET_ID,
+    question_id: "fixture_q_unit_1",
+    device_id: DEVICE,
+    status: "open",
+    answer: null,
+    window_start_ms: at("09:30"),
+    window_end_ms: at("09:30") + 2 * 60_000,
+  };
+  // Answered yes, between threadA and threadB -> after_row 0.
+  const unlAnswered: DayUnlabelledRow = {
+    outlet_id: OUTLET_ID,
+    question_id: "fixture_q_unit_2",
+    device_id: DEVICE,
+    status: "answered",
+    answer: "yes",
+    window_start_ms: at("10:30"),
+    window_end_ms: at("10:30") + 2 * 60_000,
+  };
+  // Unverified, after threadB -> after_row 1.
+  const unlUnverified: DayUnlabelledRow = {
+    outlet_id: OUTLET_ID,
+    question_id: "fixture_q_unit_3",
+    device_id: DEVICE,
+    status: "unverified",
+    answer: null,
+    window_start_ms: at("12:00"),
+    window_end_ms: at("12:00") + 2 * 60_000,
+  };
+  const unlCorrection: DayCorrectionRow = {
+    outlet_id: OUTLET_ID,
+    question_id: "fixture_q_unit_2",
+    answer: "yes",
+    reason_text: "REASON-SENTINEL-U",
+  };
+  const unlFixture: Fixture = emptyFixture({
+    sessions: [daySession],
+    threads: [threadA, threadB],
+    unlabelled: [unlOpen, unlAnswered, unlUnverified],
+    corrections: [unlCorrection],
+  });
+
+  it("supervisor: 3 unlabelled rows with correct after_row, question_count includes them, no id leak", async () => {
+    const store = new FakeDayStore(OUTLET_ID, unlFixture);
+    const result = await getDayRecord(store, {
+      claims: SUPERVISOR_CLAIMS,
+      param: "today",
+      now_ms: at("12:00"),
+      handleKey: null,
+    });
+    expect(result.view).toBe("supervisor");
+    const unlabelled = (result as { unlabelled: SupervisorUnlabelled[] }).unlabelled;
+    expect(unlabelled).toHaveLength(3);
+
+    const open = unlabelled.find((u) => u.display_status === "question_open")!;
+    expect(open.after_row).toBeNull();
+    expect(open.staff_answer).toBeNull();
+
+    const answered = unlabelled.find((u) => u.display_status === "question_answered")!;
+    expect(answered.after_row).toBe(0);
+    expect(answered.staff_answer).toEqual({ answer: "yes", reason: "REASON-SENTINEL-U" });
+
+    const unverified = unlabelled.find((u) => u.display_status === "unverified")!;
+    expect(unverified.after_row).toBe(1);
+
+    // threadA/threadB are plain model facts (no question fetched); question_count
+    // is 0 non-fact threads + the 3 unlabelled rows.
+    expect((result.day as { question_count: number }).question_count).toBe(3);
+
+    const json = JSON.stringify(result);
+    for (const sentinel of ["fixture_q_unit_", "dev-SENTINEL-77"]) {
+      expect(json).not.toContain(sentinel);
+    }
+  });
+
+  it("getCorrections is called exactly once total (not once per thread + once per unlabelled row), including an unlabelled row's correction id", async () => {
+    const store = new FakeDayStore(OUTLET_ID, unlFixture);
+    await getDayRecord(store, {
+      claims: SUPERVISOR_CLAIMS,
+      param: "today",
+      now_ms: at("12:00"),
+      handleKey: null,
+    });
+    expect(store.calls.getCorrectionsCalled).toBe(1);
+    expect(store.calls.getCorrectionsIds).toContain("fixture_q_unit_2");
+  });
+
+  it("an unlabelled unit starting exactly at a thread's first_line_start_ms (a tie) resolves to that thread's row under the <= rule", async () => {
+    const tiedUnl: DayUnlabelledRow = {
+      outlet_id: OUTLET_ID,
+      question_id: "fixture_q_unit_tie",
+      device_id: DEVICE,
+      status: "open",
+      answer: null,
+      window_start_ms: at("10:00"), // exactly threadA.first_line_start_ms
+      window_end_ms: at("10:00") + 2 * 60_000,
+    };
+    const store = new FakeDayStore(
+      OUTLET_ID,
+      emptyFixture({ sessions: [daySession], threads: [threadA, threadB], unlabelled: [tiedUnl] }),
+    );
+    const result = await getDayRecord(store, {
+      claims: SUPERVISOR_CLAIMS,
+      param: "today",
+      now_ms: at("12:00"),
+      handleKey: null,
+    });
+    const unlabelled = (result as { unlabelled: SupervisorUnlabelled[] }).unlabelled;
+    expect(unlabelled).toHaveLength(1);
+    expect(unlabelled[0]!.after_row).toBe(0);
+  });
+
+  it("question_count sums non-fact threads AND unlabelled rows together (not only one or the other)", async () => {
+    const unlA: DayUnlabelledRow = {
+      outlet_id: OUTLET_ID,
+      question_id: "fixture_q_unit_mix_a",
+      device_id: DEVICE,
+      status: "open",
+      answer: null,
+      window_start_ms: at("09:45"),
+      window_end_ms: at("09:45") + 2 * 60_000,
+    };
+    const unlB: DayUnlabelledRow = {
+      outlet_id: OUTLET_ID,
+      question_id: "fixture_q_unit_mix_b",
+      device_id: DEVICE,
+      status: "unverified",
+      answer: null,
+      window_start_ms: at("13:00"),
+      window_end_ms: at("13:00") + 2 * 60_000,
+    };
+    const store = new FakeDayStore(
+      OUTLET_ID,
+      emptyFixture({ sessions: [daySession], threads: dayMixThreads, unlabelled: [unlA, unlB] }),
+    );
+    const result = await getDayRecord(store, {
+      claims: SUPERVISOR_CLAIMS,
+      param: "today",
+      now_ms: at("12:00"),
+      handleKey: null,
+    });
+    // dayMixThreads: 9 threads, 4 facts -> 5 non-fact threads; + 2 unlabelled rows.
+    expect((result.day as { question_count: number }).question_count).toBe(7);
+  });
+
+  it("owner: never calls listUnlabelledQuestions, no unlabelled key, no sentinel leak", async () => {
+    const store = new FakeDayStore(OUTLET_ID, unlFixture);
+    const result = await getDayRecord(store, {
+      claims: OWNER_CLAIMS,
+      param: "today",
+      now_ms: at("12:00"),
+      handleKey: null,
+    });
+    expect(result.view).toBe("owner");
+    expect(result).not.toHaveProperty("unlabelled");
+    expect(store.calls.listUnlabelledQuestionsCalled).toBe(0);
+    expect(JSON.stringify(result)).not.toContain("REASON-SENTINEL-U");
+  });
+
+  it("drops an unlabelled row inside a discarded session", async () => {
+    const discardedSession = mkSession({
+      device_id: "devB",
+      local_date: FRI,
+      started_at_ms: at("13:00"),
+      ended_at_ms: at("13:30"),
+      end_reason: "discarded",
+    });
+    const discardedUnl: DayUnlabelledRow = {
+      outlet_id: OUTLET_ID,
+      question_id: "fixture_q_unit_d",
+      device_id: "devB",
+      status: "open",
+      answer: null,
+      window_start_ms: at("13:15"),
+      window_end_ms: at("13:15") + 2 * 60_000,
+    };
+    const store = new FakeDayStore(
+      OUTLET_ID,
+      emptyFixture({ sessions: [daySession, discardedSession], threads: [threadA], unlabelled: [discardedUnl] }),
+    );
+    const result = await getDayRecord(store, {
+      claims: SUPERVISOR_CLAIMS,
+      param: "today",
+      now_ms: at("14:00"),
+      handleKey: null,
+    });
+    expect((result as { unlabelled: unknown[] }).unlabelled).toHaveLength(0);
+  });
+
+  it("a unit at Sat 01:30 inside Fri's session is attributed to Fri, not Sat", async () => {
+    const openSession = mkSession({ device_id: "devA", local_date: FRI, started_at_ms: at("10:00", FRI) });
+    const crossMidnightUnl: DayUnlabelledRow = {
+      outlet_id: OUTLET_ID,
+      question_id: "fixture_q_unit_x",
+      device_id: "devA",
+      status: "open",
+      answer: null,
+      window_start_ms: at("01:30", SAT),
+      window_end_ms: at("01:30", SAT) + 2 * 60_000,
+    };
+    const store = new FakeDayStore(OUTLET_ID, emptyFixture({ sessions: [openSession], unlabelled: [crossMidnightUnl] }));
+    const friResult = await getDayRecord(store, {
+      claims: SUPERVISOR_CLAIMS,
+      param: FRI,
+      now_ms: at("12:00"),
+      handleKey: null,
+    });
+    expect((friResult as { unlabelled: unknown[] }).unlabelled).toHaveLength(1);
+
+    const satResult = await getDayRecord(store, {
+      claims: SUPERVISOR_CLAIMS,
+      param: SAT,
+      now_ms: at("12:00", SAT),
+      handleKey: null,
+    });
+    expect((satResult as { unlabelled: unknown[] }).unlabelled).toHaveLength(0);
+  });
+
+  it("201 raw rows -> 200 kept, truncated: true", async () => {
+    const many: DayUnlabelledRow[] = Array.from({ length: 201 }, (_, i) => ({
+      outlet_id: OUTLET_ID,
+      question_id: `fixture_q_unit_many_${i}`,
+      device_id: DEVICE,
+      status: "open" as const,
+      answer: null,
+      window_start_ms: at("10:00") + i * 1_000,
+      window_end_ms: at("10:00") + i * 1_000 + 500,
+    }));
+    const store = new FakeDayStore(OUTLET_ID, emptyFixture({ sessions: [daySession], unlabelled: many }));
+    const result = await getDayRecord(store, {
+      claims: SUPERVISOR_CLAIMS,
+      param: "today",
+      now_ms: at("12:00"),
+      handleKey: null,
+    });
+    expect((result as { unlabelled: unknown[] }).unlabelled).toHaveLength(200);
+    expect(result.day.truncated).toBe(true);
+  });
+
+  it("drops a foreign-outlet unlabelled row", async () => {
+    const foreign: DayUnlabelledRow = {
+      outlet_id: FOREIGN_OUTLET_ID,
+      question_id: "fixture_q_unit_f",
+      device_id: DEVICE,
+      status: "open",
+      answer: null,
+      window_start_ms: at("10:00"),
+      window_end_ms: at("10:00") + 120_000,
+    };
+    const store = new FakeDayStore(OUTLET_ID, emptyFixture({ sessions: [daySession], unlabelled: [foreign] }));
+    const result = await getDayRecord(store, {
+      claims: SUPERVISOR_CLAIMS,
+      param: "today",
+      now_ms: at("12:00"),
+      handleKey: null,
+    });
+    expect((result as { unlabelled: unknown[] }).unlabelled).toHaveLength(0);
+  });
+
+  it("answered with no correction doc -> reason: null", async () => {
+    const answeredNoCorrection: DayUnlabelledRow = {
+      outlet_id: OUTLET_ID,
+      question_id: "fixture_q_unit_nc",
+      device_id: DEVICE,
+      status: "answered",
+      answer: "no",
+      window_start_ms: at("10:00"),
+      window_end_ms: at("10:00") + 120_000,
+    };
+    const store = new FakeDayStore(
+      OUTLET_ID,
+      emptyFixture({ sessions: [daySession], unlabelled: [answeredNoCorrection] }),
+    );
+    const result = await getDayRecord(store, {
+      claims: SUPERVISOR_CLAIMS,
+      param: "today",
+      now_ms: at("12:00"),
+      handleKey: null,
+    });
+    const row = (result as { unlabelled: SupervisorUnlabelled[] }).unlabelled[0]!;
+    expect(row.staff_answer).toEqual({ answer: "no", reason: null });
   });
 });
 

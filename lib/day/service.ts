@@ -23,9 +23,11 @@ import {
   DayParamSchema,
   DayRecordResponseSchema,
   EVIDENCE_LINES_MAX,
+  UNLABELLED_CAP,
   type DayRecordResponse,
   type OwnerThread,
   type SupervisorThread,
+  type SupervisorUnlabelled,
 } from "@/lib/day/contract";
 import type { CaptureSession, Outlet, ThreadLine } from "@/lib/firestore/schema";
 
@@ -71,6 +73,20 @@ export interface DayCorrectionRow {
   reason_text: string;
 }
 
+/**
+ * Task 12: an `unlabelled_unit` question row (no `thread_id`, no category —
+ * the label call never produced a thread). Supervisor only.
+ */
+export interface DayUnlabelledRow {
+  outlet_id: string;
+  question_id: string;
+  device_id: string;
+  status: "open" | "unverified" | "answered";
+  answer: "yes" | "no" | null;
+  window_start_ms: number;
+  window_end_ms: number;
+}
+
 export interface DayStore {
   getOutlet(): Promise<Outlet | null>;
   /** `local_date` in `dates` (<= 3 values). Malformed docs skipped. */
@@ -85,6 +101,12 @@ export interface DayStore {
   getQuestions(ids: readonly string[]): Promise<Map<string, DayQuestionRow>>;
   /** By doc id (= question id). Supervisor path only. Same dropping rules. */
   getCorrections(ids: readonly string[]): Promise<Map<string, DayCorrectionRow>>;
+  /**
+   * `kind === "unlabelled_unit"`, `window_start_ms` in `[fromMs, toMs)`,
+   * ascending, at most `limit`. Supervisor only; `getDayRecord` never calls
+   * this on the owner path (Task 12, same discipline as `getQuestions`).
+   */
+  listUnlabelledQuestions(fromMs: number, toMs: number, limit: number): Promise<DayUnlabelledRow[]>;
   /** Devices with `outlet_id`, `revoked` false, `paired_at` non-null. */
   countPairedDevices(): Promise<number>;
 }
@@ -110,6 +132,29 @@ export interface ConfirmStore {
 
 function isWorkCategory(c: Category): c is WorkCategory {
   return c !== "NON_WORK";
+}
+
+/**
+ * Task 12: the `row` of the last element of `sortedStartMs` (ascending) that
+ * is `<= ms`, or `null` if none is (the unlabelled unit is before every
+ * thread). `sortedStartMs[i]` must be the `first_line_start_ms` of the
+ * thread that becomes response `row: i` (true for `kept` right after the
+ * step-10 sort, before any further filtering).
+ */
+function lastIndexAtOrBefore(sortedStartMs: readonly number[], ms: number): number | null {
+  let lo = 0;
+  let hi = sortedStartMs.length - 1;
+  let result: number | null = null;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (sortedStartMs[mid]! <= ms) {
+      result = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return result;
 }
 
 export async function getDayRecord(
@@ -149,15 +194,19 @@ export async function getDayRecord(
   const fromMs = zonedTimeToEpochMs(date, "01:00", tz);
   const toMs = zonedTimeToEpochMs(addDays(date, 1), "03:00", tz);
 
-  // 6. Fetch, in parallel.
-  const [sessions, raw, paired] = await Promise.all([
+  // 6. Fetch, in parallel. Task 12: `listUnlabelledQuestions` is supervisor-only
+  // — the owner path never calls it (test-enforced like `getQuestions`).
+  const [sessions, raw, paired, rawUnl] = await Promise.all([
     store.listSessions([addDays(date, -1), date, addDays(date, 1)]),
     store.listThreads(fromMs, toMs, { withText: supervisorView, limit: DAY_THREAD_CAP + 1 }),
     store.countPairedDevices(),
+    supervisorView
+      ? store.listUnlabelledQuestions(fromMs, toMs, UNLABELLED_CAP + 1)
+      : Promise.resolve([]),
   ]);
 
   // 7. Cap.
-  const truncated = raw.length > DAY_THREAD_CAP;
+  const threadsTruncated = raw.length > DAY_THREAD_CAP;
   const capped = raw.slice(0, DAY_THREAD_CAP);
 
   // 8. Keep + compute the effective (confirmed-or-model) category.
@@ -175,10 +224,28 @@ export async function getDayRecord(
     kept.push({ row, effective });
   }
 
+  // 8b. Task 12: keep + cap unlabelled rows the same way threads are kept —
+  // outlet match, then the same attribution rule (a discarded session hides
+  // one too). `unlTruncated` is computed on the raw (pre-filter) fetch, same
+  // discipline as the thread cap in step 7.
+  const filteredUnl = supervisorView
+    ? rawUnl.filter(
+        (u) =>
+          u.outlet_id === claims.outlet_id &&
+          attributedBusinessDate(u.window_start_ms, sessions, tz, u.device_id) === date,
+      )
+    : [];
+  const unlTruncated = rawUnl.length > UNLABELLED_CAP;
+  const keptUnl = filteredUnl.slice(0, UNLABELLED_CAP);
+
   // 9. Supervisor-only: questions (and, for answered ones, corrections).
   // Every non-fact row AND every staff- or supervisor-confirmed fact needs
   // its question fetched: a plain model fact has no question to show, but a
   // confirmed one must still report `can_review` correctly (Task 10.5).
+  // Task 12: an unlabelled row's "question" is already `listUnlabelledQuestions`'
+  // own return value (no separate `getQuestions` call), but its correction
+  // (when answered) is fetched in the same `getCorrections` call as threads'
+  // — one call total.
   let questions: Map<string, DayQuestionRow> | undefined;
   let corrections: Map<string, DayCorrectionRow> | undefined;
   if (supervisorView) {
@@ -191,8 +258,9 @@ export async function getDayRecord(
       )
       .map((k) => threadQuestionId(k.row.thread_id));
     questions = await store.getQuestions(questionIds);
-    const correctionIds = questionIds.filter((qid) => questions!.get(qid)?.status === "answered");
-    corrections = await store.getCorrections(correctionIds);
+    const threadCorrectionIds = questionIds.filter((qid) => questions!.get(qid)?.status === "answered");
+    const unlCorrectionIds = keptUnl.filter((u) => u.status === "answered").map((u) => u.question_id);
+    corrections = await store.getCorrections([...threadCorrectionIds, ...unlCorrectionIds]);
   }
 
   // 10. Sort: first_line_start_ms, then thread_id (stable; id used only for ordering).
@@ -264,11 +332,42 @@ export async function getDayRecord(
     } as SupervisorThread;
   });
 
+  // 11b. Task 12: map unlabelled rows. Sort by window_start_ms, then
+  // question_id (ordering only — never put the id in the response).
+  // `keptStartMs[i]` is the `first_line_start_ms` of the thread mapped to
+  // `row: i` above (the step-10 sort order, unchanged since).
+  const keptStartMs = kept.map((k) => k.row.first_line_start_ms);
+  const unlabelled: SupervisorUnlabelled[] = supervisorView
+    ? [...keptUnl]
+        .sort((a, b) => {
+          if (a.window_start_ms !== b.window_start_ms) return a.window_start_ms - b.window_start_ms;
+          return a.question_id < b.question_id ? -1 : a.question_id > b.question_id ? 1 : 0;
+        })
+        .map((u, index) => {
+          const correction = corrections?.get(u.question_id);
+          const staffAnswer =
+            u.status === "answered" && (u.answer === "yes" || u.answer === "no")
+              ? { answer: correction?.answer ?? u.answer, reason: correction?.reason_text ?? null }
+              : null;
+          const displayStatus =
+            u.status === "open" ? "question_open" : u.status === "answered" ? "question_answered" : "unverified";
+          return {
+            key: index,
+            after_row: lastIndexAtOrBefore(keptStartMs, u.window_start_ms),
+            start_hm: localHmOf(u.window_start_ms, tz),
+            end_hm: localHmOf(u.window_end_ms, tz),
+            display_status: displayStatus,
+            staff_answer: staffAnswer,
+          } as SupervisorUnlabelled;
+        })
+    : [];
+
   // 12. Header.
   const factCount = threads.filter((t) => FACT_STATUSES.has(t.display_status)).length;
   const sessionsCancelled = sessions.filter(
     (s) => s.local_date === date && s.end_reason === "discarded",
   ).length;
+  const truncated = threadsTruncated || unlTruncated;
 
   const dayHeaderBase = {
     date,
@@ -290,7 +389,8 @@ export async function getDayRecord(
   }
   return DayRecordResponseSchema.parse({
     view: "supervisor",
-    day: { ...dayHeaderBase, question_count: threads.length - factCount },
+    day: { ...dayHeaderBase, question_count: threads.length - factCount + unlabelled.length },
     threads,
+    unlabelled,
   });
 }

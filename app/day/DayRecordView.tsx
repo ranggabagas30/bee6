@@ -2,11 +2,12 @@ import { useState, type CSSProperties } from "react";
 import type { Auth } from "@/lib/auth/client/firebase-client";
 import { useLang } from "@/lib/i18n/context";
 import { t } from "@/lib/i18n/dict";
-import type { DayRecordResponse, OwnerThread, SupervisorThread } from "@/lib/day/contract";
-import { filterThreads, type CategoryFilterValue } from "@/lib/day/view-model";
+import type { DayRecordResponse, OwnerThread, SupervisorThread, SupervisorUnlabelled } from "@/lib/day/contract";
+import { buildTimeline, type CategoryFilterValue } from "@/lib/day/view-model";
 import { DayHeader } from "@/app/day/DayHeader";
 import { CategoryFilter } from "@/app/day/CategoryFilter";
 import { ThreadCard } from "@/app/day/ThreadCard";
+import { UnlabelledCard } from "@/app/day/UnlabelledCard";
 
 /**
  * The day record screen body (R-06 Task 7.4). `WebTopBar` is rendered by
@@ -50,27 +51,37 @@ export function DayRecordView({
 
   // `data.threads` is `OwnerThread[] | SupervisorThread[]` (a union of two
   // array types, from the discriminated union on `view`), not an array of
-  // the element union — widen it once so the generic `filterThreads` can
+  // the element union — widen it once so the generic `buildTimeline` can
   // infer a single `T`.
   const threads: (OwnerThread | SupervisorThread)[] = data.threads;
-  const filtered = filterThreads(threads, filter);
+  // Task 12: the owner shape has no `unlabelled` field at all (an
+  // unlabelled unit can never be a fact) — `buildTimeline` always gets `[]`
+  // for it there.
+  const unlabelled: SupervisorUnlabelled[] = data.view === "supervisor" ? data.unlabelled : [];
+  const timeline = buildTimeline(threads, unlabelled, filter);
   const isSupervisor = data.view === "supervisor";
+  const isEmpty = threads.length === 0 && unlabelled.length === 0;
 
   return (
     <div style={CONTAINER_STYLE}>
       <DayHeader
         view={data.view}
         day={data.day}
-        threadCount={threads.length}
+        threadCount={threads.length + unlabelled.length}
         onPrev={onPrev}
         onNext={onNext}
       />
 
-      {threads.length > 0 && (
-        <CategoryFilter threads={threads} value={filter} onChange={setFilter} />
+      {!isEmpty && (
+        <CategoryFilter
+          threads={threads}
+          unlabelledCount={unlabelled.length}
+          value={filter}
+          onChange={setFilter}
+        />
       )}
 
-      {threads.length === 0 && (
+      {isEmpty && (
         <div>
           <p>{t(lang, isSupervisor ? "C-day-empty" : "C-day-empty-owner")}</p>
           {isSupervisor && (data.day.day_status === "on" || data.day.day_status === "pending") && (
@@ -80,20 +91,26 @@ export function DayRecordView({
       )}
 
       <ol style={LIST_STYLE}>
-        {filtered.map((thread) => (
-          <li key={thread.row} style={LIST_ITEM_STYLE}>
-            {data.view === "owner" ? (
-              <ThreadCard view="owner" thread={thread as OwnerThread} />
-            ) : (
-              <ThreadCard
-                view="supervisor"
-                thread={thread as SupervisorThread}
-                onReload={onReload}
-                auth={auth}
-              />
-            )}
-          </li>
-        ))}
+        {timeline.map((item) =>
+          item.kind === "thread" ? (
+            <li key={item.thread.row} style={LIST_ITEM_STYLE}>
+              {data.view === "owner" ? (
+                <ThreadCard view="owner" thread={item.thread as OwnerThread} />
+              ) : (
+                <ThreadCard
+                  view="supervisor"
+                  thread={item.thread as SupervisorThread}
+                  onReload={onReload}
+                  auth={auth}
+                />
+              )}
+            </li>
+          ) : (
+            <li key={`u-${item.item.key}`} style={LIST_ITEM_STYLE}>
+              <UnlabelledCard item={item.item} />
+            </li>
+          ),
+        )}
       </ol>
     </div>
   );

@@ -8,6 +8,7 @@ import type {
   DayQuestionRow,
   DayStore,
   DayThreadRow,
+  DayUnlabelledRow,
 } from "@/lib/day/service";
 import { getOwnerHome } from "@/lib/home/service";
 import { HomeResponseSchema } from "@/lib/home/contract";
@@ -114,6 +115,12 @@ class FakeDayStore implements DayStore {
 
   async countPairedDevices(): Promise<number> {
     return this.fixture.pairedDeviceCount;
+  }
+
+  // The owner home is always `getDayRecord`'s owner path, which never calls
+  // this (Task 12) — present only so `FakeDayStore` satisfies `DayStore`.
+  async listUnlabelledQuestions(): Promise<DayUnlabelledRow[]> {
+    throw new Error("listUnlabelledQuestions is not used by the owner home");
   }
 }
 

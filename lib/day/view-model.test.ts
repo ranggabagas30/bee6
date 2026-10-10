@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import { DictKey, ID } from "@/lib/i18n/dict";
 import { CATEGORIES, type WorkCategory } from "@/lib/pipeline/categories";
 import type { DisplayStatus } from "@/lib/day/derive";
+import type { SupervisorUnlabelled } from "@/lib/day/contract";
 import {
   CATEGORY_KEY,
   RUNNER_UP_KEY,
   STATUS_KEY,
+  buildTimeline,
   categoryOptions,
   filterThreads,
 } from "@/lib/day/view-model";
@@ -114,5 +116,76 @@ describe("filterThreads", () => {
 
   it("a category not present returns an empty array", () => {
     expect(filterThreads(threads, "TRAINING")).toEqual([]);
+  });
+
+  it("UNLABELLED returns no thread (no thread is ever 'unlabelled' — see buildTimeline)", () => {
+    expect(filterThreads(threads, "UNLABELLED")).toEqual([]);
+  });
+});
+
+describe("buildTimeline", () => {
+  function thread(row: number, category: WorkCategory = "ROUTINE_OPS") {
+    return { row, category };
+  }
+  function unl(key: number, after_row: number | null): SupervisorUnlabelled {
+    return {
+      key,
+      after_row,
+      start_hm: "09:00",
+      end_hm: "09:02",
+      display_status: "question_open",
+      staff_answer: null,
+    };
+  }
+
+  it("ALL: unlabelled with after_row null come first (key order), then each thread followed by its after_row matches (key order)", () => {
+    const threads = [thread(0), thread(1)];
+    const unlabelled = [unl(0, null), unl(1, 0), unl(2, 0), unl(3, 1)];
+    const timeline = buildTimeline(threads, unlabelled, "ALL");
+    expect(
+      timeline.map((item) => (item.kind === "thread" ? `T${item.thread.row}` : `U${item.item.key}`)),
+    ).toEqual(["U0", "T0", "U1", "U2", "T1", "U3"]);
+  });
+
+  it("ALL with no unlabelled rows is just the threads, in order", () => {
+    const threads = [thread(0), thread(1)];
+    const timeline = buildTimeline(threads, [], "ALL");
+    expect(timeline).toEqual([{ kind: "thread", thread: threads[0] }, { kind: "thread", thread: threads[1] }]);
+  });
+
+  it("UNLABELLED: unlabelled rows only, key order, no threads", () => {
+    const threads = [thread(0)];
+    const unlabelled = [unl(0, null), unl(1, 0)];
+    const timeline = buildTimeline(threads, unlabelled, "UNLABELLED");
+    expect(timeline).toEqual([
+      { kind: "unlabelled", item: unlabelled[0] },
+      { kind: "unlabelled", item: unlabelled[1] },
+    ]);
+  });
+
+  it("a category: threads of that category only, no unlabelled rows at all", () => {
+    const threads = [thread(0, "ROUTINE_OPS"), thread(1, "COMPLAINT")];
+    const unlabelled = [unl(0, 0), unl(1, 1)];
+    const timeline = buildTimeline(threads, unlabelled, "COMPLAINT");
+    expect(timeline).toEqual([{ kind: "thread", thread: threads[1] }]);
+  });
+
+  it("an unlabelled row whose after_row names no thread (defensive) goes at the end under ALL", () => {
+    const threads = [thread(0)];
+    const unlabelled = [unl(0, 5)]; // row 5 does not exist among `threads`
+    const timeline = buildTimeline(threads, unlabelled, "ALL");
+    expect(timeline).toEqual([
+      { kind: "thread", thread: threads[0] },
+      { kind: "unlabelled", item: unlabelled[0] },
+    ]);
+  });
+
+  it("an orphaned after_row and a before-every-thread row both appear, orphan last", () => {
+    const threads = [thread(0)];
+    const unlabelled = [unl(0, null), unl(1, 9)];
+    const timeline = buildTimeline(threads, unlabelled, "ALL");
+    expect(
+      timeline.map((item) => (item.kind === "thread" ? `T${item.thread.row}` : `U${item.item.key}`)),
+    ).toEqual(["U0", "T0", "U1"]);
   });
 });

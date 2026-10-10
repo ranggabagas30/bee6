@@ -13,7 +13,14 @@ import {
   parseOutletDoc,
   type CaptureSession,
 } from "@/lib/firestore/schema";
-import type { ConfirmStore, DayCorrectionRow, DayQuestionRow, DayStore, DayThreadRow } from "@/lib/day/service";
+import type {
+  ConfirmStore,
+  DayCorrectionRow,
+  DayQuestionRow,
+  DayStore,
+  DayThreadRow,
+  DayUnlabelledRow,
+} from "@/lib/day/service";
 import type { ConfirmPlan, ConfirmTxSnapshot } from "@/lib/day/confirm-service";
 
 /**
@@ -94,6 +101,30 @@ const CORRECTION_SHAPE = CorrectionSchema.pick({
   question_id: true,
   answer: true,
   reason_text: true,
+});
+
+/** Task 12: `unlabelled_unit` questions (web spec §4.3; R-06 Task 12.2). */
+const UNLABELLED_QUESTION_FIELDS = [
+  "outlet_id",
+  "question_id",
+  "device_id",
+  "kind",
+  "status",
+  "answer",
+  "answered_at_ms",
+  "window_start_ms",
+  "window_end_ms",
+] as const;
+const UNLABELLED_QUESTION_SHAPE = QuestionSchema.pick({
+  outlet_id: true,
+  question_id: true,
+  device_id: true,
+  kind: true,
+  status: true,
+  answer: true,
+  answered_at_ms: true,
+  window_start_ms: true,
+  window_end_ms: true,
 });
 
 const DEVICE_COUNT_FIELDS = ["outlet_id", "revoked", "paired_at"] as const;
@@ -215,6 +246,55 @@ export function firestoreDayStore(outletId: string, db: Firestore = adminDb()): 
         outletId,
         "correction",
       );
+    },
+
+    async listUnlabelledQuestions(fromMs, toMs, limit): Promise<DayUnlabelledRow[]> {
+      const snap = await db
+        .collection(COLLECTIONS.questions)
+        .where("outlet_id", "==", outletId)
+        .where("kind", "==", "unlabelled_unit")
+        .where("window_start_ms", ">=", fromMs)
+        .where("window_start_ms", "<", toMs)
+        .orderBy("window_start_ms")
+        .limit(limit)
+        .select(...UNLABELLED_QUESTION_FIELDS)
+        .get();
+
+      const out: DayUnlabelledRow[] = [];
+      for (const doc of snap.docs) {
+        const result = UNLABELLED_QUESTION_SHAPE.safeParse(doc.data());
+        if (!result.success) {
+          logSkippedDoc("unlabelled_question", doc.id);
+          continue;
+        }
+        const q = result.data;
+        if (q.kind !== "unlabelled_unit") continue;
+        if (q.outlet_id !== outletId) continue;
+
+        // Same answered-consistency rule as `QuestionDocSchema` (R-07):
+        // `status === "answered"` iff `answer` and `answered_at_ms` are both
+        // set; every other status carries neither.
+        const answered = q.status === "answered";
+        const hasAnswer = q.answer === "yes" || q.answer === "no";
+        const hasAnsweredAt = typeof q.answered_at_ms === "number";
+        const inconsistent =
+          (answered && !(hasAnswer && hasAnsweredAt)) || (!answered && (hasAnswer || hasAnsweredAt));
+        if (inconsistent) {
+          logSkippedDoc("unlabelled_question", doc.id);
+          continue;
+        }
+
+        out.push({
+          outlet_id: q.outlet_id,
+          question_id: q.question_id,
+          device_id: q.device_id,
+          status: q.status,
+          answer: q.answer ?? null,
+          window_start_ms: q.window_start_ms,
+          window_end_ms: q.window_end_ms,
+        });
+      }
+      return out;
     },
 
     async countPairedDevices() {
