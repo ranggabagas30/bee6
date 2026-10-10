@@ -459,6 +459,135 @@ describe("firestoreDayStore.getQuestions / getCorrections", () => {
   });
 });
 
+describe("firestoreDayStore.listUnlabelledQuestions (R-06 Task 12)", () => {
+  function makeUnlabelled(overrides: Partial<Question> = {}): Question {
+    return makeQuestion({
+      question_id: "q_unit_1",
+      thread_id: null,
+      kind: "unlabelled_unit",
+      category: null,
+      status: "open",
+      window_start_ms: 5_000,
+      window_end_ms: 7_000,
+      ...overrides,
+    });
+  }
+
+  it("filters by kind and window_start_ms range (inclusive start, exclusive end), ordered ascending", async () => {
+    const inRange = makeUnlabelled({ question_id: "in", window_start_ms: 5_000 });
+    const atStart = makeUnlabelled({ question_id: "at-start", window_start_ms: 1_000 });
+    const atEnd = makeUnlabelled({ question_id: "at-end", window_start_ms: 10_000 });
+    const gateQuestion = makeQuestion({ question_id: "gate-1", kind: "gate", window_start_ms: 5_000 });
+    const { db } = fakeDb({
+      [COLLECTIONS.questions]: { a: inRange, b: atStart, c: atEnd, d: gateQuestion },
+    });
+    const store = firestoreDayStore(OUTLET_ID, db);
+    const rows = await store.listUnlabelledQuestions(1_000, 10_000, 100);
+    expect(rows.map((r) => r.question_id)).toEqual(["at-start", "in"]);
+  });
+
+  it("the row carries no thread_id/category and maps answer null when unset", async () => {
+    const q = makeUnlabelled({ question_id: "q1" });
+    const { db } = fakeDb({ [COLLECTIONS.questions]: { q1: q } });
+    const store = firestoreDayStore(OUTLET_ID, db);
+    const rows = await store.listUnlabelledQuestions(0, 100_000, 100);
+    expect(rows).toEqual([
+      {
+        outlet_id: OUTLET_ID,
+        question_id: "q1",
+        device_id: "dev-1",
+        status: "open",
+        answer: null,
+        window_start_ms: 5_000,
+        window_end_ms: 7_000,
+      },
+    ]);
+  });
+
+  it("maps a real answer through", async () => {
+    const q = makeUnlabelled({
+      question_id: "q1",
+      status: "answered",
+      answer: "yes",
+      answered_at_ms: 9_000,
+    });
+    const { db } = fakeDb({ [COLLECTIONS.questions]: { q1: q } });
+    const store = firestoreDayStore(OUTLET_ID, db);
+    const rows = await store.listUnlabelledQuestions(0, 100_000, 100);
+    expect(rows[0]!.status).toBe("answered");
+    expect(rows[0]!.answer).toBe("yes");
+  });
+
+  it("drops a foreign-outlet row and a non-unlabelled kind, defensively (the query already filters both)", async () => {
+    const foreign = makeUnlabelled({ question_id: "foreign", outlet_id: FOREIGN_OUTLET_ID });
+    const gate = makeQuestion({ question_id: "gate-1", kind: "gate" });
+    const { db } = fakeDb({
+      [COLLECTIONS.questions]: { a: foreign, b: gate },
+    });
+    const store = firestoreDayStore(OUTLET_ID, db);
+    const rows = await store.listUnlabelledQuestions(0, 100_000, 100);
+    expect(rows).toEqual([]);
+  });
+
+  it("skips a malformed doc and logs only doc_id/error_class", async () => {
+    // Carries `kind: "unlabelled_unit"` and an in-range `window_start_ms` so
+    // it passes the query's own filters and actually reaches the schema
+    // parse (the other missing required fields fail there).
+    const malformed = {
+      outlet_id: OUTLET_ID,
+      question_id: "bad",
+      kind: "unlabelled_unit",
+      window_start_ms: 5_000,
+    };
+    const { db } = fakeDb({ [COLLECTIONS.questions]: { bad: malformed } });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const store = firestoreDayStore(OUTLET_ID, db);
+    const rows = await store.listUnlabelledQuestions(0, 100_000, 100);
+    expect(rows).toEqual([]);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("unlabelled_question"),
+      expect.objectContaining({ doc_id: "bad", error_class: "ZodError" }),
+    );
+    errorSpy.mockRestore();
+  });
+
+  it("skips an inconsistent answered doc (answer set but status not answered) and logs by doc id only", async () => {
+    // Build the raw doc by hand — `makeUnlabelled`/`QuestionSchema` would
+    // themselves reject this shape; the store must survive a corrupted doc
+    // that got written some other way.
+    const inconsistent = {
+      outlet_id: OUTLET_ID,
+      question_id: "q1",
+      device_id: "dev-1",
+      kind: "unlabelled_unit",
+      status: "open",
+      answer: "yes",
+      window_start_ms: 5_000,
+      window_end_ms: 7_000,
+    };
+    const { db } = fakeDb({ [COLLECTIONS.questions]: { q1: inconsistent } });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const store = firestoreDayStore(OUTLET_ID, db);
+    const rows = await store.listUnlabelledQuestions(0, 100_000, 100);
+    expect(rows).toEqual([]);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("unlabelled_question"),
+      expect.objectContaining({ doc_id: "q1", error_class: "ZodError" }),
+    );
+    errorSpy.mockRestore();
+  });
+
+  it("the returned row shape matches DayUnlabelledRow exactly (no thread_id/category — the field mask never selects them)", async () => {
+    const q = makeUnlabelled({ question_id: "q1" });
+    const { db } = fakeDb({ [COLLECTIONS.questions]: { q1: q } });
+    const store = firestoreDayStore(OUTLET_ID, db);
+    const rows = await store.listUnlabelledQuestions(0, 100_000, 100);
+    expect(Object.keys(rows[0]!).sort()).toEqual(
+      ["outlet_id", "question_id", "device_id", "status", "answer", "window_start_ms", "window_end_ms"].sort(),
+    );
+  });
+});
+
 describe("firestoreDayStore.countPairedDevices", () => {
   it("counts only paired, unrevoked devices of this outlet", async () => {
     const paired = makeDevice({ device_id: "d1" });
