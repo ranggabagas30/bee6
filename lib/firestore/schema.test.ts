@@ -1,15 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
   AuditLogSchema,
+  ConstraintSchema,
   DeviceSchema,
   HeartbeatSchema,
   LabelUnitLedgerSchema,
   OutletSchema,
   PipelineLockSchema,
   parseOutletDoc,
+  ProposalSchema,
   QuestionDocSchema,
   QuestionSchema,
   SegmentSchema,
+  SopVersionSchema,
   StaffSchema,
   ThreadSchema,
   UserSchema,
@@ -447,5 +450,245 @@ describe("QuestionDocSchema", () => {
 
   it("accepts unverified with no answer", () => {
     expect(QuestionDocSchema.safeParse({ ...openQuestion, status: "unverified" }).success).toBe(true);
+  });
+});
+
+describe("R-08 schemas", () => {
+  const goodStep = { step_id: "open-01", title: "Open the shop", text: "Turn on the oven.", role: "staff" };
+  const goodSop = {
+    outlet_id: "demo-outlet",
+    sop_version_id: "demo-outlet:v1",
+    version: 1,
+    steps: [goodStep],
+    source: "seed" as const,
+    source_proposal_id: null,
+    created_at_ms: 1_700_000_000_000,
+  };
+
+  describe("SopVersionSchema", () => {
+    it("accepts a valid v1 doc", () => {
+      expect(SopVersionSchema.safeParse(goodSop).success).toBe(true);
+    });
+
+    it("rejects a duplicate step_id", () => {
+      const bad = { ...goodSop, steps: [goodStep, goodStep] };
+      expect(SopVersionSchema.safeParse(bad).success).toBe(false);
+    });
+
+    it("rejects a sop_version_id mismatch", () => {
+      const bad = { ...goodSop, sop_version_id: "demo-outlet:v2" };
+      expect(SopVersionSchema.safeParse(bad).success).toBe(false);
+    });
+
+    it('rejects source "seed" with a non-null source_proposal_id', () => {
+      const bad = { ...goodSop, source_proposal_id: "11111111-1111-4111-8111-111111111111" };
+      expect(SopVersionSchema.safeParse(bad).success).toBe(false);
+    });
+
+    it("rejects a step with an unexpected key (strict)", () => {
+      const bad = { ...goodSop, steps: [{ ...goodStep, name: "Budi" }] };
+      expect(SopVersionSchema.safeParse(bad).success).toBe(false);
+    });
+  });
+
+  const goodConstraint = {
+    outlet_id: "demo-outlet",
+    constraint_id: "11111111-1111-4111-8111-111111111111",
+    text: "The oven only holds 2.5 kg per batch.",
+    source: "manual" as const,
+    source_proposal_id: null,
+    created_by_role: "supervisor" as const,
+    created_at_ms: 1_700_000_000_000,
+  };
+
+  describe("ConstraintSchema", () => {
+    it('accepts created_by_role "owner"', () => {
+      expect(ConstraintSchema.safeParse({ ...goodConstraint, created_by_role: "owner" }).success).toBe(
+        true,
+      );
+    });
+
+    it('accepts created_by_role "supervisor"', () => {
+      expect(ConstraintSchema.safeParse(goodConstraint).success).toBe(true);
+    });
+
+    it('rejects created_by_role "staff"', () => {
+      expect(
+        ConstraintSchema.safeParse({ ...goodConstraint, created_by_role: "staff" }).success,
+      ).toBe(false);
+    });
+
+    it("rejects text over 500 chars", () => {
+      expect(ConstraintSchema.safeParse({ ...goodConstraint, text: "x".repeat(501) }).success).toBe(
+        false,
+      );
+    });
+
+    it('accepts source "manual" with source_proposal_id: null', () => {
+      expect(ConstraintSchema.safeParse(goodConstraint).success).toBe(true);
+    });
+
+    it('rejects source "manual" with a uuid source_proposal_id', () => {
+      const bad = {
+        ...goodConstraint,
+        source_proposal_id: "22222222-2222-4222-8222-222222222222",
+      };
+      expect(ConstraintSchema.safeParse(bad).success).toBe(false);
+    });
+
+    it('rejects source "supervisor_rejection" with source_proposal_id: null', () => {
+      const bad = { ...goodConstraint, source: "supervisor_rejection" as const };
+      expect(ConstraintSchema.safeParse(bad).success).toBe(false);
+    });
+
+    it('accepts source "supervisor_rejection" with a uuid source_proposal_id', () => {
+      const good = {
+        ...goodConstraint,
+        source: "supervisor_rejection" as const,
+        source_proposal_id: "22222222-2222-4222-8222-222222222222",
+      };
+      expect(ConstraintSchema.safeParse(good).success).toBe(true);
+    });
+
+    it('rejects source "other"', () => {
+      expect(ConstraintSchema.safeParse({ ...goodConstraint, source: "other" }).success).toBe(false);
+    });
+  });
+
+  const goodEvidence = {
+    thread_id: "unit_dev-1_w1:0",
+    local_date: "2026-10-01",
+    category: "CUSTOMER_SERVICE" as const,
+    first_line_start_ms: 1_700_000_000_000,
+  };
+  const goodContent = {
+    intervention_id: "change_quantity_time",
+    rubric_criterion_ids: ["observable"],
+    target_step_id: "open-01",
+    change_title: "Check the display every 30 minutes",
+    change_text: "Check the display every 30 minutes between 11:00 and 14:00.",
+    rationale: "On two dates customers asked for sold-out items.",
+    metric: {
+      category: "CUSTOMER_SERVICE" as const,
+      direction: "decrease" as const,
+      description: "Requests for sold-out items per day.",
+      baseline_count: 4,
+      baseline_days: 2,
+    },
+    failure_condition: "Requests do not fall over the review period.",
+    review_after_days: 14,
+    review_date: "2026-10-24",
+    evidence: [goodEvidence, { ...goodEvidence, thread_id: "unit_dev-1_w2:0", local_date: "2026-10-02" }],
+    constraint_ids_acknowledged: [],
+    censored_floor: true as const,
+  };
+  const goodProposal = {
+    outlet_id: "demo-outlet",
+    proposal_id: "33333333-3333-4333-8333-333333333333",
+    status: "awaiting_supervisor" as const,
+    requested_by_role: "supervisor" as const,
+    range: { from_date: "2026-10-01", to_date: "2026-10-02" },
+    generator: {
+      kind: "adk" as const,
+      model: "gemini-3.5-flash",
+      location: "asia-southeast1",
+      agent_version: "proposal-v1",
+      gate_version: "pgate-v1" as const,
+      library_version: { interventions: 1, rubric: 1 },
+      sop_version_id: "demo-outlet:v1",
+      attempts: 1,
+    },
+    gate: {
+      passed: true,
+      fired_rule: null,
+      checks: [{ rule: "intervention_unknown" as const, passed: true }],
+    },
+    counts: { candidate_facts: 2, candidate_dates: 2, constraints: 0 },
+    suppression: null,
+    content: goodContent,
+    created_at_ms: 1_700_000_000_000,
+    updated_at_ms: 1_700_000_000_000,
+  };
+
+  describe("ProposalSchema", () => {
+    it("accepts a valid awaiting_supervisor proposal", () => {
+      expect(ProposalSchema.safeParse(goodProposal).success).toBe(true);
+    });
+
+    it("rejects suppressed with content set", () => {
+      const bad = {
+        ...goodProposal,
+        status: "suppressed" as const,
+        suppression: {
+          reason: "insufficient_evidence" as const,
+          model_reason: null,
+          followup: { categories: [], have_facts: 1, have_dates: 1, need_facts: 2, need_dates: 2 },
+        },
+      };
+      expect(ProposalSchema.safeParse(bad).success).toBe(false);
+    });
+
+    it("rejects awaiting_supervisor with content: null", () => {
+      const bad = { ...goodProposal, content: null };
+      expect(ProposalSchema.safeParse(bad).success).toBe(false);
+    });
+
+    it("rejects blocked without fired_rule", () => {
+      const bad = {
+        ...goodProposal,
+        status: "blocked" as const,
+        content: null,
+        gate: { passed: false, fired_rule: null, checks: [] },
+      };
+      expect(ProposalSchema.safeParse(bad).success).toBe(false);
+    });
+
+    it("rejects evidence of length 1", () => {
+      const bad = { ...goodProposal, content: { ...goodContent, evidence: [goodEvidence] } };
+      expect(ProposalSchema.safeParse(bad).success).toBe(false);
+    });
+
+    it("rejects an evidence ref carrying a summary or text key (no copied text)", () => {
+      const bad = {
+        ...goodProposal,
+        content: {
+          ...goodContent,
+          evidence: [
+            { ...goodEvidence, summary: "leaked text" },
+            { ...goodEvidence, thread_id: "unit_dev-1_w2:0", local_date: "2026-10-02" },
+          ],
+        },
+      };
+      expect(ProposalSchema.safeParse(bad).success).toBe(false);
+    });
+
+    it("rejects censored_floor: false", () => {
+      const bad = { ...goodProposal, content: { ...goodContent, censored_floor: false } };
+      expect(ProposalSchema.safeParse(bad).success).toBe(false);
+    });
+
+    it('accepts requested_by_role: "owner"', () => {
+      const good = { ...goodProposal, requested_by_role: "owner" as const };
+      expect(ProposalSchema.safeParse(good).success).toBe(true);
+    });
+
+    it('rejects requested_by_role: "staff"', () => {
+      const bad = { ...goodProposal, requested_by_role: "staff" };
+      expect(ProposalSchema.safeParse(bad).success).toBe(false);
+    });
+  });
+
+  describe("ProposalLockSchema", () => {
+    it("accepts a valid lock doc", async () => {
+      const { ProposalLockSchema } = await import("@/lib/firestore/schema");
+      expect(
+        ProposalLockSchema.safeParse({
+          outlet_id: "demo-outlet",
+          lease_token: "44444444-4444-4444-8444-444444444444",
+          acquired_at_ms: 1_700_000_000_000,
+          expires_at_ms: 1_700_000_180_000,
+        }).success,
+      ).toBe(true);
+    });
   });
 });
