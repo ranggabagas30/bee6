@@ -12,6 +12,7 @@ import { addDays } from "@/lib/capture/calendar";
 import { GenerateResponseSchema, type GenerateResponse } from "@/lib/proposals/contract";
 import { WebTopBar } from "@/app/web/WebTopBar";
 import { ProposalCard } from "@/app/proposals/ProposalCard";
+import { ConstraintsPanel } from "@/app/proposals/ConstraintsPanel";
 
 /**
  * /proposals (R-08 Task 7.3). Owner AND supervisor land on the same page,
@@ -247,6 +248,8 @@ export function ProposalsApp({ config }: { config: FirebaseWebConfig | null }) {
           <ProposalCard proposal={outcome.data.proposal} lang={lang} />
         </>
       )}
+
+      <ConstraintsPanel auth={auth} role={role} lang={lang} />
     </main>
   );
 }

@@ -415,10 +415,32 @@ describe("firestoreProposalStore.listConstraints", () => {
     const store = firestoreProposalStore(OUTLET_ID, db);
     const result = await store.listConstraints();
     expect(result.map((c) => c.created_at_ms)).toEqual([10, 20]);
+    // Delegates to firestoreConstraintStore (R-08 Task 8.4: one
+    // implementation of the constraints query) — the log prefix is now
+    // "[constraint-store]", not "[proposal-store]".
     expect(errorSpy).toHaveBeenCalledWith(
-      "[proposal-store] skipping malformed constraint doc",
+      "[constraint-store] skipping malformed constraint doc",
       expect.objectContaining({ doc_id: "bad" }),
     );
+  });
+
+  it("caps the result to MAX_CONSTRAINTS (200), even if the store returns more", async () => {
+    // Create 201 constraints
+    const constraints: Record<string, Record<string, unknown>> = {};
+    for (let i = 0; i < 201; i++) {
+      constraints[`c${i}`] = makeConstraint({
+        constraint_id: `11111111-1111-4111-8111-${String(i).padStart(12, "0")}`,
+        created_at_ms: i,
+      }) as unknown as Record<string, unknown>;
+    }
+    const { db } = fakeDb({
+      [COLLECTIONS.constraints]: constraints,
+    });
+    const store = firestoreProposalStore(OUTLET_ID, db);
+    const result = await store.listConstraints();
+    expect(result).toHaveLength(200);
+    expect(result[0]?.created_at_ms).toBe(0);
+    expect(result[199]?.created_at_ms).toBe(199);
   });
 });
 

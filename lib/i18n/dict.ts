@@ -317,6 +317,24 @@ export const ID = {
   "C-prop-err-range": "Periksa tanggal: paling lama 14 hari, tidak di masa depan, dalam 14 hari terakhir.", // PROVISIONAL
   "C-prop-err-forbidden": "Hanya pemilik atau supervisor yang bisa membuat usulan.", // PROVISIONAL
   "C-prop-owner-note": "Usulan baru dikirim ke supervisor dulu. Anda menyetujuinya setelah supervisor menandainya layak.", // PROVISIONAL
+
+  // Constraints panel (/proposals, R-08 Task 8.6, PROVISIONAL)
+  "C-con-title": "Batasan", // PROVISIONAL
+  "C-con-help": "Aturan yang harus dipatuhi setiap usulan berikutnya, misalnya batas alat. Batasan ini permanen.", // PROVISIONAL
+  "C-con-empty": "Belum ada batasan.", // PROVISIONAL
+  "C-con-src-manual": "Ditambahkan langsung", // PROVISIONAL
+  "C-con-src-rejection": "Dari usulan yang ditolak", // PROVISIONAL
+  "C-con-add-label": "Batasan baru", // PROVISIONAL
+  "C-con-add-hint": "Tulis fakta tentang toko, bukan orang. Jangan tulis nama atau nomor telepon.", // PROVISIONAL
+  "C-con-add": "Tambah batasan", // PROVISIONAL
+  "C-con-confirm": "Batasan bersifat permanen dan harus dipatuhi setiap usulan berikutnya. Tambahkan?", // PROVISIONAL
+  "C-con-confirm-yes": "Ya, tambahkan", // PROVISIONAL
+  "C-con-confirm-no": "Batal", // PROVISIONAL
+  "C-con-added": "Batasan ditambahkan.", // PROVISIONAL
+  "C-con-duplicate": "Batasan ini sudah ada.", // PROVISIONAL
+  "C-con-err-length": "Tulis 3 sampai 300 karakter.", // PROVISIONAL
+  "C-con-err-limit": "Batas jumlah batasan (200) sudah tercapai.", // PROVISIONAL
+  "C-con-count": "{n}/300", // PROVISIONAL
 } as const;
 
 export type DictKey = keyof typeof ID;
@@ -606,6 +624,24 @@ export const EN: Record<DictKey, string> = {
   "C-prop-err-range": "Check the dates: at most 14 days, not in the future, within the last 14 days.",
   "C-prop-err-forbidden": "Only the owner or a supervisor can generate proposals.",
   "C-prop-owner-note": "New proposals go to a supervisor first. You approve them after the supervisor marks them feasible.",
+
+  // Constraints panel (/proposals, R-08 Task 8.6, PROVISIONAL)
+  "C-con-title": "Constraints", // PROVISIONAL
+  "C-con-help": "Rules every future proposal must respect, such as equipment limits. They are permanent.", // PROVISIONAL
+  "C-con-empty": "No constraints yet.", // PROVISIONAL
+  "C-con-src-manual": "Added directly", // PROVISIONAL
+  "C-con-src-rejection": "From a rejected proposal", // PROVISIONAL
+  "C-con-add-label": "New constraint", // PROVISIONAL
+  "C-con-add-hint": "Describe a fact about the shop, not a person. Don't write names or phone numbers.", // PROVISIONAL
+  "C-con-add": "Add constraint", // PROVISIONAL
+  "C-con-confirm": "Constraints are permanent and every future proposal must respect them. Add this one?", // PROVISIONAL
+  "C-con-confirm-yes": "Yes, add it", // PROVISIONAL
+  "C-con-confirm-no": "Cancel", // PROVISIONAL
+  "C-con-added": "Constraint added.", // PROVISIONAL
+  "C-con-duplicate": "This constraint already exists.", // PROVISIONAL
+  "C-con-err-length": "Write between 3 and 300 characters.", // PROVISIONAL
+  "C-con-err-limit": "The constraint limit (200) is reached.", // PROVISIONAL
+  "C-con-count": "{n}/300", // PROVISIONAL
 };
 
 export const DICT: Record<Lang, Record<DictKey, string>> = { id: ID, en: EN };

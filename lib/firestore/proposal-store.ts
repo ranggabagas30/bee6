@@ -2,16 +2,15 @@ import { randomUUID } from "node:crypto";
 import type { Firestore, Transaction } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import { COLLECTIONS } from "@/lib/firestore/collections";
+import { firestoreConstraintStore } from "@/lib/firestore/constraint-store";
 import { firestoreTickStore } from "@/lib/firestore/tick-store";
 import {
   CaptureSessionSchema,
-  ConstraintSchema,
   ProposalLockSchema,
   ProposalSchema,
   SopVersionSchema,
   ThreadSchema,
   parseOutletDoc,
-  type Constraint,
   type Proposal,
   type SopVersion,
 } from "@/lib/firestore/schema";
@@ -154,18 +153,10 @@ export function firestoreProposalStore(outletId: string, db: Firestore = adminDb
       return best;
     },
 
+    // One implementation of the constraints query (R-08 Task 8.4).
+    // Caps the result to MAX_CONSTRAINTS (200), as per the ProposalStore contract.
     async listConstraints() {
-      const snap = await db.collection(COLLECTIONS.constraints).where("outlet_id", "==", outletId).limit(MAX_CONSTRAINTS).get();
-      const out: Constraint[] = [];
-      for (const doc of snap.docs) {
-        const result = ConstraintSchema.safeParse(doc.data());
-        if (!result.success) {
-          logSkippedDoc("constraint", doc.id);
-          continue;
-        }
-        out.push(result.data);
-      }
-      return out.sort((a, b) => a.created_at_ms - b.created_at_ms);
+      return (await firestoreConstraintStore(outletId, db).list()).slice(0, MAX_CONSTRAINTS);
     },
 
     async findOpenProposalForRange(from, to) {

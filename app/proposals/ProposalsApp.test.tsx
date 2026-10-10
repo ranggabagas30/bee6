@@ -33,8 +33,14 @@ vi.mock("@/lib/auth/client/use-auth-user", () => ({
 }));
 
 const authedPostJson = vi.fn();
+// `ConstraintsPanel` (mounted below the Generate panel, R-08 Task 8.7) calls
+// `authedGetJson` on mount; default it to "error" so the panel renders its
+// generic-error line and stays out of the way of every pre-existing test
+// below, which exercises the Generate panel only.
+const authedGetJson = vi.fn(async (..._args: unknown[]) => ({ kind: "error" as const }));
 vi.mock("@/lib/auth/client/api", () => ({
   authedPostJson: (...args: unknown[]) => authedPostJson(...args),
+  authedGetJson: (...args: unknown[]) => authedGetJson(...args),
 }));
 
 const FAKE_AUTH = { kind: "fake-auth" };

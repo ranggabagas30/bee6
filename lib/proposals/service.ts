@@ -8,6 +8,7 @@ import {
   ServiceUnavailableError,
   ValidationError,
 } from "@/lib/http/errors";
+import { maskDigitRuns } from "@/lib/constraints/normalize";
 import { scrubStaffNames } from "@/lib/pipeline/label/scrub";
 import type { AttributionSession } from "@/lib/day/attribution";
 import {
@@ -88,7 +89,6 @@ export interface ProposalDeps {
   newId: () => string;
 }
 
-const DIGIT_RUN = /\d{6,}/g;
 const STORED_TEXT_MAX: Record<string, number> = {
   change_title: 160,
   change_text: 800,
@@ -96,10 +96,6 @@ const STORED_TEXT_MAX: Record<string, number> = {
   metric_description: 320,
   failure_condition: 480,
 };
-
-function maskDigits(text: string): string {
-  return text.replace(DIGIT_RUN, "[NUMBER]");
-}
 
 function buildAudit(
   outletId: string,
@@ -523,7 +519,7 @@ async function generateProposalCore(
       failure_condition: wire.failure_condition,
     };
     const keys = Object.keys(rawTexts);
-    const prepped = keys.map((k) => scrubStaffNames(maskDigits(rawTexts[k]!), staffNames));
+    const prepped = keys.map((k) => scrubStaffNames(maskDigitRuns(rawTexts[k]!), staffNames));
     let redacted: string[];
     try {
       redacted = await deps.redact(prepped);

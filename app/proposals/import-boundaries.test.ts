@@ -25,7 +25,23 @@ const BANNED_PATTERNS: Array<{ name: string; re: RegExp }> = [
     name: "firebase/firestore",
     re: /(?:from\s+|import\s*\(?\s*|require\s*\()\s*["']@?firebase\/firestore(?:\/[^"']*)?["']/,
   },
+  {
+    name: "@/lib/constraints/service",
+    re: /(?:from\s+|import\s*\(?\s*|require\s*\()\s*["']@\/lib\/constraints\/service["']/,
+  },
 ];
+
+/**
+ * R-08 Task 8.7: `ConstraintsPanel` must also never import any Firestore
+ * store directly (e.g. `@/lib/firestore/constraint-store`). This check is
+ * scoped to `ConstraintsPanel.tsx` alone, not the whole directory: unlike
+ * the patterns above, `@/lib/firestore/*` is not banned directory-wide —
+ * `ProposalCard.tsx` already imports the *type-only* `@/lib/firestore/schema`
+ * (zod shapes, no runtime Firestore call), which is the accepted pattern
+ * this codebase uses for sharing a wire shape, not the boundary violation
+ * this check guards against.
+ */
+const FIRESTORE_STAR_RE = /(?:from\s+|import\s*\(?\s*|require\s*\()\s*["']@\/lib\/firestore(?:\/[^"']*)?["']/;
 
 function listTsFiles(dir: string): string[] {
   let entries: string[] = [];
@@ -71,9 +87,17 @@ describe("app/proposals/* import boundaries (R-08 Task 7)", () => {
     expect(BANNED_PATTERNS[1]!.re.test('import { adkProposalModel } from "@/lib/agents/proposal-agent";')).toBe(true);
     expect(BANNED_PATTERNS[2]!.re.test('import { generateProposal } from "@/lib/proposals/service";')).toBe(true);
     expect(BANNED_PATTERNS[3]!.re.test('import { getFirestore } from "firebase/firestore";')).toBe(true);
+    expect(BANNED_PATTERNS[4]!.re.test('import { createConstraint } from "@/lib/constraints/service";')).toBe(true);
+    expect(FIRESTORE_STAR_RE.test('import { firestoreConstraintStore } from "@/lib/firestore/constraint-store";')).toBe(true);
   });
 
   it("sanity: at least one real file under app/proposals/ was scanned", () => {
     expect(TARGET_FILES.length).toBeGreaterThan(0);
+  });
+
+  it("ConstraintsPanel.tsx imports no @/lib/firestore/* module (R-08 Task 8.7)", () => {
+    const file = join(TARGET_DIR, "ConstraintsPanel.tsx");
+    const text = readFileSync(file, "utf8");
+    expect(FIRESTORE_STAR_RE.test(text)).toBe(false);
   });
 });
