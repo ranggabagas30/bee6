@@ -43,13 +43,17 @@ with the licence.
 - **Version:** 5.x
 - **Project:** https://github.com/Vanilagy/webm-muxer
 
-## Google Agent Development Kit (ADK) for TypeScript
-- **Used for:** DebriefAgent, ProposalAgent, CriticAgent, ReviewAgent
-  (R-08 onward).
+## @google/adk
+- **Used for:** ProposalAgent (R-08); CriticAgent and ReviewAgent will reuse
+  the same adapter in later tasks (R-11, R-15).
 - **License:** Apache-2.0
-- **Project:** https://github.com/google/adk-typescript (package name/docs to
-  be confirmed before R-08 per CLAUDE.md §3; ask Rangga if it blocks more
-  than 2 hours — the fallback is a plain state machine calling Gemini).
+- **Version:** 2.2.1 (exact pin)
+- **Project:** https://github.com/google/adk-js
+- **Note:** has a hard dependency on `@google-cloud/vertexai@1.12.0`
+  (Google, Apache-2.0), which nests its own `@google/genai@1.52.0` copy
+  under `node_modules/@google-cloud/vertexai/`. Neither is imported by our
+  code (R-08's `ProposalAgent` uses the top-level `@google/genai@2.24.0`
+  copy only); `lib/agents/no-vertexai-import.test.ts` guards this.
 
 ## ONNX Runtime Web
 - **Used for:** running the Silero VAD model in the browser (R-03).
