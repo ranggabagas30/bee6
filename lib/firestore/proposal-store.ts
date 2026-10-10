@@ -15,7 +15,7 @@ import {
   type SopVersion,
 } from "@/lib/firestore/schema";
 import type { AttributionSession } from "@/lib/day/attribution";
-import { MAX_THREADS_READ } from "@/lib/proposals/constants";
+import { MAX_CONSTRAINTS, MAX_THREADS_READ } from "@/lib/proposals/constants";
 import type { FreshThread, ProposalStore } from "@/lib/proposals/service";
 import type { ProposalThreadRow } from "@/lib/proposals/candidates";
 
@@ -154,8 +154,9 @@ export function firestoreProposalStore(outletId: string, db: Firestore = adminDb
     },
 
     // One implementation of the constraints query (R-08 Task 8.4).
+    // Caps the result to MAX_CONSTRAINTS (200), as per the ProposalStore contract.
     async listConstraints() {
-      return firestoreConstraintStore(outletId, db).list();
+      return (await firestoreConstraintStore(outletId, db).list()).slice(0, MAX_CONSTRAINTS);
     },
 
     async findOpenProposalForRange(from, to) {

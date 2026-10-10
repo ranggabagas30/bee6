@@ -106,7 +106,13 @@ export function ConstraintsPanel({ auth, role, lang }: { auth: Auth; role: "owne
   }, []);
 
   useEffect(() => {
-    if (formState.kind === "confirm") confirmRef.current?.focus();
+    if (formState.kind === "confirm") {
+      confirmRef.current?.focus();
+    } else if (formState.kind === "idle") {
+      // Focus the textarea when returning to idle state (e.g., after cancel).
+      // Set a microtask to ensure the textarea is enabled before focusing.
+      queueMicrotask(() => textareaRef.current?.focus());
+    }
   }, [formState.kind]);
 
   const trimmed = text.trim();
@@ -121,7 +127,7 @@ export function ConstraintsPanel({ auth, role, lang }: { auth: Auth; role: "owne
 
   function handleCancel() {
     setFormState({ kind: "idle" });
-    textareaRef.current?.focus();
+    // Focus is handled by the useEffect above when formState changes to "idle".
   }
 
   async function handleConfirmYes() {
@@ -212,7 +218,7 @@ export function ConstraintsPanel({ auth, role, lang }: { auth: Auth; role: "owne
             value={text}
             maxLength={300}
             rows={3}
-            disabled={busy}
+            disabled={busy || formState.kind === "confirm"}
             aria-describedby="con-add-hint con-add-count"
             onChange={(event) => setText(event.target.value)}
             style={TEXTAREA_STYLE}
