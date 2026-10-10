@@ -19,15 +19,19 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
+import type { Firestore } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import { COLLECTIONS } from "@/lib/firestore/collections";
 import {
   DeviceSchema,
   OutletSchema,
+  SopStepSchema,
+  SopVersionSchema,
   StaffSchema,
   UserSchema,
   type Device,
   type Outlet,
+  type SopVersion,
   type Staff,
   type User,
 } from "@/lib/firestore/schema";
@@ -64,6 +68,13 @@ export const SeedConfigSchema = z
     device: z
       .object({ device_id: z.string().min(1), label: z.string().min(1) })
       .strict(),
+    /**
+     * R-08 Task 2.3: optional SOP v1 steps. Optional so Rangga's current
+     * `private/seed.pilot.json` (no SOP yet) still seeds unchanged. When
+     * present, the seed writes `sop_versions/{outlet_id}:v1` once (never
+     * overwritten — SOP versions are immutable, hard rule #9).
+     */
+    sop_v1: z.object({ steps: z.array(SopStepSchema).min(1).max(200) }).strict().optional(),
   })
   .strict();
 export type SeedConfig = z.infer<typeof SeedConfigSchema>;
@@ -86,6 +97,44 @@ export const DEMO_SEED: SeedConfig = {
     { staff_id: "demo-staff-2", name: "Bella Demo", role: "staff", pin: "2222" },
   ],
   device: { device_id: "demo-phone", label: "Demo shop phone" },
+  // FICTIONAL PLACEHOLDER SOP. Used by internal testing, QA and the demo outlet (judges). Not Proofed's SOP: the
+  // real one is private, never committed, and only ever reaches the PILOT project via private/seed.pilot.json
+  // (R-08 §0 item 5).
+  // Tiffany may replace this content before promotion #2; it must stay fictional.
+  sop_v1: {
+    steps: [
+      {
+        step_id: "open-01",
+        title: "Open the shop",
+        text: "Turn on the oven and the display lights. Check the float in the till.",
+        role: "staff",
+      },
+      {
+        step_id: "bake-01",
+        title: "Morning bake",
+        text: "Bake the first tray of each bread by opening time.",
+        role: "staff",
+      },
+      {
+        step_id: "stock-01",
+        title: "Display check",
+        text: "Check the display every hour and refill items that are running low.",
+        role: "staff",
+      },
+      {
+        step_id: "serve-01",
+        title: "Serve a customer",
+        text: "Greet, take the order, confirm it back, take payment.",
+        role: "staff",
+      },
+      {
+        step_id: "close-01",
+        title: "Close the shop",
+        text: "Count the till, clean the oven, log leftover items.",
+        role: "supervisor",
+      },
+    ],
+  },
 };
 
 // ── document builder (pure; unit-tested) ─────────────────────────────────────
@@ -95,6 +144,25 @@ export interface SeedDocuments {
   staff: Staff[];
   device: Device;
   pairingCode: string;
+  /** R-08 Task 2.3: null when the config carries no `sop_v1` block. */
+  sopVersion: SopVersion | null;
+}
+
+/** Pure: builds the `sop_versions/{outlet_id}:v1` doc from a config's `sop_v1` block. */
+export function buildSopVersionDoc(
+  outletId: string,
+  sopV1: NonNullable<SeedConfig["sop_v1"]>,
+  nowMs: number,
+): SopVersion {
+  return SopVersionSchema.parse({
+    outlet_id: outletId,
+    sop_version_id: `${outletId}:v1`,
+    version: 1,
+    steps: sopV1.steps,
+    source: "seed",
+    source_proposal_id: null,
+    created_at_ms: nowMs,
+  });
 }
 
 /**
@@ -172,7 +240,11 @@ export async function buildSeedDocuments(
     created_at: nowIso,
   });
 
-  return { outlet, users, staff, device, pairingCode: opts.pairingCode };
+  const sopVersion = config.sop_v1
+    ? buildSopVersionDoc(outlet.outlet_id, config.sop_v1, opts.now.getTime())
+    : null;
+
+  return { outlet, users, staff, device, pairingCode: opts.pairingCode, sopVersion };
 }
 
 // ── CLI wiring ───────────────────────────────────────────────────────────────
@@ -202,7 +274,9 @@ export function assertProjectMatchesEnv(project: ProjectKind): void {
   }
 }
 
-function loadConfig(project: ProjectKind): SeedConfig {
+/** Exported (R-08 Task 2.3) so the SOP-separation guard tests can assert the
+ * demo branch reads no file at all (`loadConfig("demo")` never touches `fs`). */
+export function loadConfig(project: ProjectKind): SeedConfig {
   if (project === "demo") return SeedConfigSchema.parse(DEMO_SEED);
   // Pilot data is never committed — read it from an untracked file.
   const configPath = path.join(process.cwd(), "private", "seed.pilot.json");
@@ -238,6 +312,27 @@ async function writeSeed(project: ProjectKind, docs: SeedDocuments): Promise<voi
     docs.device,
   );
   await batch.commit();
+
+  if (docs.sopVersion) {
+    await writeSopVersionIfAbsent(db, docs.sopVersion);
+  }
+}
+
+/**
+ * Writes the SOP version doc only if no doc with that id exists yet — SOP
+ * versions are immutable (hard rule #9: SOP changes only through
+ * proposals; the seed script never overwrites one it already wrote).
+ * Returns whether it wrote. `db` is a seam so unit tests inject a fake.
+ */
+export async function writeSopVersionIfAbsent(
+  db: Pick<Firestore, "collection">,
+  sopVersion: SopVersion,
+): Promise<boolean> {
+  const ref = db.collection(COLLECTIONS.sopVersions).doc(sopVersion.sop_version_id);
+  const existing = await ref.get();
+  if (existing.exists) return false;
+  await ref.set(sopVersion);
+  return true;
 }
 
 async function main(): Promise<void> {
@@ -258,6 +353,9 @@ async function main(): Promise<void> {
     `[seed] pairing code (valid 10 min): ${docs.pairingCode}  ` +
       `→ enter at /pair on the shop phone`,
   );
+  if (docs.sopVersion) {
+    console.log(`[seed] sop_versions/${docs.sopVersion.sop_version_id} (written only if absent)`);
+  }
 }
 
 const isMainModule =
