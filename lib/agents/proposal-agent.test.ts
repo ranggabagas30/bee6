@@ -251,4 +251,12 @@ describe("adkProposalModel", () => {
     await import("@/lib/agents/proposal-agent");
     expect(setLogLevelSpy).toHaveBeenCalledWith("ERROR");
   });
+
+  it("an empty ctx.project -> kind: error, no_project, never throws, never constructs Gemini/LlmAgent", async () => {
+    const { adkProposalModel } = await import("@/lib/agents/proposal-agent");
+    const result = await adkProposalModel(INPUT, { ...CTX, project: "" });
+    expect(result).toEqual({ kind: "error", error_class: "no_project" });
+    expect(geminiCtorSpy).not.toHaveBeenCalled();
+    expect(llmAgentCtorSpy).not.toHaveBeenCalled();
+  });
 });

@@ -27,6 +27,8 @@ const modelFn = vi.fn();
 vi.mock("@/lib/agents/proposal-agent", () => ({
   adkProposalModel: (...args: unknown[]) => modelFn(...args),
   PROPOSAL_GENERATOR_KIND: "adk",
+  PROPOSAL_MODEL: "gemini-3.5-flash",
+  PROPOSAL_AGENT_VERSION: "proposal-v1",
 }));
 
 vi.mock("@/lib/redact/batch", () => ({

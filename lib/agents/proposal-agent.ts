@@ -94,6 +94,9 @@ async function runOnce(
   input: { systemInstruction: string; userContent: string; responseJsonSchema: object },
   ctx: { project: string; location: string; timeoutMs: number },
 ): Promise<ProposalModelResult> {
+  // Fails closed with the ProposalModel contract (never throws) — same
+  // discipline as lib/pipeline/label/client.ts's project guard.
+  if (!ctx.project) return { kind: "error", error_class: "no_project" };
   const model = getOrCreateModel(ctx.project, ctx.location);
   const agent = new LlmAgent({
     name: "proposal_agent",
