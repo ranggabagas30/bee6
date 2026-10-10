@@ -374,10 +374,32 @@ describe("getReviewQueue — handle and can_review", () => {
 
 describe("getReviewQueue — no device id leak", () => {
   it("the JSON response contains no device id, q_thread_ or unit_ substring", async () => {
-    const thread = makeThread({ status: "open" });
-    const q = makeQuestionRow({ thread_id: thread.thread_id, question_id: `q_thread_${thread.thread_id}` });
-    const store = new FakeQueueStore(emptyFixture({ threads: [thread], questions: [q] }));
+    // Fully filled row — lines, evidence_line_ids, a runner-up and a
+    // correction all present — so every field the mapper serializes is
+    // actually exercised by this leak check, not just the fields a bare
+    // fixture happens to populate.
+    const thread = makeThread({
+      status: "open",
+      category: "COMPLAINT",
+      lines: [
+        { line_id: "ln1", start_ms: at(DAY1, "10:00"), end_ms: at(DAY1, "10:01"), text: "EVIDENCE-LINE-1" },
+        { line_id: "ln2", start_ms: at(DAY1, "10:02"), end_ms: at(DAY1, "10:03"), text: "EVIDENCE-LINE-2" },
+      ],
+      evidence_line_ids: ["ln1", "ln2"],
+      runner_up: { category: "ROUTINE_OPS", why_not: "RUNNER-UP-WHY-NOT" },
+    });
+    const q = makeQuestionRow({ thread_id: thread.thread_id, question_id: `q_thread_${thread.thread_id}`, answer: "no" });
+    const correction = makeCorrection({
+      question_id: q.question_id,
+      answer: "no",
+      reason_text: "CORRECTION-REASON",
+      debrief_business_date: DAY1,
+    });
+    const store = new FakeQueueStore(
+      emptyFixture({ threads: [thread], questions: [q], corrections: [correction] }),
+    );
     const result = await getReviewQueue(store, { claims: SUPERVISOR_CLAIMS, now_ms: NOW_MS, handleKey: KEY });
+    expect(result.items).toHaveLength(1);
     const json = JSON.stringify(result);
     expect(json).not.toContain(DEVICE);
     expect(json).not.toContain("q_thread_");

@@ -80,9 +80,11 @@ function toQueueSupervisorRow(
 
   const handle = ctx.handleKey ? sealThreadHandle(row.thread_id, ctx.outletId, ctx.handleKey) : null;
   // Every row reaching this mapper already passed the queue's own eligibility
-  // filter (status "open", an answered gate question) — the only thing left
-  // to decide `can_review` is whether a handle could be sealed at all.
-  const canReview = handle !== null;
+  // filter (status "open", an answered gate question), so `row.status !==
+  // "unverified"` is always true today — kept explicit (not just `handle !==
+  // null`) so this stays in lockstep with `getDayRecord`'s own `can_review`
+  // derivation if the queue's filter ever changes upstream.
+  const canReview = handle !== null && row.status !== "unverified";
 
   const runnerUp =
     !row.runner_up || row.runner_up.category === effective

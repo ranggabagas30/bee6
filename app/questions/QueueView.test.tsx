@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { LangProvider } from "@/lib/i18n/context";
 import type { Auth } from "@/lib/auth/client/firebase-client";
 import type { QueueItem, ReviewQueueResponse } from "@/lib/day/contract";
@@ -13,8 +13,14 @@ import { QueueView } from "@/app/questions/QueueView";
  * `DayRecordView.test.tsx` does for the day record).
  */
 
+const authedPostJson = vi.fn();
+vi.mock("@/lib/auth/client/api", () => ({
+  authedPostJson: (...args: unknown[]) => authedPostJson(...args),
+}));
+
 afterEach(() => {
   cleanup();
+  authedPostJson.mockReset();
 });
 
 const AUTH = {} as Auth;
@@ -155,5 +161,32 @@ describe("QueueView — ThreadActions wiring", () => {
     };
     const { container } = renderView(data);
     expect(container.querySelectorAll("article")).toHaveLength(2);
+  });
+
+  it("a decision -> onReload fires (via ThreadActions mock)", async () => {
+    authedPostJson.mockResolvedValueOnce({ kind: "ok", data: {} });
+    const onReload = vi.fn();
+    const data: ReviewQueueResponse = { view: "supervisor_queue", items: [item()], truncated: false };
+    renderView(data, { onReload });
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(authedPostJson).toHaveBeenCalledTimes(1);
+    expect(onReload).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("QueueView — 360px safety", () => {
+  it("QueueView's container and card styles use no fixed width over 360 and overflowWrap: anywhere", () => {
+    const data: ReviewQueueResponse = { view: "supervisor_queue", items: [item()], truncated: false };
+    const { container } = renderView(data);
+    const article = container.querySelector("article") as HTMLElement;
+    expect(article.style.overflowWrap).toBe("anywhere");
+    // The outer container is width-constrained by max-width only (percentage-
+    // based at narrow viewports), never a fixed width in px below 360.
+    const root = container.firstElementChild as HTMLElement;
+    expect(root.style.width).toBe("");
   });
 });
