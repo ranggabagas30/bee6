@@ -59,6 +59,9 @@ function fakeStore(overrides: Partial<DayStore & ConfirmStore> = {}): DayStore &
     getCorrections: async () => new Map(),
     listUnlabelledQuestions: async () => [],
     countPairedDevices: async () => 0,
+    // Not exercised by POST /confirm (Task 13's own review-queue route owns these).
+    listAnsweredGateQuestions: async () => [],
+    getThreads: async () => new Map(),
     transactConfirm: async () => ({ kind: "not_found" }),
     ...overrides,
   };

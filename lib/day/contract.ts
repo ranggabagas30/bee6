@@ -184,3 +184,23 @@ export type OwnerThread = z.infer<typeof OwnerThreadSchema>;
 export type SupervisorThread = z.infer<typeof SupervisorThreadSchema>;
 export type OwnerDayHeader = z.infer<typeof OwnerDayHeaderSchema>;
 export type SupervisorDayHeader = z.infer<typeof SupervisorDayHeaderSchema>;
+
+/**
+ * Supervisor questions queue (R-06 Task 13, web spec §4.3/§6.2): every
+ * answered gate question still waiting for a supervisor decision, across the
+ * last `QUEUE_LOOKBACK_DAYS` days. One more row shape, not a new view of the
+ * day record — each item is a `SupervisorThread` (same fields, same
+ * `ThreadCard`/`ThreadActions`) plus the business `date` it belongs to, since
+ * queue items span many days at once.
+ */
+export const QUEUE_CAP = 200;
+export const QueueItemSchema = SupervisorThreadSchema.extend({ date: dateString }).strict();
+export const ReviewQueueResponseSchema = z
+  .object({
+    view: z.literal("supervisor_queue"),
+    items: z.array(QueueItemSchema).max(QUEUE_CAP),
+    truncated: z.boolean(),
+  })
+  .strict();
+export type QueueItem = z.infer<typeof QueueItemSchema>;
+export type ReviewQueueResponse = z.infer<typeof ReviewQueueResponseSchema>;

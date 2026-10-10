@@ -38,7 +38,7 @@ interface FakeTx {
 }
 interface FakeQuery {
   where(field: string, op: string, value: unknown): FakeQuery;
-  orderBy(field: string): FakeQuery;
+  orderBy(field: string, direction?: "asc" | "desc"): FakeQuery;
   limit(n: number): FakeQuery;
   select(...fields: string[]): FakeQuery;
   get(): Promise<{ docs: FakeDocSnap[] }>;
@@ -85,21 +85,22 @@ function fakeDb(seed: Record<string, Record<string, Record<string, unknown>>> = 
     name: string,
     filters: [string, string, unknown][],
     orderField: string | undefined,
+    orderDirection: "asc" | "desc" | undefined,
     limitN: number | undefined,
     selectFields: string[] | undefined,
   ): FakeQuery {
     return {
       where(field, op, value) {
-        return makeQuery(name, [...filters, [field, op, value]], orderField, limitN, selectFields);
+        return makeQuery(name, [...filters, [field, op, value]], orderField, orderDirection, limitN, selectFields);
       },
-      orderBy(field) {
-        return makeQuery(name, filters, field, limitN, selectFields);
+      orderBy(field, direction) {
+        return makeQuery(name, filters, field, direction, limitN, selectFields);
       },
       limit(n) {
-        return makeQuery(name, filters, orderField, n, selectFields);
+        return makeQuery(name, filters, orderField, orderDirection, n, selectFields);
       },
       select(...fields) {
-        return makeQuery(name, filters, orderField, limitN, fields);
+        return makeQuery(name, filters, orderField, orderDirection, limitN, fields);
       },
       async get() {
         queryLog.push({ name, selectFields });
@@ -107,10 +108,11 @@ function fakeDb(seed: Record<string, Record<string, Record<string, unknown>>> = 
           filters.every(([f, o, v]) => matches(data, f, o, v)),
         );
         if (orderField) {
+          const sign = orderDirection === "desc" ? -1 : 1;
           entries = [...entries].sort((a, b) => {
             const av = a[1][orderField] as number;
             const bv = b[1][orderField] as number;
-            return av - bv;
+            return sign * (av - bv);
           });
         }
         if (limitN !== undefined) entries = entries.slice(0, limitN);
@@ -147,13 +149,13 @@ function fakeDb(seed: Record<string, Record<string, Record<string, unknown>>> = 
     collection(name: string) {
       return {
         where(field: string, op: string, value: unknown) {
-          return makeQuery(name, [[field, op, value]], undefined, undefined, undefined);
+          return makeQuery(name, [[field, op, value]], undefined, undefined, undefined, undefined);
         },
-        orderBy(field: string) {
-          return makeQuery(name, [], field, undefined, undefined);
+        orderBy(field: string, direction?: "asc" | "desc") {
+          return makeQuery(name, [], field, direction, undefined, undefined);
         },
         select(...fields: string[]) {
-          return makeQuery(name, [], undefined, undefined, fields);
+          return makeQuery(name, [], undefined, undefined, undefined, fields);
         },
         doc(id?: string) {
           autoIdCounter += 1;
@@ -440,6 +442,7 @@ describe("firestoreDayStore.getQuestions / getCorrections", () => {
       question_id: "q1",
       answer: "yes",
       reason_text: "Because of X",
+      debrief_business_date: "2026-10-08",
     });
     expect(result.get("q1")).not.toHaveProperty("answered_device_id");
   });
@@ -681,6 +684,161 @@ describe("firestoreDayStore.countPairedDevices", () => {
     });
     const store = firestoreDayStore(OUTLET_ID, db);
     await expect(store.countPairedDevices()).resolves.toBe(1);
+  });
+});
+
+describe("firestoreDayStore.listAnsweredGateQuestions (R-06 Task 13.2)", () => {
+  it("filters to this outlet's answered gate questions at/after sinceMs, newest first, at most limit", async () => {
+    const gateAnswered = makeQuestion({
+      question_id: "q1",
+      kind: "gate",
+      status: "answered",
+      answer: "yes",
+      answered_at_ms: 5_000,
+    });
+    const tooOld = makeQuestion({
+      question_id: "q2",
+      kind: "gate",
+      status: "answered",
+      answer: "yes",
+      answered_at_ms: 1_000,
+    });
+    const stillOpen = makeQuestion({ question_id: "q3", kind: "gate", status: "open" });
+    const unlabelledUnit = makeQuestion({
+      question_id: "q4",
+      kind: "unlabelled_unit",
+      status: "answered",
+      answer: "yes",
+      answered_at_ms: 6_000,
+      thread_id: null,
+      category: null,
+    });
+    const foreign = makeQuestion({
+      question_id: "q5",
+      outlet_id: FOREIGN_OUTLET_ID,
+      kind: "gate",
+      status: "answered",
+      answer: "yes",
+      answered_at_ms: 7_000,
+    });
+    const newer = makeQuestion({
+      question_id: "q6",
+      kind: "gate",
+      status: "answered",
+      answer: "no",
+      answered_at_ms: 9_000,
+    });
+    const { db } = fakeDb({
+      [COLLECTIONS.questions]: {
+        q1: gateAnswered,
+        q2: tooOld,
+        q3: stillOpen,
+        q4: unlabelledUnit,
+        q5: foreign,
+        q6: newer,
+      },
+    });
+    const store = firestoreDayStore(OUTLET_ID, db);
+    const rows = await store.listAnsweredGateQuestions(2_000, 10);
+    expect(rows.map((r) => r.question_id)).toEqual(["q6", "q1"]); // newest first
+    expect(rows[0]).toEqual({
+      outlet_id: OUTLET_ID,
+      question_id: "q6",
+      thread_id: "unit_dev-1_w1:0",
+      answer: "no",
+      answered_at_ms: 9_000,
+    });
+  });
+
+  it("applies the limit", async () => {
+    const seed: Record<string, Record<string, unknown>> = {};
+    for (let i = 0; i < 5; i++) {
+      seed[`q${i}`] = makeQuestion({
+        question_id: `q${i}`,
+        kind: "gate",
+        status: "answered",
+        answer: "yes",
+        answered_at_ms: 1_000 + i,
+      });
+    }
+    const { db } = fakeDb({ [COLLECTIONS.questions]: seed });
+    const store = firestoreDayStore(OUTLET_ID, db);
+    const rows = await store.listAnsweredGateQuestions(0, 3);
+    expect(rows).toHaveLength(3);
+  });
+
+  it("drops and logs (by doc id only) a doc with a null thread_id, a non yes/no answer, or a non-numeric answered_at_ms", async () => {
+    // `thread_id: null` only happens for kind: "unlabelled_unit" in practice,
+    // but the query already filters to kind: "gate" — this exercises the
+    // defensive drop in case a doc is ever inconsistent with its own kind.
+    const nullThread = {
+      outlet_id: OUTLET_ID,
+      question_id: "q1",
+      device_id: "dev-1",
+      thread_id: null,
+      kind: "gate",
+      status: "answered",
+      category: "ROUTINE_OPS",
+      window_start_ms: 1_000,
+      window_end_ms: 2_000,
+      created_at_ms: 1_000,
+      answer: "yes",
+      answered_at_ms: 5_000,
+    };
+    const { db } = fakeDb({ [COLLECTIONS.questions]: { q1: nullThread } });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const store = firestoreDayStore(OUTLET_ID, db);
+    const rows = await store.listAnsweredGateQuestions(0, 10);
+    expect(rows).toEqual([]);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("question"),
+      expect.objectContaining({ doc_id: "q1", error_class: "ZodError" }),
+    );
+    errorSpy.mockRestore();
+  });
+
+  it("the returned row never carries device_id or kind", async () => {
+    const good = makeQuestion({
+      question_id: "q1",
+      kind: "gate",
+      status: "answered",
+      answer: "yes",
+      answered_at_ms: 5_000,
+    });
+    const { db } = fakeDb({ [COLLECTIONS.questions]: { q1: good } });
+    const store = firestoreDayStore(OUTLET_ID, db);
+    const rows = await store.listAnsweredGateQuestions(0, 10);
+    expect(Object.keys(rows[0]!).sort()).toEqual(
+      ["outlet_id", "question_id", "thread_id", "answer", "answered_at_ms"].sort(),
+    );
+  });
+});
+
+describe("firestoreDayStore.getThreads (R-06 Task 13.2)", () => {
+  it("reads the supervisor field mask, including lines and runner_up", async () => {
+    const t = makeThread({ runner_up: { category: "CUSTOMER_SERVICE", why_not: "RUNUP-SENTINEL-Q" } });
+    const { db } = fakeDb({ [COLLECTIONS.threads]: { [t.thread_id]: t } });
+    const store = firestoreDayStore(OUTLET_ID, db);
+    const result = await store.getThreads([t.thread_id]);
+    expect(result.get(t.thread_id)!.lines).toEqual(t.lines);
+    expect(result.get(t.thread_id)!.evidence_line_ids).toEqual(t.evidence_line_ids);
+    expect(result.get(t.thread_id)!.runner_up).toEqual(t.runner_up);
+  });
+
+  it("drops a missing id, a malformed doc, and a foreign-outlet doc", async () => {
+    const good = makeThread({ thread_id: "t1" });
+    const foreign = makeThread({ thread_id: "t2", outlet_id: FOREIGN_OUTLET_ID });
+    const { db } = fakeDb({ [COLLECTIONS.threads]: { t1: good, t2: foreign, t3: { outlet_id: OUTLET_ID } } });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const store = firestoreDayStore(OUTLET_ID, db);
+    const result = await store.getThreads(["t1", "t2", "t3", "t-missing"]);
+    expect(result.size).toBe(1);
+    expect(result.get("t1")).toMatchObject({ thread_id: "t1" });
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("thread"),
+      expect.objectContaining({ doc_id: "t3", error_class: "ZodError" }),
+    );
+    errorSpy.mockRestore();
   });
 });
 

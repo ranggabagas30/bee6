@@ -187,9 +187,19 @@ class FakeDayStore implements DayStore {
   }
 
   // Not exercised by any getDayRecord test (Task 10's own tests cover it
-  // against a dedicated fake) — present only so FakeDayStore satisfies DayStore.
+  // against a dedicated fake, Task 13's own tests cover these against
+  // `queue-service.test.ts`'s own fake) — present only so FakeDayStore
+  // satisfies DayStore.
   transactConfirm(): never {
     throw new Error("transactConfirm is not used by getDayRecord tests");
+  }
+
+  listAnsweredGateQuestions(): never {
+    throw new Error("listAnsweredGateQuestions is not used by getDayRecord tests");
+  }
+
+  getThreads(): never {
+    throw new Error("getThreads is not used by getDayRecord tests");
   }
 }
 
@@ -270,12 +280,14 @@ const dayMixFixture: Fixture = emptyFixture({
       question_id: threadQuestionId(threadId(3)),
       answer: "yes",
       reason_text: "REASON-SENTINEL-1",
+      debrief_business_date: FRI,
     },
     {
       outlet_id: OUTLET_ID,
       question_id: threadQuestionId(threadId(6)),
       answer: "yes",
       reason_text: "REASON-SENTINEL-2",
+      debrief_business_date: FRI,
     },
     // deliberately none for row 7 (the NO row): the service must survive a
     // missing correction with `reason: null`.
@@ -625,6 +637,7 @@ describe("getDayRecord — unlabelled moments (Task 12)", () => {
     question_id: "fixture_q_unit_2",
     answer: "yes",
     reason_text: "REASON-SENTINEL-U",
+    debrief_business_date: FRI,
   };
   const unlFixture: Fixture = emptyFixture({
     sessions: [daySession],
@@ -1014,7 +1027,7 @@ describe("getDayRecord — row scoping", () => {
         questions: [{ outlet_id: OUTLET_ID, question_id: threadQuestionId(threadId(102)), status: "answered", answer: "yes" }],
         // A buggy correction doc from a different outlet, same question id: the
         // store contract drops it, so the service must fall back to reason: null.
-        corrections: [{ outlet_id: FOREIGN_OUTLET_ID, question_id: threadQuestionId(threadId(102)), answer: "yes", reason_text: "LEAKED" }],
+        corrections: [{ outlet_id: FOREIGN_OUTLET_ID, question_id: threadQuestionId(threadId(102)), answer: "yes", reason_text: "LEAKED", debrief_business_date: FRI }],
       }),
     );
     const result = await getDayRecord(store, { claims: SUPERVISOR_CLAIMS, param: "today", now_ms: at("12:00"), handleKey: null });
@@ -1111,7 +1124,13 @@ describe("getDayRecord — response payload budget", () => {
       .map((t) => ({ outlet_id: OUTLET_ID, question_id: threadQuestionId(t.thread_id), status: "answered" as const, answer: "yes" as const }));
     const corrections: DayCorrectionRow[] = threads
       .slice(0, 200)
-      .map((t) => ({ outlet_id: OUTLET_ID, question_id: threadQuestionId(t.thread_id), answer: "yes" as const, reason_text: reason }));
+      .map((t) => ({
+        outlet_id: OUTLET_ID,
+        question_id: threadQuestionId(t.thread_id),
+        answer: "yes" as const,
+        reason_text: reason,
+        debrief_business_date: FRI,
+      }));
 
     const store = new FakeDayStore(
       OUTLET_ID,

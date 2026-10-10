@@ -43,6 +43,9 @@ function fakeStore(overrides: Partial<DayStore> = {}): DayStore & ConfirmStore {
     getCorrections: async () => new Map(),
     listUnlabelledQuestions: async () => [],
     countPairedDevices: async () => 0,
+    // Not exercised by GET /home (Task 13's own review-queue route owns these).
+    listAnsweredGateQuestions: async () => [],
+    getThreads: async () => new Map(),
     ...overrides,
   };
   return store as DayStore & ConfirmStore;

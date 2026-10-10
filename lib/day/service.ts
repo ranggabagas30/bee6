@@ -71,6 +71,13 @@ export interface DayCorrectionRow {
   question_id: string;
   answer: "yes" | "no";
   reason_text: string;
+  /**
+   * Task 13 (`lib/day/queue-service.ts`): the business date the answer
+   * belongs to, needed because a queue item can be days older than today
+   * (the day record itself never needs this — a thread's business date
+   * there comes from `attributedBusinessDate`, not the correction).
+   */
+  debrief_business_date: string;
 }
 
 /**
@@ -85,6 +92,15 @@ export interface DayUnlabelledRow {
   answer: "yes" | "no" | null;
   window_start_ms: number;
   window_end_ms: number;
+}
+
+/** Task 13 (`lib/day/queue-service.ts`): the narrow shape `listAnsweredGateQuestions` returns. */
+export interface QueueQuestionRow {
+  outlet_id: string;
+  question_id: string;
+  thread_id: string;
+  answer: "yes" | "no";
+  answered_at_ms: number;
 }
 
 export interface DayStore {
@@ -109,6 +125,19 @@ export interface DayStore {
   listUnlabelledQuestions(fromMs: number, toMs: number, limit: number): Promise<DayUnlabelledRow[]>;
   /** Devices with `outlet_id`, `revoked` false, `paired_at` non-null. */
   countPairedDevices(): Promise<number>;
+  /**
+   * Task 13 (`lib/day/queue-service.ts`): `kind == "gate"`, `status ==
+   * "answered"`, `answered_at_ms >= sinceMs`, newest first, at most `limit`.
+   * Malformed docs (null `thread_id`, a non yes/no `answer`, or a
+   * non-numeric `answered_at_ms`) are dropped and logged by doc id.
+   */
+  listAnsweredGateQuestions(sinceMs: number, limit: number): Promise<QueueQuestionRow[]>;
+  /**
+   * Task 13: by thread doc id, the supervisor field mask (base fields +
+   * `lines` + `evidence_line_ids` + `runner_up`). Missing, malformed or
+   * foreign-outlet docs are absent from the map.
+   */
+  getThreads(ids: readonly string[]): Promise<Map<string, DayThreadRow>>;
 }
 
 /**
@@ -155,6 +184,78 @@ function lastIndexAtOrBefore(sortedStartMs: readonly number[], ms: number): numb
     }
   }
   return result;
+}
+
+/**
+ * Task 13.3: the supervisor row mapping shared by `getDayRecord`'s step 11
+ * and `lib/day/queue-service.ts`'s `getReviewQueue`. Pure given its inputs —
+ * no store access, no permission check. The caller is responsible for every
+ * precondition the two call sites already establish before mapping: `row`
+ * is outlet-matched and its effective category (`row.confirmed_category ??
+ * row.category`) is not `NON_WORK` (both `getDayRecord` step 8 and
+ * `getReviewQueue` step 5 filter this before calling), and `question` /
+ * `correction` are the matching docs for this thread's gate question (or
+ * `undefined` when there is none).
+ */
+export function toSupervisorThread(
+  row: DayThreadRow,
+  ctx: {
+    index: number;
+    tz: string;
+    outletId: string;
+    handleKey: Buffer | null;
+    question: DayQuestionRow | undefined;
+    correction: DayCorrectionRow | undefined;
+  },
+): SupervisorThread {
+  const { index, tz, outletId, handleKey, question, correction } = ctx;
+  // Guaranteed a WorkCategory by the caller's own NON_WORK filter (see above).
+  const effective = (row.confirmed_category ?? row.category) as WorkCategory;
+  const displayStatus = deriveDisplayStatus(row, effective, question as QuestionForStatus | undefined);
+
+  const base = {
+    row: index,
+    category: effective,
+    start_hm: localHmOf(row.first_line_start_ms, tz),
+    end_hm: localHmOf(row.last_line_end_ms, tz),
+    summary: row.summary,
+    confidence_pct: toConfidencePct(row.confidence),
+  };
+
+  const { evidence, more } = evidenceFor(row.lines ?? [], row.evidence_line_ids ?? [], tz, EVIDENCE_LINES_MAX);
+  const staffAnswer =
+    question?.status === "answered" && (question.answer === "yes" || question.answer === "no")
+      ? { answer: correction?.answer ?? question.answer, reason: correction?.reason_text ?? null }
+      : null;
+
+  // Task 10.5: the opaque handle a supervisor's confirm/override/reject
+  // call names this thread by, and the eligibility rule computed from it —
+  // the staff must have answered the question, and the thread must not be
+  // unverified (docs/tasks/R-06.md Task 10, "Eligibility rule").
+  const handle = handleKey ? sealThreadHandle(row.thread_id, outletId, handleKey) : null;
+  const canReview = handle !== null && row.status !== "unverified" && question?.status === "answered";
+
+  // Task 11: a runner-up equal to the chosen category is not a "second
+  // choice" at all (either absent, or it became the chosen category after
+  // a staff/supervisor confirmed_category) — null in both cases.
+  const runnerUp =
+    !row.runner_up || row.runner_up.category === effective
+      ? null
+      : {
+          category: row.runner_up.category,
+          why_not: row.runner_up.why_not.trim() === "" ? null : row.runner_up.why_not,
+        };
+
+  return {
+    ...base,
+    display_status: displayStatus,
+    evidence,
+    evidence_more: more,
+    staff_answer: staffAnswer,
+    runner_up: runnerUp,
+    handle,
+    can_review: canReview,
+  } as SupervisorThread;
 }
 
 export async function getDayRecord(
@@ -271,65 +372,32 @@ export async function getDayRecord(
     return a.row.thread_id < b.row.thread_id ? -1 : a.row.thread_id > b.row.thread_id ? 1 : 0;
   });
 
-  // 11. Map to response rows.
+  // 11. Map to response rows. The supervisor row shape is the shared
+  // `toSupervisorThread` (Task 13.3); the owner row has no evidence,
+  // handle, runner-up or staff answer to assemble, so it stays inline.
   const threads: (OwnerThread | SupervisorThread)[] = kept.map(({ row, effective }, index) => {
-    const qid = threadQuestionId(row.thread_id);
-    const question = questions?.get(qid);
-    const displayStatus = deriveDisplayStatus(row, effective, question as QuestionForStatus | undefined);
-
-    const base = {
-      row: index,
-      category: effective,
-      start_hm: localHmOf(row.first_line_start_ms, tz),
-      end_hm: localHmOf(row.last_line_end_ms, tz),
-      summary: row.summary,
-      confidence_pct: toConfidencePct(row.confidence),
-    };
-
     if (!supervisorView) {
-      return { ...base, display_status: displayStatus } as OwnerThread;
+      const displayStatus = deriveDisplayStatus(row, effective, undefined);
+      return {
+        row: index,
+        category: effective,
+        start_hm: localHmOf(row.first_line_start_ms, tz),
+        end_hm: localHmOf(row.last_line_end_ms, tz),
+        summary: row.summary,
+        confidence_pct: toConfidencePct(row.confidence),
+        display_status: displayStatus,
+      } as OwnerThread;
     }
 
-    const { evidence, more } = evidenceFor(
-      row.lines ?? [],
-      row.evidence_line_ids ?? [],
+    const qid = threadQuestionId(row.thread_id);
+    return toSupervisorThread(row, {
+      index,
       tz,
-      EVIDENCE_LINES_MAX,
-    );
-    const correction = corrections?.get(qid);
-    const staffAnswer =
-      question?.status === "answered" && (question.answer === "yes" || question.answer === "no")
-        ? { answer: correction?.answer ?? question.answer, reason: correction?.reason_text ?? null }
-        : null;
-
-    // Task 10.5: the opaque handle a supervisor's confirm/override/reject
-    // call names this thread by, and the eligibility rule computed from it —
-    // the staff must have answered the question, and the thread must not be
-    // unverified (docs/tasks/R-06.md Task 10, "Eligibility rule").
-    const handle = handleKey ? sealThreadHandle(row.thread_id, claims.outlet_id, handleKey) : null;
-    const canReview = handle !== null && row.status !== "unverified" && question?.status === "answered";
-
-    // Task 11: a runner-up equal to the chosen category is not a "second
-    // choice" at all (either absent, or it became the chosen category after
-    // a staff/supervisor confirmed_category) — null in both cases.
-    const runnerUp =
-      !row.runner_up || row.runner_up.category === effective
-        ? null
-        : {
-            category: row.runner_up.category,
-            why_not: row.runner_up.why_not.trim() === "" ? null : row.runner_up.why_not,
-          };
-
-    return {
-      ...base,
-      display_status: displayStatus,
-      evidence,
-      evidence_more: more,
-      staff_answer: staffAnswer,
-      runner_up: runnerUp,
-      handle,
-      can_review: canReview,
-    } as SupervisorThread;
+      outletId: claims.outlet_id,
+      handleKey,
+      question: questions?.get(qid),
+      correction: corrections?.get(qid),
+    });
   });
 
   // 11b. Task 12: map unlabelled rows. Sort by window_start_ms, then

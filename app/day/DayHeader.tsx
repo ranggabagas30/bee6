@@ -19,8 +19,9 @@ const NAV_BUTTON_STYLE: CSSProperties = {
 };
 
 // Link, not a button — stays text-only, but the tappable area still reaches
-// the 48px minimum (CLAUDE.md §2 global constraint).
-const HOME_LINK_STYLE: CSSProperties = {
+// the 48px minimum (CLAUDE.md §2 global constraint). Shared by the owner's
+// Home link and the supervisor's queue link below.
+const NAV_LINK_STYLE: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   minHeight: 48,
@@ -95,9 +96,17 @@ export function DayHeader({
 
       {day.truncated && <p>{t(lang, "C-day-truncated", { N: threadCount })}</p>}
 
+      {view === "supervisor" && (
+        <p>
+          <Link href="/questions" style={NAV_LINK_STYLE}>
+            {t(lang, "C-day-to-queue")}
+          </Link>
+        </p>
+      )}
+
       {view === "owner" && (
         <p>
-          <Link href="/home" style={HOME_LINK_STYLE}>
+          <Link href="/home" style={NAV_LINK_STYLE}>
             {t(lang, "C-day-to-home")}
           </Link>
         </p>
