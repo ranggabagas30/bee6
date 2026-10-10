@@ -3,7 +3,7 @@ import type { Lang } from "@/lib/i18n/lang";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import { dayLabel } from "@/lib/i18n/format";
 import { CATEGORY_KEY } from "@/lib/day/view-model";
-import { MODEL_DECLINE_REASONS } from "@/lib/firestore/schema";
+import type { MODEL_DECLINE_REASONS } from "@/lib/firestore/schema";
 import type { ProposalView } from "@/lib/proposals/contract";
 
 /**
