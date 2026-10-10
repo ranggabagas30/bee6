@@ -139,6 +139,28 @@ export const ConfirmResponseSchema = z
   .strict();
 export type ConfirmResponse = z.infer<typeof ConfirmResponseSchema>;
 
+/**
+ * Task 12: an `unlabelled_unit` question (the label call never produced a
+ * thread at all — no `thread_id`, no category, no evidence text). Supervisor
+ * only: an unlabelled unit can never become a fact, so it never reaches the
+ * owner view. `after_row` lets the client interleave these by time without a
+ * shared counter; `key` is a React key only, never a question id (hard rule
+ * #7: no id that embeds a device id in any response).
+ */
+export const UNLABELLED_CAP = 200;
+
+export const SupervisorUnlabelledSchema = z
+  .object({
+    key: z.number().int().min(0), // position in `unlabelled`; React key only
+    after_row: z.number().int().min(0).nullable(), // `row` of the last thread at/before this window; null = before every thread
+    start_hm: hm,
+    end_hm: hm,
+    display_status: z.enum(["question_open", "question_answered", "unverified"]),
+    staff_answer: StaffAnswerSchema.nullable(),
+  })
+  .strict();
+export type SupervisorUnlabelled = z.infer<typeof SupervisorUnlabelledSchema>;
+
 export const DayRecordResponseSchema = z.discriminatedUnion("view", [
   z
     .object({
@@ -152,6 +174,7 @@ export const DayRecordResponseSchema = z.discriminatedUnion("view", [
       view: z.literal("supervisor"),
       day: SupervisorDayHeaderSchema,
       threads: z.array(SupervisorThreadSchema).max(DAY_THREAD_CAP),
+      unlabelled: z.array(SupervisorUnlabelledSchema).max(UNLABELLED_CAP),
     })
     .strict(),
 ]);
