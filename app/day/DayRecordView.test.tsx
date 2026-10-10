@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { LangProvider, useLang } from "@/lib/i18n/context";
 import { dayLabel } from "@/lib/i18n/format";
 import type { Auth } from "@/lib/auth/client/firebase-client";
-import type { DayRecordResponse, OwnerThread, SupervisorThread } from "@/lib/day/contract";
+import type { DayRecordResponse, OwnerThread, SupervisorThread, SupervisorUnlabelled } from "@/lib/day/contract";
 import { DayRecordView } from "@/app/day/DayRecordView";
 
 afterEach(() => {
@@ -49,6 +49,18 @@ function supervisorThread(overrides: Partial<SupervisorThread> = {}): Supervisor
     runner_up: null,
     handle: null,
     can_review: false,
+    ...overrides,
+  };
+}
+
+function unlabelledItem(overrides: Partial<SupervisorUnlabelled> = {}): SupervisorUnlabelled {
+  return {
+    key: 0,
+    after_row: null,
+    start_hm: "09:00",
+    end_hm: "09:02",
+    display_status: "question_open",
+    staff_answer: null,
     ...overrides,
   };
 }
@@ -131,7 +143,7 @@ describe("DayRecordView — supervisor shape", () => {
   const SUPERVISOR_HEADER = { ...OWNER_HEADER_BASE, question_count: 3 };
 
   it("shows no Home link (owner view only)", () => {
-    const data: DayRecordResponse = { view: "supervisor", day: SUPERVISOR_HEADER, threads: [] };
+    const data: DayRecordResponse = { view: "supervisor", day: SUPERVISOR_HEADER, threads: [], unlabelled: [] };
     renderView(data);
     expect(screen.queryByRole("link", { name: "Home" })).toBeNull();
   });
@@ -150,6 +162,7 @@ describe("DayRecordView — supervisor shape", () => {
           evidence_more: 5,
         }),
       ],
+      unlabelled: [],
     };
     const { container } = renderView(data);
     expect(container.textContent).toContain("+5 more lines");
@@ -168,6 +181,7 @@ describe("DayRecordView — supervisor shape", () => {
           staff_answer: { answer: "no", reason: "REASON-SENTINEL-1" },
         }),
       ],
+      unlabelled: [],
     };
     const { container } = renderView(data);
     expect(container.textContent).toContain("A staff member answered No:");
@@ -185,6 +199,7 @@ describe("DayRecordView — supervisor shape", () => {
           staff_answer: { answer: "yes", reason: null },
         }),
       ],
+      unlabelled: [],
     };
     const { container } = renderView(data);
     expect(container.textContent).toContain("A staff member answered Yes:");
@@ -196,6 +211,7 @@ describe("DayRecordView — supervisor shape", () => {
       view: "supervisor",
       day: { ...SUPERVISOR_HEADER, fact_count: 0, question_count: 0 },
       threads: [],
+      unlabelled: [],
     };
     const { container } = renderView(data);
     expect(container.textContent).toContain("No work notes for this date.");
@@ -207,6 +223,7 @@ describe("DayRecordView — supervisor shape", () => {
       view: "supervisor",
       day: { ...SUPERVISOR_HEADER, day_status: "off", fact_count: 0, question_count: 0 },
       threads: [],
+      unlabelled: [],
     };
     const { container } = renderView(data);
     expect(container.textContent).toContain("Off / closed");
@@ -223,11 +240,152 @@ describe("DayRecordView — supervisor shape", () => {
         supervisorThread({ row: 1 }),
         supervisorThread({ row: 2 }),
       ],
+      unlabelled: [],
     };
     const { container } = renderView(data);
     expect(container.textContent).toContain("Facts: 0");
     expect(container.textContent).toContain("Questions: 3");
     expect(container.querySelectorAll("article")).toHaveLength(3);
+  });
+});
+
+describe("DayRecordView — unlabelled moments (Task 12)", () => {
+  const SUPERVISOR_HEADER = { ...OWNER_HEADER_BASE, question_count: 2 };
+
+  it("renders an unlabelled card with no blockquote/button, the status badge, and the help text", () => {
+    const data: DayRecordResponse = {
+      view: "supervisor",
+      day: SUPERVISOR_HEADER,
+      threads: [],
+      unlabelled: [unlabelledItem({ display_status: "unverified" })],
+    };
+    const { container } = renderView(data);
+    const articles = container.querySelectorAll("article");
+    expect(articles).toHaveLength(1);
+    expect(articles[0]!.querySelector("blockquote")).toBeNull();
+    expect(articles[0]!.querySelector("button")).toBeNull();
+    expect(container.textContent).toContain("Not labelled");
+    expect(container.textContent).toContain("Unverified");
+    expect(container.textContent).toContain("Could not label this. Staff were asked about it.");
+  });
+
+  it("renders the staff answer the same way ThreadCard does, including a null-reason Yes line", () => {
+    const data: DayRecordResponse = {
+      view: "supervisor",
+      day: SUPERVISOR_HEADER,
+      threads: [],
+      unlabelled: [
+        unlabelledItem({
+          key: 0,
+          display_status: "question_answered",
+          staff_answer: { answer: "yes", reason: "UNL-REASON-SENTINEL" },
+        }),
+      ],
+    };
+    const { container } = renderView(data);
+    expect(container.textContent).toContain("A staff member answered Yes:");
+    expect(container.querySelector("q")?.textContent).toBe("UNL-REASON-SENTINEL");
+  });
+
+  it("owner shape never renders an unlabelled card (the owner response has no unlabelled field)", () => {
+    const data: DayRecordResponse = {
+      view: "owner",
+      day: OWNER_HEADER_BASE,
+      threads: [ownerThread({ row: 0 })],
+    };
+    const { container } = renderView(data);
+    expect(container.querySelectorAll("article")).toHaveLength(1);
+    expect(container.textContent).not.toContain("Not labelled");
+  });
+
+  it("the 'Not labelled (N)' chip only appears when there is at least one unlabelled row", () => {
+    const withUnlabelled: DayRecordResponse = {
+      view: "supervisor",
+      day: SUPERVISOR_HEADER,
+      threads: [supervisorThread({ row: 0 })],
+      unlabelled: [unlabelledItem(), unlabelledItem({ key: 1 })],
+    };
+    const { container: withContainer } = renderView(withUnlabelled);
+    expect(screen.getByRole("button", { name: "Not labelled (2)" })).not.toBeNull();
+    expect(withContainer.textContent).toContain("All (3)"); // 1 thread + 2 unlabelled
+
+    cleanup();
+    const withoutUnlabelled: DayRecordResponse = {
+      view: "supervisor",
+      day: { ...SUPERVISOR_HEADER, question_count: 0 },
+      threads: [supervisorThread({ row: 0 })],
+      unlabelled: [],
+    };
+    renderView(withoutUnlabelled);
+    expect(screen.queryByRole("button", { name: /Not labelled/ })).toBeNull();
+  });
+
+  it("tapping the 'Not labelled' chip narrows to unlabelled cards only; All restores the full timeline", () => {
+    const data: DayRecordResponse = {
+      view: "supervisor",
+      day: SUPERVISOR_HEADER,
+      threads: [supervisorThread({ row: 0, category: "ROUTINE_OPS" })],
+      unlabelled: [unlabelledItem({ after_row: 0 })],
+    };
+    renderView(data);
+    expect(screen.getAllByRole("article")).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("button", { name: /Not labelled/ }));
+    expect(screen.getAllByRole("article")).toHaveLength(1);
+    expect(screen.getByRole("article").textContent).toContain("Not labelled");
+
+    fireEvent.click(screen.getByRole("button", { name: /^All/ }));
+    expect(screen.getAllByRole("article")).toHaveLength(2);
+  });
+
+  it("a category chip hides every unlabelled card (only threads of that category show)", () => {
+    const data: DayRecordResponse = {
+      view: "supervisor",
+      day: SUPERVISOR_HEADER,
+      threads: [supervisorThread({ row: 0, category: "ROUTINE_OPS" })],
+      unlabelled: [unlabelledItem({ after_row: 0 })],
+    };
+    renderView(data);
+    fireEvent.click(screen.getByRole("button", { name: /Routine/ }));
+    const articles = screen.getAllByRole("article");
+    expect(articles).toHaveLength(1);
+    expect(articles[0]!.textContent).not.toContain("Not labelled");
+  });
+
+  it("interleaves an unlabelled row after its thread, and one before every thread comes first", () => {
+    const data: DayRecordResponse = {
+      view: "supervisor",
+      day: { ...SUPERVISOR_HEADER, question_count: 2 },
+      threads: [
+        supervisorThread({ row: 0, summary: "THREAD-A" }),
+        supervisorThread({ row: 1, summary: "THREAD-B" }),
+      ],
+      unlabelled: [
+        unlabelledItem({ key: 0, after_row: null }),
+        unlabelledItem({ key: 1, after_row: 0 }),
+      ],
+    };
+    const { container } = renderView(data);
+    const order = Array.from(container.querySelectorAll("article")).map((a) =>
+      a.textContent?.includes("THREAD-A")
+        ? "A"
+        : a.textContent?.includes("THREAD-B")
+          ? "B"
+          : "U",
+    );
+    expect(order).toEqual(["U", "A", "U", "B"]);
+  });
+
+  it("supervisor empty state requires both threads and unlabelled to be empty", () => {
+    const onlyUnlabelled: DayRecordResponse = {
+      view: "supervisor",
+      day: { ...SUPERVISOR_HEADER, fact_count: 0, question_count: 1 },
+      threads: [],
+      unlabelled: [unlabelledItem()],
+    };
+    const { container } = renderView(onlyUnlabelled);
+    expect(container.textContent).not.toContain("No work notes for this date.");
+    expect(container.querySelectorAll("article")).toHaveLength(1);
   });
 });
 
@@ -312,6 +470,7 @@ describe("DayRecordView — language toggle preserves stored content", () => {
           runner_up: { category: "ROUTINE_OPS", why_not: "WHY-NOT-CONTENT-STRING" },
         }),
       ],
+      unlabelled: [],
     };
     const { container } = render(
       <LangProvider initial="en">
