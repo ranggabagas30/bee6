@@ -269,6 +269,15 @@ export const ID = {
   "C-day-unlabelled": "Belum berlabel", // PROVISIONAL
   "C-day-unlabelled-help": "Tidak bisa dilabeli. Staf ditanya soal ini.", // PROVISIONAL
   "C-day-filter-unlabelled": "Belum berlabel ({N})", // PROVISIONAL
+
+  // /questions (R-06 Task 13) — supervisor review queue. All PROVISIONAL:
+  // UX-03 did not design this screen.
+  "C-queue-title": "Menunggu ditinjau", // PROVISIONAL
+  "C-queue-help": "Jawaban staf yang perlu supervisor, 14 hari terakhir.", // PROVISIONAL
+  "C-queue-empty": "Tidak ada yang menunggu ditinjau.", // PROVISIONAL
+  "C-queue-open-day": "Buka hari ini", // PROVISIONAL
+  "C-queue-to-day": "Catatan hari", // PROVISIONAL
+  "C-day-to-queue": "Menunggu ditinjau", // PROVISIONAL
 } as const;
 
 export type DictKey = keyof typeof ID;
@@ -512,6 +521,14 @@ export const EN: Record<DictKey, string> = {
   "C-day-unlabelled": "Not labelled",
   "C-day-unlabelled-help": "Could not label this. Staff were asked about it.",
   "C-day-filter-unlabelled": "Not labelled ({N})",
+
+  // /questions (R-06 Task 13) — supervisor review queue.
+  "C-queue-title": "Waiting for review",
+  "C-queue-help": "Staff answers that need a supervisor, last 14 days.",
+  "C-queue-empty": "Nothing is waiting for review.",
+  "C-queue-open-day": "Open this day",
+  "C-queue-to-day": "Day record",
+  "C-day-to-queue": "Waiting for review",
 };
 
 export const DICT: Record<Lang, Record<DictKey, string>> = { id: ID, en: EN };
