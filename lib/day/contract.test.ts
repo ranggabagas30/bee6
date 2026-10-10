@@ -6,6 +6,8 @@ import {
   DayRecordResponseSchema,
   OwnerDayHeaderSchema,
   OwnerThreadSchema,
+  QueueItemSchema,
+  ReviewQueueResponseSchema,
   RunnerUpSchema,
   SupervisorDayHeaderSchema,
   SupervisorThreadSchema,
@@ -405,6 +407,116 @@ describe("RunnerUpSchema", () => {
   it("rejects an extra key (strict)", () => {
     expect(
       RunnerUpSchema.safeParse({ category: "ROUTINE_OPS", why_not: "x", thread_id: "t1" }).success,
+    ).toBe(false);
+  });
+});
+
+describe("QueueItemSchema (R-06 Task 13)", () => {
+  const baseSupervisorThread = {
+    row: 0,
+    category: "ROUTINE_OPS" as const,
+    start_hm: "10:00",
+    end_hm: "10:05",
+    summary: "Did a thing.",
+    confidence_pct: 90,
+    display_status: "question_answered" as const,
+    evidence: [],
+    evidence_more: 0,
+    staff_answer: null,
+    runner_up: null,
+    handle: "abc123",
+    can_review: true,
+  };
+
+  it("accepts a supervisor row plus a business date", () => {
+    expect(
+      QueueItemSchema.safeParse({ ...baseSupervisorThread, date: "2026-10-08" }).success,
+    ).toBe(true);
+  });
+
+  it("rejects a missing date", () => {
+    expect(QueueItemSchema.safeParse(baseSupervisorThread).success).toBe(false);
+  });
+
+  it("rejects a malformed date", () => {
+    expect(
+      QueueItemSchema.safeParse({ ...baseSupervisorThread, date: "10/08/2026" }).success,
+    ).toBe(false);
+  });
+
+  it.each(["thread_id", "device_id", "question_id"])(
+    "rejects the extra key %s (same device-id boundary as SupervisorThreadSchema)",
+    (key) => {
+      expect(
+        QueueItemSchema.safeParse({ ...baseSupervisorThread, date: "2026-10-08", [key]: "x" }).success,
+      ).toBe(false);
+    },
+  );
+});
+
+describe("ReviewQueueResponseSchema (R-06 Task 13)", () => {
+  const item = {
+    row: 0,
+    category: "ROUTINE_OPS" as const,
+    start_hm: "10:00",
+    end_hm: "10:05",
+    summary: "Did a thing.",
+    confidence_pct: 90,
+    display_status: "question_answered" as const,
+    evidence: [],
+    evidence_more: 0,
+    staff_answer: null,
+    runner_up: null,
+    handle: "abc123",
+    can_review: true,
+    date: "2026-10-08",
+  };
+
+  it("accepts an empty queue", () => {
+    expect(
+      ReviewQueueResponseSchema.safeParse({ view: "supervisor_queue", items: [], truncated: false })
+        .success,
+    ).toBe(true);
+  });
+
+  it("accepts a queue with items", () => {
+    expect(
+      ReviewQueueResponseSchema.safeParse({ view: "supervisor_queue", items: [item], truncated: false })
+        .success,
+    ).toBe(true);
+  });
+
+  it("rejects 201 items (cap is 200)", () => {
+    const items = Array.from({ length: 201 }, (_, i) => ({ ...item, row: i }));
+    expect(
+      ReviewQueueResponseSchema.safeParse({ view: "supervisor_queue", items, truncated: true }).success,
+    ).toBe(false);
+  });
+
+  it("rejects an owner-shaped item (no display_status fact_* allowed to be the day record's owner shape)", () => {
+    expect(
+      ReviewQueueResponseSchema.safeParse({
+        view: "supervisor_queue",
+        items: [{ ...item, evidence: undefined }],
+        truncated: false,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects the wrong view literal", () => {
+    expect(
+      ReviewQueueResponseSchema.safeParse({ view: "supervisor", items: [], truncated: false }).success,
+    ).toBe(false);
+  });
+
+  it("rejects an extra top-level key (strict)", () => {
+    expect(
+      ReviewQueueResponseSchema.safeParse({
+        view: "supervisor_queue",
+        items: [],
+        truncated: false,
+        question_count: 1,
+      }).success,
     ).toBe(false);
   });
 });

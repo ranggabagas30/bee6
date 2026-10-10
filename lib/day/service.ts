@@ -87,6 +87,15 @@ export interface DayUnlabelledRow {
   window_end_ms: number;
 }
 
+/** Task 13 (`lib/day/queue-service.ts`): the narrow shape `listAnsweredGateQuestions` returns. */
+export interface QueueQuestionRow {
+  outlet_id: string;
+  question_id: string;
+  thread_id: string;
+  answer: "yes" | "no";
+  answered_at_ms: number;
+}
+
 export interface DayStore {
   getOutlet(): Promise<Outlet | null>;
   /** `local_date` in `dates` (<= 3 values). Malformed docs skipped. */
@@ -109,6 +118,19 @@ export interface DayStore {
   listUnlabelledQuestions(fromMs: number, toMs: number, limit: number): Promise<DayUnlabelledRow[]>;
   /** Devices with `outlet_id`, `revoked` false, `paired_at` non-null. */
   countPairedDevices(): Promise<number>;
+  /**
+   * Task 13 (`lib/day/queue-service.ts`): `kind == "gate"`, `status ==
+   * "answered"`, `answered_at_ms >= sinceMs`, newest first, at most `limit`.
+   * Malformed docs (null `thread_id`, a non yes/no `answer`, or a
+   * non-numeric `answered_at_ms`) are dropped and logged by doc id.
+   */
+  listAnsweredGateQuestions(sinceMs: number, limit: number): Promise<QueueQuestionRow[]>;
+  /**
+   * Task 13: by thread doc id, the supervisor field mask (base fields +
+   * `lines` + `evidence_line_ids` + `runner_up`). Missing, malformed or
+   * foreign-outlet docs are absent from the map.
+   */
+  getThreads(ids: readonly string[]): Promise<Map<string, DayThreadRow>>;
 }
 
 /**

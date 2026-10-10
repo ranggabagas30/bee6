@@ -122,6 +122,17 @@ class FakeDayStore implements DayStore {
   async listUnlabelledQuestions(): Promise<DayUnlabelledRow[]> {
     throw new Error("listUnlabelledQuestions is not used by the owner home");
   }
+
+  // Not exercised by any getOwnerHome test (Task 13's own tests cover these
+  // against `queue-service.test.ts`'s own fake) — present only so
+  // FakeDayStore satisfies DayStore.
+  listAnsweredGateQuestions(): never {
+    throw new Error("listAnsweredGateQuestions is not used by getOwnerHome tests");
+  }
+
+  getThreads(): never {
+    throw new Error("getThreads is not used by getOwnerHome tests");
+  }
 }
 
 function threadId(n: number): string {

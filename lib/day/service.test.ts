@@ -187,9 +187,19 @@ class FakeDayStore implements DayStore {
   }
 
   // Not exercised by any getDayRecord test (Task 10's own tests cover it
-  // against a dedicated fake) — present only so FakeDayStore satisfies DayStore.
+  // against a dedicated fake, Task 13's own tests cover these against
+  // `queue-service.test.ts`'s own fake) — present only so FakeDayStore
+  // satisfies DayStore.
   transactConfirm(): never {
     throw new Error("transactConfirm is not used by getDayRecord tests");
+  }
+
+  listAnsweredGateQuestions(): never {
+    throw new Error("listAnsweredGateQuestions is not used by getDayRecord tests");
+  }
+
+  getThreads(): never {
+    throw new Error("getThreads is not used by getDayRecord tests");
   }
 }
 

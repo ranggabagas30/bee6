@@ -20,6 +20,7 @@ import type {
   DayStore,
   DayThreadRow,
   DayUnlabelledRow,
+  QueueQuestionRow,
 } from "@/lib/day/service";
 import type { ConfirmPlan, ConfirmTxSnapshot } from "@/lib/day/confirm-service";
 
@@ -93,6 +94,26 @@ const QUESTION_SHAPE = QuestionSchema.pick({
   question_id: true,
   status: true,
   answer: true,
+});
+
+/** Task 13 (`listAnsweredGateQuestions`): the fields the review-queue query selects. */
+const QUEUE_QUESTION_FIELDS = [
+  "outlet_id",
+  "question_id",
+  "thread_id",
+  "kind",
+  "status",
+  "answer",
+  "answered_at_ms",
+] as const;
+const QUEUE_QUESTION_SHAPE = QuestionSchema.pick({
+  outlet_id: true,
+  question_id: true,
+  thread_id: true,
+  kind: true,
+  status: true,
+  answer: true,
+  answered_at_ms: true,
 });
 
 const CORRECTION_FIELDS = ["outlet_id", "question_id", "answer", "reason_text"] as const;
@@ -312,6 +333,71 @@ export function firestoreDayStore(outletId: string, db: Firestore = adminDb()): 
         if (result.data.paired_at !== null && result.data.revoked !== true) count += 1;
       }
       return count;
+    },
+
+    /**
+     * Task 13 (`lib/day/queue-service.ts` `getReviewQueue`): every gate
+     * question answered at or after `sinceMs`, newest first, at most
+     * `limit`. A doc with a null `thread_id`, a non yes/no `answer` or a
+     * non-numeric `answered_at_ms` is dropped and logged by doc id — the
+     * same "a malformed sibling doc never fails the whole queue" discipline
+     * as every other read in this store.
+     */
+    async listAnsweredGateQuestions(sinceMs, limit): Promise<QueueQuestionRow[]> {
+      const snap = await db
+        .collection(COLLECTIONS.questions)
+        .where("outlet_id", "==", outletId)
+        .where("kind", "==", "gate")
+        .where("status", "==", "answered")
+        .where("answered_at_ms", ">=", sinceMs)
+        .orderBy("answered_at_ms", "desc")
+        .limit(limit)
+        .select(...QUEUE_QUESTION_FIELDS)
+        .get();
+
+      const out: QueueQuestionRow[] = [];
+      for (const doc of snap.docs) {
+        const result = QUEUE_QUESTION_SHAPE.safeParse(doc.data());
+        if (!result.success) {
+          logSkippedDoc("question", doc.id);
+          continue;
+        }
+        const { thread_id, answer, answered_at_ms } = result.data;
+        if (
+          thread_id === null ||
+          (answer !== "yes" && answer !== "no") ||
+          typeof answered_at_ms !== "number"
+        ) {
+          logSkippedDoc("question", doc.id);
+          continue;
+        }
+        out.push({
+          outlet_id: result.data.outlet_id,
+          question_id: result.data.question_id,
+          thread_id,
+          answer,
+          answered_at_ms,
+        });
+      }
+      return out;
+    },
+
+    /**
+     * Task 13: thread docs by id, supervisor field mask (incl. `lines` and
+     * `runner_up`) — the same shape the day record's supervisor path reads,
+     * so `toSupervisorThread`-shaped mapping (Task 13.4) needs no second
+     * query shape.
+     */
+    async getThreads(ids): Promise<Map<string, DayThreadRow>> {
+      return getByIdsFieldMasked(
+        db,
+        COLLECTIONS.threads,
+        ids,
+        THREAD_WITH_TEXT_FIELDS,
+        THREAD_WITH_TEXT_SHAPE,
+        outletId,
+        "thread",
+      ) as Promise<Map<string, DayThreadRow>>;
     },
 
     /**
