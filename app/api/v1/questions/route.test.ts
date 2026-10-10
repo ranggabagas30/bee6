@@ -81,6 +81,7 @@ function fakeDayStore(overrides: Partial<DayStore> = {}): DayStore & ConfirmStor
     listThreads: async () => [],
     getQuestions: async () => new Map(),
     getCorrections: async () => new Map(),
+    listUnlabelledQuestions: async () => [],
     countPairedDevices: async () => 0,
     listAnsweredGateQuestions: async () => [],
     getThreads: async () => new Map(),

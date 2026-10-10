@@ -637,6 +637,7 @@ describe("getDayRecord — unlabelled moments (Task 12)", () => {
     question_id: "fixture_q_unit_2",
     answer: "yes",
     reason_text: "REASON-SENTINEL-U",
+    debrief_business_date: FRI,
   };
   const unlFixture: Fixture = emptyFixture({
     sessions: [daySession],
