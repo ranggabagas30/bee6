@@ -67,7 +67,7 @@ export function DayRecordView({
       <DayHeader
         view={data.view}
         day={data.day}
-        threadCount={threads.length}
+        threadCount={threads.length + unlabelled.length}
         onPrev={onPrev}
         onNext={onNext}
       />

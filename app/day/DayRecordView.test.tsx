@@ -557,6 +557,18 @@ describe("DayRecordView — header", () => {
     const { container } = renderView(data);
     expect(container.textContent).toContain("Showing the first 2 notes.");
   });
+
+  it("truncated count includes unlabelled rows, not just threads (tech-lead PR-6 review, finding 3)", () => {
+    const data: DayRecordResponse = {
+      view: "supervisor",
+      day: { ...OWNER_HEADER_BASE, truncated: true, question_count: 3 },
+      threads: [supervisorThread({ row: 0 })],
+      unlabelled: [unlabelledItem({ key: 0 }), unlabelledItem({ key: 1 })],
+    };
+    const { container } = renderView(data);
+    // 1 thread + 2 unlabelled = 3, not 1.
+    expect(container.textContent).toContain("Showing the first 3 notes.");
+  });
 });
 
 describe("DayRecordView — 360px safety", () => {

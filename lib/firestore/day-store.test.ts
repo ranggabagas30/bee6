@@ -59,11 +59,18 @@ function pickFields(data: Record<string, unknown>, fields: readonly string[]): R
   return out;
 }
 
+/** One entry per `.get()` call on a query, recording the field list `.select()` set (tech-lead PR-6 review, finding 1). */
+interface QueryLogEntry {
+  name: string;
+  selectFields: string[] | undefined;
+}
+
 function fakeDb(seed: Record<string, Record<string, Record<string, unknown>>> = {}) {
   const collections = new Map<string, Map<string, Record<string, unknown>>>();
   for (const [colName, docs] of Object.entries(seed)) {
     collections.set(colName, new Map(Object.entries(docs)));
   }
+  const queryLog: QueryLogEntry[] = [];
 
   function col(name: string): Map<string, Record<string, unknown>> {
     let c = collections.get(name);
@@ -95,6 +102,7 @@ function fakeDb(seed: Record<string, Record<string, Record<string, unknown>>> = 
         return makeQuery(name, filters, orderField, limitN, fields);
       },
       async get() {
+        queryLog.push({ name, selectFields });
         let entries = Array.from(col(name).entries()).filter(([, data]) =>
           filters.every(([f, o, v]) => matches(data, f, o, v)),
         );
@@ -184,7 +192,7 @@ function fakeDb(seed: Record<string, Record<string, Record<string, unknown>>> = 
     },
   };
 
-  return { db: db as unknown as Firestore, collections };
+  return { db: db as unknown as Firestore, collections, queryLog };
 }
 
 const OUTLET_ID = "o1";
@@ -547,6 +555,80 @@ describe("firestoreDayStore.listUnlabelledQuestions (R-06 Task 12)", () => {
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining("unlabelled_question"),
       expect.objectContaining({ doc_id: "bad", error_class: "ZodError" }),
+    );
+    errorSpy.mockRestore();
+  });
+
+  it("the kind filter runs before the limit (not just the store's own defensive check)", async () => {
+    // Three `gate` docs (early window_start_ms, so they would win a plain
+    // ordered+limited query) plus one `unlabelled_unit` doc. If the store's
+    // query ever dropped `.where("kind", "==", "unlabelled_unit")`, these
+    // gate docs would satisfy `limit=1` before the unlabelled row is ever
+    // reached — the store's own post-parse `kind` check only drops rows
+    // AFTER the query already returned them, so it would see zero rows here.
+    const gate1 = makeQuestion({ question_id: "gate-1", kind: "gate", window_start_ms: 100 });
+    const gate2 = makeQuestion({ question_id: "gate-2", kind: "gate", window_start_ms: 200 });
+    const gate3 = makeQuestion({ question_id: "gate-3", kind: "gate", window_start_ms: 300 });
+    const unl = makeUnlabelled({ question_id: "unl-1", window_start_ms: 5_000 });
+    const { db } = fakeDb({ [COLLECTIONS.questions]: { a: gate1, b: gate2, c: gate3, d: unl } });
+    const store = firestoreDayStore(OUTLET_ID, db);
+    const rows = await store.listUnlabelledQuestions(0, 100_000, 1);
+    expect(rows.map((r) => r.question_id)).toEqual(["unl-1"]);
+  });
+
+  it("respects the limit parameter", async () => {
+    const u1 = makeUnlabelled({ question_id: "u1", window_start_ms: 1_000 });
+    const u2 = makeUnlabelled({ question_id: "u2", window_start_ms: 2_000 });
+    const u3 = makeUnlabelled({ question_id: "u3", window_start_ms: 3_000 });
+    const { db } = fakeDb({ [COLLECTIONS.questions]: { a: u1, b: u2, c: u3 } });
+    const store = firestoreDayStore(OUTLET_ID, db);
+    const rows = await store.listUnlabelledQuestions(0, 100_000, 2);
+    expect(rows.map((r) => r.question_id)).toEqual(["u1", "u2"]);
+  });
+
+  it("selects exactly the UNLABELLED_QUESTION_FIELDS field list", async () => {
+    const q = makeUnlabelled({ question_id: "q1" });
+    const { db, queryLog } = fakeDb({ [COLLECTIONS.questions]: { q1: q } });
+    const store = firestoreDayStore(OUTLET_ID, db);
+    await store.listUnlabelledQuestions(0, 100_000, 100);
+    expect(queryLog).toHaveLength(1);
+    expect(queryLog[0]!.name).toBe(COLLECTIONS.questions);
+    expect(queryLog[0]!.selectFields).toEqual([
+      "outlet_id",
+      "question_id",
+      "device_id",
+      "kind",
+      "status",
+      "answer",
+      "answered_at_ms",
+      "window_start_ms",
+      "window_end_ms",
+    ]);
+  });
+
+  it("skips an inconsistent doc: status answered with no answered_at_ms (the reverse direction) and logs by doc id only", async () => {
+    // The other direction of the inconsistency rule — `status: "answered"`
+    // but missing `answered_at_ms` — is not covered by the existing
+    // open-with-an-answer-set case below.
+    const inconsistent = {
+      outlet_id: OUTLET_ID,
+      question_id: "q2",
+      device_id: "dev-1",
+      kind: "unlabelled_unit",
+      status: "answered",
+      answer: "yes",
+      window_start_ms: 5_000,
+      window_end_ms: 7_000,
+      // no answered_at_ms
+    };
+    const { db } = fakeDb({ [COLLECTIONS.questions]: { q2: inconsistent } });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const store = firestoreDayStore(OUTLET_ID, db);
+    const rows = await store.listUnlabelledQuestions(0, 100_000, 100);
+    expect(rows).toEqual([]);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("unlabelled_question"),
+      expect.objectContaining({ doc_id: "q2", error_class: "ZodError" }),
     );
     errorSpy.mockRestore();
   });

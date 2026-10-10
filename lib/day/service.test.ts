@@ -666,6 +666,76 @@ describe("getDayRecord — unlabelled moments (Task 12)", () => {
     }
   });
 
+  it("getCorrections is called exactly once total (not once per thread + once per unlabelled row), including an unlabelled row's correction id", async () => {
+    const store = new FakeDayStore(OUTLET_ID, unlFixture);
+    await getDayRecord(store, {
+      claims: SUPERVISOR_CLAIMS,
+      param: "today",
+      now_ms: at("12:00"),
+      handleKey: null,
+    });
+    expect(store.calls.getCorrectionsCalled).toBe(1);
+    expect(store.calls.getCorrectionsIds).toContain("fixture_q_unit_2");
+  });
+
+  it("an unlabelled unit starting exactly at a thread's first_line_start_ms (a tie) resolves to that thread's row under the <= rule", async () => {
+    const tiedUnl: DayUnlabelledRow = {
+      outlet_id: OUTLET_ID,
+      question_id: "fixture_q_unit_tie",
+      device_id: DEVICE,
+      status: "open",
+      answer: null,
+      window_start_ms: at("10:00"), // exactly threadA.first_line_start_ms
+      window_end_ms: at("10:00") + 2 * 60_000,
+    };
+    const store = new FakeDayStore(
+      OUTLET_ID,
+      emptyFixture({ sessions: [daySession], threads: [threadA, threadB], unlabelled: [tiedUnl] }),
+    );
+    const result = await getDayRecord(store, {
+      claims: SUPERVISOR_CLAIMS,
+      param: "today",
+      now_ms: at("12:00"),
+      handleKey: null,
+    });
+    const unlabelled = (result as { unlabelled: SupervisorUnlabelled[] }).unlabelled;
+    expect(unlabelled).toHaveLength(1);
+    expect(unlabelled[0]!.after_row).toBe(0);
+  });
+
+  it("question_count sums non-fact threads AND unlabelled rows together (not only one or the other)", async () => {
+    const unlA: DayUnlabelledRow = {
+      outlet_id: OUTLET_ID,
+      question_id: "fixture_q_unit_mix_a",
+      device_id: DEVICE,
+      status: "open",
+      answer: null,
+      window_start_ms: at("09:45"),
+      window_end_ms: at("09:45") + 2 * 60_000,
+    };
+    const unlB: DayUnlabelledRow = {
+      outlet_id: OUTLET_ID,
+      question_id: "fixture_q_unit_mix_b",
+      device_id: DEVICE,
+      status: "unverified",
+      answer: null,
+      window_start_ms: at("13:00"),
+      window_end_ms: at("13:00") + 2 * 60_000,
+    };
+    const store = new FakeDayStore(
+      OUTLET_ID,
+      emptyFixture({ sessions: [daySession], threads: dayMixThreads, unlabelled: [unlA, unlB] }),
+    );
+    const result = await getDayRecord(store, {
+      claims: SUPERVISOR_CLAIMS,
+      param: "today",
+      now_ms: at("12:00"),
+      handleKey: null,
+    });
+    // dayMixThreads: 9 threads, 4 facts -> 5 non-fact threads; + 2 unlabelled rows.
+    expect((result.day as { question_count: number }).question_count).toBe(7);
+  });
+
   it("owner: never calls listUnlabelledQuestions, no unlabelled key, no sentinel leak", async () => {
     const store = new FakeDayStore(OUTLET_ID, unlFixture);
     const result = await getDayRecord(store, {
