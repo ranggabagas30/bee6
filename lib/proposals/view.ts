@@ -1,0 +1,81 @@
+import { localHmOf } from "@/lib/capture/calendar";
+import type { ProposalLibrary, LibraryEntry } from "@/config/proposal-library";
+import type { Proposal, SopVersion } from "@/lib/firestore/schema";
+import { ProposalViewSchema, type ProposalView } from "@/lib/proposals/contract";
+
+/**
+ * Builds the API-facing `ProposalView` from a stored `Proposal` (R-08 Task
+ * 5.5). Every field is built with explicit keys — never a spread of the
+ * stored doc, so a future schema addition can never leak into the response
+ * by accident (hard rule #7: no thread id, device id or question id ever
+ * reaches the response).
+ */
+
+function labelFor(id: string, entries: readonly LibraryEntry[]): { id: string; label_en: string; label_id: string } {
+  const entry = entries.find((e) => e.id === id);
+  // An id no longer in the library (a later version dropped it) still
+  // renders — the id itself, in both languages, rather than erroring.
+  return entry ? { id, label_en: entry.label_en, label_id: entry.label_id } : { id, label_en: id, label_id: id };
+}
+
+export function toProposalView(
+  stored: Proposal,
+  summariesByThreadId: ReadonlyMap<string, string | null>,
+  library: ProposalLibrary,
+  sop: SopVersion,
+  tz: string,
+): ProposalView {
+  const view: ProposalView = {
+    proposal_id: stored.proposal_id,
+    status: stored.status,
+    created_at_ms: stored.created_at_ms,
+    range: { from_date: stored.range.from_date, to_date: stored.range.to_date },
+    suppression: stored.suppression
+      ? {
+          reason: stored.suppression.reason,
+          model_reason: stored.suppression.model_reason,
+          followup: {
+            categories: [...stored.suppression.followup.categories],
+            have_facts: stored.suppression.followup.have_facts,
+            have_dates: stored.suppression.followup.have_dates,
+            need_facts: stored.suppression.followup.need_facts,
+            need_dates: stored.suppression.followup.need_dates,
+          },
+        }
+      : null,
+    blocked_rule: stored.status === "blocked" ? stored.gate.fired_rule : null,
+    content: stored.content
+      ? {
+          intervention: labelFor(stored.content.intervention_id, library.interventions.entries),
+          rubric: stored.content.rubric_criterion_ids.map((id) => labelFor(id, library.rubric.entries)),
+          target_step:
+            stored.content.target_step_id === null
+              ? null
+              : (() => {
+                  const step = sop.steps.find((s) => s.step_id === stored.content!.target_step_id);
+                  return step ? { step_id: step.step_id, title: step.title } : { step_id: stored.content!.target_step_id!, title: stored.content!.target_step_id! };
+                })(),
+          change_title: stored.content.change_title,
+          change_text: stored.content.change_text,
+          rationale: stored.content.rationale,
+          metric: {
+            category: stored.content.metric.category,
+            direction: stored.content.metric.direction,
+            description: stored.content.metric.description,
+            baseline_count: stored.content.metric.baseline_count,
+            baseline_days: stored.content.metric.baseline_days,
+          },
+          failure_condition: stored.content.failure_condition,
+          review_date: stored.content.review_date,
+          evidence: stored.content.evidence.map((ref) => ({
+            date: ref.local_date,
+            start_hm: localHmOf(ref.first_line_start_ms, tz),
+            category: ref.category,
+            summary: summariesByThreadId.get(ref.thread_id) ?? null,
+          })),
+          censored_floor: true,
+        }
+      : null,
+  };
+  return ProposalViewSchema.parse(view);
+}
