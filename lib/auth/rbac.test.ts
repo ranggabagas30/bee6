@@ -16,10 +16,16 @@ function claims(overrides: Partial<CustomClaims> = {}): CustomClaims {
 
 // The permission matrix straight from web spec §2 — the source of truth this
 // table-driven test guards against drift.
+// v2 (R-08, Rangga 10 Oct, Q-10 + Q-8 + Q-11 b): owner gains
+// proposals:generate, constraints:read, constraints:write; supervisor gains
+// constraints:read, constraints:write.
 const MATRIX: Record<PrincipalRole, Permission[]> = {
   owner: [
     "day:read:summary",
     "proposals:approve",
+    "proposals:generate",
+    "constraints:read",
+    "constraints:write",
     "reviews:verdict",
     "sop:read",
     "sop:diff",
@@ -32,6 +38,8 @@ const MATRIX: Record<PrincipalRole, Permission[]> = {
     "labels:confirm",
     "proposals:review",
     "proposals:generate",
+    "constraints:read",
+    "constraints:write",
     "reviews:verdict",
     "sop:read",
     "sop:diff",
@@ -51,6 +59,8 @@ const ALL_PERMISSIONS: Permission[] = [
   "proposals:review",
   "proposals:approve",
   "proposals:generate",
+  "constraints:read",
+  "constraints:write",
   "reviews:verdict",
   "sop:read",
   "sop:diff",
@@ -69,6 +79,20 @@ describe("permission table matches web spec §2", () => {
       expect([...permissionsFor(role)].sort()).toEqual([...granted].sort());
     });
   }
+});
+
+describe("R-08 v2: owner generation + constraints widening", () => {
+  it("owner may generate proposals (Q-10)", () => {
+    expect(can("owner", "proposals:generate")).toBe(true);
+  });
+
+  it("owner may write constraints (Q-11 b)", () => {
+    expect(can("owner", "constraints:write")).toBe(true);
+  });
+
+  it("the approval sequence did not widen: owner still cannot mark Feasible", () => {
+    expect(can("owner", "proposals:review")).toBe(false);
+  });
 });
 
 describe("assertPermission", () => {

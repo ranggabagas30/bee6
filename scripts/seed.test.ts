@@ -1,12 +1,28 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as fs from "node:fs";
+
+// Wraps real node:fs so the SOP-separation guard test can spy on
+// readFileSync/existsSync without hitting vitest's "cannot redefine a
+// readonly ESM export" limitation — every other test in this file uses the
+// real implementation underneath (vi.fn(actual.fn) still calls through).
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return { ...actual, readFileSync: vi.fn(actual.readFileSync), existsSync: vi.fn(actual.existsSync) };
+});
+
 import {
   DEMO_SEED,
   SeedConfigSchema,
+  assertProjectMatchesEnv,
   buildSeedDocuments,
+  buildSopVersionDoc,
+  loadConfig,
+  writeSopVersionIfAbsent,
 } from "@/scripts/seed";
 import {
   DeviceSchema,
   OutletSchema,
+  SopVersionSchema,
   StaffSchema,
   UserSchema,
 } from "@/lib/firestore/schema";
@@ -97,5 +113,110 @@ describe("buildSeedDocuments", () => {
       staff: [{ staff_id: "x", name: "X", role: "staff", pin: "12" }],
     };
     expect(SeedConfigSchema.safeParse(bad).success).toBe(false);
+  });
+});
+
+describe("R-08 Task 2.3: sop_v1", () => {
+  it("DEMO_SEED parses with the SOP block", () => {
+    expect(SeedConfigSchema.safeParse(DEMO_SEED).success).toBe(true);
+    expect(DEMO_SEED.sop_v1?.steps.length).toBeGreaterThan(0);
+  });
+
+  it("buildSeedDocuments writes an sop doc that parses with SopVersionSchema", async () => {
+    const docs = await buildSeedDocuments(DEMO_SEED, "demo", {
+      pairingCode: "123456",
+      now: NOW,
+      hash: fakeHash,
+    });
+    expect(docs.sopVersion).not.toBeNull();
+    expect(SopVersionSchema.safeParse(docs.sopVersion).success).toBe(true);
+    expect(docs.sopVersion?.sop_version_id).toBe(`${docs.outlet.outlet_id}:v1`);
+    expect(docs.sopVersion?.source).toBe("seed");
+    expect(docs.sopVersion?.source_proposal_id).toBeNull();
+  });
+
+  it("a config with no sop_v1 builds sopVersion: null", async () => {
+    const { sop_v1: _drop, ...withoutSop } = DEMO_SEED;
+    const docs = await buildSeedDocuments(withoutSop, "demo", {
+      pairingCode: "123456",
+      now: NOW,
+      hash: fakeHash,
+    });
+    expect(docs.sopVersion).toBeNull();
+  });
+
+  function fakeDb(existingIds: Set<string>) {
+    const written: Array<{ id: string; doc: unknown }> = [];
+    const db = {
+      collection: () => ({
+        doc: (id: string) => ({
+          get: async () => ({ exists: existingIds.has(id) }),
+          set: async (doc: unknown) => {
+            written.push({ id, doc });
+          },
+        }),
+      }),
+    };
+    return { db, written };
+  }
+
+  it("does not overwrite an existing :v1 doc", async () => {
+    const sopVersion = buildSopVersionDoc("demo-outlet", DEMO_SEED.sop_v1!, NOW.getTime());
+    const { db, written } = fakeDb(new Set(["demo-outlet:v1"]));
+    const wroteIt = await writeSopVersionIfAbsent(db as never, sopVersion);
+    expect(wroteIt).toBe(false);
+    expect(written).toHaveLength(0);
+  });
+
+  it("writes the doc when absent", async () => {
+    const sopVersion = buildSopVersionDoc("demo-outlet", DEMO_SEED.sop_v1!, NOW.getTime());
+    const { db, written } = fakeDb(new Set());
+    const wroteIt = await writeSopVersionIfAbsent(db as never, sopVersion);
+    expect(wroteIt).toBe(true);
+    expect(written).toHaveLength(1);
+    expect(written[0]?.id).toBe("demo-outlet:v1");
+  });
+
+  it("a pilot config without sop_v1 still seeds", async () => {
+    const { sop_v1: _drop, ...pilotLike } = DEMO_SEED;
+    const docs = await buildSeedDocuments(pilotLike, "pilot", {
+      pairingCode: "123456",
+      now: NOW,
+      hash: fakeHash,
+    });
+    expect(docs.sopVersion).toBeNull();
+    expect(OutletSchema.safeParse(docs.outlet).success).toBe(true);
+  });
+
+  it("a pilot config WITH sop_v1 (fictional steps) writes sop_versions/<pilot outlet>:v1", async () => {
+    const pilotConfig = { ...DEMO_SEED, outlet: { ...DEMO_SEED.outlet, outlet_id: "pilot-outlet" } };
+    const docs = await buildSeedDocuments(pilotConfig, "pilot", {
+      pairingCode: "123456",
+      now: NOW,
+      hash: fakeHash,
+    });
+    expect(docs.sopVersion?.sop_version_id).toBe("pilot-outlet:v1");
+  });
+});
+
+describe("R-08 §0 item 5: SOP separation guards", () => {
+  it('loadConfig("demo") returns DEMO_SEED.sop_v1 verbatim and never touches fs', () => {
+    vi.mocked(fs.readFileSync).mockClear();
+    vi.mocked(fs.existsSync).mockClear();
+    const config = loadConfig("demo");
+    expect(config.sop_v1?.steps).toEqual(DEMO_SEED.sop_v1?.steps);
+    expect(fs.readFileSync).not.toHaveBeenCalled();
+    expect(fs.existsSync).not.toHaveBeenCalled();
+  });
+
+  it("assertProjectMatchesEnv(pilot) with DEMO_MODE=true throws", () => {
+    const prev = process.env.DEMO_MODE;
+    process.env.DEMO_MODE = "true";
+    try {
+      expect(() => assertProjectMatchesEnv("pilot")).toThrow();
+    } finally {
+      if (prev === undefined) delete process.env.DEMO_MODE;
+      else process.env.DEMO_MODE = prev;
+    }
   });
 });

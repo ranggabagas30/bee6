@@ -108,7 +108,7 @@ const FORBIDDEN_JSON_SCHEMA_KEYS = new Set([
 /** Throws if any forbidden keyword survived cleaning — a defense-in-depth
  * assertion so a future zod/schema change that introduces e.g. `oneOf`
  * fails loudly here rather than only in a 400 from Vertex. */
-function assertNoForbiddenKeywords(node: unknown, path = "$"): void {
+export function assertNoForbiddenKeywords(node: unknown, path = "$"): void {
   if (Array.isArray(node)) {
     node.forEach((item, i) => assertNoForbiddenKeywords(item, `${path}[${i}]`));
     return;
@@ -131,7 +131,7 @@ function assertNoForbiddenKeywords(node: unknown, path = "$"): void {
  * to do the same job, and `$schema` is metadata the structured-output
  * config doesn't want.
  */
-function cleanJsonSchemaNode(node: unknown): unknown {
+export function cleanJsonSchemaNode(node: unknown): unknown {
   if (Array.isArray(node)) return node.map(cleanJsonSchemaNode);
   if (node === null || typeof node !== "object") return node;
 

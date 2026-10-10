@@ -1,0 +1,63 @@
+# config/rubric.yaml — rubric v0 (file `version: 1`), the real library R-08 loads.
+#
+# AUTHORED BY: tech-lead (AI agent), 10 Oct 2026, on Rangga's explicit instruction (R-08 §11 Q-2 (c)).
+# NOT authored or reviewed by Tiffany yet. Tiffany (T-502) reviews and revises it; her revision bumps `version`.
+#
+# Generic by design: no shop-specific steps, items, names or numbers, so it is safe in the public repo
+# (hard rule #8) and identical on the demo and the pilot.
+#
+# `status: final` means "pipeline-ready" (the loader's only non-draft value; LibraryFileSchema has no
+# author or review field). It does NOT mean "reviewed by the domain owner"; this header is the record of that.
+#
+# The ids are fixed by docs/specs/pipeline-and-agents.md T-502 and are stored in proposals; never rename one.
+# Each `definition` is sent to the model verbatim as `- <id>: <label_en>. <definition>` (R-08 Task 4.3);
+# keep each ≤ 600 characters. A rubric criterion judges ONE proposed change, not how the shop runs today.
+kind: rubric
+version: 1
+status: final
+entries:
+  - id: observable
+    label_en: Observable
+    label_id: Dapat diamati
+    definition: >-
+      Another person on shift could see or hear whether the changed step was done, at the time it was due,
+      without asking the person who did it: something is written, placed, said aloud, set out or cleared.
+      "Write the time on the tray label when the tray goes out" is observable; "pay more attention to the
+      display" is not.
+  - id: time_bound
+    label_en: Time-bound
+    label_id: Berbatas waktu
+    definition: >-
+      The changed step says when it starts (a clock time, a fixed interval, or a named shop event such as
+      opening, closing, a delivery arriving or a tray reaching a stated level) and, if it has a deadline, by
+      when it must be finished. "Regularly", "as needed", "when there is time" and "when busy" without a
+      stated threshold fail this criterion.
+  - id: single_owner
+    label_en: Single owner
+    label_id: Satu penanggung jawab
+    definition: >-
+      Exactly one role (staff, supervisor or owner) does the changed step and answers for it, and one person
+      in that role can do it within one shift with what the shop already has. "Everyone", "the team", or two
+      roles sharing the step fail. Name the role, never a person.
+  - id: evidence_defined
+    label_en: Evidence-defined
+    label_id: Terukur dari bukti
+    definition: >-
+      The change names one fact category whose daily count should go down or up because of it, the cited
+      facts belong to that category, and whether it worked can be read from the shop's own facts over the
+      review period without any new measurement. A change whose success cannot be counted from shop facts
+      fails this criterion.
+  - id: failure_path
+    label_en: Failure path
+    label_id: Ada jalur gagal
+    definition: >-
+      The changed step says what happens when it cannot be done as written (an item or ingredient is out,
+      equipment is down, the owning role is not on shift): which role is told, and the one concrete thing
+      done instead. "Handle it" or "use judgement" is not a failure path.
+  - id: unambiguous
+    label_en: Unambiguous
+    label_id: Jelas, tidak ambigu
+    definition: >-
+      Two staff members reading the changed step would do the same thing: it names concrete actions, items,
+      places and amounts, uses no undefined words such as "enough", "properly" or "clean", and is short
+      enough to read on one phone screen.

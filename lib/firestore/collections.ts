@@ -26,6 +26,8 @@ export const COLLECTIONS = {
   corrections: "corrections",
   sopVersions: "sop_versions",
   proposals: "proposals",
+  /** Single-flight proposal generation lease per outlet (R-08). */
+  proposalLocks: "proposal_locks",
   constraints: "constraints",
   reviews: "reviews",
   outcomes: "outcomes",

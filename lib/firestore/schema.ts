@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { PrincipalRoleSchema, UserRoleSchema } from "@/lib/auth/roles";
 import { MIC_SOURCE_CLASSES } from "@/lib/capture/mic-source";
-import { CategorySchema } from "@/lib/pipeline/categories";
+import { CategorySchema, WorkCategorySchema } from "@/lib/pipeline/categories";
 import { GateDecisionSchema } from "@/lib/pipeline/gate";
 import { CORRECTION_TEXT_MAX_CHARS } from "@/lib/debrief/constants";
 
@@ -544,23 +544,248 @@ export const CorrectionSchema = z
   .strict();
 export type Correction = z.infer<typeof CorrectionSchema>;
 
-/** filled in R-10 (immutable SOP versions). */
-export const SopVersionSchema = z
-  .object({ ...withOutlet, version: z.number().int().positive() })
+// ── sop_versions (R-08 defines; R-10 writes v2+) ─────────────────────────────
+export const SopStepSchema = z
+  .object({
+    step_id: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,39}$/),
+    title: z.string().min(1).max(80),
+    text: z.string().min(1).max(600),
+    role: UserRoleSchema, // who performs it; a role, never a name (hard rule #7)
+  })
   .strict();
+export type SopStep = z.infer<typeof SopStepSchema>;
+
+export const SopVersionSchema = z
+  .object({
+    ...withOutlet,
+    sop_version_id: z.string().min(1), // = doc id = `${outlet_id}:v${version}`
+    version: z.number().int().positive(),
+    steps: z.array(SopStepSchema).min(1).max(200),
+    source: z.enum(["seed", "proposal"]),
+    source_proposal_id: z.string().min(1).nullable(),
+    created_at_ms: z.number().int().min(0),
+  })
+  .strict()
+  .superRefine((v, ctx) => {
+    const seen = new Set<string>();
+    v.steps.forEach((step, i) => {
+      if (seen.has(step.step_id)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["steps", i, "step_id"],
+          message: `duplicate step_id "${step.step_id}"`,
+        });
+      }
+      seen.add(step.step_id);
+    });
+    if (v.sop_version_id !== `${v.outlet_id}:v${v.version}`) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["sop_version_id"],
+        message: `sop_version_id must equal "${v.outlet_id}:v${v.version}"`,
+      });
+    }
+    if (v.source === "seed" && v.source_proposal_id !== null) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["source_proposal_id"],
+        message: 'source "seed" requires source_proposal_id: null',
+      });
+    }
+  });
 export type SopVersion = z.infer<typeof SopVersionSchema>;
 
-/** filled in R-08 (ProposalAgent output). */
-export const ProposalSchema = z
-  .object({ ...withOutlet, proposal_id: z.string().min(1) })
+// ── constraints (R-08 defines, reads, and writes manual ones via createConstraint;
+//    R-09 writes rejection-derived ones through the SAME createConstraint) ──
+export const CONSTRAINT_SOURCES = ["supervisor_rejection", "manual"] as const;
+export const ConstraintSchema = z
+  .object({
+    ...withOutlet,
+    constraint_id: z.string().uuid(), // = doc id
+    /** Already digit-masked, staff-name-scrubbed and SDP-redacted by createConstraint (hard rule #3). */
+    text: z.string().min(1).max(500),
+    source: z.enum(CONSTRAINT_SOURCES),
+    source_proposal_id: z.string().uuid().nullable(), // non-null iff source === "supervisor_rejection"
+    created_by_role: z.enum(["supervisor", "owner"]), // the role that added it (Q-11 b); never a name or id
+    created_at_ms: z.number().int().min(0),
+  })
+  .strict()
+  .superRefine((c, ctx) => {
+    const isRejection = c.source === "supervisor_rejection";
+    if (isRejection !== (c.source_proposal_id !== null)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["source_proposal_id"],
+        message: 'source_proposal_id must be non-null iff source is "supervisor_rejection"',
+      });
+    }
+  });
+export type Constraint = z.infer<typeof ConstraintSchema>;
+
+// ── proposals (R-08) ─────────────────────────────────────────────────────────
+export const PROPOSAL_STATUSES = [
+  "suppressed",
+  "blocked",
+  "awaiting_supervisor",
+  "awaiting_owner",
+  "approved",
+  "rejected",
+] as const; // technical spec §4.3; R-09 owns the last three moves
+export const PROPOSAL_RULES = [
+  "schema_invalid",
+  "intervention_unknown",
+  "rubric_missing",
+  "rubric_unknown",
+  "evidence_unknown",
+  "evidence_min",
+  "step_unknown",
+  "constraints_unacknowledged",
+  "metric_not_in_evidence",
+  "output_too_long",
+  "evidence_stale",
+] as const; // pgate-v1, precedence order
+export type ProposalRule = (typeof PROPOSAL_RULES)[number];
+export const SUPPRESSION_REASONS = ["insufficient_evidence", "model_declined"] as const;
+export const MODEL_DECLINE_REASONS = [
+  "no_clear_pattern",
+  "constraints_block",
+  "no_matching_intervention",
+  "evidence_conflicts",
+] as const;
+
+export const ProposalEvidenceRefSchema = z
+  .object({
+    // technical spec §8.15, no text
+    thread_id: z.string().min(1),
+    local_date: dateString,
+    category: WorkCategorySchema,
+    first_line_start_ms: z.number().int().min(0),
+  })
   .strict();
+export const ProposalFollowupSchema = z
+  .object({
+    categories: z.array(WorkCategorySchema).max(3),
+    have_facts: z.number().int().min(0),
+    have_dates: z.number().int().min(0),
+    need_facts: z.number().int().min(1),
+    need_dates: z.number().int().min(1),
+  })
+  .strict();
+export type ProposalFollowup = z.infer<typeof ProposalFollowupSchema>;
+export const ProposalContentSchema = z
+  .object({
+    intervention_id: z.string().min(1),
+    rubric_criterion_ids: z.array(z.string().min(1)).min(1).max(6),
+    target_step_id: z.string().min(1).nullable(), // null = a new step
+    change_title: z.string().min(1).max(160), // stored caps = 2x wire caps (redaction tokens grow text)
+    change_text: z.string().min(1).max(800),
+    rationale: z.string().min(1).max(800),
+    metric: z
+      .object({
+        category: WorkCategorySchema,
+        direction: z.enum(["decrease", "increase"]),
+        description: z.string().min(1).max(320),
+        baseline_count: z.number().int().min(0),
+        baseline_days: z.number().int().min(1),
+      })
+      .strict(),
+    failure_condition: z.string().min(1).max(480),
+    review_after_days: z.number().int().min(7).max(28),
+    review_date: dateString,
+    evidence: z.array(ProposalEvidenceRefSchema).min(2).max(10),
+    constraint_ids_acknowledged: z.array(z.string().uuid()),
+    censored_floor: z.literal(true),
+  })
+  .strict();
+export const ProposalSchema = z
+  .object({
+    ...withOutlet,
+    proposal_id: z.string().uuid(), // = doc id
+    status: z.enum(PROPOSAL_STATUSES),
+    requested_by_role: z.enum(["supervisor", "owner"]), // v2, Q-10: both roles generate; status is NOT derived from it
+    range: z.object({ from_date: dateString, to_date: dateString }).strict(),
+    generator: z
+      .object({
+        kind: z.enum(["adk", "direct"]),
+        model: z.string().min(1),
+        location: z.string().min(1),
+        agent_version: z.string().min(1),
+        gate_version: z.literal("pgate-v1"),
+        library_version: z.object({ interventions: z.number().int(), rubric: z.number().int() }).strict(),
+        sop_version_id: z.string().min(1),
+        attempts: z.number().int().min(0).max(2), // 0 = suppressed before any model call
+      })
+      .strict(),
+    gate: z
+      .object({
+        passed: z.boolean(),
+        fired_rule: z.enum(PROPOSAL_RULES).nullable(),
+        checks: z.array(z.object({ rule: z.enum(PROPOSAL_RULES), passed: z.boolean() }).strict()),
+      })
+      .strict(),
+    counts: z
+      .object({
+        candidate_facts: z.number().int().min(0),
+        candidate_dates: z.number().int().min(0),
+        constraints: z.number().int().min(0),
+      })
+      .strict(),
+    suppression: z
+      .object({
+        reason: z.enum(SUPPRESSION_REASONS),
+        model_reason: z.enum(MODEL_DECLINE_REASONS).nullable(),
+        followup: ProposalFollowupSchema,
+      })
+      .strict()
+      .nullable(),
+    content: ProposalContentSchema.nullable(), // non-null iff status NOT IN {suppressed, blocked}
+    created_at_ms: z.number().int().min(0),
+    updated_at_ms: z.number().int().min(0),
+  })
+  .strict()
+  .superRefine((p, ctx) => {
+    if ((p.status === "suppressed") !== (p.suppression !== null)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["suppression"],
+        message: 'suppression must be set iff status is "suppressed"',
+      });
+    }
+    const contentless = p.status === "suppressed" || p.status === "blocked";
+    if (contentless !== (p.content === null)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["content"],
+        message: 'content must be null iff status is "suppressed" or "blocked"',
+      });
+    }
+    if (p.status === "blocked" && p.gate.fired_rule === null) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["gate", "fired_rule"],
+        message: 'status "blocked" requires gate.fired_rule to be set',
+      });
+    }
+    if ((p.status === "awaiting_supervisor" || p.status === "awaiting_owner") && p.gate.passed !== true) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["gate", "passed"],
+        message: 'an "awaiting_*" status requires gate.passed === true',
+      });
+    }
+  });
 export type Proposal = z.infer<typeof ProposalSchema>;
 
-/** filled in R-09 (supervisor-reject reasons become permanent constraints). */
-export const ConstraintSchema = z
-  .object({ ...withOutlet, constraint_id: z.string().min(1) })
+// ── proposal_locks (R-08) ────────────────────────────────────────────────────
+export const ProposalLockSchema = z
+  .object({
+    ...withOutlet, // = doc id
+    lease_token: z.string().uuid(),
+    acquired_at_ms: z.number().int().min(0),
+    expires_at_ms: z.number().int().min(0),
+  })
   .strict();
-export type Constraint = z.infer<typeof ConstraintSchema>;
+export type ProposalLock = z.infer<typeof ProposalLockSchema>;
 
 /** filled in R-11 (ReviewAgent). */
 export const ReviewSchema = z
