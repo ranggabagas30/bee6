@@ -71,6 +71,13 @@ export interface DayCorrectionRow {
   question_id: string;
   answer: "yes" | "no";
   reason_text: string;
+  /**
+   * Task 13 (`lib/day/queue-service.ts`): the business date the answer
+   * belongs to, needed because a queue item can be days older than today
+   * (the day record itself never needs this — a thread's business date
+   * there comes from `attributedBusinessDate`, not the correction).
+   */
+  debrief_business_date: string;
 }
 
 /**

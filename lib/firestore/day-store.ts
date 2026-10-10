@@ -116,12 +116,16 @@ const QUEUE_QUESTION_SHAPE = QuestionSchema.pick({
   answered_at_ms: true,
 });
 
-const CORRECTION_FIELDS = ["outlet_id", "question_id", "answer", "reason_text"] as const;
+// `debrief_business_date` is picked for Task 13 (`getReviewQueue`'s
+// `correction?.debrief_business_date ?? businessDateOf(...)` rule, R-06.md
+// Task 13.4 step 6); the day record's own supervisor path never reads it.
+const CORRECTION_FIELDS = ["outlet_id", "question_id", "answer", "reason_text", "debrief_business_date"] as const;
 const CORRECTION_SHAPE = CorrectionSchema.pick({
   outlet_id: true,
   question_id: true,
   answer: true,
   reason_text: true,
+  debrief_business_date: true,
 });
 
 /** Task 12: `unlabelled_unit` questions (web spec §4.3; R-06 Task 12.2). */

@@ -440,6 +440,7 @@ describe("firestoreDayStore.getQuestions / getCorrections", () => {
       question_id: "q1",
       answer: "yes",
       reason_text: "Because of X",
+      debrief_business_date: "2026-10-08",
     });
     expect(result.get("q1")).not.toHaveProperty("answered_device_id");
   });
