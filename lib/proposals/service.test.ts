@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { zonedTimeToEpochMs } from "@/lib/capture/calendar";
 import type { CustomClaims } from "@/lib/auth/roles";
 import {
@@ -233,8 +234,10 @@ function makeDeps(overrides: Partial<ProposalDeps> = {}): { deps: ProposalDeps; 
 }
 
 let infoSpy: ReturnType<typeof vi.spyOn>;
+let errorSpy: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
   infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+  errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -833,5 +836,70 @@ describe("generateProposal", () => {
     const promptText = model.mock.calls[0]?.[0].userContent as string;
     expect(promptText).not.toContain(DEVICE_ID);
     expect(promptText).not.toContain("unit_");
+  });
+
+  it("model error -> logs {outlet_id, error_class, attempt} on every failed attempt, never prompt/response text", async () => {
+    const { store } = makeFakeStore();
+    const { deps, model } = makeDeps();
+    model.mockResolvedValue({ kind: "error", error_class: "unknown" });
+    await expect(
+      generateProposal(store, deps, { claims: claims(), from_date: "2026-10-01", to_date: "2026-10-02", now_ms: NOW_MS }),
+    ).rejects.toThrow(ServiceUnavailableError);
+    const modelErrorCalls = errorSpy.mock.calls.filter((c) => c[0] === "[proposal] model error");
+    expect(modelErrorCalls).toEqual([
+      ["[proposal] model error", { outlet_id: OUTLET_ID, error_class: "unknown", attempt: 1 }],
+      ["[proposal] model error", { outlet_id: OUTLET_ID, error_class: "unknown", attempt: 2 }],
+    ]);
+    const serialized = JSON.stringify(errorSpy.mock.calls);
+    expect(serialized).not.toContain("FACT-SENTINEL");
+    expect(serialized).not.toContain(DEVICE_ID);
+  });
+
+  it("redact throws -> logs {outlet_id, stage: 'redact', error_class}, never the thrown message or prompt text", async () => {
+    const { store } = makeFakeStore();
+    const { deps, model } = makeDeps({
+      redact: async () => {
+        throw new Error("down: SECRET-TEXT-SENTINEL");
+      },
+    });
+    model.mockResolvedValueOnce(okModelResult(validWireText()));
+    await expect(
+      generateProposal(store, deps, { claims: claims(), from_date: "2026-10-01", to_date: "2026-10-02", now_ms: NOW_MS }),
+    ).rejects.toThrow(ServiceUnavailableError);
+    expect(errorSpy).toHaveBeenCalledWith("[proposal] model error", {
+      outlet_id: OUTLET_ID,
+      stage: "redact",
+      error_class: "Error",
+    });
+    const serialized = JSON.stringify(errorSpy.mock.calls);
+    expect(serialized).not.toContain("SECRET-TEXT-SENTINEL");
+  });
+
+  it("gate-blocked proposal stores the gate's own fired rule and checks, not an empty array", async () => {
+    const { store, state } = makeFakeStore();
+    const { deps, model } = makeDeps();
+    model
+      .mockResolvedValueOnce(okModelResult(validWireText({ evidence: ["E1"] }))) // evidence_min
+      .mockResolvedValueOnce(okModelResult(validWireText({ metric_category: "ROUTINE_OPS" }))); // metric_not_in_evidence
+    const result = await generateProposal(store, deps, { claims: claims(), from_date: "2026-10-01", to_date: "2026-10-02", now_ms: NOW_MS });
+    expect(result.proposal.status).toBe("blocked");
+    expect(result.proposal.blocked_rule).toBe("metric_not_in_evidence");
+    const storedChecks = state.written[0]?.proposal.gate.checks ?? [];
+    expect(storedChecks.length).toBeGreaterThan(0);
+    expect(storedChecks).toContainEqual({ rule: "metric_not_in_evidence", passed: false });
+  });
+
+  it("an internal schema violation (resolveLocation returning '') surfaces as a plain Error, never a ZodError", async () => {
+    const { store } = makeFakeStore({ rows: [ROW_1] }); // insufficient evidence -> the earliest internal ProposalSchema.parse
+    const { deps } = makeDeps({ resolveLocation: () => "" });
+    let thrown: unknown;
+    try {
+      await generateProposal(store, deps, { claims: claims(), from_date: "2026-10-01", to_date: "2026-10-02", now_ms: NOW_MS });
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown).not.toBeInstanceOf(z.ZodError);
+    expect((thrown as Error).message).toBe("generateProposal: internal schema violation");
   });
 });

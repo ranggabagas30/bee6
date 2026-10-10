@@ -19,7 +19,7 @@ import {
   type SopVersion,
 } from "@/lib/firestore/schema";
 import { LibraryNotReadyError, type ProposalLibrary } from "@/config/proposal-library";
-import type { ProposalModel } from "@/lib/agents/proposal-agent";
+import { PROPOSAL_AGENT_VERSION, PROPOSAL_MODEL, type ProposalModel } from "@/lib/agents/proposal-agent";
 import { MODEL_TIMEOUT_MS, PROPOSAL_GATE_VERSION, PROPOSAL_LEASE_MS } from "@/lib/proposals/constants";
 import { validateRange } from "@/lib/proposals/range";
 import { aliasCandidates, selectCandidates, type Candidate, type ProposalThreadRow } from "@/lib/proposals/candidates";
@@ -29,7 +29,8 @@ import { checkProposal, type ProposalGateContext } from "@/lib/proposals/proposa
 import { buildProposalWireSchema, generateProposalJsonSchema, type ProposalWire, type WireContext } from "@/lib/proposals/wire-schema";
 import { buildProposalPrompt } from "@/lib/proposals/prompt";
 import { toProposalView } from "@/lib/proposals/view";
-import type { ProposalView } from "@/lib/proposals/contract";
+import { GenerateResponseSchema, type ProposalView } from "@/lib/proposals/contract";
+import { z } from "zod";
 
 /**
  * The proposal generation state machine (R-08 Task 5.4; architecture §1).
@@ -87,7 +88,6 @@ export interface ProposalDeps {
   newId: () => string;
 }
 
-const PROPOSAL_MODEL_NAME = "gemini-3.5-flash";
 const DIGIT_RUN = /\d{6,}/g;
 const STORED_TEXT_MAX: Record<string, number> = {
   change_title: 160,
@@ -125,7 +125,35 @@ function sumUsage(values: Array<number | null>): number | null {
   return values.reduce((sum: number, v) => sum + (v ?? 0), 0);
 }
 
+/**
+ * Public entry point. Wraps `generateProposalCore` so a `z.ZodError` thrown
+ * while parsing the service's OWN constructed objects (`ProposalSchema`,
+ * `ProposalViewSchema`, `GenerateResponseSchema` — never request input,
+ * which the route validates separately) never surfaces as the generic
+ * `handleApiError` 422 branch: that branch exists for request-shaped
+ * validation failures, not for a bug in what this service built. Converting
+ * it to a plain `Error` with a fixed message (no `cause`, so the generic
+ * handler's `console.error("Unexpected API error:", error)` never prints a
+ * prompt/response-derived zod issue path) makes it fall through to the
+ * generic 500 branch instead (plan §5.5).
+ */
 export async function generateProposal(
+  store: ProposalStore,
+  deps: ProposalDeps,
+  input: { claims: CustomClaims; from_date: string; to_date: string; now_ms: number },
+): Promise<{ proposal: ProposalView; reused: boolean }> {
+  try {
+    const result = await generateProposalCore(store, deps, input);
+    return GenerateResponseSchema.parse(result);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new Error("generateProposal: internal schema violation");
+    }
+    throw error;
+  }
+}
+
+async function generateProposalCore(
   store: ProposalStore,
   deps: ProposalDeps,
   input: { claims: CustomClaims; from_date: string; to_date: string; now_ms: number },
@@ -219,9 +247,9 @@ export async function generateProposal(
         range,
         generator: {
           kind: deps.generatorKind,
-          model: PROPOSAL_MODEL_NAME,
-          location: deps.resolveLocation(PROPOSAL_MODEL_NAME),
-          agent_version: "proposal-v1",
+          model: PROPOSAL_MODEL,
+          location: deps.resolveLocation(PROPOSAL_MODEL),
+          agent_version: PROPOSAL_AGENT_VERSION,
           gate_version: PROPOSAL_GATE_VERSION,
           library_version: { interventions: library.interventions.version, rubric: library.rubric.version },
           sop_version_id: sop.sop_version_id,
@@ -248,7 +276,7 @@ export async function generateProposal(
         status: "suppressed",
         fired_rule: null,
         generator: deps.generatorKind,
-        model: PROPOSAL_MODEL_NAME,
+        model: PROPOSAL_MODEL,
         location: stored.generator.location,
         attempts: 0,
         input_tokens: null,
@@ -283,7 +311,7 @@ export async function generateProposal(
       constraints: constraintAliased.map(({ alias, c }) => ({ alias, text: c.text })),
       range,
     });
-    const location = deps.resolveLocation(PROPOSAL_MODEL_NAME);
+    const location = deps.resolveLocation(PROPOSAL_MODEL);
 
     const gateCtx: ProposalGateContext = {
       aliasToCandidate,
@@ -304,6 +332,8 @@ export async function generateProposal(
     let attempts = 0;
     let modelDeclined: { reason: ProposalWire["no_proposal_reason"] } | null = null;
     let blockedRule: string | null = null;
+    /** Only set when `blockedRule` came from the gate itself (never schema_invalid). */
+    let lastGateChecks: ReturnType<typeof checkProposal>["checks"] | null = null;
 
     for (attempts = 1; attempts <= 2; attempts++) {
       const userContent =
@@ -317,6 +347,11 @@ export async function generateProposal(
       );
 
       if (res.kind === "error") {
+        console.error("[proposal] model error", {
+          outlet_id: outlet.outlet_id,
+          error_class: res.error_class,
+          attempt: attempts,
+        });
         if (attempts === 2) {
           throw new ServiceUnavailableError("Proposal model unavailable");
         }
@@ -358,6 +393,7 @@ export async function generateProposal(
       if (!gateResult.passed) {
         if (attempts === 2) {
           blockedRule = gateResult.fired_rule;
+          lastGateChecks = gateResult.checks;
           break;
         }
         lastFailureCode = gateResult.fired_rule ?? "invalid_output";
@@ -385,7 +421,7 @@ export async function generateProposal(
         status,
         fired_rule: firedRule,
         generator: deps.generatorKind,
-        model: PROPOSAL_MODEL_NAME,
+        model: PROPOSAL_MODEL,
         location,
         attempts: statedAttempts,
         input_tokens: totalInputTokens,
@@ -406,9 +442,9 @@ export async function generateProposal(
         range,
         generator: {
           kind: deps.generatorKind,
-          model: PROPOSAL_MODEL_NAME,
+          model: PROPOSAL_MODEL,
           location,
-          agent_version: "proposal-v1",
+          agent_version: PROPOSAL_AGENT_VERSION,
           gate_version: PROPOSAL_GATE_VERSION,
           library_version: { interventions: library.interventions.version, rubric: library.rubric.version },
           sop_version_id: sop.sop_version_id,
@@ -443,15 +479,15 @@ export async function generateProposal(
         range,
         generator: {
           kind: deps.generatorKind,
-          model: PROPOSAL_MODEL_NAME,
+          model: PROPOSAL_MODEL,
           location,
-          agent_version: "proposal-v1",
+          agent_version: PROPOSAL_AGENT_VERSION,
           gate_version: PROPOSAL_GATE_VERSION,
           library_version: { interventions: library.interventions.version, rubric: library.rubric.version },
           sop_version_id: sop.sop_version_id,
           attempts,
         },
-        gate: { passed: false, fired_rule: blockedRule, checks: [] },
+        gate: { passed: false, fired_rule: blockedRule, checks: lastGateChecks ?? [] },
         counts: { candidate_facts: floor.facts, candidate_dates: floor.dates, constraints: constraints.length },
         suppression: null,
         content: null,
@@ -491,7 +527,11 @@ export async function generateProposal(
     let redacted: string[];
     try {
       redacted = await deps.redact(prepped);
-    } catch {
+    } catch (err) {
+      // Classification only — never the error message, never prompt/model
+      // text (hard rule #2/#3: no transcript-derived text in logs).
+      const error_class = err instanceof Error ? err.constructor.name : "unknown";
+      console.error("[proposal] model error", { outlet_id: outlet.outlet_id, stage: "redact", error_class });
       throw new ServiceUnavailableError("Redaction unavailable", "redact");
     }
     const redactedByKey = new Map(keys.map((k, i) => [k, redacted[i]!]));
@@ -507,9 +547,9 @@ export async function generateProposal(
         range,
         generator: {
           kind: deps.generatorKind,
-          model: PROPOSAL_MODEL_NAME,
+          model: PROPOSAL_MODEL,
           location,
-          agent_version: "proposal-v1",
+          agent_version: PROPOSAL_AGENT_VERSION,
           gate_version: PROPOSAL_GATE_VERSION,
           library_version: { interventions: library.interventions.version, rubric: library.rubric.version },
           sop_version_id: sop.sop_version_id,
@@ -559,9 +599,9 @@ export async function generateProposal(
           range,
           generator: {
             kind: deps.generatorKind,
-            model: PROPOSAL_MODEL_NAME,
+            model: PROPOSAL_MODEL,
             location,
-            agent_version: "proposal-v1",
+            agent_version: PROPOSAL_AGENT_VERSION,
             gate_version: PROPOSAL_GATE_VERSION,
             library_version: { interventions: library.interventions.version, rubric: library.rubric.version },
             sop_version_id: sop.sop_version_id,
@@ -601,9 +641,9 @@ export async function generateProposal(
         range,
         generator: {
           kind: deps.generatorKind,
-          model: PROPOSAL_MODEL_NAME,
+          model: PROPOSAL_MODEL,
           location,
-          agent_version: "proposal-v1",
+          agent_version: PROPOSAL_AGENT_VERSION,
           gate_version: PROPOSAL_GATE_VERSION,
           library_version: { interventions: library.interventions.version, rubric: library.rubric.version },
           sop_version_id: sop.sop_version_id,
