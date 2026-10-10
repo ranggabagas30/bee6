@@ -644,6 +644,7 @@ export const PROPOSAL_RULES = [
   "output_too_long",
   "evidence_stale",
 ] as const; // pgate-v1, precedence order
+export type ProposalRule = (typeof PROPOSAL_RULES)[number];
 export const SUPPRESSION_REASONS = ["insufficient_evidence", "model_declined"] as const;
 export const MODEL_DECLINE_REASONS = [
   "no_clear_pattern",
@@ -670,6 +671,7 @@ export const ProposalFollowupSchema = z
     need_dates: z.number().int().min(1),
   })
   .strict();
+export type ProposalFollowup = z.infer<typeof ProposalFollowupSchema>;
 export const ProposalContentSchema = z
   .object({
     intervention_id: z.string().min(1),
