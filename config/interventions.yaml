@@ -1,0 +1,91 @@
+# config/interventions.yaml — intervention library v0 (file `version: 1`), the real library R-08 loads.
+#
+# AUTHORED BY: tech-lead (AI agent), 10 Oct 2026, on Rangga's explicit instruction (R-08 §11 Q-2 (c)).
+# NOT authored or reviewed by Tiffany yet. Tiffany (T-502) reviews and revises it; her revision bumps `version`.
+#
+# Generic by design: no shop-specific steps, items, names or numbers, so it is safe in the public repo
+# (hard rule #8) and identical on the demo and the pilot. Written to fit a trigger / actor / evidence /
+# failure-path view of a control, without copying any shop's own control matrix.
+#
+# `status: final` means "pipeline-ready" (the loader's only non-draft value; LibraryFileSchema has no
+# author or review field). It does NOT mean "reviewed by the domain owner"; this header is the record of that.
+#
+# The ids are fixed by docs/specs/pipeline-and-agents.md T-502 and are stored in proposals; never rename one.
+# Each entry is sent to the model as `- <id>: <label_en>. <definition> <when_to_use>` (R-08 Task 4.3);
+# keep `definition` and `when_to_use` ≤ 600 characters each. Category names in `when_to_use` are the fact
+# categories in config/categories*.yaml (the metric is a daily count of one of them).
+kind: interventions
+version: 1
+status: final
+entries:
+  - id: change_quantity_time
+    label_en: Change quantity or time
+    label_id: Ubah jumlah atau waktu
+    definition: >-
+      Keep the step and the role that does it, but change how much, how often or at what time it is done:
+      a batch size, a minimum stock level, a check interval, a start time or a finish time.
+    when_to_use: >-
+      The step is being done, but facts on two or more dates show it happens too late, too early, too rarely
+      or in the wrong amount (for example an item running out at the same time of day, or the same item
+      left over at closing). Target the existing step whose amount or time is wrong, not NEW. If what starts
+      the step is wrong, use change_trigger; if the owning role is not there at that time, use
+      shift_schedule.
+  - id: change_trigger
+    label_en: Change trigger
+    label_id: Ubah pemicu
+    definition: >-
+      Change what starts the step: from a clock time to a shop event (a delivery arriving, a tray or
+      container down to a stated level, a stated number of customers waiting), from an event to a clock
+      time, or from one event to another.
+    when_to_use: >-
+      Facts on two or more dates show the need appears at a different moment from the step's current
+      trigger, so the step is done before it is needed or after it is already too late. Target the existing
+      step. If the trigger is right and only the amount or interval is wrong, use change_quantity_time
+      instead.
+  - id: add_failure_path
+    label_en: Add failure path
+    label_id: Tambah jalur gagal
+    definition: >-
+      Add what to do when a step cannot be done as written (equipment down, an item or ingredient out, a
+      supplier late, or the role that owns the step not on shift): which role is told, what is done instead,
+      and when normal work resumes.
+    when_to_use: >-
+      Facts on two or more dates show staff stopping, improvising, asking a supervisor what to do, or a
+      customer waiting when the normal step fails (often DISRUPTION, STAFF_CONSULT or COMPLAINT facts).
+      Target the step that fails. Never use it to skip, shorten or reorder a food-safety, safety or
+      cash-handling step to save time.
+  - id: capture_unmet_request
+    label_en: Capture unmet request
+    label_id: Catat permintaan tak terpenuhi
+    definition: >-
+      Add a step that records each customer request the shop could not meet (an item sold out or not
+      offered, a size, a time), with the item and the time, so demand the shop cannot see today becomes
+      countable. The count is only a floor: customers who leave without asking are never recorded.
+    when_to_use: >-
+      Facts on two or more dates show customers asking for things that were not available (CUSTOMER_SERVICE
+      or COMPLAINT facts) and the shop does not yet know how often it happens. Usually a NEW step owned by the
+      staff role at the counter. If the facts already show clearly when an item runs out, change_quantity_time
+      may fit better. The rationale must say the count is a floor.
+  - id: shift_schedule
+    label_en: Shift schedule
+    label_id: Ubah jadwal shift
+    definition: >-
+      Change when a role is on shift or which role covers a period (an earlier start, an overlap at a busy
+      hour, a cover role for a gap) without changing what the steps themselves say. Roles only, never names.
+    when_to_use: >-
+      Facts on two or more dates show work at the same time of day is missed or waits because the role that
+      owns it is not present, or is busy with another step at that time (for example a queue at opening, or
+      preparation unfinished before the busiest hour). Target the step that is missed, or NEW for a cover
+      step. It changes paid hours, so the owner decides; say that in the rationale.
+  - id: add_script
+    label_en: Add script
+    label_id: Tambah naskah ucapan
+    definition: >-
+      Add the exact words staff say in a recurring situation with a customer, a supplier or another role
+      (offering an alternative when an item is out, telling a customer how long the wait is, handing over at
+      shift change), short enough to say in one breath and written in the SOP's language.
+    when_to_use: >-
+      Facts on two or more dates show the same conversation going badly or differently each time: complaints
+      about how something was said, customers not told about a wait or a substitute, or staff repeatedly asking
+      a supervisor what to say (COMPLAINT, CUSTOMER_SERVICE or STAFF_CONSULT facts). Not for problems where the
+      work itself, not the words, has to change.
