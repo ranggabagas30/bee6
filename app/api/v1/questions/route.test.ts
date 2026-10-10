@@ -3,11 +3,18 @@ import { NextRequest } from "next/server";
 import { GET } from "./route";
 import * as guardModule from "@/lib/http/guard";
 import * as debriefStoreModule from "@/lib/firestore/debrief-store";
+import * as dayStoreModule from "@/lib/firestore/day-store";
 import type { DebriefStore } from "@/lib/debrief/service";
+import type { ConfirmStore, DayStore } from "@/lib/day/service";
 import type { LastEnded, Question } from "@/lib/firestore/schema";
 
 vi.mock("@/lib/http/guard");
 vi.mock("@/lib/firestore/debrief-store");
+vi.mock("@/lib/firestore/day-store");
+vi.mock("@/lib/day/thread-handle", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/day/thread-handle")>("@/lib/day/thread-handle");
+  return { ...actual, readThreadHandleKey: vi.fn(() => null) };
+});
 
 function makeQuestion(overrides: Partial<Question> = {}): Question {
   return {
@@ -38,8 +45,48 @@ function fakeStore(overrides: Partial<DebriefStore> = {}): DebriefStore {
   };
 }
 
+// Every existing (device-branch) test below calls this helper, which now
+// always sends `X-Device-Id` — a paired phone's own client always does
+// (lib/capture/browser/client.ts) — so the route still dispatches each of
+// them to `deviceQuestionsGet` under the new header split (R-06 Task 13.5).
+// Per the task's own constraint, this is the only permitted edit to an
+// existing test in this file; no assertion below changed.
 function getRequest() {
-  return new NextRequest("http://localhost/api/v1/questions", { method: "GET" });
+  return new NextRequest("http://localhost/api/v1/questions", {
+    method: "GET",
+    headers: { "x-device-id": "device-1" },
+  });
+}
+
+// The supervisor review-queue branch (R-06 Task 13): no `X-Device-Id` header.
+function supervisorRequest(authorization?: string) {
+  const headers = new Headers();
+  if (authorization !== undefined) headers.set("authorization", authorization);
+  return new NextRequest("http://localhost/api/v1/questions", { method: "GET", headers });
+}
+
+function fakeDayStore(overrides: Partial<DayStore> = {}): DayStore & ConfirmStore {
+  const store: DayStore = {
+    getOutlet: async () => ({
+      outlet_id: "outlet-1",
+      name: "Test Outlet",
+      project_kind: "demo",
+      timezone: "Asia/Jakarta",
+      opening_time: "09:30",
+      closing_time: "01:00",
+      retention_days: 14,
+      created_at: "2026-09-01T00:00:00.000Z",
+    }),
+    listSessions: async () => [],
+    listThreads: async () => [],
+    getQuestions: async () => new Map(),
+    getCorrections: async () => new Map(),
+    countPairedDevices: async () => 0,
+    listAnsweredGateQuestions: async () => [],
+    getThreads: async () => new Map(),
+    ...overrides,
+  };
+  return store as DayStore & ConfirmStore;
 }
 
 describe("GET /api/v1/questions", () => {
@@ -105,5 +152,98 @@ describe("GET /api/v1/questions", () => {
     expect(body.data.questions[0].category).toBe("CUSTOMER_SERVICE");
     expect(body.data.questions[0].start_hm).toBe("02:05");
     expect(body.data.questions[0].end_hm).toBe("02:10");
+  });
+
+  it("with X-Device-Id present: requireDevice is called, requireClaims never is", async () => {
+    vi.spyOn(guardModule, "requireDevice").mockResolvedValueOnce({
+      outlet_id: "outlet-1",
+      device_id: "device-1",
+      role: "device",
+    });
+    vi.spyOn(debriefStoreModule, "firestoreDebriefStore").mockReturnValueOnce(fakeStore());
+    const claimsSpy = vi.spyOn(guardModule, "requireClaims");
+
+    await GET(getRequest());
+
+    expect(guardModule.requireDevice).toHaveBeenCalledTimes(1);
+    expect(claimsSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /api/v1/questions — supervisor review queue (R-06 Task 13.5)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("without X-Device-Id: requireClaims is called, requireDevice never is", async () => {
+    vi.spyOn(guardModule, "requireClaims").mockResolvedValueOnce({
+      outlet_id: "outlet-1",
+      role: "supervisor",
+    });
+    vi.spyOn(dayStoreModule, "firestoreDayStore").mockReturnValueOnce(fakeDayStore());
+    const deviceSpy = vi.spyOn(guardModule, "requireDevice");
+
+    const response = await GET(supervisorRequest("Bearer good-token"));
+
+    expect(response.status).toBe(200);
+    expect(guardModule.requireClaims).toHaveBeenCalledTimes(1);
+    expect(deviceSpy).not.toHaveBeenCalled();
+  });
+
+  it("401 when requireClaims rejects (no/bad/expired token)", async () => {
+    const { UnauthorizedError } = await import("@/lib/http/errors");
+    vi.spyOn(guardModule, "requireClaims").mockRejectedValueOnce(new UnauthorizedError("Invalid token"));
+    const response = await GET(supervisorRequest());
+    expect(response.status).toBe(401);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+  });
+
+  it("403 for an owner principal (no questions:read)", async () => {
+    vi.spyOn(guardModule, "requireClaims").mockResolvedValueOnce({ outlet_id: "outlet-1", role: "owner" });
+    vi.spyOn(dayStoreModule, "firestoreDayStore").mockReturnValueOnce(fakeDayStore());
+    const response = await GET(supervisorRequest("Bearer owner-token"));
+    expect(response.status).toBe(403);
+  });
+
+  it("403 for a staff principal (no day:read:evidence)", async () => {
+    vi.spyOn(guardModule, "requireClaims").mockResolvedValueOnce({ outlet_id: "outlet-1", role: "staff" });
+    vi.spyOn(dayStoreModule, "firestoreDayStore").mockReturnValueOnce(fakeDayStore());
+    const response = await GET(supervisorRequest("Bearer staff-token"));
+    expect(response.status).toBe(403);
+  });
+
+  it("404 when the outlet doc is missing", async () => {
+    vi.spyOn(guardModule, "requireClaims").mockResolvedValueOnce({ outlet_id: "outlet-1", role: "supervisor" });
+    vi.spyOn(dayStoreModule, "firestoreDayStore").mockReturnValueOnce(fakeDayStore({ getOutlet: async () => null }));
+    const response = await GET(supervisorRequest("Bearer sup-token"));
+    expect(response.status).toBe(404);
+  });
+
+  it("200 with the empty queue shape and Cache-Control: private, no-store", async () => {
+    vi.spyOn(guardModule, "requireClaims").mockResolvedValueOnce({ outlet_id: "outlet-1", role: "supervisor" });
+    vi.spyOn(dayStoreModule, "firestoreDayStore").mockReturnValueOnce(fakeDayStore());
+    const response = await GET(supervisorRequest("Bearer sup-token"));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    const body = await response.json();
+    expect(body.data).toEqual({ view: "supervisor_queue", items: [], truncated: false });
+  });
+
+  it("firestoreDayStore is constructed with the caller's own outlet_id", async () => {
+    vi.spyOn(guardModule, "requireClaims").mockResolvedValueOnce({ outlet_id: "outlet-42", role: "supervisor" });
+    const spy = vi.spyOn(dayStoreModule, "firestoreDayStore").mockReturnValueOnce(
+      fakeDayStore({ getOutlet: async () => ({
+        outlet_id: "outlet-42",
+        name: "Test Outlet",
+        project_kind: "demo",
+        timezone: "Asia/Jakarta",
+        opening_time: "09:30",
+        closing_time: "01:00",
+        retention_days: 14,
+        created_at: "2026-09-01T00:00:00.000Z",
+      }) }),
+    );
+    await GET(supervisorRequest("Bearer sup-token"));
+    expect(spy).toHaveBeenCalledWith("outlet-42");
   });
 });
