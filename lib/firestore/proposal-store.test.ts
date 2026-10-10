@@ -415,8 +415,11 @@ describe("firestoreProposalStore.listConstraints", () => {
     const store = firestoreProposalStore(OUTLET_ID, db);
     const result = await store.listConstraints();
     expect(result.map((c) => c.created_at_ms)).toEqual([10, 20]);
+    // Delegates to firestoreConstraintStore (R-08 Task 8.4: one
+    // implementation of the constraints query) — the log prefix is now
+    // "[constraint-store]", not "[proposal-store]".
     expect(errorSpy).toHaveBeenCalledWith(
-      "[proposal-store] skipping malformed constraint doc",
+      "[constraint-store] skipping malformed constraint doc",
       expect.objectContaining({ doc_id: "bad" }),
     );
   });
