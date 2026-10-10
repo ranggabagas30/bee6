@@ -100,7 +100,10 @@ async function authedRequest<T>(
       return { kind: "conflict", code: "CONFLICT" };
     }
   }
-  if (res.status !== 200) return { kind: "error" };
+  // 201 means a route created a new resource (e.g. POST /proposals/generate
+  // on a fresh proposal); 200 covers both GETs and a POST that reused an
+  // existing resource. Both are success; anything else here is "error".
+  if (res.status !== 200 && res.status !== 201) return { kind: "error" };
 
   try {
     const body = await readJsonBody(res);

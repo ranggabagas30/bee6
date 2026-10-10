@@ -96,6 +96,12 @@ export function DayHeader({
 
       {day.truncated && <p>{t(lang, "C-day-truncated", { N: threadCount })}</p>}
 
+      <p>
+        <Link href="/proposals" style={NAV_LINK_STYLE}>
+          {t(lang, "C-prop-title")}
+        </Link>
+      </p>
+
       {view === "supervisor" && (
         <p>
           <Link href="/questions" style={NAV_LINK_STYLE}>

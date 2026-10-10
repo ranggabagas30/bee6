@@ -209,6 +209,14 @@ describe("authedPostJson", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     expect(getIdToken).toHaveBeenNthCalledWith(2, true);
   });
+
+  it("201 parses body.data with the schema (a route that created a new resource, e.g. proposals/generate)", async () => {
+    const getIdToken = vi.fn().mockResolvedValue("tok-1");
+    const auth = fakeAuth(fakeUser({ getIdToken }));
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: { x: "ok" } }, 201));
+    const result = await authedPostJson(auth, "/api/v1/proposals/generate", {}, DataSchema, fetchImpl);
+    expect(result).toEqual({ kind: "ok", data: { x: "ok" } });
+  });
 });
 
 describe("postAuthSession", () => {

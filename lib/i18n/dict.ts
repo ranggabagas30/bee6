@@ -278,6 +278,45 @@ export const ID = {
   "C-queue-open-day": "Buka hari ini", // PROVISIONAL
   "C-queue-to-day": "Catatan hari", // PROVISIONAL
   "C-day-to-queue": "Menunggu ditinjau", // PROVISIONAL
+
+  // /proposals (R-08 Task 7) — Generate proposal screen. All PROVISIONAL:
+  // uiux reviews in parallel, non-blocking (same convention as R-06).
+  "C-prop-title": "Usulan", // PROVISIONAL
+  "C-prop-help": "Buat satu usulan perubahan SOP dari fakta dalam rentang tanggal.", // PROVISIONAL
+  "C-prop-from": "Dari", // PROVISIONAL
+  "C-prop-to": "Sampai", // PROVISIONAL
+  "C-prop-generate": "Buat usulan", // PROVISIONAL
+  "C-prop-busy": "Sedang membuat… bisa sampai satu menit.", // PROVISIONAL
+  "C-prop-reused": "Usulan untuk tanggal ini sudah menunggu ditinjau.", // PROVISIONAL
+  "C-prop-st-awaiting": "Menunggu tinjauan supervisor", // PROVISIONAL
+  "C-prop-st-suppressed": "Tidak ada usulan", // PROVISIONAL
+  "C-prop-st-blocked": "Diblokir oleh pemeriksaan bukti", // PROVISIONAL
+  "C-prop-insufficient": "Bukti belum cukup: {facts} fakta pada {dates} hari. Usulan butuh {needFacts} fakta pada {needDates} hari berbeda.", // PROVISIONAL
+  "C-prop-watch": "Perhatikan: {categories}", // PROVISIONAL
+  "C-prop-declined-no_clear_pattern": "Fakta belum menunjukkan masalah berulang yang jelas.", // PROVISIONAL
+  "C-prop-declined-constraints_block": "Tidak ada perubahan yang sesuai semua batasan tersimpan.", // PROVISIONAL
+  "C-prop-declined-no_matching_intervention": "Tidak ada intervensi di pustaka yang cocok.", // PROVISIONAL
+  "C-prop-declined-evidence_conflicts": "Fakta saling bertentangan.", // PROVISIONAL
+  "C-prop-blocked": "Usulan tidak lolos pemeriksaan bukti ({rule}). Tidak ada yang dikirim untuk ditinjau.", // PROVISIONAL
+  "C-prop-intervention": "Intervensi", // PROVISIONAL
+  "C-prop-rubric": "Rubrik", // PROVISIONAL
+  "C-prop-step": "Langkah SOP", // PROVISIONAL
+  "C-prop-step-new": "Langkah baru", // PROVISIONAL
+  "C-prop-why": "Alasan", // PROVISIONAL
+  "C-prop-evidence": "Bukti", // PROVISIONAL
+  "C-prop-evidence-expired": "(sudah tidak disimpan)", // PROVISIONAL
+  "C-prop-metric": "Ukuran: {category} per hari harus {direction} (sekarang {count} dalam {days} hari)", // PROVISIONAL
+  "C-prop-dir-decrease": "turun", // PROVISIONAL
+  "C-prop-dir-increase": "naik", // PROVISIONAL
+  "C-prop-failure": "Kondisi gagal", // PROVISIONAL
+  "C-prop-review": "Ditinjau pada {date}", // PROVISIONAL
+  "C-prop-censored": "Permintaan yang tidak terpenuhi di sini adalah batas bawah: permintaan sebenarnya lebih tinggi, karena tidak semua permintaan terdengar atau diucapkan.", // PROVISIONAL
+  "C-prop-err-progress": "Usulan lain sedang dibuat. Coba lagi dalam satu menit.", // PROVISIONAL
+  "C-prop-err-library": "Pustaka intervensi belum disiapkan.", // PROVISIONAL
+  "C-prop-err-sop": "SOP untuk outlet ini belum disiapkan.", // PROVISIONAL
+  "C-prop-err-range": "Periksa tanggal: paling lama 14 hari, tidak di masa depan, dalam 14 hari terakhir.", // PROVISIONAL
+  "C-prop-err-forbidden": "Hanya pemilik atau supervisor yang bisa membuat usulan.", // PROVISIONAL
+  "C-prop-owner-note": "Usulan baru dikirim ke supervisor dulu. Anda menyetujuinya setelah supervisor menandainya layak.", // PROVISIONAL
 } as const;
 
 export type DictKey = keyof typeof ID;
@@ -529,6 +568,44 @@ export const EN: Record<DictKey, string> = {
   "C-queue-open-day": "Open this day",
   "C-queue-to-day": "Day record",
   "C-day-to-queue": "Waiting for review",
+
+  // /proposals (R-08 Task 7) — Generate proposal screen.
+  "C-prop-title": "Proposals",
+  "C-prop-help": "Generate one SOP change from the facts in a date range.",
+  "C-prop-from": "From",
+  "C-prop-to": "To",
+  "C-prop-generate": "Generate proposal",
+  "C-prop-busy": "Generating… this can take up to a minute.",
+  "C-prop-reused": "A proposal for these dates is already waiting for review.",
+  "C-prop-st-awaiting": "Waiting for supervisor review",
+  "C-prop-st-suppressed": "No proposal",
+  "C-prop-st-blocked": "Blocked by the evidence check",
+  "C-prop-insufficient": "Not enough evidence yet: {facts} fact(s) on {dates} day(s). A proposal needs {needFacts} facts on {needDates} different days.",
+  "C-prop-watch": "Watch for: {categories}",
+  "C-prop-declined-no_clear_pattern": "The facts show no clear repeated problem.",
+  "C-prop-declined-constraints_block": "No change fits all saved constraints.",
+  "C-prop-declined-no_matching_intervention": "No intervention in the library fits.",
+  "C-prop-declined-evidence_conflicts": "The facts point in different directions.",
+  "C-prop-blocked": "The proposal did not pass the evidence check ({rule}). Nothing was sent for review.",
+  "C-prop-intervention": "Intervention",
+  "C-prop-rubric": "Rubric",
+  "C-prop-step": "SOP step",
+  "C-prop-step-new": "New step",
+  "C-prop-why": "Why",
+  "C-prop-evidence": "Evidence",
+  "C-prop-evidence-expired": "(no longer stored)",
+  "C-prop-metric": "Metric: {category} per day should {direction} (now {count} in {days} days)",
+  "C-prop-dir-decrease": "go down",
+  "C-prop-dir-increase": "go up",
+  "C-prop-failure": "Failure condition",
+  "C-prop-review": "Review on {date}",
+  "C-prop-censored": "Unmet requests counted here are a floor: real demand is higher, because not every request is heard or said.",
+  "C-prop-err-progress": "Another proposal is being generated. Try again in a minute.",
+  "C-prop-err-library": "The intervention library is not set up yet.",
+  "C-prop-err-sop": "No SOP is set up for this outlet yet.",
+  "C-prop-err-range": "Check the dates: at most 14 days, not in the future, within the last 14 days.",
+  "C-prop-err-forbidden": "Only the owner or a supervisor can generate proposals.",
+  "C-prop-owner-note": "New proposals go to a supervisor first. You approve them after the supervisor marks them feasible.",
 };
 
 export const DICT: Record<Lang, Record<DictKey, string>> = { id: ID, en: EN };

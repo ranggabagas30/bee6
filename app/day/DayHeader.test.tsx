@@ -64,3 +64,23 @@ describe("DayHeader — queue link (R-06 Task 13)", () => {
     expect(screen.queryByRole("link", { name: "Home" })).toBeNull();
   });
 });
+
+describe("DayHeader — proposals link (R-08 Task 7.5)", () => {
+  it("owner view shows a link to /proposals", () => {
+    renderHeader("owner", OWNER_HEADER);
+    const link = screen.getByRole("link", { name: "Proposals" });
+    expect(link.getAttribute("href")).toBe("/proposals");
+  });
+
+  it("supervisor view shows a link to /proposals", () => {
+    renderHeader("supervisor", SUPERVISOR_HEADER);
+    const link = screen.getByRole("link", { name: "Proposals" });
+    expect(link.getAttribute("href")).toBe("/proposals");
+  });
+
+  it("the proposals link meets the 48px touch-target minimum", () => {
+    renderHeader("owner", OWNER_HEADER);
+    const link = screen.getByRole("link", { name: "Proposals" }) as HTMLAnchorElement;
+    expect(link.style.minHeight).toBe("48px");
+  });
+});
