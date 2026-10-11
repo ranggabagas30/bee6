@@ -126,6 +126,33 @@ describe("runExport", () => {
     expect(written).toEqual({});
   });
 
+  it("when the second write fails, names the file left behind and says to delete it before rerunning", async () => {
+    const { deps, written } = makeDeps([T]);
+    deps.writeNew = async (file, text) => {
+      if (file.endsWith("-map.csv")) throw new Error("EACCES: simulated");
+      written[file] = text;
+    };
+    const error = await runExport(parseCliArgs(BASE), deps).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(ExportError);
+    const message = (error as Error).message;
+    expect(message).toContain("episodes-demo-outlet-2026-10-05-2026-10-06.csv");
+    expect(message).toMatch(/left behind/i);
+    expect(message).toMatch(/delete it before (you )?rerun/i);
+    expect(message).not.toContain("fictional sentence");
+    expect(Object.keys(written).map((f) => path.basename(f))).toEqual(["episodes-demo-outlet-2026-10-05-2026-10-06.csv"]);
+  });
+
+  it("when the FIRST write fails nothing was left behind and the error passes through", async () => {
+    const { deps } = makeDeps([T]);
+    deps.writeNew = async () => {
+      throw new Error("EACCES: simulated");
+    };
+    await expect(runExport(parseCliArgs(BASE), deps)).rejects.toThrow(/EACCES/);
+  });
+
   it("writes nothing and says so when no threads match", async () => {
     const { deps, written, logs } = makeDeps([]);
     await runExport(parseCliArgs(BASE), deps);

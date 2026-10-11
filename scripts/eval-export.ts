@@ -109,7 +109,13 @@ export async function runExport(args: ExportArgs, deps: ExportDeps): Promise<voi
   }
   await deps.makeDir(args.outDir);
   await deps.writeNew(episodesFile, built.episodesCsv);
-  await deps.writeNew(mapFile, built.mapCsv);
+  try {
+    await deps.writeNew(mapFile, built.mapCsv);
+  } catch {
+    throw new ExportError(
+      `Writing ${path.basename(mapFile)} failed after ${path.basename(episodesFile)} was written. ${path.basename(episodesFile)} was left behind in ${args.outDir}: delete it before rerunning (the export refuses to overwrite).`,
+    );
+  }
   deps.log(`${built.count} episodes written (outlet ${args.outlet}, ${args.from} to ${args.to}). Malformed documents skipped: ${malformed}.`);
   deps.log(`Files: ${path.basename(episodesFile)} and ${path.basename(mapFile)} in the chosen directory. The map file stays private.`);
 }
