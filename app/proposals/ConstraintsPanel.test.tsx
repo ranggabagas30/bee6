@@ -242,6 +242,48 @@ describe("ConstraintsPanel — add flow (two-step confirm)", () => {
   });
 });
 
+describe("ConstraintsPanel — reloadKey and source labels (R-09 8.3)", () => {
+  it("changing reloadKey re-fetches the list and shows the new constraint without losing typed text", async () => {
+    const { rerender } = render(<ConstraintsPanel auth={FAKE_AUTH} role="supervisor" lang="en" reloadKey={0} />);
+    await waitFor(() => expect(screen.getByText("Constraints")).not.toBeNull());
+    expect(authedGetJson).toHaveBeenCalledTimes(1);
+    fireEvent.change(screen.getByLabelText("New constraint"), { target: { value: "half-typed" } });
+
+    authedGetJson.mockResolvedValue({
+      kind: "ok",
+      data: { constraints: [makeView({ text: "Added by a rejection", source: "supervisor_rejection" })] },
+    });
+    rerender(<ConstraintsPanel auth={FAKE_AUTH} role="supervisor" lang="en" reloadKey={1} />);
+    await waitFor(() => expect(screen.getByText("Added by a rejection")).not.toBeNull());
+    expect(authedGetJson).toHaveBeenCalledTimes(2);
+    expect((screen.getByLabelText("New constraint") as HTMLTextAreaElement).value).toBe("half-typed");
+  });
+
+  it("re-rendering with the same reloadKey does not fetch again", async () => {
+    const { rerender } = render(<ConstraintsPanel auth={FAKE_AUTH} role="owner" lang="en" reloadKey={3} />);
+    await waitFor(() => expect(screen.getByText("Constraints")).not.toBeNull());
+    rerender(<ConstraintsPanel auth={FAKE_AUTH} role="owner" lang="en" reloadKey={3} />);
+    expect(authedGetJson).toHaveBeenCalledTimes(1);
+  });
+
+  it("an owner_rejection constraint is labelled as coming from a proposal the owner rejected", async () => {
+    authedGetJson.mockResolvedValue({
+      kind: "ok",
+      data: {
+        constraints: [
+          makeView({ constraint_id: "11111111-1111-4111-8111-111111111111", source: "manual" }),
+          makeView({ constraint_id: "22222222-2222-4222-8222-222222222222", source: "supervisor_rejection" }),
+          makeView({ constraint_id: "33333333-3333-4333-8333-333333333333", source: "owner_rejection" }),
+        ],
+      },
+    });
+    await renderReady();
+    expect(screen.getByText(/Added directly/)).not.toBeNull();
+    expect(screen.getByText(/From a rejected proposal/)).not.toBeNull();
+    expect(screen.getByText(/From a proposal the owner rejected/)).not.toBeNull();
+  });
+});
+
 describe("ConstraintsPanel — 360 px styling", () => {
   it("item text wraps anywhere and nothing is pinned wider than 360 px", async () => {
     authedGetJson.mockResolvedValue({ kind: "ok", data: { constraints: [makeView()] } });

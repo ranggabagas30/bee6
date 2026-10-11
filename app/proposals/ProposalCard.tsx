@@ -1,10 +1,11 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { Lang } from "@/lib/i18n/lang";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import { dayLabel } from "@/lib/i18n/format";
 import { CATEGORY_KEY } from "@/lib/day/view-model";
 import type { MODEL_DECLINE_REASONS } from "@/lib/firestore/schema";
 import type { ProposalView } from "@/lib/proposals/contract";
+import type { Notices, ReviewView } from "@/lib/proposals/review-contract";
 
 /**
  * The generate result card (R-08 Task 7.4). Every status branch the route
@@ -15,9 +16,11 @@ import type { ProposalView } from "@/lib/proposals/contract";
  * quoted line, so no owner-specific redaction is needed).
  *
  * Content-bearing statuses are detected by `content !== null`, never by an
- * exhaustive switch on `status` (review focus #9: R-09 later writes
- * `awaiting_owner` / `approved` / `rejected`, which must render the same
- * block without this file changing).
+ * exhaustive switch on `status` (review focus #9). R-09 adds three things
+ * on top, all optional so the generate result card renders as before: the
+ * status line now names all six statuses, `review` adds the supervisor/owner
+ * decision lines, `notices` adds the late-constraint / stale / SOP-changed /
+ * superseded notices, and `children` is the slot for the decision panel.
  *
  * Every model free-text field (`change_title`, `change_text`, `rationale`,
  * `failure_condition`, `metric.description`, evidence `summary`) is rendered
@@ -46,6 +49,16 @@ const LINE_STYLE: CSSProperties = { margin: "0 0 8px 0", overflowWrap: "anywhere
 const LIST_STYLE: CSSProperties = { margin: "0 0 8px 0", paddingLeft: 20, overflowWrap: "anywhere" };
 const HEADING_STYLE: CSSProperties = { margin: "0 0 8px 0", overflowWrap: "anywhere" };
 const STATUS_LINE_STYLE: CSSProperties = { ...LINE_STYLE, fontWeight: 600 };
+const REASON_STYLE: CSSProperties = { display: "block", overflowWrap: "anywhere" };
+
+const STATUS_KEY: Record<ProposalView["status"], DictKey> = {
+  suppressed: "C-prop-st-suppressed",
+  blocked: "C-prop-st-blocked",
+  awaiting_supervisor: "C-prop-st-awaiting",
+  awaiting_owner: "C-prop-st-awaiting-owner",
+  approved: "C-prop-st-approved",
+  rejected: "C-prop-st-rejected",
+};
 
 function FollowupLines({ followup, lang }: { followup: Followup; lang: Lang }) {
   return (
@@ -69,11 +82,20 @@ function FollowupLines({ followup, lang }: { followup: Followup; lang: Lang }) {
   );
 }
 
-function ProposalContentView({ content, lang }: { content: ProposalContent; lang: Lang }) {
+function ProposalContentView({
+  content,
+  lang,
+  titleLevel,
+}: {
+  content: ProposalContent;
+  lang: Lang;
+  titleLevel: 2 | 3;
+}) {
+  const Title = titleLevel === 3 ? "h3" : "h2";
   const dirKey: DictKey = content.metric.direction === "decrease" ? "C-prop-dir-decrease" : "C-prop-dir-increase";
   return (
     <>
-      <h2 style={HEADING_STYLE}>{content.change_title}</h2>
+      <Title style={HEADING_STYLE}>{content.change_title}</Title>
       <p style={LINE_STYLE}>
         <strong>{t(lang, "C-prop-intervention")}:</strong>{" "}
         {lang === "en" ? content.intervention.label_en : content.intervention.label_id}
@@ -123,17 +145,84 @@ function ProposalContentView({ content, lang }: { content: ProposalContent; lang
   );
 }
 
-export function ProposalCard({ proposal, lang }: { proposal: ProposalView; lang: Lang }) {
-  const statusKey: DictKey =
-    proposal.status === "suppressed"
-      ? "C-prop-st-suppressed"
-      : proposal.status === "blocked"
-        ? "C-prop-st-blocked"
-        : "C-prop-st-awaiting";
+function ReviewLines({ review, lang }: { review: ReviewView; lang: Lang }) {
+  const { supervisor, owner } = review;
+  return (
+    <>
+      {supervisor?.decision === "feasible" && (
+        <p style={LINE_STYLE}>{t(lang, "C-prop-rev-feasible", { date: dayLabel(supervisor.decided_date, lang) })}</p>
+      )}
+      {supervisor?.decision === "rejected" && (
+        <p style={LINE_STYLE}>
+          {t(lang, "C-prop-rev-sup-rejected", { date: dayLabel(supervisor.decided_date, lang) })}
+          {supervisor.reason !== null && <span style={REASON_STYLE}>{supervisor.reason}</span>}
+        </p>
+      )}
+      {owner?.decision === "approved" && (
+        <p style={LINE_STYLE}>{t(lang, "C-prop-rev-approved", { date: dayLabel(owner.decided_date, lang) })}</p>
+      )}
+      {owner?.decision === "rejected" && (
+        <p style={LINE_STYLE}>
+          {t(lang, "C-prop-rev-owner-rejected", { date: dayLabel(owner.decided_date, lang) })}
+          {owner.reason !== null && <span style={REASON_STYLE}>{owner.reason}</span>}
+        </p>
+      )}
+    </>
+  );
+}
 
+/** DOM id of a notice that disables the decision panel's positive button, so the button can name it via aria-describedby. */
+export function noticeDomId(proposalId: string, kind: "stale" | "sop"): string {
+  return `prop-${proposalId}-notice-${kind}`;
+}
+
+function NoticeLines({ proposalId, notices, lang }: { proposalId: string; notices: Notices; lang: Lang }) {
+  return (
+    <>
+      {notices.superseded && <p style={LINE_STYLE}>{t(lang, "C-prop-notice-superseded")}</p>}
+      {notices.evidence_stale && (
+        <p id={noticeDomId(proposalId, "stale")} style={LINE_STYLE}>
+          {t(lang, "C-prop-notice-stale")}
+        </p>
+      )}
+      {notices.sop_changed && (
+        <p id={noticeDomId(proposalId, "sop")} style={LINE_STYLE}>
+          {t(lang, "C-prop-notice-sop")}
+        </p>
+      )}
+      {notices.late_constraints.length > 0 && (
+        <>
+          <p style={LINE_STYLE}>{t(lang, "C-prop-notice-late")}</p>
+          <ul style={LIST_STYLE}>
+            {notices.late_constraints.map((c) => (
+              <li key={c.constraint_id}>{c.text}</li>
+            ))}
+          </ul>
+        </>
+      )}
+    </>
+  );
+}
+
+export function ProposalCard({
+  proposal,
+  lang,
+  review,
+  notices,
+  titleLevel = 2,
+  children,
+}: {
+  proposal: ProposalView;
+  lang: Lang;
+  /** Heading level of the change title: 2 on its own (generate result), 3 inside a list section that has its own h2. */
+  titleLevel?: 2 | 3;
+  review?: ReviewView;
+  notices?: Notices;
+  children?: ReactNode;
+}) {
   return (
     <article style={CARD_STYLE}>
-      <p style={STATUS_LINE_STYLE}>{t(lang, statusKey)}</p>
+      <p style={STATUS_LINE_STYLE}>{t(lang, STATUS_KEY[proposal.status])}</p>
 
       {proposal.status === "suppressed" && proposal.suppression && (
         <>
@@ -149,8 +238,12 @@ export function ProposalCard({ proposal, lang }: { proposal: ProposalView; lang:
       )}
 
       {proposal.status !== "suppressed" && proposal.status !== "blocked" && proposal.content && (
-        <ProposalContentView content={proposal.content} lang={lang} />
+        <ProposalContentView content={proposal.content} lang={lang} titleLevel={titleLevel} />
       )}
+
+      {review && <ReviewLines review={review} lang={lang} />}
+      {notices && <NoticeLines proposalId={proposal.proposal_id} notices={notices} lang={lang} />}
+      {children}
     </article>
   );
 }

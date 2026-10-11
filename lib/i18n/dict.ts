@@ -317,6 +317,49 @@ export const ID = {
   "C-prop-err-range": "Periksa tanggal: paling lama 14 hari, tidak di masa depan, dalam 14 hari terakhir.", // PROVISIONAL
   "C-prop-err-forbidden": "Hanya pemilik atau supervisor yang bisa membuat usulan.", // PROVISIONAL
   "C-prop-owner-note": "Usulan baru dikirim ke supervisor dulu. Anda menyetujuinya setelah supervisor menandainya layak.", // PROVISIONAL
+  // Approval screens (/proposals, R-09 Task 6, PROVISIONAL)
+  "C-prop-st-awaiting-owner": "Menunggu persetujuan pemilik", // PROVISIONAL
+  "C-prop-st-approved": "Disetujui", // PROVISIONAL
+  "C-prop-st-rejected": "Ditolak", // PROVISIONAL
+  "C-prop-list-open": "Usulan terbuka", // PROVISIONAL
+  "C-prop-list-decided": "Baru diputuskan", // PROVISIONAL
+  "C-prop-list-empty": "Belum ada usulan terbuka.", // PROVISIONAL
+  "C-prop-rev-feasible": "Supervisor menandai layak pada {date}.", // PROVISIONAL
+  "C-prop-rev-sup-rejected": "Supervisor menolak pada {date}. Alasan:", // PROVISIONAL
+  "C-prop-rev-approved": "Pemilik menyetujui pada {date}.", // PROVISIONAL
+  "C-prop-rev-owner-rejected": "Pemilik menolak pada {date}. Alasan:", // PROVISIONAL
+  "C-prop-notice-late": "Ditambahkan setelah usulan ini dibuat. Periksa usulan terhadap batasan ini sebelum memutuskan:", // PROVISIONAL
+  "C-prop-notice-stale": "Sebagian bukti sudah tidak berlaku. Buat ulang usulan untuk tanggal ini.", // PROVISIONAL
+  "C-prop-notice-sop": "SOP sudah berubah sejak usulan ini dibuat. Buat ulang usulan.", // PROVISIONAL
+  "C-prop-notice-superseded": "Ada usulan lebih baru untuk tanggal ini. Putuskan yang itu.", // PROVISIONAL
+  "C-prop-act-feasible": "Layak", // PROVISIONAL
+  "C-prop-act-approve": "Setujui", // PROVISIONAL
+  "C-prop-act-reject": "Tolak", // PROVISIONAL
+  "C-prop-reason-label": "Alasan (wajib)", // PROVISIONAL
+  "C-prop-reason-hint-sup": "Alasan ini menjadi batasan permanen untuk setiap usulan berikutnya. Tulis fakta tentang toko, bukan orang. Jangan tulis nama atau nomor telepon.", // PROVISIONAL
+  "C-prop-reason-hint-owner": "Alasan ini menjadi batasan permanen untuk setiap usulan berikutnya. Tulis fakta tentang toko, bukan orang. Jangan tulis nama atau nomor telepon.", // PROVISIONAL
+  "C-prop-continue": "Lanjut", // PROVISIONAL
+  "C-prop-confirm-feasible": "Tandai usulan ini layak? Usulan dikirim ke pemilik untuk disetujui.", // PROVISIONAL
+  "C-prop-confirm-approve": "Setujui perubahan ini? Perubahan ini menjadi versi SOP berikutnya.", // PROVISIONAL
+  "C-prop-confirm-reject-sup": "Tolak usulan ini? Alasannya disimpan sebagai batasan permanen.", // PROVISIONAL
+  "C-prop-confirm-reject-owner": "Tolak usulan ini? Alasannya disimpan sebagai batasan permanen.", // PROVISIONAL
+  "C-prop-ack-late": "Saya sudah memeriksa usulan ini terhadap batasan di atas.", // PROVISIONAL
+  "C-prop-confirm-yes": "Ya", // PROVISIONAL
+  "C-prop-confirm-no": "Batal", // PROVISIONAL
+  "C-prop-done-feasible": "Ditandai layak. Dikirim ke pemilik.", // PROVISIONAL
+  "C-prop-done-rejected-sup": "Ditolak. Alasannya kini menjadi batasan. Buat ulang usulan untuk tanggal yang sama untuk mendapat usulan revisi.", // PROVISIONAL
+  "C-prop-done-approved": "Disetujui.", // PROVISIONAL
+  "C-prop-done-rejected-owner": "Ditolak. Alasannya kini menjadi batasan. Buat ulang usulan untuk tanggal yang sama untuk mendapat usulan revisi.", // PROVISIONAL
+  "C-prop-done-unchanged": "Keputusan ini sudah tersimpan.", // PROVISIONAL
+  "C-prop-use-dates": "Pakai tanggal ini", // PROVISIONAL
+  "C-prop-err-decided": "Usulan ini sudah diputuskan. Daftar sudah diperbarui.", // PROVISIONAL
+  "C-prop-err-not-yet": "Supervisor belum meninjau usulan ini.", // PROVISIONAL
+  "C-prop-err-not-reviewable": "Usulan ini tidak bisa ditinjau.", // PROVISIONAL
+  "C-prop-err-superseded": "Ada usulan lebih baru untuk tanggal ini. Daftar sudah diperbarui.", // PROVISIONAL
+  "C-prop-err-stale": "Sebagian bukti sudah tidak berlaku, jadi usulan ini tidak bisa dilanjutkan. Buat ulang untuk tanggal ini.", // PROVISIONAL
+  "C-prop-err-sop-changed": "SOP sudah berubah, jadi usulan ini tidak bisa dilanjutkan. Buat ulang.", // PROVISIONAL
+  "C-prop-err-constraint-added": "Ada batasan yang baru ditambahkan. Periksa, lalu putuskan lagi.", // PROVISIONAL
+  "C-prop-err-forbidden-decide": "Peran Anda tidak bisa membuat keputusan ini.", // PROVISIONAL
 
   // Constraints panel (/proposals, R-08 Task 8.6, PROVISIONAL)
   "C-con-title": "Batasan", // PROVISIONAL
@@ -324,6 +367,7 @@ export const ID = {
   "C-con-empty": "Belum ada batasan.", // PROVISIONAL
   "C-con-src-manual": "Ditambahkan langsung", // PROVISIONAL
   "C-con-src-rejection": "Dari usulan yang ditolak", // PROVISIONAL
+  "C-con-src-owner-rejection": "Dari usulan yang ditolak pemilik", // PROVISIONAL
   "C-con-add-label": "Batasan baru", // PROVISIONAL
   "C-con-add-hint": "Tulis fakta tentang toko, bukan orang. Jangan tulis nama atau nomor telepon.", // PROVISIONAL
   "C-con-add": "Tambah batasan", // PROVISIONAL
@@ -644,6 +688,49 @@ export const EN: Record<DictKey, string> = {
   "C-prop-err-range": "Check the dates: at most 14 days, not in the future, within the last 14 days.",
   "C-prop-err-forbidden": "Only the owner or a supervisor can generate proposals.",
   "C-prop-owner-note": "New proposals go to a supervisor first. You approve them after the supervisor marks them feasible.",
+  // Approval screens (/proposals, R-09 Task 6, PROVISIONAL)
+  "C-prop-st-awaiting-owner": "Waiting for owner approval", // PROVISIONAL
+  "C-prop-st-approved": "Approved", // PROVISIONAL
+  "C-prop-st-rejected": "Rejected", // PROVISIONAL
+  "C-prop-list-open": "Open proposals", // PROVISIONAL
+  "C-prop-list-decided": "Recently decided", // PROVISIONAL
+  "C-prop-list-empty": "No open proposals.", // PROVISIONAL
+  "C-prop-rev-feasible": "The supervisor marked this feasible on {date}.", // PROVISIONAL
+  "C-prop-rev-sup-rejected": "The supervisor rejected this on {date}. Reason:", // PROVISIONAL
+  "C-prop-rev-approved": "The owner approved this on {date}.", // PROVISIONAL
+  "C-prop-rev-owner-rejected": "The owner rejected this on {date}. Reason:", // PROVISIONAL
+  "C-prop-notice-late": "Added after this proposal was made. Check the proposal against it before you decide:", // PROVISIONAL
+  "C-prop-notice-stale": "Some of the evidence no longer holds. Generate again for these dates.", // PROVISIONAL
+  "C-prop-notice-sop": "The SOP has changed since this proposal was made. Generate again.", // PROVISIONAL
+  "C-prop-notice-superseded": "A newer proposal exists for these dates. Decide on that one.", // PROVISIONAL
+  "C-prop-act-feasible": "Feasible", // PROVISIONAL
+  "C-prop-act-approve": "Approve", // PROVISIONAL
+  "C-prop-act-reject": "Reject", // PROVISIONAL
+  "C-prop-reason-label": "Reason (required)", // PROVISIONAL
+  "C-prop-reason-hint-sup": "This reason becomes a permanent constraint for every later proposal. Write a fact about the shop, not a person. No names or phone numbers.", // PROVISIONAL
+  "C-prop-reason-hint-owner": "This reason becomes a permanent constraint for every later proposal. Write a fact about the shop, not a person. No names or phone numbers.", // PROVISIONAL
+  "C-prop-continue": "Continue", // PROVISIONAL
+  "C-prop-confirm-feasible": "Mark this proposal feasible? It goes to the owner for approval.", // PROVISIONAL
+  "C-prop-confirm-approve": "Approve this change? It becomes the next SOP version.", // PROVISIONAL
+  "C-prop-confirm-reject-sup": "Reject this proposal? The reason is saved as a permanent constraint.", // PROVISIONAL
+  "C-prop-confirm-reject-owner": "Reject this proposal? The reason is saved as a permanent constraint.", // PROVISIONAL
+  "C-prop-ack-late": "I checked this proposal against the constraints above.", // PROVISIONAL
+  "C-prop-confirm-yes": "Yes", // PROVISIONAL
+  "C-prop-confirm-no": "Cancel", // PROVISIONAL
+  "C-prop-done-feasible": "Marked feasible. Sent to the owner.", // PROVISIONAL
+  "C-prop-done-rejected-sup": "Rejected. The reason is now a constraint. Generate again for the same dates to get a revised proposal.", // PROVISIONAL
+  "C-prop-done-approved": "Approved.", // PROVISIONAL
+  "C-prop-done-rejected-owner": "Rejected. The reason is now a constraint. Generate again for the same dates to get a revised proposal.", // PROVISIONAL
+  "C-prop-done-unchanged": "This decision was already saved.", // PROVISIONAL
+  "C-prop-use-dates": "Use these dates", // PROVISIONAL
+  "C-prop-err-decided": "This proposal was already decided. The list is updated.", // PROVISIONAL
+  "C-prop-err-not-yet": "The supervisor has not reviewed this proposal yet.", // PROVISIONAL
+  "C-prop-err-not-reviewable": "This proposal cannot be reviewed.", // PROVISIONAL
+  "C-prop-err-superseded": "A newer proposal exists for these dates. The list is updated.", // PROVISIONAL
+  "C-prop-err-stale": "Some of the evidence no longer holds, so this cannot go ahead. Generate again for these dates.", // PROVISIONAL
+  "C-prop-err-sop-changed": "The SOP has changed, so this cannot go ahead. Generate again.", // PROVISIONAL
+  "C-prop-err-constraint-added": "A constraint was just added. Check it, then decide again.", // PROVISIONAL
+  "C-prop-err-forbidden-decide": "Your role cannot make this decision.", // PROVISIONAL
 
   // Constraints panel (/proposals, R-08 Task 8.6, PROVISIONAL)
   "C-con-title": "Constraints", // PROVISIONAL
@@ -651,6 +738,7 @@ export const EN: Record<DictKey, string> = {
   "C-con-empty": "No constraints yet.", // PROVISIONAL
   "C-con-src-manual": "Added directly", // PROVISIONAL
   "C-con-src-rejection": "From a rejected proposal", // PROVISIONAL
+  "C-con-src-owner-rejection": "From a proposal the owner rejected", // PROVISIONAL
   "C-con-add-label": "New constraint", // PROVISIONAL
   "C-con-add-hint": "Describe a fact about the shop, not a person. Don't write names or phone numbers.", // PROVISIONAL
   "C-con-add": "Add constraint", // PROVISIONAL

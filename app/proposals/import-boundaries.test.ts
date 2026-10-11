@@ -29,6 +29,25 @@ const BANNED_PATTERNS: Array<{ name: string; re: RegExp }> = [
     name: "@/lib/constraints/service",
     re: /(?:from\s+|import\s*\(?\s*|require\s*\()\s*["']@\/lib\/constraints\/service["']/,
   },
+  // R-09 Task 8.4: the decision logic, its store and the redaction helpers are
+  // server-only; the browser reaches them through the three /api/v1/proposals
+  // routes only.
+  {
+    name: "@/lib/proposals/review-service",
+    re: /(?:from\s+|import\s*\(?\s*|require\s*\()\s*["']@\/lib\/proposals\/review-service["']/,
+  },
+  {
+    name: "@/lib/proposals/review-plan",
+    re: /(?:from\s+|import\s*\(?\s*|require\s*\()\s*["']@\/lib\/proposals\/review-plan["']/,
+  },
+  {
+    name: "@/lib/firestore/proposal-review-store",
+    re: /(?:from\s+|import\s*\(?\s*|require\s*\()\s*["']@\/lib\/firestore\/proposal-review-store["']/,
+  },
+  {
+    name: "@/lib/redact/*",
+    re: /(?:from\s+|import\s*\(?\s*|require\s*\()\s*["']@\/lib\/redact(?:\/[^"']*)?["']/,
+  },
 ];
 
 /**
@@ -88,6 +107,12 @@ describe("app/proposals/* import boundaries (R-08 Task 7)", () => {
     expect(BANNED_PATTERNS[2]!.re.test('import { generateProposal } from "@/lib/proposals/service";')).toBe(true);
     expect(BANNED_PATTERNS[3]!.re.test('import { getFirestore } from "firebase/firestore";')).toBe(true);
     expect(BANNED_PATTERNS[4]!.re.test('import { createConstraint } from "@/lib/constraints/service";')).toBe(true);
+    expect(BANNED_PATTERNS[5]!.re.test('import { decideProposal } from "@/lib/proposals/review-service";')).toBe(true);
+    expect(BANNED_PATTERNS[6]!.re.test('import { classifyDecision } from "@/lib/proposals/review-plan";')).toBe(true);
+    expect(
+      BANNED_PATTERNS[7]!.re.test('import { firestoreProposalReviewStore } from "@/lib/firestore/proposal-review-store";'),
+    ).toBe(true);
+    expect(BANNED_PATTERNS[8]!.re.test('import { redactUserText } from "@/lib/redact/user-text";')).toBe(true);
     expect(FIRESTORE_STAR_RE.test('import { firestoreConstraintStore } from "@/lib/firestore/constraint-store";')).toBe(true);
   });
 
@@ -95,9 +120,12 @@ describe("app/proposals/* import boundaries (R-08 Task 7)", () => {
     expect(TARGET_FILES.length).toBeGreaterThan(0);
   });
 
-  it("ConstraintsPanel.tsx imports no @/lib/firestore/* module (R-08 Task 8.7)", () => {
-    const file = join(TARGET_DIR, "ConstraintsPanel.tsx");
-    const text = readFileSync(file, "utf8");
-    expect(FIRESTORE_STAR_RE.test(text)).toBe(false);
-  });
+  // R-08 Task 8.7 (ConstraintsPanel) and R-09 Task 8.4 (the list and the
+  // decision panel): these components talk to the API only.
+  for (const name of ["ConstraintsPanel.tsx", "ProposalList.tsx", "ProposalDecisionPanel.tsx"]) {
+    it(`${name} imports no @/lib/firestore/* module`, () => {
+      const text = readFileSync(join(TARGET_DIR, name), "utf8");
+      expect(FIRESTORE_STAR_RE.test(text)).toBe(false);
+    });
+  }
 });
