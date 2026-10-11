@@ -162,6 +162,7 @@ export function ProposalsApp({ config }: { config: FirebaseWebConfig | null }) {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!auth || outcome.kind === "busy") return;
+    setBanner(null);
     setOutcome({ kind: "busy" });
     void post();
   }

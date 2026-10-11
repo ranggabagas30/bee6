@@ -401,6 +401,23 @@ describe("ProposalsApp — proposals list and decisions (R-09 8.2)", () => {
     await waitFor(() => expect(screen.getAllByText("Add a greeting script")).toHaveLength(1));
   });
 
+  it("tapping Generate clears the decision banner and its Use these dates button", async () => {
+    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [] } };
+    authedPostJson.mockImplementation(async (...args: unknown[]) =>
+      args[1] === "/api/v1/proposals/generate"
+        ? { kind: "error" }
+        : { kind: "ok", data: { result: "rejected", status: "rejected" } },
+    );
+    await renderReady();
+    await rejectFirstOpen();
+    const message =
+      "Rejected. The reason is now a constraint. Generate again for the same dates to get a revised proposal.";
+    expect(await screen.findByText(message)).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Generate proposal" }));
+    expect(screen.queryByText(message)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Use these dates" })).toBeNull();
+  });
+
   it("a conflict answer shows its message in the banner and reloads the list", async () => {
     proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [] } };
     authedPostJson.mockResolvedValue({ kind: "conflict", code: "ALREADY_DECIDED" });
