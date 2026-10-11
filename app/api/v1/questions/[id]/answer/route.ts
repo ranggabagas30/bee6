@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { UnauthorizedError, handleApiError } from "@/lib/http/errors";
+import { readBodyTextCapped } from "@/lib/http/body";
 import { jsonOk } from "@/lib/http/respond";
 import { requireDevice } from "@/lib/http/guard";
 import { submitAnswer } from "@/lib/debrief/service";
@@ -20,6 +21,9 @@ import { checkReason } from "@/lib/debrief/reason";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/** A legitimate answer is well under 3 KB (a 500-character reason); the cap only stops a device token buffering megabytes. */
+const BODY_MAX_BYTES = 32 * 1024;
 
 /**
  * Will this request reach Sensitive Data Protection? Only a well-formed body whose question_id equals the
@@ -42,7 +46,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       throw new UnauthorizedError("Device session missing device id");
     }
     const { id } = await params;
-    const text = await req.text();
+    const text = await readBodyTextCapped(req, BODY_MAX_BYTES);
 
     // R-12: a sandbox's typed reasons go through Sensitive Data Protection, so they are capped. Only a request
     // that will reach SDP spends the cap (anything the service refuses first gets its own 400, charged nothing).
