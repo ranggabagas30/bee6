@@ -7,10 +7,17 @@ import {
   PlanSchema,
   TemplateSeedError,
   assertNotPilotProject,
+  checkTemplateReadiness,
+  isCheckOnly,
   parseCliArgs,
+  runReadinessCheck,
   runTemplateSeed,
   type ProgressSnapshot,
+  type ReadinessReader,
 } from "@/scripts/demo-seed-template";
+import { addDays, zonedTimeToEpochMs } from "@/lib/capture/calendar";
+import type { ProposalThreadRow } from "@/lib/proposals/candidates";
+import type { AttributionSession } from "@/lib/day/attribution";
 
 const TZ = "Asia/Jakarta";
 // 2026-10-20 12:00 UTC = 19:00 WIB, so "today" in Jakarta is 2026-10-20.
@@ -83,6 +90,47 @@ interface Call {
   redirect?: RequestRedirect;
 }
 
+// ── readiness fixtures (the template's own days; zero answers) ───────────────
+const DEVICE = "demo-tpl-phone";
+const LAST_DAY = "2026-10-19";
+const dayStart = (date: string) => zonedTimeToEpochMs(date, "07:00", TZ);
+const sessionOn = (date: string, over: Partial<AttributionSession> = {}): AttributionSession => ({
+  device_id: DEVICE,
+  local_date: date,
+  started_at_ms: dayStart(date),
+  ended_at_ms: zonedTimeToEpochMs(date, "21:45", TZ),
+  auto_stop_at_ms: zonedTimeToEpochMs(date, "22:45", TZ),
+  end_reason: "selesai",
+  ...over,
+});
+const threadOn = (n: number, date: string, over: Partial<ProposalThreadRow> = {}): ProposalThreadRow => ({
+  outlet_id: "demo-tpl-outlet",
+  thread_id: `th_${n}`,
+  device_id: DEVICE,
+  category: "ROUTINE_OPS",
+  status: "fact",
+  first_line_start_ms: dayStart(date) + (2 + n) * 3_600_000,
+  summary: `Summary ${n}`,
+  ...over,
+});
+const SESSIONS = ["2026-10-17", "2026-10-18", LAST_DAY].map((d) => sessionOn(d));
+
+function reader(threads: ProposalThreadRow[], lastDay: string | null = LAST_DAY, sessions: AttributionSession[] = SESSIONS) {
+  const calls = { sessions: [] as (readonly string[])[], threads: [] as [number, number][] };
+  const r: ReadinessReader = {
+    lastDay: async () => lastDay,
+    listSessions: async (dates) => {
+      calls.sessions.push(dates);
+      return sessions;
+    },
+    listThreadsInRange: async (from, to) => {
+      calls.threads.push([from, to]);
+      return threads;
+    },
+  };
+  return { r, calls };
+}
+
 function envelope(data: unknown, status = 200): Response {
   return new Response(JSON.stringify({ data }), { status, headers: { "content-type": "application/json" } });
 }
@@ -132,6 +180,7 @@ function harness(opts: { pair?: { device_id: string; outlet_id: string }; failAt
     readClip: vi.fn(async () => new Uint8Array([1, 2, 3])),
     randomUUID: () => `00000000-0000-4000-8000-${String(++uuidN).padStart(12, "0")}`,
     readProgress: vi.fn(async () => progress),
+    readiness: reader([threadOn(1, "2026-10-17"), threadOn(2, "2026-10-18")]).r,
     sleep: vi.fn(async () => undefined),
     log: (line: string) => logs.push(line),
     pollEveryMs: 30_000,
@@ -335,6 +384,95 @@ describe("N-2 redirects are never followed (the token and the single-use code mu
         expect(seen).toEqual(["GET /api/v1/reviews/fast-forward", "POST /api/v1/devices/pair"]);
       });
     }
+  });
+});
+
+describe("R-18 P0 3.T1-3.T3 readiness check (same candidates and evidence floor as the real proposal path)", () => {
+  it("3.T1 two automatic facts on two dates -> READY facts=2 dates=2", async () => {
+    const { r } = reader([threadOn(1, "2026-10-17"), threadOn(2, "2026-10-18")]);
+    const res = await checkTemplateReadiness(r);
+    expect(res).toMatchObject({ ready: true, facts: 2, dates: 2 });
+    expect(res.line).toBe("READY: facts=2 dates=2");
+  });
+
+  it("3.T2 three facts on one date -> NOT READY with what a supervisor must do (the real /day confirm path)", async () => {
+    const { r } = reader([threadOn(1, "2026-10-18"), threadOn(2, "2026-10-18"), threadOn(3, "2026-10-18")]);
+    const res = await checkTemplateReadiness(r);
+    expect(res).toMatchObject({ ready: false, facts: 3, dates: 1 });
+    expect(res.line).toBe(
+      "NOT READY: facts=3 dates=1 (need 2 on 2). Confirm threads as the template supervisor on /day, then re-run with --check-only",
+    );
+  });
+
+  it("uses the real selection: open, unverified, excluded, rejected and NON_WORK threads are not facts", async () => {
+    const { r } = reader([
+      threadOn(1, "2026-10-17"),
+      threadOn(2, "2026-10-18", { status: "open" }),
+      threadOn(3, "2026-10-18", { status: "unverified" }),
+      threadOn(4, "2026-10-18", { excluded_from_evidence: true }),
+      threadOn(5, "2026-10-18", { label_source: "supervisor_rejected" }),
+      threadOn(6, "2026-10-18", { category: "NON_WORK" }),
+    ]);
+    const res = await checkTemplateReadiness(r);
+    expect(res).toMatchObject({ ready: false, facts: 1, dates: 1 });
+  });
+
+  it("a supervisor-confirmed override counts under its confirmed category (gate v3 path)", async () => {
+    const { r } = reader([
+      threadOn(1, "2026-10-17", { category: "COMPLAINT", status: "fact", confirmed_category: "CUSTOMER_SERVICE", label_source: "supervisor_confirmed" }),
+      threadOn(2, "2026-10-18", { category: "CUSTOMER_SERVICE", status: "fact", label_source: "supervisor_confirmed" }),
+    ]);
+    expect(await checkTemplateReadiness(r)).toMatchObject({ ready: true, facts: 2, dates: 2 });
+  });
+
+  it("reads exactly the range the real path reads for [D-6, D]: dates D-7..D+1 and 01:00 of D-6 to 03:00 of D+1", async () => {
+    const { r, calls } = reader([]);
+    await checkTemplateReadiness(r);
+    expect(calls.sessions[0]).toEqual([-7, -6, -5, -4, -3, -2, -1, 0, 1].map((n) => addDays(LAST_DAY, n)));
+    expect(calls.threads[0]).toEqual([
+      zonedTimeToEpochMs(addDays(LAST_DAY, -6), "01:00", TZ),
+      zonedTimeToEpochMs(addDays(LAST_DAY, 1), "03:00", TZ),
+    ]);
+  });
+
+  it("a threshold of 2 facts on 2 dates is never lowered: 1 fact on 2 sessions' dates is NOT READY", async () => {
+    const { r } = reader([threadOn(1, "2026-10-18")]);
+    expect(await checkTemplateReadiness(r)).toMatchObject({ ready: false, facts: 1, dates: 1 });
+  });
+
+  it("no ended template day -> NOT READY (nothing to check), no thread read", async () => {
+    const { r, calls } = reader([threadOn(1, "2026-10-17")], null);
+    const res = await checkTemplateReadiness(r);
+    expect(res.ready).toBe(false);
+    expect(res.line).toMatch(/^NOT READY: no template day found/);
+    expect(calls.threads).toEqual([]);
+  });
+
+  it("runTemplateSeed ends with the readiness line (after the tick is done) and returns it; NOT READY does not throw", async () => {
+    const ok = harness();
+    expect(await runTemplateSeed(ok.deps)).toMatchObject({ ready: true });
+    expect(ok.logs.at(-1)).toBe("[demo-seed] READY: facts=2 dates=2");
+
+    const bad = harness();
+    bad.deps.readiness = reader([threadOn(1, "2026-10-17")]).r;
+    const res = await runTemplateSeed(bad.deps);
+    expect(res.ready).toBe(false);
+    expect(bad.logs.at(-1)).toMatch(/^\[demo-seed\] NOT READY: facts=1 dates=1 \(need 2 on 2\)\. Confirm threads as the template supervisor on \/day/);
+  });
+
+  it("3.T3 --check-only is recognised anywhere on the command line and needs no URL, code or clips", () => {
+    expect(isCheckOnly(["--check-only"])).toBe(true);
+    expect(isCheckOnly(["--base-url", "https://x", "--check-only"])).toBe(true);
+    expect(isCheckOnly(["--base-url", "https://x", "--code", "123456", "--clips-dir", "c"])).toBe(false);
+  });
+
+  it("3.T3 --check-only runs only the read: no HTTP call, no upload, no pairing", async () => {
+    const fetchFn = vi.fn();
+    const logs: string[] = [];
+    const res = await runReadinessCheck({ readiness: reader([threadOn(1, "2026-10-17"), threadOn(2, "2026-10-18")]).r, log: (l) => logs.push(l) });
+    expect(res.ready).toBe(true);
+    expect(logs).toEqual(["[demo-seed] READY: facts=2 dates=2"]);
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 });
 

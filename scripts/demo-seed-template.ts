@@ -14,8 +14,17 @@
  *          --clips-dir <that directory>
  *      `--clips-dir` is mandatory (there is no default directory); `--plan <file>` defaults to
  *      `plan.json` inside it.
- *   4. Wait for "done": the template is ready. Re-run the whole thing only if the clips change
- *      (delete the `demo-tpl-outlet` data first via dev-ops).
+ *   4. Wait for "done". The run then ends with a READINESS CHECK (R-18): it reads the template's own threads and
+ *      sessions (read-only) and applies the SAME candidate selection and evidence floor as the real proposal path
+ *      (`selectCandidates` + `checkEvidenceFloor`, 2 facts on 2 dates, never lowered), with zero answers.
+ *      It prints `READY: facts=<n> dates=<m>` or `NOT READY: ...` (exit code 2). Re-run the whole thing only
+ *      if the clips change (delete the `demo-tpl-outlet` data first via dev-ops).
+ *   5. If NOT READY: create a supervisor account for the template outlet with the admin web-user script
+ *      (see its header; this file never creates accounts), sign in as that supervisor, and confirm 2 or more threads across both days on /day (the product's real
+ *      supervisor-confirm path, gate v3 `supervisor_confirmed`; it is NOT a bypass and never edits data),
+ *      then re-check without uploading anything:
+ *        npm run demo:seed-template -- --check-only
+ *      `--check-only` needs no URL, code or clips: no pairing, no upload, no HTTP call; it only reads.
  *
  * plan.json shape (zod-validated below):
  *   { "days": [ { "offset_days": -3, "start_hm": "07:00", "end_hm": "21:45",
@@ -38,6 +47,10 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { addDays, localDateOf, zonedTimeToEpochMs } from "@/lib/capture/calendar";
+import type { AttributionSession } from "@/lib/day/attribution";
+import { selectCandidates, type ProposalThreadRow } from "@/lib/proposals/candidates";
+import { MIN_EVIDENCE_DATES, MIN_EVIDENCE_FACTS } from "@/lib/proposals/constants";
+import { checkEvidenceFloor } from "@/lib/proposals/precheck";
 import { MAX_SEGMENT_BYTES, SEGMENT_CONTENT_TYPE } from "@/lib/capture/contract";
 import { deviceAuthHeaders, type DeviceAuth } from "@/lib/capture/browser/client";
 import { TEMPLATE_DEVICE_ID, TEMPLATE_OUTLET_ID } from "@/lib/demo/constants";
@@ -117,6 +130,64 @@ export interface ProgressSnapshot {
   pending_units: number;
 }
 
+// ── readiness (R-18 P0) ──────────────────────────────────────────────────────
+/** The read-only view of the template that the readiness check needs (the real proposal store's two reads, plus the last day). */
+export interface ReadinessReader {
+  /** The template's last ended business date (`YYYY-MM-DD`), or null when it has none. */
+  lastDay(): Promise<string | null>;
+  listSessions(dates: readonly string[]): Promise<AttributionSession[]>;
+  listThreadsInRange(fromMs: number, toMs: number): Promise<ProposalThreadRow[]>;
+}
+
+export interface ReadinessResult {
+  ready: boolean;
+  facts: number;
+  dates: number;
+  /** The printed line, without the `[demo-seed]` prefix. */
+  line: string;
+}
+
+/**
+ * Would the default Generate (the last 7 days, here [D-6, D] around the template's last day D) clear the evidence
+ * floor from the template alone, with zero answers? It is the proposal path's own code: the same range reads as
+ * `lib/proposals/service.ts` step 8a, then `selectCandidates` and `checkEvidenceFloor`. The floor is never lowered
+ * and nothing is written. Hard rule #10: plain code, no model.
+ */
+export async function checkTemplateReadiness(reader: ReadinessReader, tz: string = TZ): Promise<ReadinessResult> {
+  const lastDay = await reader.lastDay();
+  if (lastDay === null) {
+    return {
+      ready: false,
+      facts: 0,
+      dates: 0,
+      line: "NOT READY: no template day found (no ended session). Seed the template first",
+    };
+  }
+  const range = { from_date: addDays(lastDay, -6), to_date: lastDay };
+  const dates: string[] = [];
+  for (let d = addDays(range.from_date, -1); d <= addDays(range.to_date, 1); d = addDays(d, 1)) dates.push(d);
+  const fromMs = zonedTimeToEpochMs(range.from_date, "01:00", tz);
+  const toMs = zonedTimeToEpochMs(addDays(range.to_date, 1), "03:00", tz);
+  const [sessions, rows] = await Promise.all([reader.listSessions(dates), reader.listThreadsInRange(fromMs, toMs)]);
+  const floor = checkEvidenceFloor(selectCandidates(rows, sessions, tz, range));
+  const line = floor.passed
+    ? `READY: facts=${floor.facts} dates=${floor.dates}`
+    : `NOT READY: facts=${floor.facts} dates=${floor.dates} (need ${MIN_EVIDENCE_FACTS} on ${MIN_EVIDENCE_DATES}). ` +
+      "Confirm threads as the template supervisor on /day, then re-run with --check-only";
+  return { ready: floor.passed, facts: floor.facts, dates: floor.dates, line };
+}
+
+/** `--check-only`: the readiness read alone. No pairing, no upload, no HTTP call. */
+export async function runReadinessCheck(deps: {
+  readiness: ReadinessReader;
+  log: (line: string) => void;
+  tz?: string;
+}): Promise<ReadinessResult> {
+  const result = await checkTemplateReadiness(deps.readiness, deps.tz);
+  deps.log(`[demo-seed] ${result.line}`);
+  return result;
+}
+
 export interface TemplateSeedDeps {
   baseUrl: string;
   code: string;
@@ -128,6 +199,8 @@ export interface TemplateSeedDeps {
   readClip: (file: string) => Promise<Uint8Array>;
   randomUUID: () => string;
   readProgress: () => Promise<ProgressSnapshot>;
+  /** Read-only template view for the end-of-run readiness check. */
+  readiness: ReadinessReader;
   sleep: (ms: number) => Promise<void>;
   log: (line: string) => void;
   pollEveryMs: number;
@@ -206,8 +279,11 @@ async function assertDemoService(deps: TemplateSeedDeps): Promise<void> {
   if (res.status !== 405 || !allow.split(",").some((m) => m.trim() === "POST")) throw refuse();
 }
 
-/** The whole run. Throws `TemplateSeedError` on any failure; resolves when the tick has produced every day. */
-export async function runTemplateSeed(deps: TemplateSeedDeps): Promise<void> {
+/**
+ * The whole run. Throws `TemplateSeedError` on any failure; resolves, once the tick has produced every day, with the
+ * readiness verdict (NOT READY is reported, not thrown: the caller decides the exit code).
+ */
+export async function runTemplateSeed(deps: TemplateSeedDeps): Promise<ReadinessResult> {
   const tz = deps.tz ?? TZ;
 
   // 0. Refuse a service that is not a demo service, before the single-use pairing code is spent.
@@ -281,8 +357,8 @@ export async function runTemplateSeed(deps: TemplateSeedDeps): Promise<void> {
     const progress = await deps.readProgress();
     for (const d of progress.days) deps.log(describeDay(d));
     if (isDone(progress, dates)) {
-      deps.log("[demo-seed] done: the template is ready");
-      return;
+      deps.log("[demo-seed] done: the tick has processed every day");
+      return runReadinessCheck({ readiness: deps.readiness, log: deps.log, tz });
     }
     if (waited >= deps.pollMaxMs) {
       throw new TemplateSeedError("Timed out waiting for the pipeline tick to process the template.");
@@ -384,12 +460,49 @@ async function readProgressFromFirestore(tz: string): Promise<ProgressSnapshot> 
   return { days: Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date)), pending_units: units.size };
 }
 
+/**
+ * The real readiness reader: the proposal store's own two reads (so the check sees what Generate sees) and the
+ * template device's last ended day. Admin SDK `.get()` only.
+ */
+async function firestoreReadinessReader(): Promise<ReadinessReader> {
+  const { adminDb } = await import("@/lib/firebase/admin");
+  const { COLLECTIONS } = await import("@/lib/firestore/collections");
+  const { deviceDocId } = await import("@/lib/firestore/stores");
+  const { firestoreProposalStore } = await import("@/lib/firestore/proposal-store");
+  const db = adminDb();
+  const store = firestoreProposalStore(TEMPLATE_OUTLET_ID, db);
+  return {
+    async lastDay() {
+      const doc = await db.collection(COLLECTIONS.devices).doc(deviceDocId(TEMPLATE_OUTLET_ID, TEMPLATE_DEVICE_ID)).get();
+      const lastEnded = (doc.data() as { last_ended?: { business_date?: unknown } } | undefined)?.last_ended;
+      return typeof lastEnded?.business_date === "string" ? lastEnded.business_date : null;
+    },
+    listSessions: (dates) => store.listSessions(dates),
+    listThreadsInRange: (fromMs, toMs) => store.listThreadsInRange(fromMs, toMs),
+  };
+}
+
+/** `--check-only` anywhere on the command line: the read-only readiness check, nothing else. */
+export function isCheckOnly(argv: string[]): boolean {
+  return argv.includes("--check-only");
+}
+
 async function main(): Promise<void> {
   assertNotPilotProject(process.env);
-  const { baseUrl, code, clipsDir, planPath } = parseCliArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  const log = (line: string) => console.log(line);
+  const readiness = await firestoreReadinessReader();
+
+  if (isCheckOnly(argv)) {
+    const result = await runReadinessCheck({ readiness, log });
+    if (!result.ready) process.exitCode = 2;
+    return;
+  }
+
+  const { baseUrl, code, clipsDir, planPath } = parseCliArgs(argv);
   const plan = PlanSchema.parse(JSON.parse(await readFile(planPath, "utf8")));
 
-  await runTemplateSeed({
+  const result = await runTemplateSeed({
     baseUrl,
     code,
     plan,
@@ -398,11 +511,13 @@ async function main(): Promise<void> {
     readClip: async (file) => new Uint8Array(await readFile(path.join(clipsDir, file))),
     randomUUID,
     readProgress: () => readProgressFromFirestore(TZ),
+    readiness,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-    log: (line) => console.log(line),
+    log,
     pollEveryMs: 30_000,
     pollMaxMs: 15 * 60_000,
   });
+  if (!result.ready) process.exitCode = 2;
 }
 
 const isMainModule =
