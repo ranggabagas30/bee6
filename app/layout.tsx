@@ -3,6 +3,8 @@ import { cookies } from "next/headers";
 import type { ReactNode } from "react";
 import { LangProvider } from "@/lib/i18n/context";
 import { LANG_COOKIE, parseLangCookie } from "@/lib/i18n/lang";
+import { readFirebaseWebConfig } from "@/lib/auth/web-config";
+import { DemoBarLoader } from "@/app/demo/DemoBarLoader";
 
 export const metadata: Metadata = {
   title: "bee6 — SOP Improvement Agent",
@@ -12,6 +14,8 @@ export const metadata: Metadata = {
 
 // Async so the language cookie is read on the server: <html lang> is right on
 // the first paint. Only the validated value is used; the cookie is never logged.
+// The demo bar (R-12) is mounted only when the server has DEMO_MODE exactly "true"
+// (read per request, never baked in), so the pilot never renders it.
 export default async function RootLayout({
   children,
 }: Readonly<{
@@ -19,10 +23,14 @@ export default async function RootLayout({
 }>) {
   const jar = await cookies();
   const lang = parseLangCookie(jar.get(LANG_COOKIE)?.value);
+  const demo = process.env.DEMO_MODE === "true";
   return (
     <html lang={lang}>
       <body>
-        <LangProvider initial={lang}>{children}</LangProvider>
+        <LangProvider initial={lang}>
+          {demo ? <DemoBarLoader config={readFirebaseWebConfig()} /> : null}
+          {children}
+        </LangProvider>
       </body>
     </html>
   );

@@ -6,6 +6,7 @@ import { LangProvider, useLang } from "@/lib/i18n/context";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import type { AuthUserState } from "@/lib/auth/client/use-auth-user";
 import { SignInScreen } from "@/app/sign-in/SignInScreen";
+import { createMemoryStorage } from "@/lib/demo/testing/memory-storage";
 
 const CONFIG: FirebaseWebConfig = {
   apiKey: "key-1",
@@ -401,5 +402,77 @@ describe("SignInScreen", () => {
     expect(document.body.textContent).toContain("Enter your email and password.");
     fireEvent.click(screen.getByRole("button", { name: "toggle-lang" }));
     expect(document.body.textContent).toContain("Isi email dan kata sandi.");
+  });
+});
+
+describe("SignInScreen demo link (R-12 Task 8.5)", () => {
+  const DEMO_KEY = "A".repeat(43);
+
+  function renderDemo(demo: boolean | undefined) {
+    return render(
+      <LangProvider initial="en">
+        <SignInScreen config={CONFIG} demo={demo} />
+      </LangProvider>,
+    );
+  }
+
+  beforeEach(() => void vi.stubGlobal("localStorage", createMemoryStorage()));
+  afterEach(() => void vi.unstubAllGlobals());
+
+  it("shows no demo text or link on the pilot (no demo prop)", () => {
+    renderDemo(undefined);
+    expect(screen.queryByRole("link", { name: "Start a new demo" })).toBeNull();
+    expect(screen.queryByText("Your demo session has ended.")).toBeNull();
+    renderDemo(false);
+    expect(screen.queryByRole("link", { name: "Start a new demo" })).toBeNull();
+  });
+
+  it("in demo mode, offers a link back to the landing page, at least 48 px tall", () => {
+    renderDemo(true);
+    const link = screen.getByRole("link", { name: "Start a new demo" });
+    expect(link.getAttribute("href")).toBe("/");
+    expect(parseInt(link.style.minHeight, 10)).toBeGreaterThanOrEqual(48);
+    expect(screen.queryByText("Your demo session has ended.")).toBeNull(); // a fresh visitor has not had a session end
+  });
+
+  it("says the session ended when this tab's demo sandbox is past its expiry", () => {
+    window.localStorage.setItem("bee6.demo", JSON.stringify({ sandbox_key: DEMO_KEY, expires_at_ms: 1000, role: "owner" }));
+    renderDemo(true);
+    expect(screen.getByText("Your demo session has ended.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Start a new demo" })).toBeTruthy();
+  });
+
+  it("does not claim the session ended while the sandbox is still live", () => {
+    window.localStorage.setItem("bee6.demo", JSON.stringify({ sandbox_key: DEMO_KEY, expires_at_ms: Date.now() + 3_600_000, role: "owner" }));
+    renderDemo(true);
+    expect(screen.queryByText("Your demo session has ended.")).toBeNull();
+  });
+
+  it("in demo mode, an ended demo also removes the judge phone's device keys; a live one and the pilot do not", () => {
+    const seedKeys = () => {
+      window.localStorage.setItem("bee6.device_token", "t");
+      window.localStorage.setItem("bee6.device_id", "d");
+    };
+    const gone = () => window.localStorage.getItem("bee6.device_token") === null && window.localStorage.getItem("bee6.device_id") === null;
+
+    seedKeys();
+    window.localStorage.setItem("bee6.demo", JSON.stringify({ sandbox_key: DEMO_KEY, expires_at_ms: Date.now() + 3_600_000, role: "staff" }));
+    renderDemo(true);
+    expect(gone()).toBe(false);
+    cleanup();
+
+    window.localStorage.setItem("bee6.demo", JSON.stringify({ sandbox_key: DEMO_KEY, expires_at_ms: 1000, role: "staff" }));
+    renderDemo(false); // the pilot never touches demo state
+    expect(gone()).toBe(false);
+    cleanup();
+
+    renderDemo(true);
+    expect(gone()).toBe(true);
+  });
+
+  it("keeps the sign-in form usable beside the demo link", () => {
+    renderDemo(true);
+    expect(screen.getByLabelText("Email")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeTruthy();
   });
 });

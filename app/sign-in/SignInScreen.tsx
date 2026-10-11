@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import {
@@ -15,6 +16,7 @@ import { signInErrorKey } from "@/lib/auth/client/sign-in-errors";
 import { useLang } from "@/lib/i18n/context";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import { WebTopBar } from "@/app/web/WebTopBar";
+import { demoSnapshot, removeDeviceKeys, subscribeDemoState, viewFromSnapshot } from "@/app/demo/demo-client";
 
 /**
  * /sign-in — owner/supervisor email + password sign-in (R-06 Task 4.6).
@@ -61,8 +63,27 @@ const BUTTON_STYLE: CSSProperties = {
   padding: 12,
 };
 
-export function SignInScreen({ config }: { config: FirebaseWebConfig | null }) {
+const DEMO_LINK_STYLE: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  minHeight: 48,
+  padding: "0 4px",
+  fontSize: 16,
+};
+
+/**
+ * `demo` (R-12 Task 8.5) is true only on a demo deployment (the page reads DEMO_MODE). An expired demo
+ * token lands here after the apps' 401 -> refresh -> 401 cycle, so the screen offers a way back to the
+ * landing page, and says the session ended when this tab's own demo state is past its expiry.
+ */
+export function SignInScreen({ config, demo = false }: { config: FirebaseWebConfig | null; demo?: boolean }) {
   const { lang } = useLang();
+  const demoView = viewFromSnapshot(useSyncExternalStore(subscribeDemoState, () => (demo ? demoSnapshot() : ""), () => ""));
+  const demoEnded = demo && demoView?.expired === true;
+  // An ended demo leaves no device credential behind on this phone.
+  useEffect(() => {
+    if (demoEnded) removeDeviceKeys();
+  }, [demoEnded]);
   const router = useRouter();
   const auth = config ? getClientAuth(config) : null;
   const authUser = useAuthUser(auth);
@@ -176,6 +197,16 @@ export function SignInScreen({ config }: { config: FirebaseWebConfig | null }) {
     <main style={PAGE_STYLE}>
       <WebTopBar auth={null} showSignOut={false} />
       <h1>{t(lang, "C-signin-title")}</h1>
+      {demo && (
+        <div>
+          {demoView?.expired && <p role="status">{t(lang, "C-demo-expired")}</p>}
+          <p>
+            <Link href="/" style={DEMO_LINK_STYLE}>
+              {t(lang, "C-demo-restart")}
+            </Link>
+          </p>
+        </div>
+      )}
       <p>{t(lang, "C-signin-help")}</p>
       <form noValidate onSubmit={handleSubmit}>
         <label htmlFor="signin-email">{t(lang, "C-signin-email")}</label>
