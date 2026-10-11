@@ -342,13 +342,18 @@ export async function writeSopVersionIfAbsent(
   return true;
 }
 
+/** The pairing code the seed prints: never a reserved one (R-18; `generatePairingCode` redraws). `draw` is a test seam. */
+export function seedPairingCode(draw?: (min: number, max: number) => number): string {
+  return generatePairingCode(draw);
+}
+
 async function main(): Promise<void> {
   const project = parseProjectArg(process.argv.slice(2));
   assertProjectMatchesEnv(project);
 
   const config = selectSeedConfig(project, { template: parseTemplateArg(process.argv.slice(2)) });
   const docs = await buildSeedDocuments(config, project, {
-    pairingCode: generatePairingCode(),
+    pairingCode: seedPairingCode(),
     now: new Date(),
   });
   await writeSeed(project, docs);

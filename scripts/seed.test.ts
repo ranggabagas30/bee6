@@ -21,6 +21,7 @@ import {
   buildSopVersionDoc,
   loadConfig,
   writeSopVersionIfAbsent,
+  seedPairingCode,
 } from "@/scripts/seed";
 import {
   DeviceSchema,
@@ -261,5 +262,20 @@ describe("R-12 Task 3.1: --template seed", () => {
     selectSeedConfig("demo", { template: true });
     expect(fs.readFileSync).not.toHaveBeenCalled();
     expect(fs.existsSync).not.toHaveBeenCalled();
+  });
+});
+
+describe("R-18 2.T3: the pairing code the seed prints is never reserved", () => {
+  it("a draw of 0 first (000000) is redrawn: the seed's code is 000042, not the published demo staff code", () => {
+    const draws = [0, 42];
+    const draw = vi.fn(() => draws.shift() ?? 7);
+    expect(seedPairingCode(draw)).toBe("000042");
+    expect(draw).toHaveBeenCalledTimes(2);
+  });
+
+  it("main gets its code only through seedPairingCode (no second, unguarded generator in the seed)", () => {
+    const src = fs.readFileSync(new URL("./seed.ts", import.meta.url), "utf8");
+    expect(src).toContain("pairingCode: seedPairingCode()");
+    expect(src.match(/generatePairingCode\(/g)?.length).toBe(1); // only inside seedPairingCode
   });
 });
