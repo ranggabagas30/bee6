@@ -1,7 +1,7 @@
 import { assertOutlet, assertPermission } from "@/lib/auth/rbac";
 import type { CustomClaims } from "@/lib/auth/roles";
 import { localDateOf } from "@/lib/capture/calendar";
-import type { Outlet, SopStep, SopVersion } from "@/lib/firestore/schema";
+import type { Outcome, Outlet, SopStep, SopVersion } from "@/lib/firestore/schema";
 import { NotFoundError } from "@/lib/http/errors";
 import { z } from "zod";
 import {
@@ -24,13 +24,15 @@ export interface SopStore {
   getOutlet(): Promise<Outlet | null>;
   /** where outlet_id == X, limit 50; SopVersionSchema.safeParse; malformed/foreign skipped and logged. Unsorted. */
   listVersions(): Promise<SopVersion[]>;
+  /** where outlet_id == X, limit 50; OutcomeSchema.safeParse; malformed/foreign skipped and logged. Read-only (R-11 Task 7). */
+  listOutcomes(): Promise<Outcome[]>;
 }
 
 function stepView(s: SopStep): SopStepView {
   return { step_id: s.step_id, title: s.title, text: s.text, role: s.role };
 }
 
-function changeView(v: SopVersion, tz: string): SopChangeView | null {
+function changeView(v: SopVersion, tz: string, outcome: Outcome | undefined): SopChangeView | null {
   const c = v.change ?? null;
   const eff = v.effective_from_date ?? null;
   if (v.source !== "proposal" || c === null || eff === null) return null;
@@ -52,6 +54,7 @@ function changeView(v: SopVersion, tz: string): SopChangeView | null {
     },
     failure_condition: c.failure_condition,
     review_date: c.review_date,
+    outcome: outcome ? { verdict: outcome.verdict, simulated: outcome.simulated } : null,
   };
 }
 
@@ -66,7 +69,8 @@ export async function getSopOverview(
   assertOutlet(claims, outlet.outlet_id);
   const tz = outlet.timezone;
 
-  const versions = await store.listVersions();
+  const [versions, outcomes] = await Promise.all([store.listVersions(), store.listOutcomes()]);
+  const outcomeByVersion = new Map(outcomes.map((o) => [o.sop_version_id, o]));
   const today = localDateOf(now_ms, tz);
   const latest = latestSop(versions);
   if (latest === null) {
@@ -77,7 +81,7 @@ export async function getSopOverview(
   const changes = versions
     .filter((v) => v.source === "proposal")
     .sort((a, b) => b.version - a.version)
-    .map((v) => changeView(v, tz))
+    .map((v) => changeView(v, tz, outcomeByVersion.get(v.sop_version_id)))
     .filter((c): c is SopChangeView => c !== null)
     .slice(0, SOP_CHANGES_MAX);
 

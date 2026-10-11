@@ -27,6 +27,7 @@ function change(overrides: Partial<SopChangeView> = {}): SopChangeView {
     },
     failure_condition: "Sold-out requests do not fall.",
     review_date: "2026-10-23",
+    outcome: null,
     ...overrides,
   };
 }
@@ -96,5 +97,44 @@ describe("SopChangeCard", () => {
     const { container } = render(<SopChangeCard change={change()} lang="en" />);
     expect(container.textContent?.toLowerCase()).not.toContain("diff");
     expect(container.querySelector("ins, del, mark")).toBeNull();
+  });
+});
+
+describe("SopChangeCard outcome line (R-11 Task 7)", () => {
+  it("7.T5 shows nothing about an outcome when there is none", () => {
+    render(<SopChangeCard change={change()} lang="en" />);
+    expect(screen.queryByText(/^Outcome/)).toBeNull();
+    expect(screen.queryByText("Simulated time (demo)")).toBeNull();
+  });
+
+  it.each([
+    ["worked", "Outcome: Worked"],
+    ["revise", "Outcome: Revise"],
+    ["revert", "Outcome: Revert"],
+  ] as const)("7.T6 a %s outcome reads '%s'", (verdict, text) => {
+    render(<SopChangeCard change={change({ outcome: { verdict, simulated: false } })} lang="en" />);
+    expect(screen.getByText(text)).not.toBeNull();
+    expect(screen.queryByText("Simulated time (demo)")).toBeNull();
+  });
+
+  it("7.T7 an unknown outcome says it was not confirmed and not remembered", () => {
+    render(<SopChangeCard change={change({ outcome: { verdict: "unknown", simulated: false } })} lang="en" />);
+    expect(screen.getByText("Outcome: unknown (not confirmed, not remembered)")).not.toBeNull();
+  });
+
+  it("7.T8 a simulated outcome carries the simulated-time label", () => {
+    render(<SopChangeCard change={change({ outcome: { verdict: "worked", simulated: true } })} lang="en" />);
+    expect(screen.getByText("Outcome: Worked")).not.toBeNull();
+    expect(screen.getByText("Simulated time (demo)")).not.toBeNull();
+  });
+
+  it("7.T9 the outcome line follows the approved-on line, and Bahasa renders", () => {
+    const { container } = render(
+      <SopChangeCard change={change({ outcome: { verdict: "worked", simulated: false } })} lang="id" />,
+    );
+    const lines = Array.from(container.querySelectorAll("p")).map((n) => n.textContent);
+    const approved = lines.findIndex((l) => l?.startsWith("Disetujui pada"));
+    expect(approved).toBeGreaterThan(-1);
+    expect(lines[approved + 1]).toBe("Hasil: Berhasil");
   });
 });

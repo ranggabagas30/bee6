@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Firestore } from "firebase-admin/firestore";
 import { firestoreSopStore } from "@/lib/firestore/sop-store";
 import { COLLECTIONS } from "@/lib/firestore/collections";
-import { seedV1 } from "@/lib/sop/testing/fixtures";
+import { outcomeFor, seedV1 } from "@/lib/sop/testing/fixtures";
 
 const SENTINEL = "STEP-TEXT-SENTINEL";
 
@@ -68,9 +68,25 @@ describe("firestoreSopStore", () => {
     expect(JSON.stringify(err.mock.calls)).not.toContain(SENTINEL);
   });
 
-  it("4.S2 exposes only getOutlet and listVersions (read-only)", () => {
+  it("4.S2 exposes only the three read methods (read-only)", () => {
     const { db } = fakeDb({});
-    expect(Object.keys(firestoreSopStore("o1", db)).sort()).toEqual(["getOutlet", "listVersions"]);
+    expect(Object.keys(firestoreSopStore("o1", db)).sort()).toEqual(["getOutlet", "listOutcomes", "listVersions"]);
+  });
+
+  it("7.S1 listOutcomes queries outcomes by outlet_id equality + limit(50); skips malformed and foreign docs; logs ids only", async () => {
+    const good = outcomeFor(2);
+    const foreign = { ...outcomeFor(3), outlet_id: "other" };
+    const malformed = { ...outcomeFor(4), verdict: "maybe", in_memory: SENTINEL };
+    const { db, calls } = fakeDb({ "o1:v2": good, "other:v3": foreign, "o1:v4": malformed });
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const out = await firestoreSopStore("o1", db).listOutcomes();
+
+    expect(out.map((o) => o.outcome_id)).toEqual(["o1:v2"]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ collection: COLLECTIONS.outcomes, wheres: [["outlet_id", "==", "o1"]], limit: 50, orderBy: false });
+    expect(err).toHaveBeenCalledWith(expect.stringContaining("[sop-store]"), { doc_id: "o1:v4", error_class: "ZodError" });
+    expect(JSON.stringify(err.mock.calls)).not.toContain(SENTINEL);
   });
 
   it("getOutlet returns null for a missing outlet doc", async () => {

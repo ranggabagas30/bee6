@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import type { ReviewView } from "@/lib/reviews/contract";
 import { t } from "@/lib/i18n/dict";
 import { CATEGORY_KEY } from "@/lib/day/view-model";
 import { ReviewCard, VERDICT_KEY, suggestionDomId } from "@/app/reviews/ReviewCard";
