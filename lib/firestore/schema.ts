@@ -964,16 +964,122 @@ export const ProposalLockSchema = z
   .strict();
 export type ProposalLock = z.infer<typeof ProposalLockSchema>;
 
-/** filled in R-11 (ReviewAgent). */
-export const ReviewSchema = z
-  .object({ ...withOutlet, review_id: z.string().min(1) })
-  .strict();
-export type Review = z.infer<typeof ReviewSchema>;
+// ── reviews (R-11): one per shipped SOP change; doc id = review_id = sop_version_id ──
+export const REVIEW_STATUSES = ["awaiting_supervisor", "awaiting_owner", "confirmed", "unknown"] as const;
+export const REVIEW_VERDICTS = ["worked", "revise", "revert"] as const;
+export const SUGGESTION_REASONS = ["improved", "worsened", "no_clear_change", "not_enough_days", "no_baseline"] as const;
 
-/** filled in R-11 (outcome memory). */
-export const OutcomeSchema = z
-  .object({ ...withOutlet, outcome_id: z.string().min(1) })
+export const ReviewWindowSchema = z
+  .object({
+    from_date: dateString,
+    to_date: dateString,
+    days_captured: z.number().int().min(0),
+    count: z.number().int().min(0),
+  })
   .strict();
+export type ReviewWindow = z.infer<typeof ReviewWindowSchema>;
+
+const VerdictEntrySchema = z
+  .object({
+    verdict: z.enum(REVIEW_VERDICTS),
+    reason: z.string().min(1).max(500).nullable(), // redacted (hard rule #3); never copied to outcomes
+    decided_at_ms: z.number().int().min(0),
+  })
+  .strict();
+
+export const ReviewSchema = z
+  .object({
+    ...withOutlet,
+    review_id: z.string().min(1), // = doc id = sop_version_id
+    sop_version_id: z.string().min(1),
+    version: z.number().int().min(2),
+    source_proposal_id: z.string().uuid(),
+    change_title: z.string().min(1).max(160),
+    step_id: z.string().min(1),
+    intervention_id: z.string().min(1),
+    metric: SopChangeMetricSchema,
+    failure_condition: z.string().min(1).max(480),
+    effective_from_date: dateString,
+    review_date: dateString,
+    confirm_by_date: dateString, // review_date + REVIEW_CONFIRM_DAYS
+    before: ReviewWindowSchema,
+    after: ReviewWindowSchema,
+    suggestion: z
+      .object({
+        verdict: z.enum(REVIEW_VERDICTS).nullable(),
+        reason: z.enum(SUGGESTION_REASONS),
+        change_ratio: z.number().finite().nullable(), // (after_rate - before_rate) / before_rate; null when before_rate is 0 or days too few
+        rule_version: z.literal("rev-v1"),
+      })
+      .strict(),
+    notices: z.object({ overlapping_change: z.boolean(), threads_truncated: z.boolean() }).strict(),
+    simulated: z.boolean(), // true = demo fast-forward (labelled "Simulated time")
+    status: z.enum(REVIEW_STATUSES),
+    supervisor_verdict: VerdictEntrySchema.nullable(),
+    owner_verdict: VerdictEntrySchema.nullable(),
+    created_at_ms: z.number().int().min(0),
+    updated_at_ms: z.number().int().min(0),
+  })
+  .strict()
+  .superRefine((r, ctx) => {
+    const issue = (path: (string | number)[], message: string) => ctx.addIssue({ code: "custom", path, message });
+    if (r.review_id !== r.sop_version_id) issue(["review_id"], "review_id must equal sop_version_id");
+    if (r.sop_version_id !== `${r.outlet_id}:v${r.version}`) issue(["sop_version_id"], `must equal "${r.outlet_id}:v${r.version}"`);
+    if (!(r.review_date > r.effective_from_date)) issue(["review_date"], "review_date must be after effective_from_date");
+    if (!(r.confirm_by_date > r.review_date)) issue(["confirm_by_date"], "confirm_by_date must be after review_date");
+    const sv = r.supervisor_verdict;
+    const ov = r.owner_verdict;
+    const ok =
+      r.status === "awaiting_supervisor"
+        ? sv === null && ov === null
+        : r.status === "awaiting_owner"
+          ? sv !== null && ov === null
+          : r.status === "confirmed"
+            ? sv !== null && ov !== null
+            : /* unknown */ ov === null;
+    if (!ok) issue(["status"], `verdicts do not match status "${r.status}"`);
+    const nullVerdict = r.suggestion.reason === "not_enough_days" || r.suggestion.reason === "no_baseline";
+    if (nullVerdict !== (r.suggestion.verdict === null)) {
+      issue(["suggestion", "verdict"], "verdict must be null iff reason is not_enough_days or no_baseline");
+    }
+  });
+export type Review = z.infer<typeof ReviewSchema>;
+export type ReviewStatus = (typeof REVIEW_STATUSES)[number];
+export type ReviewVerdict = (typeof REVIEW_VERDICTS)[number];
+export type SuggestionReason = (typeof SUGGESTION_REASONS)[number];
+
+// ── outcomes (R-11): the remembered result; doc id = outcome_id = review_id. No text. ──
+export const OUTCOME_VERDICTS = ["worked", "revise", "revert", "unknown"] as const;
+export const OutcomeSchema = z
+  .object({
+    ...withOutlet,
+    outcome_id: z.string().min(1),
+    review_id: z.string().min(1),
+    sop_version_id: z.string().min(1),
+    version: z.number().int().min(2),
+    source_proposal_id: z.string().uuid(),
+    step_id: z.string().min(1),
+    intervention_id: z.string().min(1),
+    metric_category: WorkCategorySchema,
+    metric_direction: z.enum(["decrease", "increase"]),
+    before: ReviewWindowSchema,
+    after: ReviewWindowSchema,
+    suggested_verdict: z.enum(REVIEW_VERDICTS).nullable(),
+    supervisor_verdict: z.enum(REVIEW_VERDICTS).nullable(),
+    verdict: z.enum(OUTCOME_VERDICTS), // the owner's verdict, or "unknown"
+    in_memory: z.boolean(), // === (verdict !== "unknown"); "unknown" is kept out of memory (T-509)
+    simulated: z.boolean(),
+    decided_at_ms: z.number().int().min(0),
+  })
+  .strict()
+  .superRefine((o, ctx) => {
+    if (o.outcome_id !== o.review_id || o.review_id !== o.sop_version_id) {
+      ctx.addIssue({ code: "custom", path: ["outcome_id"], message: "outcome_id, review_id and sop_version_id must be equal" });
+    }
+    if (o.in_memory !== (o.verdict !== "unknown")) {
+      ctx.addIssue({ code: "custom", path: ["in_memory"], message: 'in_memory must be false iff verdict is "unknown"' });
+    }
+  });
 export type Outcome = z.infer<typeof OutcomeSchema>;
 
 /** filled in P1 (POS CSV import). */

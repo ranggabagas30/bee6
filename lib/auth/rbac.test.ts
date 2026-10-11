@@ -27,6 +27,7 @@ const MATRIX: Record<PrincipalRole, Permission[]> = {
     "proposals:read",
     "constraints:read",
     "constraints:write",
+    "reviews:read",
     "reviews:verdict",
     "sop:read",
     "sop:diff",
@@ -42,6 +43,7 @@ const MATRIX: Record<PrincipalRole, Permission[]> = {
     "proposals:read",
     "constraints:read",
     "constraints:write",
+    "reviews:read",
     "reviews:verdict",
     "sop:read",
     "sop:diff",
@@ -64,6 +66,7 @@ const ALL_PERMISSIONS: Permission[] = [
   "proposals:read",
   "constraints:read",
   "constraints:write",
+  "reviews:read",
   "reviews:verdict",
   "sop:read",
   "sop:diff",
@@ -104,6 +107,15 @@ describe("R-09: proposals:read", () => {
     expect(can("supervisor", "proposals:read")).toBe(true);
     expect(can("staff", "proposals:read")).toBe(false);
     expect(can("device", "proposals:read")).toBe(false);
+  });
+});
+
+describe("R-11: reviews:read", () => {
+  it("owner and supervisor may list reviews; staff and device may not", () => {
+    expect(can("owner", "reviews:read")).toBe(true);
+    expect(can("supervisor", "reviews:read")).toBe(true);
+    expect(can("staff", "reviews:read")).toBe(false);
+    expect(can("device", "reviews:read")).toBe(false);
   });
 });
 
