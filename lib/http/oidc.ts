@@ -108,5 +108,6 @@ export async function verifyInternalOidcToken(
     return reject("token_invalid");
   }
 
+  if (payload.email_verified !== true) return reject("email_unverified");
   if (!payload.email || payload.email !== opts.issuerEmail) return reject("issuer_mismatch");
 }

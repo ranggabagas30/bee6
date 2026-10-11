@@ -125,6 +125,17 @@ describe("verifyInternalOidcToken", () => {
     expect(verifyIdToken).not.toHaveBeenCalled();
   });
 
+  it("L1 rejects a token whose email is not verified, even if it matches TASKS_INVOKER_SA", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (const email_verified of [false, undefined]) {
+      const verifyIdToken = vi.fn().mockResolvedValueOnce({ email: INVOKER_SA, email_verified });
+      await expect(
+        verifyInternalOidcToken(fakeReq("Bearer good-token"), { issuerEmail: INVOKER_SA, audience: CONFIGURED_AUDIENCE }, { verifyIdToken }),
+      ).rejects.toMatchObject({ message: "Unauthorized", statusCode: 401 });
+    }
+    vi.restoreAllMocks();
+  });
+
   describe("M1: the client never learns why (generic 401), the server log names the cause", () => {
     const rejection = async (
       req: ReturnType<typeof fakeReq>,
