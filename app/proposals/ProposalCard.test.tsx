@@ -191,3 +191,163 @@ describe("ProposalCard — 360px safety", () => {
     expect(article.style.width).toBe("");
   });
 });
+
+const NO_NOTICES = { late_constraints: [], evidence_stale: false, sop_changed: false, superseded: false };
+const NO_REVIEW = { supervisor: null, owner: null };
+
+describe("ProposalCard — status line for all six statuses (R-09 7.T1)", () => {
+  it.each([
+    ["suppressed", "No proposal"],
+    ["blocked", "Blocked by the evidence check"],
+    ["awaiting_supervisor", "Waiting for supervisor review"],
+    ["awaiting_owner", "Waiting for owner approval"],
+    ["approved", "Approved"],
+    ["rejected", "Rejected"],
+  ] as const)("%s shows %s", (status, line) => {
+    const base = awaitingProposal();
+    render(<ProposalCard lang="en" proposal={{ ...base, status }} />);
+    expect(screen.getByText(line)).not.toBeNull();
+  });
+
+  it("the Bahasa column resolves the three new status lines", () => {
+    const base = awaitingProposal();
+    const { rerender } = render(<ProposalCard lang="id" proposal={{ ...base, status: "awaiting_owner" }} />);
+    expect(screen.getByText("Menunggu persetujuan pemilik")).not.toBeNull();
+    rerender(<ProposalCard lang="id" proposal={{ ...base, status: "approved" }} />);
+    expect(screen.getByText("Disetujui")).not.toBeNull();
+    rerender(<ProposalCard lang="id" proposal={{ ...base, status: "rejected" }} />);
+    expect(screen.getByText("Ditolak")).not.toBeNull();
+  });
+
+  it("a decided proposal still renders its content block", () => {
+    render(<ProposalCard lang="en" proposal={{ ...awaitingProposal(), status: "approved" }} />);
+    expect(screen.getByRole("heading", { name: "Add a greeting script" })).not.toBeNull();
+  });
+});
+
+describe("ProposalCard — review lines (R-09 7.T2)", () => {
+  it("shows the supervisor feasible line with the decided date", () => {
+    render(
+      <ProposalCard
+        lang="en"
+        proposal={{ ...awaitingProposal(), status: "awaiting_owner" }}
+        review={{ supervisor: { decision: "feasible", reason: null, decided_date: "2026-10-05" }, owner: null }}
+      />,
+    );
+    expect(screen.getByText("The supervisor marked this feasible on Mon 5 Oct.")).not.toBeNull();
+  });
+
+  it("shows the supervisor rejection line and the reason as a separate text node", () => {
+    render(
+      <ProposalCard
+        lang="en"
+        proposal={{ ...awaitingProposal(), status: "rejected" }}
+        review={{
+          supervisor: { decision: "rejected", reason: "The oven only holds 2.5 kg", decided_date: "2026-10-05" },
+          owner: null,
+        }}
+      />,
+    );
+    expect(screen.getByText("The supervisor rejected this on Mon 5 Oct. Reason:")).not.toBeNull();
+    expect(screen.getByText("The oven only holds 2.5 kg")).not.toBeNull();
+  });
+
+  it("shows the owner approved and owner rejected lines", () => {
+    const { rerender } = render(
+      <ProposalCard
+        lang="en"
+        proposal={{ ...awaitingProposal(), status: "approved" }}
+        review={{
+          supervisor: { decision: "feasible", reason: null, decided_date: "2026-10-05" },
+          owner: { decision: "approved", reason: null, decided_date: "2026-10-06" },
+        }}
+      />,
+    );
+    expect(screen.getByText("The owner approved this on Tue 6 Oct.")).not.toBeNull();
+
+    rerender(
+      <ProposalCard
+        lang="en"
+        proposal={{ ...awaitingProposal(), status: "rejected" }}
+        review={{
+          supervisor: { decision: "feasible", reason: null, decided_date: "2026-10-05" },
+          owner: { decision: "rejected", reason: "No new equipment this quarter", decided_date: "2026-10-06" },
+        }}
+      />,
+    );
+    expect(screen.getByText("The owner rejected this on Tue 6 Oct. Reason:")).not.toBeNull();
+    expect(screen.getByText("No new equipment this quarter")).not.toBeNull();
+  });
+
+  it("renders a reason containing markup as literal text, never an element", () => {
+    const { container } = render(
+      <ProposalCard
+        lang="en"
+        proposal={{ ...awaitingProposal(), status: "rejected" }}
+        review={{
+          supervisor: { decision: "rejected", reason: "<b>x</b>", decided_date: "2026-10-05" },
+          owner: null,
+        }}
+      />,
+    );
+    expect(screen.getByText("<b>x</b>")).not.toBeNull();
+    expect(container.querySelector("b")).toBeNull();
+  });
+});
+
+describe("ProposalCard — notices (R-09 7.T3)", () => {
+  it("renders each notice in its own paragraph and lists late constraint texts as plain text", () => {
+    const { container } = render(
+      <ProposalCard
+        lang="en"
+        proposal={awaitingProposal()}
+        review={NO_REVIEW}
+        notices={{
+          late_constraints: [
+            { constraint_id: "22222222-2222-2222-2222-222222222222", text: "The oven only holds 2.5 kg" },
+            { constraint_id: "33333333-3333-3333-3333-333333333333", text: "<i>no</i> new hires" },
+          ],
+          evidence_stale: true,
+          sop_changed: true,
+          superseded: true,
+        }}
+      />,
+    );
+    expect(screen.getByText("A newer proposal exists for these dates. Decide on that one.")).not.toBeNull();
+    expect(screen.getByText("Some of the evidence no longer holds. Generate again for these dates.")).not.toBeNull();
+    expect(screen.getByText("The SOP has changed since this proposal was made. Generate again.")).not.toBeNull();
+    expect(
+      screen.getByText("Added after this proposal was made. Check the proposal against it before you decide:"),
+    ).not.toBeNull();
+    expect(screen.getByText("The oven only holds 2.5 kg")).not.toBeNull();
+    expect(screen.getByText("<i>no</i> new hires")).not.toBeNull();
+    expect(container.querySelector("i")).toBeNull();
+  });
+
+  it("without review and notices props, none of the new strings appear and no list is added", () => {
+    const { container } = render(<ProposalCard lang="en" proposal={awaitingProposal()} />);
+    expect(screen.queryByText(/The supervisor/)).toBeNull();
+    expect(screen.queryByText(/The owner/)).toBeNull();
+    expect(screen.queryByText(/newer proposal exists/)).toBeNull();
+    expect(screen.queryByText(/no longer holds/)).toBeNull();
+    expect(screen.queryByText(/SOP has changed/)).toBeNull();
+    expect(screen.queryByText(/Added after this proposal/)).toBeNull();
+    expect(container.querySelectorAll("article > ul")).toHaveLength(2); // rubric + evidence only
+  });
+
+  it("empty notices render nothing extra", () => {
+    render(<ProposalCard lang="en" proposal={awaitingProposal()} review={NO_REVIEW} notices={NO_NOTICES} />);
+    expect(screen.queryByText(/Added after this proposal/)).toBeNull();
+    expect(screen.queryByText(/newer proposal exists/)).toBeNull();
+  });
+
+  it("renders children last, inside the article", () => {
+    const { container } = render(
+      <ProposalCard lang="en" proposal={awaitingProposal()}>
+        <p>child-slot</p>
+      </ProposalCard>,
+    );
+    const article = container.querySelector("article") as HTMLElement;
+    expect(article.lastElementChild?.textContent).toBe("child-slot");
+  });
+});
