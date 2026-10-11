@@ -12,6 +12,7 @@ import { POST as fastForwardPOST } from "./reviews/fast-forward/route";
 import { POST as answerPOST } from "./questions/[id]/answer/route";
 import { AppError, ConflictError, NotFoundError, UnauthorizedError } from "@/lib/http/errors";
 import { checkReason } from "@/lib/debrief/reason";
+import { redactUserText } from "@/lib/redact/user-text";
 import * as guardModule from "@/lib/http/guard";
 import { assertPermission } from "@/lib/auth/rbac";
 import type { CustomClaims } from "@/lib/auth/roles";
@@ -59,7 +60,7 @@ vi.mock("@/lib/proposals/review-service", () => ({
     const [, , deps, input] = a as [unknown, unknown, { redact: (t: string[]) => Promise<string[]> }, { claims: CustomClaims; actor: "owner" | "supervisor"; body: { decision: string; reason?: string } }];
     assertPermission(input.claims, input.actor === "owner" ? "proposals:approve" : "proposals:review"); // the real service checks first
     if (refusedFirst.value) throw new ConflictError("Already decided", "ALREADY_DECIDED");
-    if (input.body.decision === "reject") await deps.redact([input.body.reason ?? ""]);
+    if (input.body.decision === "reject") await redactUserText(input.body.reason ?? "", [], deps.redact); // as the real service does
     return decideProposal(...a);
   },
 }));
@@ -71,7 +72,7 @@ vi.mock("@/lib/reviews/service", () => ({
     const [, deps, input] = a as [unknown, { redact: (t: string[]) => Promise<string[]> }, { claims: CustomClaims; body: { reason?: string } }];
     assertPermission(input.claims, "reviews:verdict"); // the real service checks first
     if (refusedFirst.value) throw new NotFoundError("review", "review");
-    if (input.body.reason) await deps.redact([input.body.reason]);
+    if (input.body.reason) await redactUserText(input.body.reason, [], deps.redact); // as the real service does
     return decideVerdict(...a);
   },
   // The real service calls beforeCreate (the cap check) once its own pre-checks pass and afterCreate (the cap
@@ -438,5 +439,65 @@ describe("a sbx- outlet whose doc has no sandbox object fails closed", () => {
     expect((await res.json()).error.code).toBe("demo_not_ready");
     expect(c.service).not.toHaveBeenCalled();
     expect(f.bumps).toEqual([]);
+  });
+});
+
+describe("R-12 QA D3: a cap-function failure on a text path is typed and fails closed", () => {
+  beforeEach(() => void vi.spyOn(console, "error").mockImplementation(() => {}));
+  const names = ["proposal approve", "proposal review", "review verdict", "constraint create"];
+  for (const name of names) {
+    it(`${name}: a sandbox outlet without a sandbox object is 503 demo_not_ready, nothing written, no SDP`, async () => {
+      const c = CASES.find((x) => x.name === name)!;
+      f.sandboxes.set(SBX, { ...templateSet().outlet, outlet_id: SBX }); // no `sandbox` object
+      principal(c, SBX);
+      c.service.mockResolvedValue(c.serviceResult);
+      const res = await c.call(headers(), JSON.stringify(c.body));
+      expect(res.status).toBe(503);
+      const err = (await res.json()).error;
+      expect(err.code).toBe("demo_not_ready");
+      expect(err.message).toBe("The demo is not ready");
+      expect(c.service).not.toHaveBeenCalled();
+      expect(sdp.calls).toBe(0);
+      expect(f.bumps).toEqual([]);
+    });
+  }
+
+  it("debrief answer: the same outlet is 503 demo_not_ready", async () => {
+    const c = CASES.find((x) => x.name === "debrief answer (device)")!;
+    f.sandboxes.set(SBX, { ...templateSet().outlet, outlet_id: SBX });
+    principal(c, SBX);
+    c.service.mockResolvedValue(c.serviceResult);
+    const res = await c.call(headers(), JSON.stringify(c.body));
+    expect(res.status).toBe(503);
+    expect((await res.json()).error.code).toBe("demo_not_ready");
+    expect(sdp.calls).toBe(0);
+  });
+
+  it("an untyped counter failure fails closed on approve-reject: 503 demo_cap_unavailable, no SDP, no raw text", async () => {
+    const c = CASES.find((x) => x.name === "proposal approve")!;
+    principal(c, SBX);
+    c.service.mockResolvedValue(c.serviceResult);
+    vi.spyOn(f.store, "bumpCounter").mockRejectedValue(new Error("tx failed: secret-sentinel"));
+    const res = await c.call(headers(), JSON.stringify(c.body));
+    expect(res.status).toBe(503);
+    const text = JSON.stringify(await res.json());
+    expect(text).toContain("demo_cap_unavailable");
+    expect(text).not.toContain("secret-sentinel");
+    expect(sdp.calls).toBe(0);
+    expect(c.service).not.toHaveBeenCalled();
+  });
+
+  it("a real SDP outage on a sandbox rejection is still 503 'Redaction unavailable'", async () => {
+    const c = CASES.find((x) => x.name === "proposal approve")!;
+    principal(c, SBX);
+    const { ServiceUnavailableError } = await import("@/lib/http/errors");
+    const redactBatchMod = await import("@/lib/redact/batch");
+    vi.spyOn(redactBatchMod, "redactBatch").mockReturnValue(async () => {
+      throw new ServiceUnavailableError("Redaction upstream unavailable", "redact", 503);
+    });
+    const res = await c.call(headers(), JSON.stringify(c.body));
+    expect(res.status).toBe(503);
+    expect((await res.json()).error.message).toBe("Redaction unavailable");
+    expect(c.service).not.toHaveBeenCalled();
   });
 });

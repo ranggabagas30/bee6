@@ -105,6 +105,18 @@ export class ServiceUnavailableError extends AppError {
   }
 }
 
+/**
+ * 503 — the public demo's spend-cap check on a text path could not give an answer (R-12): the sandbox
+ * outlet is not ready (`demo_not_ready`) or the check itself failed (`demo_cap_unavailable`). It is a
+ * distinct type so that `redactUserText` can tell it from a genuine Sensitive Data Protection failure and
+ * pass it through (a client sees why, and nothing was spent). The message is fixed and carries no detail.
+ */
+export class DemoCapError extends AppError {
+  constructor(message: string, code: "demo_not_ready" | "demo_cap_unavailable") {
+    super(message, code, 503);
+  }
+}
+
 function zodDetails(error: z.ZodError): { field: string; message: string }[] {
   return error.issues.map((issue) => ({
     field: issue.path.join("."),
