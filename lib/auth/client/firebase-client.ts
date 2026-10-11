@@ -1,5 +1,11 @@
 import { getApps, initializeApp } from "firebase/app";
-import { getAuth, signInWithEmailAndPassword, signOut, type Auth } from "firebase/auth";
+import {
+  getAuth,
+  signInWithCustomToken,
+  signInWithEmailAndPassword,
+  signOut,
+  type Auth,
+} from "firebase/auth";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 
 /**
@@ -22,5 +28,5 @@ export function getClientAuth(config: FirebaseWebConfig): Auth {
  * `firebase/auth` functions and types only through `lib/auth/client/`, with
  * no exception needed in the import-ban test (Task 4.7).
  */
-export { signInWithEmailAndPassword, signOut };
+export { signInWithCustomToken, signInWithEmailAndPassword, signOut };
 export type { Auth, User } from "firebase/auth";
