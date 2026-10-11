@@ -233,6 +233,20 @@ export type CaptureConfigResponse = z.infer<typeof CaptureConfigResponseSchema>;
  * selected explicitly, never spread, and the result is validated against
  * the strict schema.
  */
+/**
+ * R-18: the ONE predicate for "this device gets the demo session profile". The capture config (which tells
+ * the page) and the session routes (which set the server's 5 min hard stop) both call it, so the page and the
+ * server can never disagree: a demo deployment, a sandbox outlet, and a device that carries an expiry (a
+ * judge's). Callers read the device only after the first two hold, so a pilot request costs no extra read.
+ */
+export function hasDemoProfile(input: {
+  demoMode: boolean;
+  outlet: Pick<Outlet, "sandbox">;
+  device?: Pick<Device, "expires_at_ms"> | null;
+}): boolean {
+  return input.demoMode && input.outlet.sandbox !== undefined && input.device?.expires_at_ms !== undefined;
+}
+
 export function toCaptureConfig(
   outlet: Outlet,
   lastEnded: LastEnded | null,
@@ -241,7 +255,7 @@ export function toCaptureConfig(
   device?: Pick<Device, "expires_at_ms">,
 ): CaptureConfigResponse {
   const demoSession =
-    demoMode && outlet.sandbox !== undefined && device?.expires_at_ms !== undefined
+    hasDemoProfile({ demoMode, outlet, device })
       ? { demo_session: { max_ms: DEMO_SESSION_MAX_MS, script_id: "bakery-v1" as const } }
       : {};
   return CaptureConfigResponseSchema.parse({

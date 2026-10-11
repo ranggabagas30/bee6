@@ -31,7 +31,7 @@ function req(body: unknown, headers: Record<string, string> = { authorization: "
   });
 }
 
-function wire(role: "device" | "supervisor" = "device", o: Outlet = outlet) {
+function wire(role: "device" | "supervisor" = "device", o: Outlet = outlet, deviceExpiresAtMs?: number) {
   vi.mocked(servicesModule.authenticateDeviceToken).mockResolvedValue({
     outlet_id: "outlet-1",
     role,
@@ -41,7 +41,7 @@ function wire(role: "device" | "supervisor" = "device", o: Outlet = outlet) {
   vi.mocked(storesModule.firestoreCaptureSessionStore).mockReturnValue(sessions.store);
   vi.mocked(storesModule.firestoreCaptureStore).mockReturnValue({
     getOutlet: async () => ({ ...o, weekly_hours: undefined, opening_time: day.open }),
-    getDevice: async () => null,
+    getDevice: async () => (deviceExpiresAtMs === undefined ? { device_id: "dev-1" } : { device_id: "dev-1", expires_at_ms: deviceExpiresAtMs }),
     saveHeartbeat: async () => undefined,
   } as never);
   return sessions;
@@ -106,9 +106,16 @@ describe("POST /api/v1/capture/sessions", () => {
 
     it("DEMO_MODE + sandbox outlet: auto_stop_at_ms = start + 5 min", async () => {
       vi.stubEnv("DEMO_MODE", "true");
-      const sessions = wire("device", sbx);
+      const sessions = wire("device", sbx, 9_000_000_000_000);
       await POST(req({ session_id: S1, started_at_ms: NOW }));
       expect(sessions.state.session?.auto_stop_at_ms).toBe(NOW + 300_000);
+    });
+
+    it("11a: the same predicate as the capture config: a sandbox outlet whose device carries no expiry gets the normal close + 1 h", async () => {
+      vi.stubEnv("DEMO_MODE", "true");
+      const sessions = wire("device", sbx); // device doc without expires_at_ms
+      await POST(req({ session_id: S1, started_at_ms: NOW }));
+      expect(sessions.state.session?.auto_stop_at_ms).toBe(Date.parse("2026-10-06T15:45:00.000Z"));
     });
 
     it("sandbox outlet without DEMO_MODE, or DEMO_MODE on a real outlet: the normal close + 1 h", async () => {

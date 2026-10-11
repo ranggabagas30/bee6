@@ -10,8 +10,8 @@ import {
   type CalendarCtx,
   type CaptureSessionStore,
 } from "@/lib/capture/session-service";
-import { resolveWeeklyHours } from "@/lib/capture/contract";
-import type { OutletReader } from "@/lib/capture/services";
+import { hasDemoProfile, resolveWeeklyHours } from "@/lib/capture/contract";
+import type { DeviceReader, OutletReader } from "@/lib/capture/services";
 import { DEMO_SESSION_MAX_MS } from "@/lib/demo/constants";
 import { BadRequestError, ForbiddenError, NotFoundError } from "@/lib/http/errors";
 
@@ -25,7 +25,8 @@ import { BadRequestError, ForbiddenError, NotFoundError } from "@/lib/http/error
 
 export interface SessionApiDeps {
   sessions: CaptureSessionStore;
-  outlets: OutletReader;
+  /** The outlet and (only for a sandbox outlet on a demo deployment) the device doc, for the shared demo predicate. */
+  outlets: OutletReader & DeviceReader;
   /** The route's `process.env.DEMO_MODE === "true"` (R-18). With a sandbox outlet it sets the 5 min hard stop. */
   demoMode?: boolean;
 }
@@ -41,11 +42,18 @@ export function devicePrincipal(claims: CustomClaims): { outlet_id: string; devi
 async function calendarFor(
   deps: SessionApiDeps,
   outletId: string,
+  deviceId: string,
 ): Promise<{ cal: CalendarCtx; demo_max_ms?: number }> {
   const outlet = await deps.outlets.getOutlet(outletId);
   if (!outlet) throw new NotFoundError("Outlet", outletId);
   const cal = { weekly: resolveWeeklyHours(outlet), tz: outlet.timezone };
-  return deps.demoMode === true && outlet.sandbox !== undefined ? { cal, demo_max_ms: DEMO_SESSION_MAX_MS } : { cal };
+  // Same predicate as the capture config (hasDemoProfile). The device is read only when the two cheap
+  // conditions already hold, so a pilot request makes no extra read.
+  const sandboxHere = deps.demoMode === true && outlet.sandbox !== undefined;
+  const device = sandboxHere ? await deps.outlets.getDevice(outletId, deviceId) : null;
+  return hasDemoProfile({ demoMode: deps.demoMode === true, outlet, device })
+    ? { cal, demo_max_ms: DEMO_SESSION_MAX_MS }
+    : { cal };
 }
 
 /** Reads a JSON body. Unparseable JSON is 400; a bad shape is 422 (zod, in the callers). */
@@ -69,7 +77,7 @@ export async function startCaptureSession(
     ...p,
     session_id: SessionIdSchema.parse(body.session_id),
     started_at_ms: body.started_at_ms,
-    ...(await calendarFor(deps, p.outlet_id)),
+    ...(await calendarFor(deps, p.outlet_id, p.device_id)),
     now_ms,
   });
   return { ok: true };
@@ -89,7 +97,7 @@ export async function endCaptureSession(
     ...p,
     session_id,
     ...body,
-    ...(await calendarFor(deps, p.outlet_id)),
+    ...(await calendarFor(deps, p.outlet_id, p.device_id)),
     now_ms,
   });
   return { ok: true };
@@ -109,7 +117,7 @@ export async function discardCaptureSession(
     ...p,
     session_id,
     ...body,
-    ...(await calendarFor(deps, p.outlet_id)),
+    ...(await calendarFor(deps, p.outlet_id, p.device_id)),
     now_ms,
   });
 }
