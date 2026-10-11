@@ -1,5 +1,5 @@
 import type { DemoCounterKind, Outlet } from "@/lib/firestore/schema";
-import { LockedError } from "@/lib/http/errors";
+import { AppError, LockedError } from "@/lib/http/errors";
 import {
   COUNTER_TTL_MS,
   FAST_FORWARD_PER_SANDBOX,
@@ -25,8 +25,9 @@ import { OUTLETS_READ_MAX } from "@/lib/reviews/constants";
  *   2. the path's own daily cap across all sandboxes, if it has one (id `<kind>:<UTC day>`),
  *   3. the shared model-call ceiling for the day (`model_day:<UTC day>`), for paths that call a model.
  *
- * Narrow to wide, so a refused sandbox does not burn the day's counters. A no-op unless the outlet has a
- * `sandbox` object (the pilot and the shared demo outlet are untouched). The check belongs AFTER
+ * Narrow to wide, so a refused sandbox does not burn the day's counters. An outlet without a `sandbox`
+ * object fails closed (503 demo_not_ready); the pilot and the shared demo outlet never get here because
+ * the route helper only calls this for an sbx- outlet id. The check belongs AFTER
  * authentication, permission and body validation and BEFORE the first model or SDP call, so only an
  * authorised, well-formed request spends a cap and a capped one spends nothing downstream.
  */
@@ -123,7 +124,8 @@ export async function enforceDemoCaps(
   input: { outlet: Outlet; now_ms: number; key: DemoCapKey; env?: CapEnv },
 ): Promise<void> {
   const { outlet, now_ms } = input;
-  if (!outlet.sandbox) return;
+  // Callers only reach here for an sbx- outlet; one with no sandbox object is a broken doc: fail closed, never uncapped.
+  if (!outlet.sandbox) throw new AppError("The demo is not ready", "demo_not_ready", 503);
   const spec = capSpec(input.key, input.env);
   const day = utcDay(now_ms);
   const expiry = new Date(now_ms + COUNTER_TTL_MS).toISOString();

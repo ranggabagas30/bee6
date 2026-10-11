@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { LockedError } from "@/lib/http/errors";
+import { AppError, LockedError } from "@/lib/http/errors";
 import type { Outlet } from "@/lib/firestore/schema";
 import { capFromEnv, capSpec, enforceDemoCaps, modelDailyLimit, sandboxDailyLimit, type DemoCapKey } from "@/lib/demo/caps";
 import { SANDBOX_DAILY } from "@/lib/demo/constants";
@@ -67,9 +67,13 @@ describe("enforceDemoCaps", () => {
   const run = (f: ReturnType<typeof fakeStore>, key: DemoCapKey, env: Record<string, string | undefined> = {}, outlet: Outlet = sandboxOutlet(), now = NOW) =>
     enforceDemoCaps(f.store, { outlet, now_ms: now, key, env });
 
-  it("is inert for an outlet without a sandbox: zero store calls", async () => {
+  it("fails closed for an outlet without a sandbox object: 503 demo_not_ready, zero store calls", async () => {
     const f = fakeStore();
-    for (const key of ["segment", "generate", "fast_forward", "redact"] as const) await run(f, key, {}, plainOutlet());
+    for (const key of ["segment", "generate", "fast_forward", "redact"] as const) {
+      const err = await run(f, key, {}, plainOutlet()).then(() => null, (e) => e);
+      expect(err).toBeInstanceOf(AppError);
+      expect(err).toMatchObject({ statusCode: 503, code: "demo_not_ready" });
+    }
     expect(f.calls).toEqual([]);
   });
 

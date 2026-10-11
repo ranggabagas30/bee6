@@ -296,3 +296,17 @@ describe("redact cap: charged only when text that will reach Sensitive Data Prot
     expect((await burn("debrief answer (device)", ANSWER, "q_abc")).bumps).toBeGreaterThan(0);
   });
 });
+
+describe("a sbx- outlet whose doc has no sandbox object fails closed", () => {
+  it("503 demo_not_ready and the service is never reached", async () => {
+    const c = CASES.find((x) => x.name === "proposal approve")!;
+    f.sandboxes.set(SBX, { ...templateSet().outlet, outlet_id: SBX });
+    principal(c, SBX);
+    c.service.mockResolvedValue(c.serviceResult);
+    const res = await c.call(headers(), JSON.stringify(c.body));
+    expect(res.status).toBe(503);
+    expect((await res.json()).error.code).toBe("demo_not_ready");
+    expect(c.service).not.toHaveBeenCalled();
+    expect(f.bumps).toEqual([]);
+  });
+});
