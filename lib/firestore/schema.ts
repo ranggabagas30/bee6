@@ -151,11 +151,11 @@ export function parseOutletDoc(raw: unknown): Outlet {
   return OutletSchema.parse(raw);
 }
 
-// ── users (owner / supervisor; Google sign-in) ───────────────────────────────
+// ── users (owner / supervisor; email + password, admin-provisioned) ──────────
 export const UserSchema = z
   .object({
     ...withOutlet,
-    /** Firebase Auth uid; null until the person signs in for the first time. */
+    /** Firebase Auth uid; null until the account completes its first sign-in. */
     uid: z.string().min(1).nullable(),
     email: z.email(),
     role: z.enum(["owner", "supervisor"]),
@@ -173,15 +173,33 @@ export const StaffSchema = z
     name: z.string().min(1),
     /**
      * Normalized name (trim + casefold + collapsed whitespace) used to match a
-     * typed PIN-login name to this staff member. Derived from `name` via
-     * normalizeStaffName; still lives only in the `staff` collection.
+     * typed PIN-login name to this staff member. Dormant in MVP 1: no staff
+     * sign-in exists yet; the staff-name scrub does not read this field.
+     * Derived from `name` via normalizeStaffName; still lives only in the
+     * `staff` collection. Kept required on purpose so existing docs stay valid.
      */
     name_key: z.string().min(1),
-    role: UserRoleSchema, // job role used to route debrief questions
+    /**
+     * Reserved for future staff sign-in feature. Dormant in MVP 1: no staff
+     * sign-in is built; debrief questions are role-agnostic (hard rule #7).
+     * Kept required on purpose so existing docs stay valid.
+     */
+    role: UserRoleSchema,
+    /**
+     * Hash of staff PIN. Dormant in MVP 1: no staff sign-in is built. Kept
+     * required on purpose so existing docs stay valid.
+     */
     pin_hash: z.string().min(1),
-    /** Consecutive wrong-PIN attempts; resets on a correct PIN. */
+    /**
+     * Consecutive wrong-PIN attempts; resets on a correct PIN. Dormant in MVP 1:
+     * no staff sign-in is built. Kept required on purpose so existing docs stay valid.
+     */
     failed_attempts: z.number().int().min(0),
-    /** ISO time the account is locked until (5 wrong → 15 min), or null. */
+    /**
+     * ISO time the account is locked until (5 wrong → 15 min), or null. Dormant
+     * in MVP 1: no staff sign-in is built. Kept required on purpose so existing
+     * docs stay valid.
+     */
     locked_until: isoDateTime.nullable(),
     created_at: isoDateTime,
   })
@@ -234,6 +252,11 @@ export const DeviceSchema = z
   .object({
     ...withOutlet,
     device_id: z.string().min(1),
+    /**
+     * Placement label (e.g. "Register 1", "Kitchen phone"), never a person's name
+     * (hard rule #7). Set only by the admin running the seed script; never shown
+     * on any screen; not part of the /pair flow.
+     */
     label: z.string().min(1),
     /** bcrypt hash of the long-lived device token; null until paired. */
     token_hash: z.string().min(1).nullable(),
