@@ -98,16 +98,16 @@ let sandboxCapWarned = false;
 
 /**
  * The effective per-day sandbox-creation cap (DEMO_SANDBOX_DAILY_CAP, default 300). Sandboxes are outlets
- * too, and the daily review run reads at most OUTLETS_READ_MAX outlets, so the cap must stay below it or the
- * demo could crowd real outlets out of that read. A value at or above the limit falls back to the default
- * and is logged once.
+ * too, and the daily review run reads at most OUTLETS_READ_MAX outlets. A sandbox is live for at least 26 h, so
+ * two UTC days of sandboxes can coexist: 2 * cap + 50 (room for real outlets) must stay below the read or the
+ * demo could crowd real outlets out of it. A value that breaks this falls back to the default and is logged once.
  */
 export function sandboxDailyLimit(env: CapEnv = process.env): number {
   const n = capFromEnv(env.DEMO_SANDBOX_DAILY_CAP, SANDBOX_DAILY);
-  if (n < OUTLETS_READ_MAX) return n;
+  if (2 * n + 50 < OUTLETS_READ_MAX) return n;
   if (!sandboxCapWarned) {
     sandboxCapWarned = true;
-    console.error("[demo] DEMO_SANDBOX_DAILY_CAP must stay below the review run's outlet read; using the default", {
+    console.error("[demo] DEMO_SANDBOX_DAILY_CAP is too high for the review run's outlet read (2 * cap + 50 must fit); using the default", {
       error_class: "InvalidEnv",
     });
   }

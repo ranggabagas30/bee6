@@ -140,19 +140,25 @@ describe("enforceDemoCaps", () => {
 });
 
 describe("L8 the daily sandbox cap stays below the review run's outlet read", () => {
-  it("the default is below OUTLETS_READ_MAX", () => {
-    expect(SANDBOX_DAILY).toBeLessThan(OUTLETS_READ_MAX);
+  // A sandbox is live >= 26 h, so two UTC days of sandboxes can coexist: 2 * cap + 50 (real outlets) must fit.
+  const maxCap = Math.ceil((OUTLETS_READ_MAX - 50) / 2) - 1;
+
+  it("the outlet read holds 1000 and the default fits two days of sandboxes", () => {
+    expect(OUTLETS_READ_MAX).toBe(1000);
+    expect(2 * SANDBOX_DAILY + 50).toBeLessThan(OUTLETS_READ_MAX);
     expect(sandboxDailyLimit({})).toBe(SANDBOX_DAILY);
   });
 
-  it("an env override below the limit is used; one at or above it falls back to the default (fail closed) and is logged once", async () => {
+  it("an override with 2n + 50 < limit is used; one at or above falls back to the default (fail closed) and is logged once", async () => {
     vi.resetModules();
     const fresh = await import("@/lib/demo/caps");
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
     expect(fresh.sandboxDailyLimit({ DEMO_SANDBOX_DAILY_CAP: "50" })).toBe(50);
-    expect(fresh.sandboxDailyLimit({ DEMO_SANDBOX_DAILY_CAP: String(OUTLETS_READ_MAX - 1) })).toBe(OUTLETS_READ_MAX - 1);
+    expect(fresh.sandboxDailyLimit({ DEMO_SANDBOX_DAILY_CAP: String(maxCap) })).toBe(maxCap);
     expect(err).not.toHaveBeenCalled();
-    for (const bad of [String(OUTLETS_READ_MAX), "10000"]) expect(fresh.sandboxDailyLimit({ DEMO_SANDBOX_DAILY_CAP: bad })).toBe(SANDBOX_DAILY);
+    for (const bad of [String(maxCap + 1), String(OUTLETS_READ_MAX - 1), String(OUTLETS_READ_MAX), "10000"]) {
+      expect(fresh.sandboxDailyLimit({ DEMO_SANDBOX_DAILY_CAP: bad })).toBe(SANDBOX_DAILY);
+    }
     expect(err).toHaveBeenCalledTimes(1);
     err.mockRestore();
   });
