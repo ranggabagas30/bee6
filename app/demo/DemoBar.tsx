@@ -84,6 +84,12 @@ export function DemoBar({ config }: { config: FirebaseWebConfig | null }) {
     if (ended) removeDeviceKeys();
   }, [ended]);
 
+  // The switch button the visitor just tapped is gone once the end is noticed: put keyboard and screen-reader
+  // focus on the ended line. (A timer-driven end does not move focus; the line is a status and is announced.)
+  useEffect(() => {
+    if (endedHere) lineRef.current?.focus();
+  }, [endedHere]);
+
   // Re-read the snapshot at the expiry instant so a bar left open flips to "ended" without a tap.
   useEffect(() => {
     if (expiresAt === null) return;
@@ -115,7 +121,7 @@ export function DemoBar({ config }: { config: FirebaseWebConfig | null }) {
   if (ended) {
     return (
       <aside aria-labelledby="demo-bar-line" style={BAR_STYLE}>
-        <p id="demo-bar-line" style={{ ...LINE_STYLE, margin: 0 }}>
+        <p id="demo-bar-line" ref={lineRef} tabIndex={-1} role="status" style={{ ...LINE_STYLE, margin: 0 }}>
           {t(lang, "C-demo-expired")}
         </p>
         <Link href="/" style={LINK_STYLE}>

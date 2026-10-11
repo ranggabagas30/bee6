@@ -298,6 +298,31 @@ describe("DemoBar expiry", () => {
     expect(screen.queryByRole("button", { name: /Switch to/ })).toBeNull();
   });
 
+  it("announces the ended state to a screen reader: the ended line is a status", () => {
+    seed("owner", Date.now() - 1000);
+    renderBar();
+    expect(screen.getByRole("status").textContent).toBe("Your demo session has ended.");
+  });
+
+  it("when a tapped switch finds the sandbox gone, focus moves to the ended line (the button that had it is gone)", async () => {
+    seed("staff", Date.now() + 3_600_000);
+    startDemo.mockResolvedValue({ kind: "sandbox_expired" });
+    renderBar();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Switch to Owner" })));
+    expect(document.activeElement).toBe(screen.getByRole("status"));
+    expect(document.activeElement?.textContent).toBe("Your demo session has ended.");
+  });
+
+  it("does not steal focus when the timer ends the demo", () => {
+    vi.useFakeTimers({ now: new Date("2026-10-19T08:00:00Z") });
+    seed("owner", Date.now() + 5_000);
+    renderBar();
+    const before = document.activeElement;
+    act(() => void vi.advanceTimersByTime(5_001));
+    expect(screen.getByRole("status").textContent).toBe("Your demo session has ended.");
+    expect(document.activeElement).toBe(before);
+  });
+
   it("the ended state's restart link is at least 48 px tall", () => {
     seed("owner", Date.now() - 1000);
     renderBar();
