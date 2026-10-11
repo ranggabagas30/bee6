@@ -247,11 +247,14 @@ export async function endSession(
       return { result: undefined };
     }
     const endReason: SessionEndReason = body.end_reason;
-    const debriefStart = endReason === "lost" ? base.auto_stop_at_ms : body.ended_at_ms;
+    // Never before the stored start: a sandbox start is clamped to the server clock, so a phone whose clock
+    // runs behind can send an end time earlier than it (the schema forbids that). No-op on the pilot.
+    const endedAt = Math.max(body.ended_at_ms, base.started_at_ms);
+    const debriefStart = endReason === "lost" ? base.auto_stop_at_ms : endedAt;
     const debriefEnds = debriefStart + DEBRIEF_DURATION_MS;
     const session: CaptureSession = {
       ...base,
-      ended_at_ms: body.ended_at_ms,
+      ended_at_ms: endedAt,
       end_reason: endReason,
       debrief_ends_at_ms: debriefEnds,
       received_end_at: isoOf(input.now_ms),
@@ -259,7 +262,7 @@ export async function endSession(
     const last = lastEndedFor(state.last_ended, {
       business_date: session.local_date,
       end_reason: endReason,
-      ended_at_ms: body.ended_at_ms,
+      ended_at_ms: endedAt,
       debrief_ends_at_ms: debriefEnds,
     });
     return {
@@ -308,9 +311,11 @@ export async function discardSession(
     if (base.end_reason !== null) {
       throw new ConflictError("session_ended", "session_ended");
     }
+    // Never before the stored start (see endSession): the clamped sandbox start can be later than the phone's clock.
+    const discardedAt = Math.max(body.discarded_at_ms, base.started_at_ms);
     const session: CaptureSession = {
       ...base,
-      ended_at_ms: body.discarded_at_ms,
+      ended_at_ms: discardedAt,
       end_reason: "discarded",
       debrief_ends_at_ms: null,
       received_end_at: isoOf(input.now_ms),
@@ -319,7 +324,7 @@ export async function discardSession(
     const last = lastEndedFor(state.last_ended, {
       business_date: session.local_date,
       end_reason: "discarded",
-      ended_at_ms: body.discarded_at_ms,
+      ended_at_ms: discardedAt,
       debrief_ends_at_ms: null,
     });
     return {
