@@ -103,6 +103,17 @@ describe("issueDemoSession: gates", () => {
     expect(f.calls).toEqual([]);
   });
 
+  it("D1 an empty DEMO_IP_SALT also stops a role switch (key given) before any store call", async () => {
+    const f = fakeStore();
+    const err = await expectCode(
+      issueDemoSession(f.store, deps().d, input({ role: "owner", sandbox_key: "A".repeat(43) }, { salt: "" })),
+      AppError,
+      "demo_not_ready",
+    );
+    expect(err.statusCode).toBe(503);
+    expect(f.calls).toEqual([]);
+  });
+
   it("a template that cannot be cloned (no ended debrief) is 503 demo_not_ready, nothing written", async () => {
     const tpl = templateSet();
     const { last_ended: _drop, ...device } = tpl.device;
@@ -200,6 +211,17 @@ describe("issueDemoSession: new sandbox", () => {
     expect(f.counters.get(`sandbox_day:${utcDay(NOW)}`)).toBe(dayBefore);
   });
 
+  it("M2 at the daily cap the request is refused with NO write: neither the IP nor the day counter is bumped", async () => {
+    const f = fakeStore();
+    const { d } = deps({ caps: { sandboxDaily: 1 } });
+    await issueDemoSession(f.store, d, input({ role: "owner" }, { ip: "1.1.1.1" }));
+    const bumpsBefore = f.bumps.length;
+    const ipBefore = f.counters.get(ipBucketKey("2.2.2.2", utcDay(NOW), SALT));
+    await expectCode(issueDemoSession(f.store, d, input({ role: "owner" }, { ip: "2.2.2.2" })), LockedError, "demo_daily_cap");
+    expect(f.bumps.length).toBe(bumpsBefore);
+    expect(f.counters.get(ipBucketKey("2.2.2.2", utcDay(NOW), SALT))).toBe(ipBefore);
+  });
+
   it("counters roll over with the UTC day", async () => {
     const f = fakeStore();
     const { d } = deps();
@@ -285,7 +307,35 @@ describe("issueDemoSession: role switch with a key", () => {
     const { d, minted } = deps();
     await expectCode(issueDemoSession(f.store, d, input({ role: "owner", sandbox_key: "Z".repeat(43) })), NotFoundError, "NOT_FOUND");
     expect(minted).toEqual([]);
-    expect(f.bumps).toEqual([]);
+    expect(f.bumps.map((b) => b.kind)).toEqual(["switch_ip"]); // only the per-IP guard, no sandbox counter
+  });
+
+  it("M1 bogus keys are limited per IP BEFORE the key lookup: the 61st is 429 rate_limited with no Firestore query", async () => {
+    const f = fakeStore();
+    const { d } = deps();
+    for (let i = 0; i < 60; i++) {
+      await expectCode(issueDemoSession(f.store, d, input({ role: "owner", sandbox_key: "Z".repeat(43) })), NotFoundError, "NOT_FOUND");
+    }
+    const lookups = f.calls.filter((c) => c === "findSandboxByKey").length;
+    expect(lookups).toBe(60);
+    const err = (await expectCode(issueDemoSession(f.store, d, input({ role: "owner", sandbox_key: "Z".repeat(43) })), LockedError, "rate_limited")) as LockedError;
+    expect(err.retryAfterSeconds).toBe(secondsToUtcMidnight(NOW));
+    expect(f.calls.filter((c) => c === "findSandboxByKey").length).toBe(60);
+    // another network is unaffected; the counter id is a salted hash kept apart from the sandbox_ip counter
+    await expectCode(issueDemoSession(f.store, d, input({ role: "owner", sandbox_key: "Z".repeat(43) }, { ip: "198.51.100.5" })), NotFoundError, "NOT_FOUND");
+    const ids = f.bumps.filter((b) => b.kind === "switch_ip").map((b) => b.id);
+    expect(ids[0]).toBe(`switch_ip:${ipBucketKey(IP, utcDay(NOW), SALT)}`);
+    expect(ids.some((id) => id.includes(IP))).toBe(false);
+  });
+
+  it("M1 the per-IP switch cap is overridable and does not touch the sandbox-creation IP counter", async () => {
+    const f = fakeStore();
+    const { d } = deps({ caps: { switchIpDaily: 2 } });
+    const first = await issueDemoSession(f.store, d, input({ role: "owner" }));
+    await issueDemoSession(f.store, d, input({ role: "staff", sandbox_key: first.sandbox_key }));
+    await issueDemoSession(f.store, d, input({ role: "owner", sandbox_key: first.sandbox_key }));
+    await expectCode(issueDemoSession(f.store, d, input({ role: "owner", sandbox_key: first.sandbox_key })), LockedError, "rate_limited");
+    expect(f.counters.get(ipBucketKey(IP, utcDay(NOW), SALT))).toBe(1); // only the creation
   });
 
   it("6.T6 an expired sandbox is 409 SANDBOX_EXPIRED (at the boundary too) and issues nothing", async () => {

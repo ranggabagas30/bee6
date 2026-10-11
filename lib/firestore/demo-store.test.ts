@@ -357,6 +357,18 @@ describe("5.S4 bumpCounter", () => {
   });
 });
 
+describe("readCounter (read-only)", () => {
+  it("reads the count without writing; absent is 0; damaged fails closed; a slash id is rejected", async () => {
+    const { db, writes } = fakeDb({ [COLLECTIONS.demoCounters]: { c1: { count: 7 }, bad: { count: "x" } } });
+    const store = firestoreDemoStore(db);
+    expect(await store.readCounter("c1")).toBe(7);
+    expect(await store.readCounter("none")).toBe(0);
+    expect(await store.readCounter("bad")).toBe(Number.MAX_SAFE_INTEGER);
+    await expect(store.readCounter("a/b")).rejects.toThrow();
+    expect(writes).toEqual([]);
+  });
+});
+
 describe("listExpiredSandboxes", () => {
   it("returns sandboxes expired more than 24 h ago, capped, only sbx- ids", async () => {
     const now = Date.UTC(2026, 9, 28);

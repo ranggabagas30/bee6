@@ -26,6 +26,8 @@ export const WRITE_BATCH_MAX = 400;
 export const SANDBOX_IP_DAILY = 10;
 export const SANDBOX_DAILY = 300;
 export const SWITCHES_PER_SANDBOX = 30;
+/** Role-switch (sandbox_key) requests per network per day; bounds the Firestore key lookups a bogus key costs. */
+export const SWITCH_IP_DAILY = 60;
 export const GENERATE_PER_SANDBOX = 5;
 export const GENERATE_DAILY = 300;
 

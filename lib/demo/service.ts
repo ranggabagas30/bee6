@@ -12,6 +12,7 @@ import {
   SANDBOX_DAILY,
   SANDBOX_IP_DAILY,
   SANDBOX_TTL_MS,
+  SWITCH_IP_DAILY,
   SWITCHES_PER_SANDBOX,
 } from "@/lib/demo/constants";
 import { DemoSessionResponseSchema, type DemoRole, type DemoSessionBody, type DemoSessionResponse } from "@/lib/demo/contract";
@@ -34,7 +35,7 @@ export interface DemoDeps {
   generateToken?: () => string;
   hashToken?: (token: string) => Promise<string>;
   /** Overrides for the daily caps (env DEMO_SANDBOX_DAILY_CAP / DEMO_GENERATE_DAILY_CAP). */
-  caps?: { sandboxDaily?: number; generateDaily?: number };
+  caps?: { sandboxDaily?: number; generateDaily?: number; switchIpDaily?: number };
   log?: (event: string, fields: Record<string, unknown>) => void;
 }
 
@@ -64,6 +65,7 @@ const LANDING: Record<"owner" | "supervisor", string> = { owner: "/home", superv
 export async function issueDemoSession(store: DemoStore, deps: DemoDeps, input: IssueInput): Promise<DemoSessionResponse> {
   const log = deps.log ?? defaultLog;
   if (!input.demoMode) throw new NotFoundError("route", "route"); // before any read, never logged
+  if (input.salt.length === 0) throw notReady(); // both paths hash the IP: never unsalted, never a store call
   try {
     return input.body.sandbox_key !== undefined
       ? await switchRole(store, deps, input, input.body.sandbox_key, input.body.role)
@@ -77,7 +79,6 @@ export async function issueDemoSession(store: DemoStore, deps: DemoDeps, input: 
 async function createSandbox(store: DemoStore, deps: DemoDeps, input: IssueInput, role: DemoRole): Promise<DemoSessionResponse> {
   const log = deps.log ?? defaultLog;
   const { now_ms } = input;
-  if (input.salt.length === 0) throw notReady();
 
   let tpl;
   try {
@@ -89,16 +90,20 @@ async function createSandbox(store: DemoStore, deps: DemoDeps, input: IssueInput
   if (tpl === null) throw notReady();
   if (tpl.outlet.project_kind !== "demo") throw new NotFoundError("route", "route");
 
-  // Limits come before any write. The per-IP counter is checked first so a refused IP does not burn the day's cap.
+  // Limits come before any write. A day already at its cap is refused by a read-only check, so a
+  // flood after the cap writes nothing (M2). Then the per-IP counter is bumped first so a refused IP
+  // does not burn the day's cap.
   const day = utcDay(now_ms);
   const counterExpiry = new Date(now_ms + COUNTER_TTL_MS).toISOString();
   const retry = secondsToUtcMidnight(now_ms);
+  const dayCap = deps.caps?.sandboxDaily ?? SANDBOX_DAILY;
+  const dayCounterId = `sandbox_day:${day}`;
+  const dayRefused = () => new LockedError(retry, "The demo has reached today's limit", "demo_daily_cap");
+  if ((await store.readCounter(dayCounterId)) >= dayCap) throw dayRefused();
   if (!(await store.bumpCounter(ipBucketKey(input.ip, day, input.salt), "sandbox_ip", day, SANDBOX_IP_DAILY, counterExpiry))) {
     throw new LockedError(retry, "Too many demo sessions from this network today", "rate_limited");
   }
-  if (!(await store.bumpCounter(`sandbox_day:${day}`, "sandbox_day", day, deps.caps?.sandboxDaily ?? SANDBOX_DAILY, counterExpiry))) {
-    throw new LockedError(retry, "The demo has reached today's limit", "demo_daily_cap");
-  }
+  if (!(await store.bumpCounter(dayCounterId, "sandbox_day", day, dayCap, counterExpiry))) throw dayRefused();
 
   // Lazy cleanup of old sandboxes: best effort, never fails the request.
   try {
@@ -149,12 +154,24 @@ async function switchRole(
   role: DemoRole,
 ): Promise<DemoSessionResponse> {
   const { now_ms } = input;
+  const day = utcDay(now_ms);
+
+  // Per-IP bucket BEFORE the key lookup: a bogus key costs a Firestore query, so the guess rate is bounded (M1).
+  // The id is prefixed so it never shares a doc with the sandbox-creation counter of the same IP and day.
+  const ipAllowed = await store.bumpCounter(
+    `switch_ip:${ipBucketKey(input.ip, day, input.salt)}`,
+    "switch_ip",
+    day,
+    deps.caps?.switchIpDaily ?? SWITCH_IP_DAILY,
+    new Date(now_ms + COUNTER_TTL_MS).toISOString(),
+  );
+  if (!ipAllowed) throw new LockedError(secondsToUtcMidnight(now_ms), "Too many demo sessions from this network today", "rate_limited");
+
   const outlet = await store.findSandboxByKey(sha256(key));
   if (!outlet?.sandbox) throw new NotFoundError("route", "route");
   const expires = outlet.sandbox.expires_at_ms;
   if (now_ms >= expires) throw new ConflictError("Sandbox expired", "SANDBOX_EXPIRED");
 
-  const day = utcDay(now_ms);
   const allowed = await store.bumpCounter(
     `switch:${outlet.outlet_id}`,
     "switch_sandbox",

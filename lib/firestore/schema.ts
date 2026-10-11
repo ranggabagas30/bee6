@@ -294,6 +294,7 @@ export const DEMO_COUNTER_KINDS = [
   "sandbox_ip",
   "sandbox_day",
   "switch_sandbox",
+  "switch_ip",
   "generate_sandbox",
   "generate_day",
 ] as const;

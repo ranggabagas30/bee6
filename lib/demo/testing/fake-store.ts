@@ -45,6 +45,10 @@ export function fakeStore(over: Partial<{ template: TemplateSet | null; expired:
       counters.set(id, n + 1);
       return true;
     },
+    async readCounter(id) {
+      calls.push("readCounter");
+      return counters.get(id) ?? 0;
+    },
     async listExpiredSandboxes(_now, limit) {
       calls.push("listExpiredSandboxes");
       return state.expired.slice(0, limit);

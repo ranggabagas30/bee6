@@ -206,6 +206,18 @@ export function firestoreDemoStore(db: Firestore = adminDb()): DemoStore {
       });
     },
 
+    async readCounter(counterId): Promise<number> {
+      if (counterId.includes("/") || counterId.length === 0) throw new Error("demo-store: invalid counter id");
+      const snap = await db.collection(COLLECTIONS.demoCounters).doc(counterId).get();
+      if (!snap.exists) return 0;
+      const raw = (snap.data() as { count?: unknown } | undefined)?.count;
+      if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 0) {
+        logSkippedDoc("demo_counter", counterId);
+        return Number.MAX_SAFE_INTEGER; // fail closed, same as bumpCounter
+      }
+      return raw;
+    },
+
     async listExpiredSandboxes(nowMs, limit): Promise<string[]> {
       const snap = await outletsCol()
         .where("sandbox.expires_at_ms", "<", nowMs - CLEANUP_GRACE_MS)
