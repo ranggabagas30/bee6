@@ -114,7 +114,7 @@ describe("parseCliArgs", () => {
     expect(parseCliArgs(["--gold", "a/b.csv", "--source", "internal"]).goldPath).toBe(path.resolve("a/b.csv"));
   });
   it("requires --source, with no default", () => {
-    expect(() => parseCliArgs(["--gold", "a.csv"])).toThrow(/--source is required.*internal.*pilot/s);
+    expect(() => parseCliArgs(["--gold", "a.csv"])).toThrow(/--source is required[\s\S]*internal[\s\S]*pilot/);
     expect(() => parseCliArgs(["--gold", "a.csv", "--source"])).toThrow(/--source is required/);
   });
   it("accepts internal and pilot, rejects anything else", () => {

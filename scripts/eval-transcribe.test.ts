@@ -54,7 +54,7 @@ describe("assertDemoProject", () => {
 
   it("allows ONLY bee6-playground: any other project is refused with a hint about --allow-project", () => {
     expect(() => assertDemoProject({ GOOGLE_CLOUD_PROJECT: "some-other-project" }, noCreds)).toThrow(
-      /bee6-playground.*--allow-project/s,
+      /bee6-playground[\s\S]*--allow-project/,
     );
   });
 
