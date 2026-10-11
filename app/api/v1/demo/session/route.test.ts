@@ -44,7 +44,7 @@ afterEach(() => {
 function req(body: unknown, headers: Record<string, string> = {}, raw = false) {
   return new NextRequest("http://localhost/api/v1/demo/session", {
     method: "POST",
-    headers: { "content-type": "application/json", "x-forwarded-for": "203.0.113.50, 10.0.0.1", ...headers },
+    headers: { "content-type": "application/json", "x-forwarded-for": "6.6.6.6, 203.0.113.50", ...headers },
     body: raw ? (body as string) : JSON.stringify(body),
   });
 }
@@ -193,17 +193,44 @@ describe("on-demo", () => {
     expect(f.written).toEqual([]);
   });
 
-  it("6.T9 counts the first x-forwarded-for entry by default as a salted hash; DEMO_XFF_FROM_END=1 uses the last; the raw IP is never stored or logged", async () => {
+  it("6.T9 counts the LAST x-forwarded-for entry by default as a salted hash; the raw IP is never stored or logged", async () => {
     await POST(req({ role: "owner" }));
     const day = utcDay(Date.now());
     expect(f.bumps[0]!.id).toBe(ipBucketKey("203.0.113.50", day, "route-test-salt"));
 
-    process.env.DEMO_XFF_FROM_END = "1";
-    await POST(req({ role: "owner" }, { "x-forwarded-for": "6.6.6.6, 203.0.113.99" }));
-    expect(f.bumps.some((b) => b.id === ipBucketKey("203.0.113.99", day, "route-test-salt"))).toBe(true);
-
     const everything = JSON.stringify([f.written, f.bumps, consoleSpies.map((s) => s.mock.calls)]);
-    for (const ip of ["203.0.113.50", "203.0.113.99", "6.6.6.6"]) expect(everything).not.toContain(ip);
+    for (const ip of ["203.0.113.50", "6.6.6.6"]) expect(everything).not.toContain(ip);
+  });
+
+  it("H1 a hostile client-supplied prefix cannot choose the bucket: ten requests with ten different forged heads share one", async () => {
+    for (let i = 0; i < 10; i++) {
+      expect((await POST(req({ role: "owner" }, { "x-forwarded-for": `a, b${i}, 198.51.100.77` }))).status).toBe(200);
+    }
+    const res = await POST(req({ role: "owner" }, { "x-forwarded-for": "9.9.9.9, a, 198.51.100.77" }));
+    expect(res.status).toBe(429);
+    expect(f.bumps.filter((b) => b.kind === "sandbox_ip").every((b) => b.id === ipBucketKey("198.51.100.77", utcDay(Date.now()), "route-test-salt"))).toBe(true);
+  });
+
+  it("H1 DEMO_XFF_FROM_END=2 uses the second entry from the end", async () => {
+    process.env.DEMO_XFF_FROM_END = "2";
+    await POST(req({ role: "owner" }, { "x-forwarded-for": "6.6.6.6, 203.0.113.99, 10.0.0.1" }));
+    expect(f.bumps[0]!.id).toBe(ipBucketKey("203.0.113.99", utcDay(Date.now()), "route-test-salt"));
+  });
+
+  it("H1 an invalid DEMO_XFF_FROM_END ('1\\n' is fine, ' 1', '100', 'abc' fail closed) never falls back to the first entry", async () => {
+    const day = utcDay(Date.now());
+    for (const bad of ["100", "abc", "0", "-1"]) {
+      f.bumps.length = 0;
+      process.env.DEMO_XFF_FROM_END = bad;
+      await POST(req({ role: "owner" }, { "x-forwarded-for": "6.6.6.6, 203.0.113.99" }));
+      expect(f.bumps[0]!.id, bad).toBe(ipBucketKey("203.0.113.99", day, "route-test-salt"));
+    }
+    for (const ok of ["1\n", " 1"]) {
+      f.bumps.length = 0;
+      process.env.DEMO_XFF_FROM_END = ok;
+      await POST(req({ role: "owner" }, { "x-forwarded-for": "6.6.6.6, 203.0.113.99" }));
+      expect(f.bumps[0]!.id, JSON.stringify(ok)).toBe(ipBucketKey("203.0.113.99", day, "route-test-salt"));
+    }
   });
 
   it("an unexpected store failure is a generic 500 with no-store and no secret in the logs", async () => {

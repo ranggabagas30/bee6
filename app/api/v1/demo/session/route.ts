@@ -4,7 +4,7 @@ import { BadRequestError, PayloadTooLargeError, ValidationError, handleApiError 
 import { jsonOk } from "@/lib/http/respond";
 import { firestoreDemoStore } from "@/lib/firestore/demo-store";
 import { DemoSessionBodySchema } from "@/lib/demo/contract";
-import { clientIp } from "@/lib/demo/limits";
+import { clientIp, resolveXffFromEnd } from "@/lib/demo/limits";
 import { capFromEnv, issueDemoSession } from "@/lib/demo/service";
 import { SANDBOX_DAILY } from "@/lib/demo/constants";
 
@@ -17,8 +17,9 @@ import { SANDBOX_DAILY } from "@/lib/demo/constants";
  *
  * Abuse limits (all plain code in lib/demo/service.ts): per-IP and daily sandbox caps, role-switch
  * cap, a body-size bound here. The client IP is hashed with DEMO_IP_SALT and the UTC day, never
- * stored or logged. DEMO_XFF_FROM_END (optional positive integer) picks the Nth x-forwarded-for
- * entry from the end instead of the first, for when the deployed proxy appends rather than replaces.
+ * stored or logged. The client IP is the LAST x-forwarded-for entry (appended by Google's front end;
+ * everything before it is client-supplied). DEMO_XFF_FROM_END (optional, 1 to 10) only overrides the
+ * position from the end; an invalid value fails closed to 1.
  * Every response is `Cache-Control: private, no-store`; tokens and the sandbox key are returned once
  * in the body and never logged.
  */
@@ -53,11 +54,6 @@ export const PATCH = otherMethod;
 export const DELETE = otherMethod;
 export const OPTIONS = otherMethod;
 
-function xffFromEnd(): number | undefined {
-  const raw = process.env.DEMO_XFF_FROM_END;
-  return raw !== undefined && /^[1-9]\d?$/.test(raw) ? Number(raw) : undefined;
-}
-
 export async function POST(req: NextRequest) {
   if (!demoOn()) return notFound();
   try {
@@ -82,7 +78,7 @@ export async function POST(req: NextRequest) {
       { mintToken: mintCustomToken, caps: { sandboxDaily: capFromEnv(process.env.DEMO_SANDBOX_DAILY_CAP, SANDBOX_DAILY) } },
       {
         body: body.data,
-        ip: clientIp(req.headers, xffFromEnd()),
+        ip: clientIp(req.headers, resolveXffFromEnd(process.env.DEMO_XFF_FROM_END)),
         now_ms: Date.now(),
         demoMode: true,
         salt: process.env.DEMO_IP_SALT ?? "",
