@@ -184,14 +184,14 @@ describe("runDueReviews", () => {
     expect(r.suggestion.change_ratio).toBeCloseTo(-0.667, 2);
   });
 
-  it("R-10 handoff: two same-day approvals (v2, v3 share effective_from_date) are both reviewed, v2 flagged as overlapping", async () => {
+  it("R-10 handoff: two same-day approvals (v2, v3 share effective_from_date) are both reviewed, both flagged as overlapping", async () => {
     const v2 = shippedVersion(2, "2026-10-16", "2026-10-23");
     const v3 = shippedVersion(3, "2026-10-16", "2026-10-23");
     const f = fakeStore({ ...windowData(), versions: [seedV1(), v2, v3] });
     const r = await runDueReviews({ outlets: [outlet()], storeFor: () => f.store, now_ms: at("2026-10-23") });
     expect(r.created).toBe(2);
     expect(f.reviews.get(`${OUTLET}:v2`)!.notices.overlapping_change).toBe(true);
-    expect(f.reviews.get(`${OUTLET}:v3`)!.notices.overlapping_change).toBe(false);
+    expect(f.reviews.get(`${OUTLET}:v3`)!.notices.overlapping_change).toBe(true);
     expect(f.reviews.get(`${OUTLET}:v2`)!.after).toEqual(f.reviews.get(`${OUTLET}:v3`)!.after);
   });
 });

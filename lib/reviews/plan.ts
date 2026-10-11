@@ -68,11 +68,17 @@ export function buildReview(input: {
     throw new Error("buildReview: not a shipped change");
   }
   const suggestion = suggestVerdict({ before, after, direction: c.metric.direction });
-  // A later version in force on or before the last "after" day mixes two changes in the window.
-  // Two approvals on the same outlet-local day share one effective_from_date, so equality counts.
-  const lastAfterDay = addDays(c.review_date, -1);
+  // Any OTHER shipped change that came into force strictly inside the measured span (after the
+  // "before" window opened, up to the last "after" day) mixes two changes in the numbers. Earlier
+  // versions count too (a v2 landing inside v3's baseline); a change already in force on or before
+  // before.from_date was there for the whole span. Same-day approvals share one effective_from_date.
   const overlapping_change = versions.some(
-    (v) => v.version > sop.version && v.effective_from_date != null && v.effective_from_date <= lastAfterDay,
+    (v) =>
+      v.version !== sop.version &&
+      isShippedChange(v) &&
+      v.effective_from_date != null &&
+      v.effective_from_date > before.from_date &&
+      v.effective_from_date <= after.to_date,
   );
   return ReviewSchema.parse({
     outlet_id: sop.outlet_id,

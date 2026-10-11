@@ -72,14 +72,26 @@ describe("buildReview", () => {
     expect(build([v1, v2, shippedVersion(3, "2026-10-23", "2026-10-30")]).notices.overlapping_change).toBe(false);
   });
 
-  it("2.T8 R-10 handoff: v3 approved the SAME day as v2 (same effective_from_date) is an overlap", () => {
+  it("2.T8 R-10 handoff: v3 approved the SAME day as v2 (same effective_from_date) is an overlap, both ways", () => {
     const sameDay = shippedVersion(3, "2026-10-16", "2026-10-23");
     expect(build([v1, v2, sameDay]).notices.overlapping_change).toBe(true);
-    // the later version's own review has no later version, so no notice
-    expect(buildReview({ sop: sameDay, versions: [v1, v2, sameDay], before, after, threads_truncated: false, simulated: false, now_ms: NOW }).notices.overlapping_change).toBe(false);
+    // the earlier shipped change effective the same day also lies inside the later version's span
+    expect(buildReview({ sop: sameDay, versions: [v1, v2, sameDay], before, after, threads_truncated: false, simulated: false, now_ms: NOW }).notices.overlapping_change).toBe(true);
   });
 
-  it("2.T8 an earlier version never counts as overlapping; carries simulated and truncated", () => {
+  it("2.T8 an earlier shipped change effective inside the measured span is an overlap; on/before before.from_date is not", () => {
+    const v3 = shippedVersion(3, "2026-10-20", "2026-10-27");
+    const v3After = windowDoc({ from_date: "2026-10-20", to_date: "2026-10-26", count: 2 });
+    const buildV3 = (versions: SopVersion[]) =>
+      buildReview({ sop: v3, versions, before, after: v3After, threads_truncated: false, simulated: false, now_ms: NOW });
+    // v2 effective 2026-10-10 lies strictly inside v3's before window 2026-10-06..2026-10-12
+    expect(buildV3([v1, shippedVersion(2, "2026-10-10", "2026-10-17"), v3]).notices.overlapping_change).toBe(true);
+    // v2 effective exactly on before.from_date: already in force for the whole span
+    expect(buildV3([v1, shippedVersion(2, "2026-10-06", "2026-10-13"), v3]).notices.overlapping_change).toBe(false);
+    expect(buildV3([v1, shippedVersion(2, "2026-10-01", "2026-10-08"), v3]).notices.overlapping_change).toBe(false);
+  });
+
+  it("2.T8 the seed v1 (not a shipped change) and the version itself never count; carries simulated and truncated", () => {
     const r = build([v1, v2], { simulated: true, threads_truncated: true });
     expect(r.notices).toEqual({ overlapping_change: false, threads_truncated: true });
     expect(r.simulated).toBe(true);
