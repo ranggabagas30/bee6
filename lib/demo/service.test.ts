@@ -276,12 +276,36 @@ describe("issueDemoSession: new sandbox", () => {
     expect(f.calls).not.toContain("listExpiredSandboxes");
   });
 
-  it("a failed write tries to delete the half-built sandbox and rethrows", async () => {
+  it("a failed write deletes OUR half-built sandbox (the outlet doc carries our key hash) and rethrows", async () => {
     const f = fakeStore();
     f.state.failWrite = true;
+    f.state.partialWrite = true;
     await expect(issueDemoSession(f.store, deps().d, input({ role: "owner" }))).rejects.toThrow("boom");
     expect(f.deleted).toHaveLength(1);
     expect(f.deleted[0]).toMatch(/^sbx-[a-f0-9]{12}$/);
+  });
+
+  it("L5 an id collision never deletes the other visitor's sandbox: the existing outlet has another key hash, so cleanup is skipped", async () => {
+    const f = fakeStore();
+    // the same 6 id bytes both times (a collision), but a different 32-byte key each time
+    const withKey = (fill: number) => (n: number) => Buffer.alloc(n, n === 32 ? fill : 7);
+    const mine = await issueDemoSession(f.store, deps({ randomBytes: withKey(1) }).d, input({ role: "owner" })); // takes the id
+    expect(mine.kind).toBe("web");
+    const victimId = [...f.sandboxes.keys()][0]!;
+    f.written.length = 0;
+    f.deleted.length = 0;
+    f.state.failWrite = true; // create() on the taken id fails
+    const err = await issueDemoSession(f.store, deps({ randomBytes: withKey(2) }).d, input({ role: "owner" })).then(() => null, (e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(f.deleted).toEqual([]); // the victim sandbox is untouched
+    expect(f.sandboxes.has(victimId)).toBe(true);
+  });
+
+  it("L5 nothing to delete when our outlet doc never landed (no read-then-delete of a stranger)", async () => {
+    const f = fakeStore();
+    f.state.failWrite = true; // fails before storing anything
+    await expect(issueDemoSession(f.store, deps().d, input({ role: "owner" }))).rejects.toThrow("boom");
+    expect(f.deleted).toEqual([]);
   });
 });
 

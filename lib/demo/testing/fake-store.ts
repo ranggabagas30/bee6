@@ -15,7 +15,7 @@ export function fakeStore(over: Partial<{ template: TemplateSet | null; expired:
   const deleted: string[] = [];
   const deferred: { id: string; now_ms: number }[] = [];
   const rotations: { outletId: string; deviceId: string; hash: string; exp: number }[] = [];
-  const state = { template: "template" in over ? over.template : templateSet(), expired: over.expired ?? [], failDelete: false, failDeleteIds: new Set<string>(), failDefer: false, failList: false, failWrite: false, tooLarge: false };
+  const state = { template: "template" in over ? over.template : templateSet(), expired: over.expired ?? [], failDelete: false, failDeleteIds: new Set<string>(), failDefer: false, failList: false, failWrite: false, partialWrite: false, tooLarge: false };
 
   const store: DemoStore = {
     async readTemplate() {
@@ -25,10 +25,11 @@ export function fakeStore(over: Partial<{ template: TemplateSet | null; expired:
     },
     async writeSandbox(docs) {
       calls.push("writeSandbox");
-      if (state.failWrite) throw new Error("boom");
+      if (state.failWrite && !state.partialWrite) throw new Error("boom");
       written.push(...docs);
       const outletDoc = docs.find((d) => d.collection === COLLECTIONS.outlets);
       if (outletDoc) sandboxes.set(outletDoc.id, outletDoc.data as unknown as Outlet);
+      if (state.failWrite) throw new Error("boom"); // the outlet doc landed, a later batch did not
     },
     async findSandboxByKey(h) {
       calls.push("findSandboxByKey");

@@ -113,11 +113,7 @@ async function createSandbox(store: DemoStore, deps: DemoDeps, input: IssueInput
   try {
     await store.writeSandbox(docs);
   } catch (error) {
-    try {
-      await store.deleteSandbox(ids.outlet_id); // best effort: do not leave a half-built sandbox
-    } catch {
-      /* the next cleanup finds it through its expiry */
-    }
+    await removeHalfBuilt(store, deps, ids.outlet_id, sha256(key));
     throw error;
   }
   log("sandbox_created", { sandbox: ids.outlet_id });
@@ -157,6 +153,23 @@ async function cleanupExpired(store: DemoStore, deps: DemoDeps, now_ms: number):
         log("cleanup_defer_failed", { sandbox: id, error_class: errorClass(deferError) });
       }
     }
+  }
+}
+
+/**
+ * After a failed write, best-effort removal of OUR half-built sandbox, and only ours: an id collision
+ * (create() on a taken id) must never delete another visitor's sandbox, so the outlet found under the id
+ * has to carry this request's key hash. Anything else (no outlet, another key, a read failure) skips the
+ * delete; an orphan of ours is found later through its expiry.
+ */
+async function removeHalfBuilt(store: DemoStore, deps: DemoDeps, outletId: string, keySha256: string): Promise<void> {
+  const log = deps.log ?? defaultLog;
+  try {
+    const existing = await store.getOutlet(outletId);
+    if (existing?.sandbox?.key_sha256 !== keySha256) return;
+    await store.deleteSandbox(outletId);
+  } catch (error) {
+    log("cleanup_failed", { sandbox: outletId, error_class: errorClass(error) });
   }
 }
 
