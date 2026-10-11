@@ -6,6 +6,7 @@ import { cloneTemplate, judgeDeviceIdOf, sandboxIds } from "@/lib/demo/clone";
 import {
   CLEANUP_PER_CREATE,
   COUNTER_TTL_MS,
+  IP_SALT_MIN_LENGTH,
   SANDBOX_DAILY,
   SANDBOX_IP_DAILY,
   SANDBOX_TTL_MS,
@@ -41,7 +42,7 @@ export interface IssueInput {
   ip: string;
   now_ms: number;
   demoMode: boolean;
-  /** DEMO_IP_SALT. Empty means the demo is not ready (never an unsalted hash). */
+  /** DEMO_IP_SALT. Empty or shorter than IP_SALT_MIN_LENGTH means the demo is not ready (never an unsalted hash). */
   salt: string;
 }
 
@@ -55,7 +56,7 @@ const LANDING: Record<"owner" | "supervisor", string> = { owner: "/home", superv
 export async function issueDemoSession(store: DemoStore, deps: DemoDeps, input: IssueInput): Promise<DemoSessionResponse> {
   const log = deps.log ?? defaultLog;
   if (!input.demoMode) throw new NotFoundError("route", "route"); // before any read, never logged
-  if (input.salt.length === 0) throw notReady(); // both paths hash the IP: never unsalted, never a store call
+  if (input.salt.length < IP_SALT_MIN_LENGTH) throw notReady(); // both paths hash the IP: never unsalted or weakly salted, never a store call
   try {
     return input.body.sandbox_key !== undefined
       ? await switchRole(store, deps, input, input.body.sandbox_key, input.body.role)
