@@ -490,6 +490,16 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
     );
   });
 
+  it("item 8: after Finish the sandbox says the demo day is finished and never offers a 'tap Start again <date>' line", async () => {
+    await renderDemoRunning();
+    fireEvent.click(screen.getByRole("button", { name: "End" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
+    await waitFor(() =>
+      expect(screen.getAllByText("Demo day finished. Switch to Supervisor to see it.").length).toBeGreaterThan(0),
+    );
+    expect(screen.queryByText(/You can tap Start again/)).toBeNull();
+  });
+
   it("pilot: the same config without demo_session at 22:30 keeps Mulai disabled and shows no demo UI", async () => {
     pinClock(MON_2230_WIB);
     const { demo_session: _drop, ...pilot } = demoConfig();

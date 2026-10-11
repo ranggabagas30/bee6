@@ -248,8 +248,9 @@ export default function CapturePage() {
   // (`idleViewFor`'s own `mulaiAvailability` call), computed the same way so
   // the debrief card and done screen never show a different answer than the
   // Mulai note underneath.
+  // R-18: a sandbox has one demo day, so "You can tap Start again <date>" is never true there; no line at all.
   const nextMulaiText =
-    effectiveConfig && nowMs !== null
+    effectiveConfig && nowMs !== null && effectiveConfig.demo_session === undefined
       ? (() => {
           const nextMs = mulaiAvailability({
             now_ms: nowMs,
