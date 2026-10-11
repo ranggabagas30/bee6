@@ -441,4 +441,31 @@ describe("ProposalsApp — proposals list and decisions (R-09 8.2)", () => {
     expect(await screen.findByText("This proposal was already decided. The list is updated.")).not.toBeNull();
     await waitFor(() => expect(getsTo("/api/v1/proposals")).toBe(2));
   });
+  it("a decision during an in-flight generate does not clobber the busy state", async () => {
+    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [] } };
+    let resolveGenerate: (value: unknown) => void = () => {};
+    authedPostJson.mockImplementation((...args: unknown[]) =>
+      args[1] === "/api/v1/proposals/generate"
+        ? new Promise((resolve) => { resolveGenerate = resolve; })
+        : Promise.resolve({ kind: "ok", data: { result: "feasible", status: "awaiting_owner" } }),
+    );
+    await renderReady();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Feasible" })).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Generate proposal" }));
+    const generate = screen.getByRole("button", { name: "Generate proposal" }) as HTMLButtonElement;
+    expect(generate.disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Feasible" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes" }));
+    expect(await screen.findByText("Marked feasible. Sent to the owner.")).not.toBeNull();
+    await waitFor(() => expect(getsTo("/api/v1/proposals")).toBe(2));
+
+    // The generate request is still running: the form must stay locked.
+    expect((screen.getByRole("button", { name: "Generate proposal" }) as HTMLButtonElement).disabled).toBe(true);
+
+    resolveGenerate({ kind: "ok", data: makeResponse() });
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "Generate proposal" }) as HTMLButtonElement).disabled).toBe(false),
+    );
+  });
 });

@@ -146,7 +146,8 @@ export function ProposalsApp({ config }: { config: FirebaseWebConfig | null }) {
   function handleSettled(settled: { messageKey: DictKey; range?: { from_date: string; to_date: string } }) {
     setBanner({ key: settled.messageKey, range: settled.range });
     // The generate result card now shows a status the decision has changed; the reloaded list is the truth.
-    setOutcome({ kind: "idle" });
+    // Never clobber an in-flight generate: its own answer still has to land.
+    setOutcome((o) => (o.kind === "busy" ? o : { kind: "idle" }));
     setListKey((k) => k + 1);
     // The tapped button is about to unmount; keep keyboard focus on the answer instead of letting it fall to <body>.
     bannerRef.current?.focus();
