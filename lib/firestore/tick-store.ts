@@ -139,8 +139,8 @@ export function firestoreTickStore(db: Firestore = adminDb()): TickStore {
       for (const doc of snap.docs) {
         const data = DeviceSchema.parse(doc.data());
         // R-12: an expired demo judge device is not worked on (no labelling spend for a sandbox that is
-        // past its 2 h). Real shop phones carry no `expires_at_ms`. The re-armed debrief ends 1 h after
-        // creation and the device expires at 2 h, so question expiry still runs before the skip starts.
+        // past its 2 h). Real shop phones carry no `expires_at_ms`. A judge's debrief ends 1 h after their
+        // Selesai (R-18: a short demo session), normally before the device expires at 2 h.
         if (data.expires_at_ms !== undefined && data.expires_at_ms <= nowMs) continue;
         if (data.paired_at) result.push({ outlet_id: data.outlet_id, device_id: data.device_id });
       }
