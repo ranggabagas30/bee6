@@ -24,6 +24,7 @@ const MATRIX: Record<PrincipalRole, Permission[]> = {
     "day:read:summary",
     "proposals:approve",
     "proposals:generate",
+    "proposals:read",
     "constraints:read",
     "constraints:write",
     "reviews:verdict",
@@ -38,6 +39,7 @@ const MATRIX: Record<PrincipalRole, Permission[]> = {
     "labels:confirm",
     "proposals:review",
     "proposals:generate",
+    "proposals:read",
     "constraints:read",
     "constraints:write",
     "reviews:verdict",
@@ -59,6 +61,7 @@ const ALL_PERMISSIONS: Permission[] = [
   "proposals:review",
   "proposals:approve",
   "proposals:generate",
+  "proposals:read",
   "constraints:read",
   "constraints:write",
   "reviews:verdict",
@@ -92,6 +95,15 @@ describe("R-08 v2: owner generation + constraints widening", () => {
 
   it("the approval sequence did not widen: owner still cannot mark Feasible", () => {
     expect(can("owner", "proposals:review")).toBe(false);
+  });
+});
+
+describe("R-09: proposals:read", () => {
+  it("owner and supervisor may list proposals; staff and device may not", () => {
+    expect(can("owner", "proposals:read")).toBe(true);
+    expect(can("supervisor", "proposals:read")).toBe(true);
+    expect(can("staff", "proposals:read")).toBe(false);
+    expect(can("device", "proposals:read")).toBe(false);
   });
 });
 

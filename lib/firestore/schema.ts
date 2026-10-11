@@ -619,8 +619,8 @@ export const SopVersionSchema = z
 export type SopVersion = z.infer<typeof SopVersionSchema>;
 
 // ── constraints (R-08 defines, reads, and writes manual ones via createConstraint;
-//    R-09 writes rejection-derived ones through the SAME createConstraint) ──
-export const CONSTRAINT_SOURCES = ["supervisor_rejection", "manual"] as const;
+//    R-09 writes rejection-derived ones (supervisor and owner) through the SAME createConstraint) ──
+export const CONSTRAINT_SOURCES = ["supervisor_rejection", "owner_rejection", "manual"] as const;
 export const ConstraintSchema = z
   .object({
     ...withOutlet,
@@ -628,18 +628,18 @@ export const ConstraintSchema = z
     /** Already digit-masked, staff-name-scrubbed and SDP-redacted by createConstraint (hard rule #3). */
     text: z.string().min(1).max(500),
     source: z.enum(CONSTRAINT_SOURCES),
-    source_proposal_id: z.string().uuid().nullable(), // non-null iff source === "supervisor_rejection"
+    source_proposal_id: z.string().uuid().nullable(), // non-null iff source is a rejection (supervisor_rejection | owner_rejection)
     created_by_role: z.enum(["supervisor", "owner"]), // the role that added it (Q-11 b); never a name or id
     created_at_ms: z.number().int().min(0),
   })
   .strict()
   .superRefine((c, ctx) => {
-    const isRejection = c.source === "supervisor_rejection";
+    const isRejection = c.source === "supervisor_rejection" || c.source === "owner_rejection";
     if (isRejection !== (c.source_proposal_id !== null)) {
       ctx.addIssue({
         code: "custom",
         path: ["source_proposal_id"],
-        message: 'source_proposal_id must be non-null iff source is "supervisor_rejection"',
+        message: 'source_proposal_id must be non-null iff source is a rejection',
       });
     }
   });
@@ -653,7 +653,7 @@ export const PROPOSAL_STATUSES = [
   "awaiting_owner",
   "approved",
   "rejected",
-] as const; // technical spec §4.3; R-09 owns the last three moves
+] as const; // technical spec §4.3; R-09 writes the last three (review/approve routes)
 export const PROPOSAL_RULES = [
   "schema_invalid",
   "intervention_unknown",
@@ -720,6 +720,60 @@ export const ProposalContentSchema = z
     censored_floor: z.literal(true),
   })
   .strict();
+// ── proposal decisions (R-09) ────────────────────────────────────────────────
+// The actor is the slot (supervisor_review / owner_decision), a role, never a
+// person (hard rule #7). `reason` is redacted text (hard rule #3): for both a
+// supervisor and an owner rejection it is the text createConstraint stored
+// (R-09 Q-1 = yes: both rejections become constraints).
+export const SUPERVISOR_DECISIONS = ["feasible", "rejected"] as const;
+export const OWNER_DECISIONS = ["approved", "rejected"] as const;
+
+const decisionCommon = {
+  reason: z.string().min(1).max(500).nullable(), // non-null iff decision === "rejected"
+  /** Late constraints (added after generation) this actor confirmed checking. [] on a rejection. */
+  acknowledged_constraint_ids: z.array(z.string().uuid()).max(200),
+  decided_at_ms: z.number().int().min(0),
+};
+
+export const SupervisorReviewSchema = z
+  .object({
+    decision: z.enum(SUPERVISOR_DECISIONS),
+    ...decisionCommon,
+    constraint_id: z.string().uuid().nullable(), // non-null iff decision === "rejected"
+  })
+  .strict()
+  .superRefine((r, ctx) => {
+    const rejected = r.decision === "rejected";
+    if (rejected !== (r.reason !== null)) {
+      ctx.addIssue({ code: "custom", path: ["reason"], message: 'reason must be set iff decision is "rejected"' });
+    }
+    if (rejected !== (r.constraint_id !== null)) {
+      ctx.addIssue({ code: "custom", path: ["constraint_id"], message: 'constraint_id must be set iff decision is "rejected"' });
+    }
+  });
+export type SupervisorReview = z.infer<typeof SupervisorReviewSchema>;
+
+export const OwnerDecisionSchema = z
+  .object({
+    decision: z.enum(OWNER_DECISIONS),
+    ...decisionCommon,
+    /** The owner_rejection constraint this rejection created or linked (R-09 Q-1 = yes, Rangga 11 Oct). Non-null iff decision === "rejected". */
+    constraint_id: z.string().uuid().nullable(),
+  })
+  .strict()
+  .superRefine((r, ctx) => {
+    const rejected = r.decision === "rejected";
+    if (rejected !== (r.reason !== null)) {
+      ctx.addIssue({ code: "custom", path: ["reason"], message: 'reason must be set iff decision is "rejected"' });
+    }
+    if (rejected !== (r.constraint_id !== null)) {
+      ctx.addIssue({ code: "custom", path: ["constraint_id"], message: 'constraint_id must be set iff decision is "rejected"' });
+    }
+  });
+export type OwnerDecision = z.infer<typeof OwnerDecisionSchema>;
+
+export type ProposalStatus = (typeof PROPOSAL_STATUSES)[number];
+
 export const ProposalSchema = z
   .object({
     ...withOutlet,
@@ -762,6 +816,8 @@ export const ProposalSchema = z
       .strict()
       .nullable(),
     content: ProposalContentSchema.nullable(), // non-null iff status NOT IN {suppressed, blocked}
+    supervisor_review: SupervisorReviewSchema.nullable().optional(), // R-09; absent on R-08-era docs = null
+    owner_decision: OwnerDecisionSchema.nullable().optional(), // R-09; absent on R-08-era docs = null
     created_at_ms: z.number().int().min(0),
     updated_at_ms: z.number().int().min(0),
   })
@@ -795,6 +851,23 @@ export const ProposalSchema = z
         path: ["gate", "passed"],
         message: 'an "awaiting_*" status requires gate.passed === true',
       });
+    }
+    const sr = p.supervisor_review ?? null;
+    const od = p.owner_decision ?? null;
+    const decisionsOk =
+      p.status === "suppressed" || p.status === "blocked" || p.status === "awaiting_supervisor"
+        ? sr === null && od === null
+        : p.status === "awaiting_owner"
+          ? sr?.decision === "feasible" && od === null
+          : p.status === "approved"
+            ? sr?.decision === "feasible" && od?.decision === "approved"
+            : /* rejected */ (sr?.decision === "rejected" && od === null) ||
+              (sr?.decision === "feasible" && od?.decision === "rejected");
+    if (!decisionsOk) {
+      ctx.addIssue({ code: "custom", path: ["status"], message: `decisions do not match status "${p.status}"` });
+    }
+    if ((p.status === "approved" || p.status === "rejected") && p.gate.passed !== true) {
+      ctx.addIssue({ code: "custom", path: ["gate", "passed"], message: "a decided proposal requires gate.passed === true" });
     }
   });
 export type Proposal = z.infer<typeof ProposalSchema>;
