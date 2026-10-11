@@ -135,8 +135,13 @@ export function firestoreTickStore(db: Firestore = adminDb()): TickStore {
     async listActiveDevices(): Promise<ActiveDevice[]> {
       const snap = await db.collection(COLLECTIONS.devices).where("revoked", "==", false).get();
       const result: ActiveDevice[] = [];
+      const nowMs = Date.now();
       for (const doc of snap.docs) {
         const data = DeviceSchema.parse(doc.data());
+        // R-12: an expired demo judge device is not worked on (no labelling spend for a sandbox that is
+        // past its 2 h). Real shop phones carry no `expires_at_ms`. The re-armed debrief ends 1 h after
+        // creation and the device expires at 2 h, so question expiry still runs before the skip starts.
+        if (data.expires_at_ms !== undefined && data.expires_at_ms <= nowMs) continue;
         if (data.paired_at) result.push({ outlet_id: data.outlet_id, device_id: data.device_id });
       }
       return result;

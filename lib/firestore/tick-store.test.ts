@@ -241,6 +241,29 @@ describe("firestoreTickStore.listActiveDevices", () => {
   });
 });
 
+describe("firestoreTickStore.listActiveDevices: expired demo judge devices (R-12 M6)", () => {
+  const NOW = Date.UTC(2026, 9, 28, 10, 0, 0);
+
+  it("skips a device whose expires_at_ms has passed (<= now): no labelling spend for an expired sandbox", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    try {
+      const { db } = fakeDb({
+        [COLLECTIONS.devices]: {
+          "o1:live": makeDevice({ device_id: "live", expires_at_ms: NOW + 1 }),
+          "o1:edge": makeDevice({ device_id: "edge", expires_at_ms: NOW }),
+          "o1:past": makeDevice({ device_id: "past", expires_at_ms: NOW - 1 }),
+          "o1:shop": makeDevice({ device_id: "shop" }), // a real shop phone has no expiry
+        },
+      });
+      const ids = (await firestoreTickStore(db).listActiveDevices()).map((d) => d.device_id).sort();
+      expect(ids).toEqual(["live", "shop"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("firestoreTickStore.listStaffScrubNames", () => {
   it("returns the full name AND its first token, deduplicated", async () => {
     const { db } = fakeDb({
