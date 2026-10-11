@@ -84,3 +84,15 @@ describe("DayHeader — proposals link (R-08 Task 7.5)", () => {
     expect(link.style.minHeight).toBe("48px");
   });
 });
+
+describe("DayHeader — SOP link (R-10 Task 5.5)", () => {
+  it.each([
+    ["owner", OWNER_HEADER],
+    ["supervisor", SUPERVISOR_HEADER],
+  ] as const)("%s view shows a 48px link to /sop", (view, header) => {
+    renderHeader(view, header);
+    const link = screen.getByRole("link", { name: "SOP and changes" }) as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("/sop");
+    expect(link.style.minHeight).toBe("48px");
+  });
+});
