@@ -21,7 +21,6 @@ const KEY = "A".repeat(43);
 const LANDING: Record<DemoRole, string> = { staff: "/capture", supervisor: "/day", owner: "/home" };
 const ROLES: DemoRole[] = ["staff", "supervisor", "owner"];
 
-type Nav = { via: "assign" | "router.replace" | "router.push" | "replaceState"; path: string };
 const h = vi.hoisted(() => {
   const state = { uid: null as string | null, timing: "microtask" as "sync" | "microtask" | "macrotask", pathname: "/" };
   const listeners = new Set<(uid: string | null) => void>();
