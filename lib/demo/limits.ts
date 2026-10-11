@@ -36,13 +36,43 @@ export function resolveXffFromEnd(raw: string | undefined): number {
   return 1;
 }
 
-/** Strips a `:port` suffix and IPv6 brackets; returns a canonical (lower-case) IP, or null when it is not one. */
+/** The 8 sixteen-bit groups of a valid IPv6 string (an embedded dotted IPv4 tail counts as two groups). */
+function ipv6Groups(ip: string): number[] {
+  let text = ip;
+  const dotted = /^(.*:)(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(text);
+  if (dotted) {
+    const [, head, a, b, c, d] = dotted;
+    text = `${head}${((Number(a) << 8) | Number(b)).toString(16)}:${((Number(c) << 8) | Number(d)).toString(16)}`;
+  }
+  const [left, right] = text.split("::");
+  const l = left ? left.split(":") : [];
+  const r = right === undefined ? [] : right ? right.split(":") : [];
+  const fill = right === undefined ? [] : Array<string>(8 - l.length - r.length).fill("0");
+  return [...l, ...fill, ...r].map((g) => parseInt(g, 16));
+}
+
+/**
+ * The bucket value for a valid IP. IPv4 is itself. An IPv4-mapped IPv6 address (::ffff:a.b.c.d) is that IPv4
+ * address. Any other IPv6 address is masked to its /64 (one household or subscriber is a whole /64, so a
+ * single client must not mint a fresh bucket per address): `g1:g2:g3:g4::/64`, lower-case hex, no leading zeros.
+ */
+function bucketValue(ip: string): string {
+  if (isIP(ip) === 4) return ip;
+  const g = ipv6Groups(ip);
+  if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) {
+    return `${g[6]! >> 8}.${g[6]! & 255}.${g[7]! >> 8}.${g[7]! & 255}`;
+  }
+  return `${g.slice(0, 4).map((x) => x.toString(16)).join(":")}::/64`;
+}
+
+/** Strips a `:port` suffix, IPv6 brackets and a zone id; returns the bucket value (IPv6 masked to /64), or null when it is not an IP. */
 function normalizeIp(entry: string): string | null {
   let candidate = entry;
   const bracketed = /^\[([^\]]+)\](?::\d{1,5})?$/.exec(entry);
   if (bracketed) candidate = bracketed[1]!;
   else if (/^[^:]+:\d{1,5}$/.test(entry)) candidate = entry.slice(0, entry.lastIndexOf(":")); // ipv4:port
-  return isIP(candidate) !== 0 ? candidate.toLowerCase() : null;
+  candidate = candidate.replace(/%[0-9A-Za-z._~-]{1,64}$/, ""); // IPv6 zone id
+  return isIP(candidate) !== 0 ? bucketValue(candidate.toLowerCase()) : null;
 }
 
 /**
