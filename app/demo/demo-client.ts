@@ -321,7 +321,9 @@ async function applyCredentials(data: DemoSessionResponse, auth: Auth | null, na
   }
   writeDemoState(state);
   // The old web user must go (the phone is now a staff device), but a mounted web page redirects to
-  // /sign-in when it sees that. Let those reactions run, then hard-navigate: the load discards the page.
+  // /sign-in when it sees that. The hard navigation below is what wins: a later soft navigation cannot
+  // cancel it (checked in Chrome). Waiting one macrotask first only lets the page's own reactions run
+  // before the load; it is best effort and nothing depends on it.
   await signOutQuietly(auth);
   await nextMacrotask();
   navigate("/capture");
