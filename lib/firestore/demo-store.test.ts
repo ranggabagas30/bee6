@@ -323,6 +323,35 @@ describe("5.S2 writeSandbox", () => {
     await expect(firestoreDemoStore(db).writeSandbox(docs(2))).rejects.toThrow();
   });
 
+  it("L4 refuses, before writing ANYTHING, a batch holding a doc that is not in a sandbox outlet (fail closed)", async () => {
+    const good = docs(3);
+    const bad: Doc[] = [
+      { outlet_id: "demo-tpl-outlet", thread_id: "x" }, // the template
+      { outlet_id: "proofed", thread_id: "x" }, // a pilot outlet
+      { outlet_id: "xsbx-1", thread_id: "x" }, // a look-alike
+      { outlet_id: "demo-outlet", thread_id: "x" },
+    ];
+    for (const data of bad) {
+      const { db, writes, batchSizes } = fakeDb();
+      await expect(
+        firestoreDemoStore(db).writeSandbox([...good, { collection: COLLECTIONS.threads, id: "evil", data }]),
+        String(data.outlet_id),
+      ).rejects.toThrow(/sandbox/);
+      expect(writes).toEqual([]);
+      expect(batchSizes).toEqual([]);
+    }
+  });
+
+  it("L4 a doc with an sbx- id but another outlet_id is refused; a doc without outlet_id needs an sbx- id", async () => {
+    const { db, writes } = fakeDb();
+    const store = firestoreDemoStore(db);
+    await expect(store.writeSandbox([{ collection: COLLECTIONS.threads, id: "sbx-1:t", data: { outlet_id: "proofed" } as Doc }])).rejects.toThrow();
+    await expect(store.writeSandbox([{ collection: COLLECTIONS.threads, id: "t", data: {} as Doc }])).rejects.toThrow();
+    expect(writes).toEqual([]);
+    await store.writeSandbox([{ collection: COLLECTIONS.threads, id: "sbx-1:t", data: {} as Doc }]);
+    expect(writes).toHaveLength(1);
+  });
+
   it("writes a real clone end to end", async () => {
     const { db, cols } = fakeDb();
     const cloned = cloneTemplate({

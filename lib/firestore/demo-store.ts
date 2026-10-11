@@ -182,6 +182,12 @@ export function firestoreDemoStore(db: Firestore = adminDb()): DemoStore {
     },
 
     async writeSandbox(docs: ClonedDoc[]): Promise<void> {
+      // Fail closed before a single write: nothing but sandbox-outlet docs may ever be created here (L4).
+      for (const d of docs) {
+        const outletId = (d.data as { outlet_id?: unknown }).outlet_id;
+        const inSandbox = outletId === undefined ? d.id.startsWith(SANDBOX_OUTLET_PREFIX) : typeof outletId === "string" && outletId.startsWith(SANDBOX_OUTLET_PREFIX);
+        if (!inSandbox) throw new Error("demo-store: refusing to write a doc outside a sandbox outlet");
+      }
       for (let i = 0; i < docs.length; i += WRITE_BATCH_MAX) {
         const batch = db.batch();
         for (const d of docs.slice(i, i + WRITE_BATCH_MAX)) {
