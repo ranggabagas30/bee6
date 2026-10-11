@@ -6,6 +6,7 @@ import {
   HeartbeatSchema,
   LabelUnitLedgerSchema,
   OutletSchema,
+  OwnerDecisionSchema,
   PipelineLockSchema,
   parseOutletDoc,
   ProposalSchema,
@@ -14,6 +15,7 @@ import {
   SegmentSchema,
   SopVersionSchema,
   StaffSchema,
+  SupervisorReviewSchema,
   ThreadSchema,
   UserSchema,
 } from "@/lib/firestore/schema";
@@ -553,6 +555,26 @@ describe("R-08 schemas", () => {
     it('rejects source "other"', () => {
       expect(ConstraintSchema.safeParse({ ...goodConstraint, source: "other" }).success).toBe(false);
     });
+
+    it('accepts source "owner_rejection" with a uuid source_proposal_id (R-09 Q-1)', () => {
+      const good = {
+        ...goodConstraint,
+        source: "owner_rejection" as const,
+        created_by_role: "owner" as const,
+        source_proposal_id: "22222222-2222-4222-8222-222222222222",
+      };
+      expect(ConstraintSchema.safeParse(good).success).toBe(true);
+    });
+
+    it('rejects source "owner_rejection" with source_proposal_id: null', () => {
+      const bad = { ...goodConstraint, source: "owner_rejection" as const };
+      expect(ConstraintSchema.safeParse(bad).success).toBe(false);
+    });
+
+    it('rejects source "manual" with a source_proposal_id (still)', () => {
+      const bad = { ...goodConstraint, source_proposal_id: "22222222-2222-4222-8222-222222222222" };
+      expect(ConstraintSchema.safeParse(bad).success).toBe(false);
+    });
   });
 
   const goodEvidence = {
@@ -675,6 +697,110 @@ describe("R-08 schemas", () => {
     it('rejects requested_by_role: "staff"', () => {
       const bad = { ...goodProposal, requested_by_role: "staff" };
       expect(ProposalSchema.safeParse(bad).success).toBe(false);
+    });
+  });
+
+  describe("ProposalSchema decisions (R-09)", () => {
+    const C1 = "44444444-4444-4444-8444-444444444444";
+    const feasible = {
+      decision: "feasible" as const,
+      reason: null,
+      constraint_id: null,
+      acknowledged_constraint_ids: [],
+      decided_at_ms: 1_700_000_100_000,
+    };
+    const supRejected = {
+      decision: "rejected" as const,
+      reason: "The oven only holds 2.5 kg.",
+      constraint_id: C1,
+      acknowledged_constraint_ids: [],
+      decided_at_ms: 1_700_000_100_000,
+    };
+    const approved = { ...feasible, decision: "approved" as const, decided_at_ms: 1_700_000_200_000 };
+    const ownerRejected = { ...supRejected, decided_at_ms: 1_700_000_200_000 };
+    const ok = (o: Record<string, unknown>) => ProposalSchema.safeParse({ ...goodProposal, ...o }).success;
+    const suppressed = {
+      status: "suppressed" as const,
+      content: null,
+      gate: { passed: false, fired_rule: null, checks: [] },
+      suppression: {
+        reason: "insufficient_evidence" as const,
+        model_reason: null,
+        followup: { categories: [], have_facts: 1, have_dates: 1, need_facts: 2, need_dates: 2 },
+      },
+    };
+    const blocked = {
+      status: "blocked" as const,
+      content: null,
+      gate: { passed: false, fired_rule: "evidence_min" as const, checks: [] },
+    };
+
+    it("1.T1 an R-08-era awaiting_supervisor doc without either key parses", () => {
+      expect("supervisor_review" in goodProposal).toBe(false);
+      expect(ProposalSchema.safeParse(goodProposal).success).toBe(true);
+    });
+
+    it("1.T2 awaiting_supervisor: nulls parse, a feasible review fails", () => {
+      expect(ok({ supervisor_review: null, owner_decision: null })).toBe(true);
+      expect(ok({ supervisor_review: feasible, owner_decision: null })).toBe(false);
+    });
+
+    it("1.T3 awaiting_owner needs a feasible review and no owner decision", () => {
+      const s = { status: "awaiting_owner" as const };
+      expect(ok({ ...s, supervisor_review: feasible, owner_decision: null })).toBe(true);
+      expect(ok({ ...s })).toBe(false);
+      expect(ok({ ...s, supervisor_review: supRejected, owner_decision: null })).toBe(false);
+    });
+
+    it("1.T4 approved needs feasible + approved (nothing ships without both)", () => {
+      const s = { status: "approved" as const };
+      expect(ok({ ...s, supervisor_review: feasible, owner_decision: approved })).toBe(true);
+      expect(ok({ ...s, owner_decision: approved })).toBe(false);
+      expect(ok({ ...s, supervisor_review: supRejected, owner_decision: approved })).toBe(false);
+    });
+
+    it("1.T5 rejected is supervisor-rejected alone or feasible + owner-rejected", () => {
+      const s = { status: "rejected" as const };
+      expect(ok({ ...s, supervisor_review: supRejected, owner_decision: null })).toBe(true);
+      expect(ok({ ...s, supervisor_review: feasible, owner_decision: ownerRejected })).toBe(true);
+      expect(ok({ ...s, supervisor_review: feasible, owner_decision: null })).toBe(false);
+      expect(ok({ ...s, supervisor_review: supRejected, owner_decision: approved })).toBe(false);
+    });
+
+    it("1.T6 suppressed / blocked with any decision fails", () => {
+      expect(ok({ ...suppressed })).toBe(true);
+      expect(ok({ ...blocked })).toBe(true);
+      expect(ok({ ...suppressed, supervisor_review: feasible })).toBe(false);
+      expect(ok({ ...blocked, owner_decision: approved })).toBe(false);
+    });
+
+    it("a decided proposal requires gate.passed === true", () => {
+      const bad = {
+        status: "awaiting_owner" as const,
+        supervisor_review: feasible,
+        owner_decision: null,
+      };
+      expect(ok(bad)).toBe(true);
+      const decided = { status: "approved" as const, supervisor_review: feasible, owner_decision: approved };
+      expect(ok({ ...decided, gate: { ...goodProposal.gate, passed: false } })).toBe(false);
+    });
+
+    it("1.T7 SupervisorReviewSchema invariants", () => {
+      expect(SupervisorReviewSchema.safeParse(supRejected).success).toBe(true);
+      expect(SupervisorReviewSchema.safeParse(feasible).success).toBe(true);
+      expect(SupervisorReviewSchema.safeParse({ ...supRejected, reason: null }).success).toBe(false);
+      expect(SupervisorReviewSchema.safeParse({ ...supRejected, constraint_id: null }).success).toBe(false);
+      expect(SupervisorReviewSchema.safeParse({ ...feasible, reason: "x" }).success).toBe(false);
+      expect(SupervisorReviewSchema.safeParse({ ...supRejected, reason: "x".repeat(501) }).success).toBe(false);
+      expect(SupervisorReviewSchema.safeParse({ ...supRejected, extra: 1 }).success).toBe(false);
+    });
+
+    it("1.T8 OwnerDecisionSchema invariants (Q-1 = yes: a rejection carries a constraint id)", () => {
+      expect(OwnerDecisionSchema.safeParse(ownerRejected).success).toBe(true);
+      expect(OwnerDecisionSchema.safeParse(approved).success).toBe(true);
+      expect(OwnerDecisionSchema.safeParse({ ...ownerRejected, constraint_id: null }).success).toBe(false);
+      expect(OwnerDecisionSchema.safeParse({ ...approved, constraint_id: C1 }).success).toBe(false);
+      expect(OwnerDecisionSchema.safeParse({ ...approved, reason: "x" }).success).toBe(false);
     });
   });
 

@@ -31,6 +31,7 @@ import { buildProposalWireSchema, generateProposalJsonSchema, type ProposalWire,
 import { buildProposalPrompt } from "@/lib/proposals/prompt";
 import { toProposalView } from "@/lib/proposals/view";
 import { GenerateResponseSchema, type ProposalView } from "@/lib/proposals/contract";
+import { isFreshFact, type FreshThread } from "@/lib/proposals/freshness";
 import { z } from "zod";
 
 /**
@@ -43,11 +44,7 @@ import { z } from "zod";
  */
 
 /** The fields `commit`'s re-read needs to decide whether a cited ref is still a fact at write time. */
-export interface FreshThread {
-  status: "fact" | "open" | "unverified";
-  excluded_from_evidence?: boolean;
-  label_source?: string;
-}
+export type { FreshThread } from "@/lib/proposals/freshness";
 
 export interface ProposalStore {
   getOutlet(): Promise<Outlet | null>;
@@ -580,8 +577,7 @@ async function generateProposalCore(
     const proposalId = deps.newId();
     const stored = await store.commit(citedThreadIds, (fresh) => {
       const keptCandidates = citedCandidates.filter((c) => {
-        const t = fresh.get(c.thread_id);
-        return t !== undefined && t.status === "fact" && t.excluded_from_evidence !== true && t.label_source !== "supervisor_rejected";
+        return isFreshFact(fresh.get(c.thread_id));
       });
       const keptThreadCount = new Set(keptCandidates.map((c) => c.thread_id)).size;
       const keptDateCount = new Set(keptCandidates.map((c) => c.local_date)).size;

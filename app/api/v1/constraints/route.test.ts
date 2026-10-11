@@ -192,6 +192,14 @@ describe("POST /api/v1/constraints", () => {
     expect(res.status).toBe(422);
   });
 
+  it('a body with source: "owner_rejection" -> 422 (the route only ever passes source: "manual")', async () => {
+    verifyIdToken.mockResolvedValueOnce(claimsFor("1", "owner"));
+    const res = await POST(
+      postRequest({ text: "a valid constraint", source: "owner_rejection" }, "Bearer t"),
+    );
+    expect(res.status).toBe(422);
+  });
+
   it("empty body {} -> 422", async () => {
     verifyIdToken.mockResolvedValueOnce(claimsFor("1", "supervisor"));
     const res = await POST(postRequest({}, "Bearer t"));

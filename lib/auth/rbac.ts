@@ -24,6 +24,7 @@ export type Permission =
   | "proposals:review"
   | "proposals:approve"
   | "proposals:generate"
+  | "proposals:read"
   | "constraints:read"
   | "constraints:write"
   | "reviews:verdict"
@@ -46,6 +47,7 @@ const ROLE_PERMISSIONS: Record<PrincipalRole, ReadonlySet<Permission>> = {
     "day:read:summary",
     "proposals:approve",
     "proposals:generate", // R-08 Q-10: owner and supervisor both generate
+    "proposals:read", // R-09: list proposals
     "constraints:read", // R-08 Q-11 b
     "constraints:write", // R-08 Q-11 b
     "reviews:verdict",
@@ -60,6 +62,7 @@ const ROLE_PERMISSIONS: Record<PrincipalRole, ReadonlySet<Permission>> = {
     "labels:confirm",
     "proposals:review",
     "proposals:generate",
+    "proposals:read", // R-09: list proposals
     "constraints:read", // R-08 Q-8/Q-11
     "constraints:write", // R-08 Q-8/Q-11
     "reviews:verdict",

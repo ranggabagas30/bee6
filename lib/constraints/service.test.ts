@@ -315,6 +315,22 @@ describe("createConstraint", () => {
     expect(store.docs[0]!.source_proposal_id).toBe("33333333-3333-4333-8333-333333333333");
     expect(store.audits[0]!.details).toEqual({ source: "supervisor_rejection" });
   });
+
+  it('source: "owner_rejection" with owner claims -> stored with that source and id (R-09 Q-1)', async () => {
+    const store = new FakeConstraintStore();
+    const result = await createConstraint(store, identityDeps(), {
+      claims: claims("owner"),
+      text: "an owner rejection-derived constraint",
+      now_ms: 1,
+      source: "owner_rejection",
+      source_proposal_id: "33333333-3333-4333-8333-333333333333",
+    });
+    expect(result.duplicate).toBe(false);
+    expect(store.docs[0]!.source).toBe("owner_rejection");
+    expect(store.docs[0]!.created_by_role).toBe("owner");
+    expect(store.docs[0]!.source_proposal_id).toBe("33333333-3333-4333-8333-333333333333");
+    expect(store.audits[0]!.details).toEqual({ source: "owner_rejection" });
+  });
 });
 
 describe("listConstraintViews", () => {
