@@ -151,3 +151,27 @@ describe("generatePassword", () => {
     expect(generatePassword()).not.toBe(generatePassword());
   });
 });
+
+describe("parseProvisionArgs: reserved demo addresses (R-18 P1 13.T6)", () => {
+  it.each([
+    "supervisor.judge@example.com",
+    "owner.judge@example.com",
+    "OWNER.JUDGE@EXAMPLE.COM",
+    "anyone.judge@example.com",
+  ])("refuses %s with the reserved-address message, on both projects", (email) => {
+    for (const project of ["demo", "pilot"]) {
+      expect(() => parseProvisionArgs(["--project", project, "--email", email])).toThrow("reserved demo address");
+    }
+  });
+
+  it("refuses them even with --reset-password", () => {
+    expect(() =>
+      parseProvisionArgs(["--project", "demo", "--email", "owner.judge@example.com", "--reset-password"]),
+    ).toThrow("reserved demo address");
+  });
+
+  it("still accepts the internal QA accounts and lookalikes", () => {
+    expect(parseProvisionArgs(["--project", "demo", "--email", "demo-supervisor@example.com"]).email).toBe("demo-supervisor@example.com");
+    expect(parseProvisionArgs(["--project", "demo", "--email", "judge@example.com"]).email).toBe("judge@example.com");
+  });
+});

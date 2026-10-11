@@ -422,3 +422,13 @@ export async function startDemo(role: DemoRole, options: StartDemoOptions): Prom
   if (restarted) await signOutQuietly(auth);
   return { kind: "error" };
 }
+
+/**
+ * The official sign-in's entry (R-18 P1): a demo credential was typed, so open the role.
+ * A live sandbox in this browser is reused (a switch inside it, so Staff, Supervisor and Owner in one browser stay one
+ * story); with none, or an ended one, a fresh private sandbox is created. If the server says the stored one is gone it
+ * restarts once with a new one. Never throws.
+ */
+export function startOrSwitch(role: DemoRole, options: Omit<StartDemoOptions, "onExpired">): Promise<StartDemoResult> {
+  return startDemo(role, { ...options, onExpired: "restart" });
+}

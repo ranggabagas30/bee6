@@ -1,12 +1,17 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactElement } from "react";
-
-vi.mock("next/server", () => ({ connection: async () => {} }));
-
-import HomePage from "@/app/page";
-import { LandingLoader } from "@/app/demo/LandingLoader";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
+vi.mock("next/server", () => ({ connection: async () => {} }));
+const redirect = vi.fn((path: string): never => {
+  throw new Error(`NEXT_REDIRECT:${path}`);
+});
+vi.mock("next/navigation", () => ({ redirect: (path: string) => redirect(path) }));
+
+import HomePage from "@/app/page";
+import { SignInScreen } from "@/app/sign-in/SignInScreen";
+import { DemoIntro } from "@/app/demo/DemoIntro";
 
 const FIREBASE_ENV = {
   FIREBASE_API_KEY: "k",
@@ -14,43 +19,60 @@ const FIREBASE_ENV = {
   FIREBASE_PROJECT_ID: "p",
   FIREBASE_APP_ID: "1:1:web:a",
 };
+const props = (as?: string | string[]) => ({ searchParams: Promise.resolve(as === undefined ? {} : { as }) });
 
+beforeEach(() => {
+  redirect.mockClear();
+});
 afterEach(() => vi.unstubAllEnvs());
 
-describe("/ (R-12 Task 8.3)", () => {
-  it("renders the demo landing with the web config when DEMO_MODE is exactly true", async () => {
+describe("/ on a demo deployment (R-18 P1 13.T9)", () => {
+  it("renders the intro and the sign-in (home variant) with the web config when DEMO_MODE is exactly true, Staff preselected", async () => {
     vi.stubEnv("DEMO_MODE", "true");
     for (const [k, v] of Object.entries(FIREBASE_ENV)) vi.stubEnv(k, v);
-    const tree = (await HomePage()) as ReactElement<{ config: unknown }>;
-    expect(tree.type).toBe(LandingLoader);
+    const tree = (await HomePage(props())) as ReactElement<{ config: unknown; demo: boolean; initialRole: string; variant: string; children: ReactElement }>;
+    expect(tree.type).toBe(SignInScreen);
     expect(tree.props.config).toEqual({ apiKey: "k", authDomain: "p.firebaseapp.com", projectId: "p", appId: "1:1:web:a" });
+    expect(tree.props.demo).toBe(true);
+    expect(tree.props.variant).toBe("home");
+    expect(tree.props.initialRole).toBe("staff");
+    expect(tree.props.children.type).toBe(DemoIntro);
+    expect(redirect).not.toHaveBeenCalled();
   });
 
-  it("still renders the landing with a null config when Firebase env is missing (staff path needs none)", async () => {
+  it("still renders with a null config when Firebase env is missing (the staff path needs none)", async () => {
     vi.stubEnv("DEMO_MODE", "true");
     for (const k of Object.keys(FIREBASE_ENV)) vi.stubEnv(k, "");
-    const tree = (await HomePage()) as ReactElement<{ config: unknown }>;
-    expect(tree.type).toBe(LandingLoader);
+    const tree = (await HomePage(props())) as ReactElement<{ config: unknown }>;
+    expect(tree.type).toBe(SignInScreen);
     expect(tree.props.config).toBeNull();
   });
 
-  it.each([undefined, "", "false", "TRUE", "1", "true "])("renders the plain scaffold, never the landing, when DEMO_MODE is %j", async (value) => {
+  it.each([
+    ["supervisor", "supervisor"],
+    ["owner", "owner"],
+    ["staff", "staff"],
+    ["root", "staff"],
+    ["Staff", "staff"],
+    [["owner", "staff"], "staff"],
+  ] as const)("?as=%j opens the %s panel (E21: anything else is ignored)", async (as, expected) => {
+    vi.stubEnv("DEMO_MODE", "true");
+    const tree = (await HomePage(props(as as string | string[]))) as ReactElement<{ initialRole: string }>;
+    expect(tree.props.initialRole).toBe(expected);
+  });
+});
+
+describe("/ on the pilot (R-18 P1 13.T9, Rangga Q-7)", () => {
+  it.each([undefined, "", "false", "TRUE", "1", "true "])("redirects to /sign-in and renders nothing when DEMO_MODE is %j", async (value) => {
     if (value === undefined) vi.stubEnv("DEMO_MODE", undefined as unknown as string);
     else vi.stubEnv("DEMO_MODE", value);
-    const tree = (await HomePage()) as ReactElement<{ children?: unknown }>;
-    expect(tree.type).toBe("main");
-    expect(JSON.stringify(tree)).toContain("scaffold in progress");
-    expect(JSON.stringify(tree)).not.toMatch(/Try as|demo/i);
+    await expect(HomePage(props())).rejects.toThrow("NEXT_REDIRECT:/sign-in");
+    expect(redirect).toHaveBeenCalledTimes(1);
+    expect(redirect).toHaveBeenCalledWith("/sign-in");
   });
 
-  it("the page and its loader reference the landing only through a lazy import, so the pilot page never downloads the demo or Firebase Auth chunks", () => {
-    const read = (rel: string) => readFileSync(join(__dirname, rel), "utf8");
-    const page = read("page.tsx");
-    expect(page).not.toMatch(/from\s+["']@\/app\/demo\/Landing["']/);
-    const loader = read("demo/LandingLoader.tsx");
-    expect(loader).not.toMatch(/^import\s[^;]*from\s+["']@\/app\/demo\/Landing["']/m);
-    expect(loader).toMatch(/import\(\s*["']@\/app\/demo\/Landing["']\s*\)/);
-    // Server-rendered (no flash of an empty page): the landing must not opt out of SSR.
-    expect(loader).not.toMatch(/ssr:\s*false/);
+  it("the page never shows the old scaffold line any more", () => {
+    const page = readFileSync(join(__dirname, "page.tsx"), "utf8");
+    expect(page).not.toContain("scaffold in progress");
   });
 });

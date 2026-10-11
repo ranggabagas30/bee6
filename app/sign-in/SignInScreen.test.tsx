@@ -31,6 +31,7 @@ vi.mock("@/lib/auth/client/firebase-client", () => ({
   getClientAuth: (...args: unknown[]) => getClientAuth(...args),
   signInWithEmailAndPassword: (...args: unknown[]) => signInWithEmailAndPassword(...args),
   signOut: (...args: unknown[]) => signOut(...args),
+  signInWithCustomToken: vi.fn(),
 }));
 
 const postAuthSession = vi.fn();
@@ -74,7 +75,7 @@ afterEach(() => {
 function renderScreen(initial: "en" | "id" = "en") {
   return render(
     <LangProvider initial={initial}>
-      <SignInScreen config={CONFIG} />
+      <SignInScreen config={CONFIG} initialRole="supervisor" />
     </LangProvider>,
   );
 }
@@ -121,7 +122,7 @@ describe("SignInScreen", () => {
     authUserState = { status: "signed_in", user: FAKE_USER } as unknown as AuthUserState;
     rerender(
       <LangProvider initial="en">
-        <SignInScreen config={CONFIG} />
+        <SignInScreen config={CONFIG} initialRole="supervisor" />
       </LangProvider>,
     );
 
@@ -142,7 +143,7 @@ describe("SignInScreen", () => {
     authUserState = { status: "signed_out" };
     rerender(
       <LangProvider initial="en">
-        <SignInScreen config={CONFIG} />
+        <SignInScreen config={CONFIG} initialRole="supervisor" />
       </LangProvider>,
     );
     expect(screen.getByLabelText("Email")).not.toBeNull();
@@ -151,7 +152,7 @@ describe("SignInScreen", () => {
   it("config null shows C-signin-config and no form", () => {
     render(
       <LangProvider initial="en">
-        <SignInScreen config={null} />
+        <SignInScreen config={null} initialRole="supervisor" />
       </LangProvider>,
     );
     expect(document.body.textContent).toContain("Sign-in is not set up on this server.");
@@ -335,7 +336,7 @@ describe("SignInScreen", () => {
       // force it here since the mock hook isn't itself reactive.
       rerender(
         <LangProvider initial="en">
-          <SignInScreen config={CONFIG} />
+          <SignInScreen config={CONFIG} initialRole="supervisor" />
         </LangProvider>,
       );
     }
@@ -362,7 +363,7 @@ describe("SignInScreen", () => {
       authUserState = { status: "signed_out" };
       rerender(
         <LangProvider initial="en">
-          <SignInScreen config={CONFIG} />
+          <SignInScreen config={CONFIG} initialRole="supervisor" />
         </LangProvider>,
       );
 
@@ -395,7 +396,7 @@ describe("SignInScreen", () => {
     render(
       <LangProvider initial="en">
         <LangToggle />
-        <SignInScreen config={CONFIG} />
+        <SignInScreen config={CONFIG} initialRole="supervisor" />
       </LangProvider>,
     );
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
@@ -405,13 +406,13 @@ describe("SignInScreen", () => {
   });
 });
 
-describe("SignInScreen demo link (R-12 Task 8.5)", () => {
+describe("SignInScreen shell and the demo deployment (R-12 Task 8.5, R-18 P1)", () => {
   const DEMO_KEY = "A".repeat(43);
 
   function renderDemo(demo: boolean | undefined) {
     return render(
       <LangProvider initial="en">
-        <SignInScreen config={CONFIG} demo={demo} />
+        <SignInScreen config={CONFIG} demo={demo} initialRole={demo ? "supervisor" : null} />
       </LangProvider>,
     );
   }
@@ -419,32 +420,36 @@ describe("SignInScreen demo link (R-12 Task 8.5)", () => {
   beforeEach(() => void vi.stubGlobal("localStorage", createMemoryStorage()));
   afterEach(() => void vi.unstubAllGlobals());
 
-  it("shows no demo text or link on the pilot (no demo prop)", () => {
-    renderDemo(undefined);
-    expect(screen.queryByRole("link", { name: "Start a new demo" })).toBeNull();
-    expect(screen.queryByText("Your demo session has ended.")).toBeNull();
-    renderDemo(false);
-    expect(screen.queryByRole("link", { name: "Start a new demo" })).toBeNull();
-  });
-
-  it("in demo mode, offers a link back to the landing page, at least 48 px tall", () => {
+  it("is the one page: a main landmark with the Sign in heading and the role choice, no Try-as buttons, no old restart link", async () => {
     renderDemo(true);
-    const link = screen.getByRole("link", { name: "Start a new demo" });
-    expect(link.getAttribute("href")).toBe("/");
-    expect(parseInt(link.style.minHeight, 10)).toBeGreaterThanOrEqual(48);
-    expect(screen.queryByText("Your demo session has ended.")).toBeNull(); // a fresh visitor has not had a session end
+    expect(screen.getByRole("main")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Sign in" })).toBeTruthy();
+    expect(screen.getAllByRole("radio")).toHaveLength(3);
+    await screen.findByText("Demo access");
+    expect(screen.queryByRole("link", { name: "Start a new demo" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Try/ })).toBeNull();
   });
 
-  it("says the session ended when this tab's demo sandbox is past its expiry", () => {
+  it("shows no demo text or box on the pilot (no demo prop, or false)", () => {
+    renderDemo(undefined);
+    expect(screen.queryByText("Demo access")).toBeNull();
+    expect(screen.queryByText("Your demo session has ended.")).toBeNull();
+    cleanup();
+    renderDemo(false);
+    expect(screen.queryByText("Demo access")).toBeNull();
+    expect(document.body.innerHTML).not.toMatch(/demo|000000|judge|example\.com/i);
+  });
+
+  it("says the session ended when this browser's demo sandbox is past its expiry", async () => {
     window.localStorage.setItem("bee6.demo", JSON.stringify({ sandbox_key: DEMO_KEY, expires_at_ms: 1000, role: "owner" }));
     renderDemo(true);
-    expect(screen.getByText("Your demo session has ended.")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Start a new demo" })).toBeTruthy();
+    expect(await screen.findByText("Your demo session has ended.")).toBeTruthy();
   });
 
-  it("does not claim the session ended while the sandbox is still live", () => {
+  it("does not claim the session ended while the sandbox is still live", async () => {
     window.localStorage.setItem("bee6.demo", JSON.stringify({ sandbox_key: DEMO_KEY, expires_at_ms: Date.now() + 3_600_000, role: "owner" }));
     renderDemo(true);
+    await screen.findByText("Demo access");
     expect(screen.queryByText("Your demo session has ended.")).toBeNull();
   });
 
@@ -470,9 +475,40 @@ describe("SignInScreen demo link (R-12 Task 8.5)", () => {
     expect(gone()).toBe(true);
   });
 
-  it("keeps the sign-in form usable beside the demo link", () => {
+  it("an ended demo's device keys vanish after mount: the Staff panel drops the connected line and shows the ended line", async () => {
+    window.localStorage.setItem("bee6.device_token", "t");
+    window.localStorage.setItem("bee6.device_id", "d");
+    window.localStorage.setItem("bee6.demo", JSON.stringify({ sandbox_key: DEMO_KEY, expires_at_ms: 1000, role: "staff" }));
+    render(
+      <LangProvider initial="en">
+        <SignInScreen config={CONFIG} demo initialRole="staff" />
+      </LangProvider>,
+    );
+    expect(await screen.findByText("Your demo session has ended.")).toBeTruthy();
+    expect(screen.queryByText(/already connected/)).toBeNull();
+    expect(screen.queryByRole("link", { name: /Open capture|listening/i })).toBeNull();
+  });
+
+  it("keeps the sign-in form usable beside the demo box", async () => {
     renderDemo(true);
+    await screen.findByText("Demo access");
     expect(screen.getByLabelText("Email")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Sign in" })).toBeTruthy();
+  });
+
+  it("the home variant: children (the intro) above the sign-in, an h2 for Sign in, and a signed-in visitor is not redirected", async () => {
+    authUserState = { status: "signed_in", user: FAKE_USER } as unknown as AuthUserState;
+    render(
+      <LangProvider initial="en">
+        <SignInScreen config={CONFIG} demo variant="home" initialRole="staff">
+          <h1>Intro title</h1>
+        </SignInScreen>
+      </LangProvider>,
+    );
+    expect(screen.getByRole("heading", { level: 1, name: "Intro title" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: "Sign in" })).toBeTruthy();
+    await screen.findByText("Demo access");
+    await act(async () => {});
+    expect(replace).not.toHaveBeenCalled();
   });
 });

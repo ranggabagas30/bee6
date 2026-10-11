@@ -10,7 +10,7 @@ import { DEVICE_ID_KEY, DEVICE_TOKEN_KEY } from "@/lib/capture/browser/client";
 
 /**
  * R-12 PR-B review fix 1 (QA): every credential change must END on the role's landing page, whatever a
- * still-mounted signed-in web page does on the way. This file uses the real startDemo / DemoBar / Landing
+ * still-mounted signed-in web page does on the way. This file uses the real startDemo / DemoBar / sign-in (demo credentials)
  * with a fake Firebase auth that tells a mounted page "signed out" (the redirect to /sign-in that
  * HomeApp, DayRecordApp, ... do) and "user changed" (DayRecordApp's history.replaceState), in three
  * delivery timings (sync, microtask, macrotask).
@@ -71,7 +71,6 @@ vi.mock("@/lib/auth/client/firebase-client", () => ({
 }));
 
 import { DemoBar } from "@/app/demo/DemoBar";
-import { Landing } from "@/app/demo/Landing";
 import { SignInScreen } from "@/app/sign-in/SignInScreen";
 import { DEMO_STATE_KEY } from "@/app/demo/demo-client";
 
@@ -168,23 +167,53 @@ describe("DemoBar role switch ends on the new role's landing page, whatever the 
   }
 });
 
-describe("Landing Try-as buttons end on the role's landing page", () => {
+describe("Demo credentials typed into the official sign-in end on the role's landing page (R-18 P1)", () => {
+  const CREDENTIAL: Record<DemoRole, { email?: string; code?: string }> = {
+    staff: { code: "000000" },
+    supervisor: { email: "supervisor.judge@example.com" },
+    owner: { email: "owner.judge@example.com" },
+  };
   for (const timing of ["sync", "microtask", "macrotask"] as const) {
-    it.each(ROLES)(`Try as %s (listeners ${timing})`, async (role) => {
+    it.each(ROLES)(`sign in as %s (listeners ${timing})`, async (role) => {
       h.state.timing = timing;
       h.state.pathname = "/";
       render(
         <LangProvider initial="en">
           <MountedWebPage />
-          <Landing config={CONFIG} />
+          <SignInScreen config={CONFIG} demo variant="home" initialRole={role} />
         </LangProvider>,
       );
-      fireEvent.click(screen.getByRole("button", { name: `Try as ${LABEL[role]}` }));
+      await screen.findByText("Demo access"); // the demo box loads lazily
+      const { email, code } = CREDENTIAL[role];
+      if (code) {
+        fireEvent.change(screen.getByLabelText("6-digit code"), { target: { value: code } });
+        fireEvent.click(screen.getByRole("button", { name: "Set up" }));
+      } else {
+        fireEvent.change(screen.getByLabelText("Email"), { target: { value: email } });
+        fireEvent.change(screen.getByLabelText("Password"), { target: { value: "bee6-demo" } });
+        fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+      }
       await waitFor(() => expect(assign).toHaveBeenCalled());
       await settle();
       expectEndedOn(LANDING[role], { noRouterMovesAtAll: true });
     });
   }
+
+  it("a second role in the same browser reuses the live sandbox: the request carries its key", async () => {
+    window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: Date.now() + 3_600_000, role: "staff" }));
+    render(
+      <LangProvider initial="en">
+        <SignInScreen config={CONFIG} demo variant="home" initialRole="owner" />
+      </LangProvider>,
+    );
+    await screen.findByText("Demo access");
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "owner.judge@example.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "bee6-demo" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("/home"));
+    const fetchMock = vi.mocked(fetch);
+    expect(JSON.parse((fetchMock.mock.calls[0]![1] as { body: string }).body)).toEqual({ role: "owner", sandbox_key: KEY });
+  });
 });
 
 /** The layout's bar plus the route's page: router.replace("/sign-in") swaps the page for the real sign-in screen. */
@@ -198,7 +227,7 @@ function Harness({ startAt }: { startAt: string }) {
     <LangProvider initial="en">
       <MountedWebPage />
       <DemoBar config={CONFIG} />
-      {path === "/sign-in" && <SignInScreen config={CONFIG} demo />}
+      {path === "/sign-in" && <SignInScreen config={CONFIG} demo initialRole="staff" />}
     </LangProvider>
   );
 }
@@ -228,8 +257,9 @@ describe("a bar switch that finds the sandbox gone ends visibly, even when the m
       await waitFor(() => expect(h.nav.some((n) => n.via === "router.replace" && n.path === "/sign-in")).toBe(true));
       await settle();
       expect(h.state.pathname).toBe("/sign-in");
-      expect(screen.getByText("Your demo session has ended.")).toBeTruthy();
-      expect(screen.getByRole("link", { name: "Start a new demo" }).getAttribute("href")).toBe("/");
+      // /sign-in itself now carries the way back in: the ended line and the demo access box (no separate restart link).
+      expect(await screen.findByText("Your demo session has ended.")).toBeTruthy();
+      expect(await screen.findByText("Demo access")).toBeTruthy();
       expect(h.state.uid).toBeNull(); // the Firebase web user is signed out
       expect(window.localStorage.getItem(DEVICE_TOKEN_KEY)).toBeNull();
       expect(window.localStorage.getItem(DEVICE_ID_KEY)).toBeNull();
