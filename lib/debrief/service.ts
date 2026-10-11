@@ -16,7 +16,7 @@ import {
   type AnswerWritePlan,
 } from "@/lib/debrief/answer-plan";
 import { localHmOf, DEBRIEF_DURATION_MS } from "@/lib/capture/calendar";
-import { AppError, NotFoundError, ServiceUnavailableError } from "@/lib/http/errors";
+import { AppError, DemoCapError, LockedError, NotFoundError, ServiceUnavailableError } from "@/lib/http/errors";
 import type { LastEnded, Question } from "@/lib/firestore/schema";
 import type { WorkCategory } from "@/lib/pipeline/categories";
 import type { Redactor } from "@/lib/redact/types";
@@ -192,6 +192,11 @@ export async function submitAnswer(
   try {
     redacted = await redactor.redact(scrubbed);
   } catch (error) {
+    if (error instanceof LockedError || error instanceof DemoCapError) {
+      // The public demo's spend-cap check refused (R-12): not an SDP outage. No text, no length.
+      log({ question_id: body.question_id, code: "demo_cap" });
+      throw error;
+    }
     log({ question_id: body.question_id, code: "redaction_unavailable", length: reasonLength(body.reason) });
     if (error instanceof AppError) throw error;
     throw new ServiceUnavailableError("Redaction failed", "redact");

@@ -5,7 +5,7 @@ import type { LastEnded, Question, Thread } from "@/lib/firestore/schema";
 import { ServiceUnavailableError, NotFoundError } from "@/lib/http/errors";
 import type { Redactor } from "@/lib/redact/types";
 import { capBeforeRedactor } from "@/lib/demo/redact-cap";
-import { LockedError } from "@/lib/http/errors";
+import { DemoCapError, LockedError } from "@/lib/http/errors";
 
 const OUTLET = "o1";
 const DEVICE = "d1";
@@ -496,5 +496,29 @@ describe("R-12 demo redact cap, charged immediately before SDP (QA D2)", () => {
     expect(err).toMatchObject({ statusCode: 429, code: "demo_redact_cap" });
     expect(sdp).not.toHaveBeenCalled();
     expect(store.transactCalls).toBe(0);
+  });
+  it("a cap refusal is logged as demo_cap (not redaction_unavailable), with no reason text; a real SDP failure is still redaction_unavailable", async () => {
+    for (const thrown of [new LockedError(9, "capped", "demo_redact_cap"), new DemoCapError("The demo is not ready", "demo_not_ready")]) {
+      const store = new FakeDebriefStore();
+      setUpActiveDebrief(store);
+      store.questions.set("q1", makeQuestion());
+      const log = vi.fn();
+      const redactor = capBeforeRedactor({ redact: async (t) => t }, async () => {
+        throw thrown;
+      });
+      const err = await submitAnswer({ store, redactor, log }, CLAIMS, "q1", answerBody(), ENDS_MS - 5000).catch((e) => e);
+      expect(err).toMatchObject({ statusCode: thrown.statusCode });
+      expect(log).toHaveBeenCalledWith(expect.objectContaining({ question_id: "q1", code: "demo_cap" }));
+      expect(JSON.stringify(log.mock.calls)).not.toContain("redaction_unavailable");
+      expect(JSON.stringify(log.mock.calls)).not.toContain("reason_text");
+    }
+
+    const store = new FakeDebriefStore();
+    setUpActiveDebrief(store);
+    store.questions.set("q1", makeQuestion());
+    const log = vi.fn();
+    const sdpDown = { redact: async () => { throw new Error("sdp down"); } };
+    await submitAnswer({ store, redactor: sdpDown, log }, CLAIMS, "q1", answerBody(), ENDS_MS - 5000).catch(() => {});
+    expect(log).toHaveBeenCalledWith(expect.objectContaining({ code: "redaction_unavailable" }));
   });
 });
