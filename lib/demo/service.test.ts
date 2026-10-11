@@ -147,6 +147,27 @@ describe("issueDemoSession: gates", () => {
   });
 });
 
+describe("issueDemoSession: R-18 time shift anchor", () => {
+  it("1.6 the clone's last day is yesterday's business date in the OUTLET timezone, not UTC", async () => {
+    // 20:00 UTC on 27 Oct = 03:00 on 28 Oct in Asia/Jakarta: business date 28 Oct, so the last day must be 27 Oct (UTC would give 26 Oct)
+    const f = fakeStore();
+    await issueDemoSession(f.store, deps().d, input({ role: "owner" }, { now_ms: Date.UTC(2026, 9, 27, 20, 0) }));
+    const dates = f.written
+      .filter((d) => d.collection === COLLECTIONS.captureSessions)
+      .map((d) => (d.data as { local_date: string }).local_date)
+      .sort();
+    expect(dates.at(-1)).toBe("2026-10-27");
+  });
+
+  it("a template that cannot be shifted (its last day is after yesterday) is 503 demo_not_ready, logged with the reason, nothing written", async () => {
+    const f = fakeStore();
+    const { d, logs } = deps();
+    await expectCode(issueDemoSession(f.store, d, input({ role: "owner" }, { now_ms: Date.UTC(2026, 9, 17, 3) })), AppError, "demo_not_ready");
+    expect(f.written).toEqual([]);
+    expect(logs.find((l) => l.event === "clone_failed")?.fields.reason).toMatch(/negative shift/);
+  });
+});
+
 describe("issueDemoSession: new sandbox", () => {
   it("6.T4 supervisor: mints exactly {outlet_id, role, demo_exp_ms} for uid demo-supervisor-<sbx>, writes the clone, returns the key", async () => {
     const f = fakeStore();

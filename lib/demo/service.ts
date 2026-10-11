@@ -1,5 +1,6 @@
 import { createHash, randomBytes as nodeRandomBytes } from "node:crypto";
 import { generateDeviceToken, hashDeviceToken } from "@/lib/auth/pairing";
+import { businessDateOf } from "@/lib/capture/calendar";
 import type { CustomClaims } from "@/lib/auth/roles";
 import { AppError, ConflictError, LockedError, NotFoundError } from "@/lib/http/errors";
 import { cloneTemplate, judgeDeviceIdOf, sandboxIds } from "@/lib/demo/clone";
@@ -109,9 +110,20 @@ async function createSandbox(store: DemoStore, deps: DemoDeps, input: IssueInput
 
   let docs;
   try {
-    docs = cloneTemplate({ tpl, ids, now_ms, key_sha256: sha256(key), device_token_hash: tokenHash });
-  } catch {
-    throw notReady(); // e.g. a template with no ended debrief: a template bug, not the caller's
+    docs = cloneTemplate({
+      tpl,
+      ids,
+      now_ms,
+      key_sha256: sha256(key),
+      device_token_hash: tokenHash,
+      // R-18: the template's days move so the last one is yesterday's business date in the OUTLET's timezone
+      anchor_business_date: businessDateOf(now_ms, tpl.outlet.timezone),
+    });
+  } catch (error) {
+    // e.g. a template with no ended debrief, or one that cannot be shifted: a template bug, not the caller's.
+    // The clone's own messages are fixed text (no body, token or name), so the reason is safe to log.
+    log("clone_failed", { reason: error instanceof Error ? error.message : "unknown" });
+    throw notReady();
   }
   try {
     await store.writeSandbox(docs);

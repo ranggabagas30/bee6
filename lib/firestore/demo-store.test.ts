@@ -361,6 +361,7 @@ describe("5.S2 writeSandbox", () => {
       now_ms: Date.UTC(2026, 9, 28),
       key_sha256: "a".repeat(64),
       device_token_hash: "$2a$10$x",
+      anchor_business_date: "2026-10-28",
     });
     await firestoreDemoStore(db).writeSandbox(cloned);
     expect(cols.get(COLLECTIONS.outlets)!.has("sbx-aaaaaaaaaaaa")).toBe(true);
