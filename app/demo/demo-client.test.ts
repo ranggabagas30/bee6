@@ -201,6 +201,58 @@ describe("requestDemoSession", () => {
   });
 });
 
+describe("clock skew: the expiry is corrected to this device's clock", () => {
+  const H = 60 * 60_000;
+  const SERVER_NOW = 1_800_000_000_000;
+  const SERVER_EXPIRES = SERVER_NOW + 2 * H;
+  const withDate = (dateMs: number | null) =>
+    (async () =>
+      new Response(JSON.stringify({ data: { ...WEB_OK, expires_at_ms: SERVER_EXPIRES } }), {
+        status: 200,
+        headers: dateMs === null ? {} : { Date: new Date(dateMs).toUTCString() },
+      })) as never;
+  const expiryFor = async (deviceNow: number, dateMs: number | null) => {
+    const outcome = await requestDemoSession("supervisor", undefined, withDate(dateMs), () => deviceNow);
+    if (outcome.kind !== "ok") throw new Error("expected ok");
+    return outcome.data.expires_at_ms;
+  };
+
+  it("a device clock 3 h fast still ends the demo 2 h after receipt", async () => {
+    const deviceNow = SERVER_NOW + 3 * H;
+    expect(await expiryFor(deviceNow, SERVER_NOW)).toBe(deviceNow + 2 * H);
+  });
+
+  it("a device clock 3 h slow still ends the demo 2 h after receipt", async () => {
+    const deviceNow = SERVER_NOW - 3 * H;
+    expect(await expiryFor(deviceNow, SERVER_NOW)).toBe(deviceNow + 2 * H);
+  });
+
+  it("an accurate clock keeps the server's instant (to the header's one-second grain)", async () => {
+    expect(await expiryFor(SERVER_NOW, SERVER_NOW)).toBe(SERVER_EXPIRES);
+  });
+
+  it("falls back to the server's own expiry without a Date header, with an unreadable one, or with a silly one", async () => {
+    expect(await expiryFor(SERVER_NOW + 3 * H, null)).toBe(SERVER_EXPIRES);
+    const garbage = (async () =>
+      new Response(JSON.stringify({ data: { ...WEB_OK, expires_at_ms: SERVER_EXPIRES } }), { status: 200, headers: { Date: "not a date" } })) as never;
+    const outcome = await requestDemoSession("supervisor", undefined, garbage, () => SERVER_NOW + 3 * H);
+    expect(outcome.kind === "ok" && outcome.data.expires_at_ms).toBe(SERVER_EXPIRES);
+    // A Date that would make the session last a week (or already be over) is not a clock reading to trust.
+    expect(await expiryFor(SERVER_NOW, SERVER_NOW - 7 * 24 * H)).toBe(SERVER_EXPIRES);
+    expect(await expiryFor(SERVER_NOW, SERVER_EXPIRES + H)).toBe(SERVER_EXPIRES);
+  });
+
+  it("startDemo stores the corrected expiry, so the bar's end time and the expiry check use the device's own clock", async () => {
+    const deviceNow = SERVER_NOW + 3 * H;
+    const f = vi.fn(withDate(SERVER_NOW));
+    await startDemo("supervisor", { auth: AUTH, navigate: vi.fn(), fetchImpl: f as never, now: () => deviceNow, onExpired: "restart" });
+    const stored = readDemoState()!;
+    expect(stored.expires_at_ms).toBe(deviceNow + 2 * H);
+    expect(isDemoExpired(stored, deviceNow + 2 * H - 1)).toBe(false);
+    expect(isDemoExpired(stored, deviceNow + 2 * H)).toBe(true);
+  });
+});
+
 describe("startDemo", () => {
   const navigate = vi.fn();
   beforeEach(() => navigate.mockReset());

@@ -174,11 +174,32 @@ async function bodyOrNull(res: Response): Promise<unknown> {
   }
 }
 
+/** A longer remaining time than this, or none left, makes a response's Date header untrustworthy as a clock reading. */
+const SANE_REMAINING_MS = 24 * 60 * 60_000;
+
+/**
+ * The server's `expires_at_ms` is on the server's clock. The response's Date header says what that clock
+ * read when it answered, so the time left is `expires_at_ms - serverNow`, and the expiry on THIS device's
+ * clock is `receivedAt + remaining`. A phone whose clock is hours off then still ends the demo on time and
+ * shows the right end time. Without a usable Date header (missing, unreadable, or giving a remaining time
+ * that is not plausible) the server's own value is kept.
+ */
+function skewCorrectedExpiry(res: Response, expiresAtMs: number, receivedAtMs: number): number {
+  const header = res.headers.get("Date");
+  if (header === null) return expiresAtMs;
+  const serverNow = Date.parse(header);
+  if (!Number.isFinite(serverNow)) return expiresAtMs;
+  const remaining = expiresAtMs - serverNow;
+  if (remaining <= 0 || remaining > SANE_REMAINING_MS) return expiresAtMs;
+  return receivedAtMs + remaining;
+}
+
 /** One POST; never throws. Plain `fetch`: this route is the sign-in, so it carries no credentials. */
 export async function requestDemoSession(
   role: DemoRole,
   sandboxKey: string | undefined,
   fetchImpl: typeof fetch = fetch,
+  now: () => number = Date.now,
 ): Promise<DemoSessionOutcome> {
   let res: Response;
   try {
@@ -193,10 +214,13 @@ export async function requestDemoSession(
     return { kind: "error" };
   }
 
+  const receivedAt = now();
   if (res.status === 200) {
     const body = await bodyOrNull(res);
     const parsed = DemoSessionResponseSchema.safeParse((body as { data?: unknown } | null)?.data);
-    return parsed.success ? { kind: "ok", data: parsed.data } : { kind: "error" };
+    if (!parsed.success) return { kind: "error" };
+    const expires_at_ms = skewCorrectedExpiry(res, parsed.data.expires_at_ms, receivedAt);
+    return { kind: "ok", data: { ...parsed.data, expires_at_ms } };
   }
   // 404 with a key = the sandbox is gone (deleted or never ours); 404 with no key = demo mode is not on here.
   if (res.status === 404) return sandboxKey === undefined ? { kind: "off" } : { kind: "sandbox_expired" };
@@ -312,14 +336,14 @@ export async function startDemo(role: DemoRole, options: StartDemoOptions): Prom
   const stored = readDemoState();
   const key = stored && !isDemoExpired(stored, now()) ? stored.sandbox_key : undefined;
 
-  let outcome = await requestDemoSession(role, key, fetchImpl);
+  let outcome = await requestDemoSession(role, key, fetchImpl, now);
   if (outcome.kind === "sandbox_expired") {
     clearDemoState();
     if (onExpired === "stop") {
       await signOutQuietly(auth); // do not leave a web user signed in behind a forgotten sandbox
       return { kind: "sandbox_expired" };
     }
-    outcome = await requestDemoSession(role, undefined, fetchImpl);
+    outcome = await requestDemoSession(role, undefined, fetchImpl, now);
     // A retry that works replaces the user in one step; one that does not leaves nobody signed in to a dead sandbox.
     if (outcome.kind !== "ok") await signOutQuietly(auth);
   }
