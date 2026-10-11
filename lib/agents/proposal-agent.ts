@@ -16,7 +16,7 @@ import { ThinkingLevel, type GenerateContentResponseUsageMetadata } from "@googl
  */
 
 export const PROPOSAL_MODEL = "gemini-3.5-flash";
-export const PROPOSAL_AGENT_VERSION = "proposal-v1";
+export const PROPOSAL_AGENT_VERSION = "proposal-v2";
 
 /**
  * Thinking ruling (tech-lead, 10 Oct; Task 0 saw default thinking ON: 284

@@ -137,4 +137,10 @@ describe("buildProposalPrompt", () => {
       lastIndex = idx;
     }
   });
+
+  it("tells the model change_text is the full new step text (R-10 rule 11)", () => {
+    const { systemInstruction } = buildProposalPrompt({ library: LIBRARY, sop: SOP, aliased: ALIASED, constraints: [], range: RANGE });
+    expect(systemInstruction).toContain("change_text is the complete text of the step after the change");
+    expect(systemInstruction).not.toMatch(/[{}]/);
+  });
 });

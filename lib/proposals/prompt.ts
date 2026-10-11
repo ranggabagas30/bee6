@@ -32,6 +32,8 @@ const SYSTEM_INSTRUCTION = [
   "   refer to roles only (staff, supervisor, owner).",
   "10. Write change_title, change_text, rationale, metric_description and failure_condition in the same language",
   "    as the SOP steps. Keep them short and concrete.",
+  "11. change_text is the complete text of the step after the change, as staff will read it in the SOP. It replaces",
+  "    the step's current text, so keep everything from the current text that still applies. For a NEW step, it is the whole new step.",
 ].join("\n");
 
 function factLine(alias: string, c: Candidate): string {
