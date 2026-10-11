@@ -17,9 +17,21 @@ export const PAIRING_CODE_TTL_MS = 10 * 60 * 1000;
 const DEVICE_TOKEN_BYTES = 32;
 const BCRYPT_ROUNDS = 10;
 
-/** A cryptographically-random 6-digit pairing code (leading zeros allowed). */
-export function generatePairingCode(): string {
-  return String(randomInt(0, 1_000_000)).padStart(6, "0");
+/**
+ * Codes that are never a real pairing code (R-18). `000000` is the published demo staff code, so it must not be
+ * able to pair a device into a real shop: it is never generated, and `pairDevice` refuses it before any lookup.
+ */
+export const RESERVED_PAIRING_CODES: ReadonlySet<string> = new Set(["000000"]);
+
+/**
+ * A cryptographically-random 6-digit pairing code (leading zeros allowed), never a reserved one (redrawn;
+ * the expected number of draws stays about 1). `draw` is a test seam for the random source.
+ */
+export function generatePairingCode(draw: (min: number, max: number) => number = randomInt): string {
+  for (;;) {
+    const code = String(draw(0, 1_000_000)).padStart(6, "0");
+    if (!RESERVED_PAIRING_CODES.has(code)) return code;
+  }
 }
 
 /** ISO expiry `PAIRING_CODE_TTL_MS` from `now`. */

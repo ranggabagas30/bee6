@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   PAIRING_CODE_TTL_MS,
+  RESERVED_PAIRING_CODES,
   generateDeviceToken,
   generatePairingCode,
   hashDeviceToken,
@@ -14,6 +15,17 @@ describe("pairing code", () => {
     for (let i = 0; i < 500; i++) {
       expect(generatePairingCode()).toMatch(/^\d{6}$/);
     }
+  });
+
+  it("2.T1 never returns a reserved code: a draw of 0 is redrawn", () => {
+    const draws = [0, 0, 42];
+    const draw = (): number => draws.shift() ?? 7;
+    expect(generatePairingCode(draw)).toBe("000042");
+    expect(draws).toHaveLength(0);
+  });
+
+  it("reserves exactly the published demo staff code", () => {
+    expect([...RESERVED_PAIRING_CODES]).toEqual(["000000"]);
   });
 
   it("expires 10 minutes from now", () => {
