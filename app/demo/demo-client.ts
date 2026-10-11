@@ -8,11 +8,12 @@ import { DEVICE_ID_KEY, DEVICE_TOKEN_KEY } from "@/lib/capture/browser/client";
  * `POST /api/v1/demo/session`; no Firestore, no server module (see
  * import-boundaries.test.ts).
  *
- * The sandbox key lives in `sessionStorage`, per tab: closing the tab ends the
- * visit on this side, and a key never reaches `localStorage`. The only things
- * written to `localStorage` are the judge phone's `bee6.device_*` pair, because
- * `/capture` reads exactly those keys (the same ones `/pair` writes). Tokens and
- * keys are never logged and never put in a URL.
+ * The sandbox state (`bee6.demo`: key, expiry, role) lives in `localStorage`, shared by every tab of
+ * this browser, so a judge who opens a second tab (an emailed link, say) joins the same sandbox instead
+ * of taking a second IP slot and signing the first tab out; other tabs hear changes through the
+ * `storage` event. Besides that key, the only things written to `localStorage` are the judge phone's
+ * `bee6.device_*` pair, because `/capture` reads exactly those keys (the same ones `/pair` writes).
+ * Tokens are never stored here and nothing is logged or put in a URL.
  */
 
 export const DEMO_STATE_KEY = "bee6.demo";
@@ -28,7 +29,7 @@ const DemoStateSchema = z
   .strict();
 export type DemoState = z.infer<typeof DemoStateSchema>;
 
-// ── per-tab state ─────────────────────────────────────────────────────────
+// ── shared state (localStorage) ───────────────────────────────────────────
 
 export function parseDemoState(raw: string | null): DemoState | null {
   if (raw === null) return null;
@@ -43,7 +44,7 @@ export function parseDemoState(raw: string | null): DemoState | null {
 function readRaw(): string | null {
   if (typeof window === "undefined") return null;
   try {
-    return window.sessionStorage.getItem(DEMO_STATE_KEY);
+    return window.localStorage.getItem(DEMO_STATE_KEY);
   } catch {
     return null;
   }
@@ -64,7 +65,7 @@ export function notifyDemoChange(): void {
 
 export function writeDemoState(state: DemoState): void {
   try {
-    window.sessionStorage.setItem(DEMO_STATE_KEY, JSON.stringify(state));
+    window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify(state));
   } catch {
     // Storage blocked: the visit still works, the bar just has nothing to show.
   }
@@ -83,7 +84,7 @@ function removeDeviceKeys(): void {
 /** Forgets the sandbox in this tab and the judge phone's device keys. The sandbox itself expires on the server. */
 export function clearDemoState(): void {
   try {
-    window.sessionStorage.removeItem(DEMO_STATE_KEY);
+    window.localStorage.removeItem(DEMO_STATE_KEY);
   } catch {
     // Best effort.
   }
@@ -116,8 +117,17 @@ export function viewFromSnapshot(snapshot: string): { state: DemoState; expired:
 
 export function subscribeDemoState(onChange: () => void): () => void {
   if (typeof window === "undefined") return () => {};
+  // Same-tab changes arrive as our own event; another tab's writes arrive as a `storage` event
+  // (key === null means that tab called localStorage.clear()).
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === null || event.key === DEMO_STATE_KEY) onChange();
+  };
   window.addEventListener(DEMO_CHANGE_EVENT, onChange);
-  return () => window.removeEventListener(DEMO_CHANGE_EVENT, onChange);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(DEMO_CHANGE_EVENT, onChange);
+    window.removeEventListener("storage", onStorage);
+  };
 }
 
 // ── the request ───────────────────────────────────────────────────────────

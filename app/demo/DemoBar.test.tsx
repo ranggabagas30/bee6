@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { LangProvider } from "@/lib/i18n/context";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import type { StartDemoResult } from "@/app/demo/demo-client";
+import { createMemoryStorage } from "@/lib/demo/testing/memory-storage";
 
 const CONFIG: FirebaseWebConfig = { apiKey: "k", authDomain: "p.firebaseapp.com", projectId: "p", appId: "1:1:web:a" };
 const KEY = "A".repeat(43);
@@ -35,7 +36,7 @@ import { DEMO_STATE_KEY } from "@/app/demo/demo-client";
 const FAKE_AUTH = { kind: "fake-auth" };
 
 function seed(role: "owner" | "supervisor" | "staff", expiresAtMs: number) {
-  window.sessionStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: expiresAtMs, role }));
+  window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: expiresAtMs, role }));
 }
 function hhmm(ms: number): string {
   const d = new Date(ms);
@@ -58,7 +59,7 @@ const status = () => screen.getByTestId("demo-bar-status");
 let consoleSpies: ReturnType<typeof vi.spyOn>[] = [];
 beforeEach(() => {
   pathname = "/day";
-  window.sessionStorage.clear();
+  vi.stubGlobal("localStorage", createMemoryStorage());
   getClientAuth.mockReturnValue(FAKE_AUTH);
   consoleSpies = ["log", "info", "warn", "error"].map((m) => vi.spyOn(console, m as "log").mockImplementation(() => {}));
 });
@@ -69,6 +70,7 @@ afterEach(() => {
   startDemo.mockReset();
   push.mockReset();
   getClientAuth.mockReset();
+  vi.unstubAllGlobals();
 });
 
 describe("DemoBar visibility", () => {
@@ -78,9 +80,26 @@ describe("DemoBar visibility", () => {
   });
 
   it("renders nothing for a malformed stored state", () => {
-    window.sessionStorage.setItem(DEMO_STATE_KEY, "{oops");
+    window.localStorage.setItem(DEMO_STATE_KEY, "{oops");
     const { container } = renderBar();
     expect(container.innerHTML).toBe("");
+  });
+
+  it("a second tab of the same browser shows the bar for the same sandbox, and follows a change made in the other tab", () => {
+    renderBar();
+    expect(screen.queryByRole("button", { name: /Switch to/ })).toBeNull();
+    // Another tab started a visit: localStorage changes and a storage event arrives here.
+    seed("owner", Date.now() + 3_600_000);
+    act(() => void window.dispatchEvent(new StorageEvent("storage", { key: DEMO_STATE_KEY })));
+    expect(screen.getByText(/Demo · You are: Owner/)).toBeTruthy();
+    // ...then switched role there.
+    seed("staff", Date.now() + 3_600_000);
+    act(() => void window.dispatchEvent(new StorageEvent("storage", { key: DEMO_STATE_KEY })));
+    expect(screen.getByText(/Demo · You are: Staff/)).toBeTruthy();
+    // ...then ended the visit there.
+    window.localStorage.removeItem(DEMO_STATE_KEY);
+    act(() => void window.dispatchEvent(new StorageEvent("storage", { key: DEMO_STATE_KEY })));
+    expect(screen.queryByText(/Demo · You are:/)).toBeNull();
   });
 
   it("is hidden on the landing page, which has its own controls", () => {
@@ -164,7 +183,7 @@ describe("DemoBar live session", () => {
   it("when the server says the sandbox is gone, shows the ended state with a way to start again (never a silent new sandbox)", async () => {
     seed("staff", Date.now() + 3_600_000);
     startDemo.mockImplementation(async () => {
-      window.sessionStorage.removeItem(DEMO_STATE_KEY); // what startDemo does on a 409 with onExpired: stop
+      window.localStorage.removeItem(DEMO_STATE_KEY); // what startDemo does on a 409 with onExpired: stop
       return { kind: "sandbox_expired" };
     });
     renderBar();
@@ -179,7 +198,7 @@ describe("DemoBar live session", () => {
   it("forgets a locally noticed end once the visitor is back at the landing page, so the next sandbox is not greeted as ended", async () => {
     seed("staff", Date.now() + 3_600_000);
     startDemo.mockImplementation(async () => {
-      window.sessionStorage.removeItem(DEMO_STATE_KEY);
+      window.localStorage.removeItem(DEMO_STATE_KEY);
       return { kind: "sandbox_expired" };
     });
     const view = renderBar();

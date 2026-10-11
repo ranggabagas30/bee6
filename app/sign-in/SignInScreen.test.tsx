@@ -6,6 +6,7 @@ import { LangProvider, useLang } from "@/lib/i18n/context";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import type { AuthUserState } from "@/lib/auth/client/use-auth-user";
 import { SignInScreen } from "@/app/sign-in/SignInScreen";
+import { createMemoryStorage } from "@/lib/demo/testing/memory-storage";
 
 const CONFIG: FirebaseWebConfig = {
   apiKey: "key-1",
@@ -415,8 +416,8 @@ describe("SignInScreen demo link (R-12 Task 8.5)", () => {
     );
   }
 
-  beforeEach(() => window.sessionStorage.clear());
-  afterEach(() => window.sessionStorage.clear());
+  beforeEach(() => void vi.stubGlobal("localStorage", createMemoryStorage()));
+  afterEach(() => void vi.unstubAllGlobals());
 
   it("shows no demo text or link on the pilot (no demo prop)", () => {
     renderDemo(undefined);
@@ -435,14 +436,14 @@ describe("SignInScreen demo link (R-12 Task 8.5)", () => {
   });
 
   it("says the session ended when this tab's demo sandbox is past its expiry", () => {
-    window.sessionStorage.setItem("bee6.demo", JSON.stringify({ sandbox_key: DEMO_KEY, expires_at_ms: 1000, role: "owner" }));
+    window.localStorage.setItem("bee6.demo", JSON.stringify({ sandbox_key: DEMO_KEY, expires_at_ms: 1000, role: "owner" }));
     renderDemo(true);
     expect(screen.getByText("Your demo session has ended.")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Start a new demo" })).toBeTruthy();
   });
 
   it("does not claim the session ended while the sandbox is still live", () => {
-    window.sessionStorage.setItem("bee6.demo", JSON.stringify({ sandbox_key: DEMO_KEY, expires_at_ms: Date.now() + 3_600_000, role: "owner" }));
+    window.localStorage.setItem("bee6.demo", JSON.stringify({ sandbox_key: DEMO_KEY, expires_at_ms: Date.now() + 3_600_000, role: "owner" }));
     renderDemo(true);
     expect(screen.queryByText("Your demo session has ended.")).toBeNull();
   });

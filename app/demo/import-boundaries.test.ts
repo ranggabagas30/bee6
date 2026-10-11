@@ -64,13 +64,18 @@ describe("app/demo/* import boundaries (R-12 Task 8.6)", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("no file under app/demo/ reads process.env or touches localStorage for the sandbox key", () => {
+  it("no file under app/demo/ reads process.env, and touches localStorage only for the demo state and the device keys", () => {
     const offenders = TARGET_FILES.filter((f) => /process\.env/.test(readFileSync(f, "utf8"))).map(relPath);
     expect(offenders).toEqual([]);
     const client = readFileSync(join(TARGET_DIR, "demo-client.ts"), "utf8");
-    // localStorage appears only for the device keys the capture screen reads.
+    // localStorage appears only for the demo state key and the device keys the capture screen reads.
     const localLines = client.split("\n").filter((l) => /localStorage/.test(l) && !/^\s*(\/\/|\*)/.test(l));
-    for (const line of localLines) expect(line).toMatch(/DEVICE_(TOKEN|ID)_KEY/);
+    for (const line of localLines) expect(line).toMatch(/DEVICE_(TOKEN|ID)_KEY|DEMO_STATE_KEY/);
+  });
+
+  it("the sandbox state is shared across tabs: sessionStorage is not used under app/demo/", () => {
+    const offenders = TARGET_FILES.filter((f) => /sessionStorage/.test(readFileSync(f, "utf8"))).map(relPath);
+    expect(offenders).toEqual([]);
   });
 
   it("the wire contract is the allowed demo import", () => {

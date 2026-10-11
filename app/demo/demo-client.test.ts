@@ -16,6 +16,7 @@ import {
   parseDemoState,
   readDemoState,
   requestDemoSession,
+  subscribeDemoState,
   startDemo,
   writeDemoState,
 } from "@/app/demo/demo-client";
@@ -61,19 +62,9 @@ const fakeLocal = {
   clear: () => memory.clear(),
 };
 
-const sessionMemory = new Map<string, string>();
-const fakeSession = {
-  getItem: (key: string) => sessionMemory.get(key) ?? null,
-  setItem: (key: string, value: string) => void sessionMemory.set(key, String(value)),
-  removeItem: (key: string) => void sessionMemory.delete(key),
-  clear: () => sessionMemory.clear(),
-};
-
 beforeEach(() => {
   memory.clear();
-  sessionMemory.clear();
   vi.stubGlobal("localStorage", fakeLocal);
-  vi.stubGlobal("sessionStorage", fakeSession);
   signOut.mockReset().mockResolvedValue(undefined);
   signInWithCustomToken.mockReset().mockResolvedValue(undefined);
 });
@@ -82,30 +73,26 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("demo state (per-tab sessionStorage)", () => {
-  it("round-trips through sessionStorage, never localStorage", () => {
+describe("demo state (shared across tabs via localStorage)", () => {
+  it("round-trips through localStorage so a second tab of this browser sees the same sandbox", () => {
     writeDemoState({ sandbox_key: KEY, expires_at_ms: EXPIRES, role: "owner" });
-    expect(fakeSession.getItem(DEMO_STATE_KEY)).not.toBeNull();
-    expect(fakeLocal.getItem(DEMO_STATE_KEY)).toBeNull();
+    expect(fakeLocal.getItem(DEMO_STATE_KEY)).not.toBeNull();
     expect(readDemoState()).toEqual({ sandbox_key: KEY, expires_at_ms: EXPIRES, role: "owner" });
   });
 
   it("reads null for missing, malformed, wrongly shaped or extra-key values", () => {
     expect(readDemoState()).toBeNull();
-    fakeSession.setItem(DEMO_STATE_KEY, "{not json");
+    fakeLocal.setItem(DEMO_STATE_KEY, "{not json");
     expect(readDemoState()).toBeNull();
-    fakeSession.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: "short", expires_at_ms: 1, role: "owner" }));
+    fakeLocal.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: "short", expires_at_ms: 1, role: "owner" }));
     expect(readDemoState()).toBeNull();
-    fakeSession.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: 1, role: "admin" }));
+    fakeLocal.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: 1, role: "admin" }));
     expect(readDemoState()).toBeNull();
     expect(parseDemoState(JSON.stringify({ sandbox_key: KEY, expires_at_ms: 1, role: "owner", extra: 1 }))).toBeNull();
   });
 
   it("does not throw when storage is blocked (private mode)", () => {
     for (const method of ["setItem", "getItem", "removeItem"] as const) {
-      vi.spyOn(fakeSession, method).mockImplementation(() => {
-        throw new Error("blocked");
-      });
       vi.spyOn(fakeLocal, method).mockImplementation(() => {
         throw new Error("blocked");
       });
@@ -123,6 +110,20 @@ describe("demo state (per-tab sessionStorage)", () => {
     expect(readDemoState()).toBeNull();
     expect(fakeLocal.getItem(DEVICE_TOKEN_KEY)).toBeNull();
     expect(fakeLocal.getItem(DEVICE_ID_KEY)).toBeNull();
+  });
+
+  it("subscribeDemoState hears another tab's change (a storage event on the demo key) and stops after unsubscribe", () => {
+    const onChange = vi.fn();
+    const off = subscribeDemoState(onChange);
+    window.dispatchEvent(new StorageEvent("storage", { key: DEMO_STATE_KEY }));
+    expect(onChange).toHaveBeenCalledTimes(1);
+    window.dispatchEvent(new StorageEvent("storage", { key: null })); // storage.clear() in another tab
+    expect(onChange).toHaveBeenCalledTimes(2);
+    window.dispatchEvent(new StorageEvent("storage", { key: "something.else" }));
+    expect(onChange).toHaveBeenCalledTimes(2);
+    off();
+    window.dispatchEvent(new StorageEvent("storage", { key: DEMO_STATE_KEY }));
+    expect(onChange).toHaveBeenCalledTimes(2);
   });
 
   it("isDemoExpired is true at and after the expiry instant", () => {
@@ -216,7 +217,7 @@ describe("startDemo", () => {
     expect(readDemoState()).toEqual({ sandbox_key: KEY, expires_at_ms: EXPIRES, role: "supervisor" });
     expect(fakeLocal.getItem(DEVICE_TOKEN_KEY)).toBeNull();
     expect(fakeLocal.getItem(DEVICE_ID_KEY)).toBeNull();
-    expect(fakeSession.getItem(DEMO_STATE_KEY)).not.toContain("custom-token-1");
+    expect(fakeLocal.getItem(DEMO_STATE_KEY)).not.toContain("custom-token-1");
   });
 
   it("device role: writes both device keys, signs out Firebase, navigates to /capture", async () => {
@@ -229,7 +230,7 @@ describe("startDemo", () => {
     expect(signInWithCustomToken).not.toHaveBeenCalled();
     expect(navigate).toHaveBeenCalledWith("/capture");
     expect(readDemoState()?.role).toBe("staff");
-    expect(fakeSession.getItem(DEMO_STATE_KEY)).not.toContain("dev-token-1");
+    expect(fakeLocal.getItem(DEMO_STATE_KEY)).not.toContain("dev-token-1");
   });
 
   it("only navigates to an allow-listed landing path, falling back to the role's own", async () => {

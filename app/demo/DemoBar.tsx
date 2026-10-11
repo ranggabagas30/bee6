@@ -13,7 +13,7 @@ import { useDemoStart } from "@/app/demo/useDemoStart";
 
 /**
  * The demo bar (R-12 Task 8.4). Mounted by the root layout only when the server has DEMO_MODE on, and shown
- * only while this tab holds a demo state (sessionStorage). It names the role, says when the 2 h session
+ * only while this browser holds a demo state (localStorage, shared by its tabs). It names the role, says when the 2 h session
  * ends (device-local HH:MM), and switches to the other two roles inside the same sandbox. Past the end it
  * says so and offers "Start a new demo" (a link to `/`, where the Try-as buttons live). Hidden on `/`
  * (the landing has its own controls) and, once ended, on `/sign-in` (which carries its own restart link).

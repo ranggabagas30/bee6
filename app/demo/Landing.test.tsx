@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { LangProvider } from "@/lib/i18n/context";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import type { StartDemoResult } from "@/app/demo/demo-client";
+import { createMemoryStorage } from "@/lib/demo/testing/memory-storage";
 
 const CONFIG: FirebaseWebConfig = { apiKey: "k", authDomain: "p.firebaseapp.com", projectId: "p", appId: "1:1:web:a" };
 const KEY = "A".repeat(43);
@@ -49,7 +50,7 @@ function deferred<T>() {
 
 let consoleSpies: ReturnType<typeof vi.spyOn>[] = [];
 beforeEach(() => {
-  window.sessionStorage.clear();
+  vi.stubGlobal("localStorage", createMemoryStorage());
   getClientAuth.mockReturnValue(FAKE_AUTH);
   consoleSpies = ["log", "info", "warn", "error"].map((m) => vi.spyOn(console, m as "log").mockImplementation(() => {}));
 });
@@ -60,6 +61,7 @@ afterEach(() => {
   push.mockReset();
   replace.mockReset();
   getClientAuth.mockReset();
+  vi.unstubAllGlobals();
 });
 
 describe("Landing content", () => {
@@ -179,14 +181,14 @@ describe("Landing taps", () => {
 
 describe("Landing with an earlier visit in this tab", () => {
   it("says the session ended when the stored sandbox is past its expiry", () => {
-    window.sessionStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: 1_000, role: "owner" }));
+    window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: 1_000, role: "owner" }));
     renderLanding();
     expect(status().textContent).toContain("Your demo session has ended.");
     expect(screen.queryByRole("button", { name: "Start a new demo" })).toBeNull();
   });
 
   it("offers Start a new demo while a sandbox is live, behind a confirm step, and does nothing on the first tap", () => {
-    window.sessionStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: Date.now() + 3_600_000, role: "owner" }));
+    window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: Date.now() + 3_600_000, role: "owner" }));
     renderLanding();
     fireEvent.click(button(/Start a new demo/));
     expect(readDemoState()?.sandbox_key).toBe(KEY); // first tap changes nothing
@@ -195,7 +197,7 @@ describe("Landing with an earlier visit in this tab", () => {
   });
 
   it("Stay in this demo cancels; Yes, start over forgets the sandbox and says so", () => {
-    window.sessionStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: Date.now() + 3_600_000, role: "owner" }));
+    window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: Date.now() + 3_600_000, role: "owner" }));
     renderLanding();
     fireEvent.click(button(/Start a new demo/));
     fireEvent.click(button(/Stay in this demo/));
@@ -211,7 +213,7 @@ describe("Landing with an earlier visit in this tab", () => {
   });
 
   it("moves focus to the confirm question, and back to the button when the visitor stays", () => {
-    window.sessionStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: Date.now() + 3_600_000, role: "owner" }));
+    window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: Date.now() + 3_600_000, role: "owner" }));
     renderLanding();
     fireEvent.click(button(/Start a new demo/));
     expect(document.activeElement).toBe(screen.getByText(/Discard this demo shop/));
