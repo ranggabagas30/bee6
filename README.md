@@ -36,8 +36,8 @@ Owner) and use the shared demo credentials below. They are public on purpose and
 Suggested path:
 
 1. **Staff.** Sign in with the staff code on a phone or laptop with a microphone, and allow the microphone. The
-   capture page opens a **script drawer** with a 5-minute script: tap Start, then read each card aloud and tap Next.
-   In the demo you can start at any time of day and end at once, and a session stops on its own 5 minutes after
+   capture page opens a **script drawer** with a script of about 3 minutes of reading: tap Start, then read each card aloud and tap Next.
+   In the demo you can start at any time of day and end at once, and a session hard-stops 5 minutes after
    Start. Then answer the debrief questions. Up to two questions from the fictional bakery's earlier days are added to
    your own, marked "Earlier day".
 2. **Supervisor.** Use the bar at the top to switch role inside the same sandbox. Open the day record, the questions
@@ -55,12 +55,13 @@ The demo is English-first. Bahasa Indonesia strings exist but are provisional.
    detection) and cuts it into short Opus segments of at most 15 seconds.
 2. **Segment upload.** Each segment is sent to our API inside the request. The API checks the device's role and shop
    on the server.
-3. **Transcription and redaction.** The audio is transcribed in memory by Gemini and dropped. The text is then scrubbed
-   of staff names and redacted by Sensitive Data Protection before anything is written. Redacted segment text expires
-   after 48 hours.
-4. **Windows and threads.** Plain code groups lines into windows, then builds threads that continue across windows.
-5. **Label.** A Gemini Flash-Lite call labels each thread with one of 12 categories, a confidence and the lines it
-   relies on.
+3. **Transcription and redaction.** The audio is transcribed in memory by Gemini and dropped. The text is then redacted
+   by Sensitive Data Protection (including person names) before it is written; staff names are scrubbed again from the
+   lines before a thread is stored. Redacted segment text expires after 48 hours.
+4. **Windows.** Plain code groups lines into windows.
+5. **Threads and label.** A Gemini Flash-Lite call groups each window's lines into threads (a thread can continue an
+   open one from an earlier window) and labels each thread with one of 12 categories, a confidence and the lines it
+   relies on. Plain code assembles and stores the threads.
 6. **Evidence gate.** Plain code, not AI. A label becomes a fact only if the gate's rules pass; otherwise it becomes a
    debrief question.
 7. **Debrief.** After End or the auto-stop, staff answer Yes / No / Skip on the phone, with a reason that is scrubbed
@@ -105,7 +106,7 @@ markers; a test fails if the two differ.
   phone keeps about 10 minutes of audio in memory only.
 - **Redaction before storage.** Sensitive Data Protection runs on transcript lines, and on debrief reasons after a
   staff-name scrub, before anything is written.
-- **Names only in `staff`.** Staff names are used only for the scrub and the transcription vocabulary. Threads,
+- **Names only in `staff`.** Staff names are used only for the scrub and the transcription vocabulary (see Known gaps). Threads,
   questions, answers, proposals, outcomes and audit logs store no name and no staff id.
 - **Answers carry a device id only.** An answer stores the answering device and timestamps, not a role or a person.
   Supervisors see "a staff member answered", never who. No supervisor or owner screen shows a device id.
@@ -114,8 +115,9 @@ markers; a test fails if the two differ.
 - **SOP changes only through proposals** (evidence, supervisor, owner). No endpoint edits the SOP directly.
 - **Google only.** Gemini on Google Cloud (Vertex) through `@google/genai` and Google ADK, with the project's service
   account. No other AI provider, SDK or key is used anywhere in the product code.
-- **Retention.** Redacted segment text expires after 48 hours. Thread text currently has no expiry; the planned
-  14-day retention is not built yet (see Known gaps).
+- **Retention.** Redacted segment text expires after 48 hours. Debrief answers, with their redacted reason text,
+  expire after 14 days. Thread text currently has no expiry; the planned 14-day retention is not built yet (see Known
+  gaps).
 - **The public repository holds no real SOP, transcripts, staff or customer data, keys or audio.** Demo data is
   fictional.
 
@@ -171,8 +173,10 @@ Names only; values live in Secret Manager or an untracked `.env.local`, never in
 
 ## Evaluation
 
-The eval scripts read local files or call the demo project; none of them stores or prints transcript text. Their
-inputs (clips, references, the gold-set CSV) stay outside the repository.
+The eval scripts read local files or call the demo project. `eval:export` writes redacted line text to CSV files in a
+directory you name outside the repository and prints counts only; `eval:redaction` and `eval:label` print their own
+fictional fixture text; the others print metrics only. Their inputs (clips, references, the gold-set CSV) stay outside
+the repository.
 
 **No evaluation figures are reported yet.** When they are, each will carry its sample size `n`, its date and its
 source, and the label figures will say they are measured on internal fictional speech by the team (internal testing and
@@ -195,15 +199,16 @@ How each is run:
   on locally recorded fictional clips of at most 15 seconds, against human-written references:
 
   ```bash
-  GOOGLE_CLOUD_PROJECT=bee6-playground npm run eval:transcribe -- --clips <clips dir> --refs <refs CSV> [--allow-project <project id>]
+  GOOGLE_CLOUD_PROJECT=<demo project> npm run eval:transcribe -- --clips <clips dir> --refs <refs CSV> [--allow-project <project id>]
   ```
 
   It refuses the pilot project. Word error rate normalisation: Unicode NFKC, then lower-case; apostrophes are removed;
   a "." or "," between two digits is removed (so 1.5 becomes 15 and Rp 15.000 equals Rp 15000); every other
   character that is not a letter, digit, combining mark or space becomes a space; whitespace is collapsed.
-- **Trap eval:** `npm run eval:label` runs a fictional what-if line through the real label call five times and
-  checks that it is labelled as training each time.
-- **Redaction check:** `npm run eval:redaction` measures recall and precision of redaction on fictional fixtures.
+- **Trap eval:** `GOOGLE_CLOUD_PROJECT=<demo project> npm run eval:label` runs a fictional what-if line through the real
+  label call five times and checks that it is labelled as training each time.
+- **Redaction check:** `GOOGLE_CLOUD_PROJECT=<demo project> DEMO_MODE=true npm run eval:redaction` measures recall and
+  precision of redaction on fictional fixtures.
 
 ## Known gaps
 
@@ -218,7 +223,8 @@ How each is run:
   terms). There is no in-app consent or revoked-consent state; revocation is handled manually, acknowledged and
   completed within 7 working days.
 - A forgotten Start looks like a day off.
-- Firestore TTL deletion lags: it is used today for segment text after 48 hours, and deletion is not instant.
+- Firestore TTL deletion lags: it is used today for segment text (48 hours) and debrief answers (14 days), and deletion
+  is not instant.
 - The pilot shop has not gone live yet, so there is no pilot outcome. The closed loop is shown on the demo outlet. Its
   earlier days are fictional clips sent through the real pipeline with back-dated session times, and the review
   fast-forward is simulated time, marked "Simulated time (demo)". A visitor's own capture session and debrief are real.
@@ -226,8 +232,8 @@ How each is run:
   days in each window), not a model. Supervisor and owner decide.
 - The daily per-outlet token ceiling (`DAILY_TOKEN_CEILING`) is specified but not enforced in code. The demo project
   has its own request-count caps instead: sandboxes per network and per day, and per-sandbox and per-day limits on
-  recordings, proposals, simulated time-skips and typed-text redactions. They are environment-configurable (see
-  Environment) and are not a token ceiling.
+  recordings, proposals, simulated time-skips and typed-text redactions. Most of them are environment-configurable (see
+  Environment) and none is a token ceiling.
 - Constraints cannot be edited or deleted in the app. Proposals respect them through the prompt and an acknowledgement
   that plain code checks, not a semantic check.
 - The owner's approval screen has no cost or brand impact field.
@@ -250,6 +256,9 @@ How each is run:
 - Demo only: on WebKit browsers (Safari), a tap within about one second of the sign-in page loading may not move the
   focus into the panel.
 - Demo only: the demo is English-first, and its Bahasa strings are provisional.
+- Staff first names also live in the private, gitignored `config/vocabulary.yaml`, which is loaded as the transcription
+  vocabulary (`lib/transcribe/vocabulary.ts`). Whether this fits the rule that staff names live only in `staff` is an
+  open question.
 
 ## Next
 
