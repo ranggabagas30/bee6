@@ -61,8 +61,10 @@ export async function POST(req: NextRequest) {
     }
 
     // R-12: a sandbox's text entry (the constraint text goes through Sensitive Data Protection) is capped.
-    // Unlike the other text paths this one is charged here: a well-formed body that passes the permission
-    // check always reaches SDP, so there is no earlier refusal to wait for.
+    // Unlike the other text paths this one is charged here, before the service: a well-formed body that
+    // passes the permission check almost always reaches SDP. The two edge cases where a slot is charged but
+    // SDP is not reached (the outlet doc is missing -> 404, or the staff-name list fails to load -> 503) cost
+    // one slot of a per-sandbox cap, which is bounded and acceptable. An invalid body never gets here.
     await enforceDemoCapsForRoute("redact", claims, "constraints:write");
 
     const { constraint, duplicate } = await createConstraint(
