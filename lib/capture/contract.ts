@@ -9,6 +9,7 @@ import {
   LastEndedSchema,
   WeeklyHoursSchema,
   type Heartbeat,
+  type Device,
   type LastEnded,
   type Outlet,
   type WeeklyHours,
@@ -16,6 +17,7 @@ import {
 import type { CustomClaims } from "@/lib/auth/roles";
 import { classifyMicSource } from "@/lib/capture/mic-source";
 import { captureMode } from "@/lib/devices/capture-mode";
+import { DEMO_SESSION_MAX_MS } from "@/lib/demo/constants";
 
 /**
  * Shared capture contract (R-03, web spec §4.1/§5). This module is the single
@@ -209,6 +211,18 @@ export const CaptureConfigResponseSchema = z
     }).nullable(),
     /** Display-only (R-07 Task 8); derived from the outlet's paired, unrevoked devices. */
     capture_mode: CaptureModeSchema,
+    /**
+     * R-18: the short demo session profile. Present ONLY on a demo deployment, for a sandbox outlet, for a
+     * device that carries an expiry (a judge's). The server decides; the client never reads DEMO_MODE. A
+     * pilot response never contains this key.
+     */
+    demo_session: z
+      .object({
+        max_ms: z.literal(DEMO_SESSION_MAX_MS),
+        script_id: z.literal("bakery-v1"),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type CaptureConfigResponse = z.infer<typeof CaptureConfigResponseSchema>;
@@ -223,7 +237,13 @@ export function toCaptureConfig(
   outlet: Outlet,
   lastEnded: LastEnded | null,
   pairedDeviceCount: number,
+  demoMode = false,
+  device?: Pick<Device, "expires_at_ms">,
 ): CaptureConfigResponse {
+  const demoSession =
+    demoMode && outlet.sandbox !== undefined && device?.expires_at_ms !== undefined
+      ? { demo_session: { max_ms: DEMO_SESSION_MAX_MS, script_id: "bakery-v1" as const } }
+      : {};
   return CaptureConfigResponseSchema.parse({
     timezone: outlet.timezone,
     weekly_hours: resolveWeeklyHours(outlet),
@@ -235,5 +255,6 @@ export function toCaptureConfig(
         }
       : null,
     capture_mode: captureMode(pairedDeviceCount),
+    ...demoSession,
   });
 }

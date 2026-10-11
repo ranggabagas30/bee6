@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { GET } from "./route";
 import * as servicesModule from "@/lib/auth/services";
@@ -48,7 +48,7 @@ function req(headers: Record<string, string> = { authorization: "Bearer t", "x-d
   return new NextRequest("http://localhost/api/v1/capture/config", { method: "GET", headers });
 }
 
-function wireDevice(d: Device | null = device(), pairedDeviceCount = 1) {
+function wireDevice(d: Device | null = device(), pairedDeviceCount = 1, o: Outlet = outlet) {
   vi.mocked(adminModule.verifyIdToken).mockRejectedValue(new Error("not an ID token"));
   vi.mocked(servicesModule.authenticateDeviceToken).mockResolvedValue({
     outlet_id: "outlet-1",
@@ -56,7 +56,7 @@ function wireDevice(d: Device | null = device(), pairedDeviceCount = 1) {
     device_id: "dev-1",
   } as never);
   vi.mocked(storesModule.firestoreCaptureStore).mockReturnValue({
-    getOutlet: async () => outlet,
+    getOutlet: async () => o,
     getDevice: async () => d,
     saveHeartbeat: async () => undefined,
     countPairedDevices: async () => pairedDeviceCount,
@@ -132,5 +132,33 @@ describe("GET /api/v1/capture/config", () => {
     expect(text).not.toContain("dev-1");
     expect(text).not.toContain("Kasir 1");
     expect(text).not.toContain("token_hash");
+  });
+
+  describe("R-18 demo_session", () => {
+    const sandbox = { template_outlet_id: "demo-tpl-outlet", created_at_ms: 1, expires_at_ms: 2, key_sha256: "a".repeat(64) };
+    const sbxOutlet: Outlet = { ...outlet, project_kind: "demo", sandbox };
+    const judge = () => device({ expires_at_ms: 9_000_000_000_000 });
+    afterEach(() => vi.unstubAllEnvs());
+
+    it("DEMO_MODE=true + sandbox outlet + expiring device: the profile is present", async () => {
+      vi.stubEnv("DEMO_MODE", "true");
+      wireDevice(judge(), 1, sbxOutlet);
+      const body = (await (await GET(req())).json()) as { data: Record<string, unknown> };
+      expect(body.data.demo_session).toEqual({ max_ms: 300_000, script_id: "bakery-v1" });
+    });
+
+    it("DEMO_MODE unset (the pilot): never present, whatever the docs say; keys are exactly the pilot four", async () => {
+      vi.stubEnv("DEMO_MODE", "");
+      wireDevice(judge(), 1, sbxOutlet);
+      const body = (await (await GET(req())).json()) as { data: Record<string, unknown> };
+      expect(Object.keys(body.data).sort()).toEqual(["capture_mode", "last_ended", "timezone", "weekly_hours"]);
+    });
+
+    it("DEMO_MODE=true on a plain outlet with a real device: no profile", async () => {
+      vi.stubEnv("DEMO_MODE", "true");
+      wireDevice(device(), 1, outlet);
+      const body = (await (await GET(req())).json()) as { data: Record<string, unknown> };
+      expect(body.data).not.toHaveProperty("demo_session");
+    });
   });
 });
