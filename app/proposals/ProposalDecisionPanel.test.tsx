@@ -260,7 +260,11 @@ describe("ProposalDecisionPanel — positive flow (7.T8)", () => {
     authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "approved", status: "approved" } });
     renderPanel("owner", makeItem("awaiting_owner"));
     click("Approve");
-    expect(screen.getByText("Approve this change? It becomes the next SOP version.")).not.toBeNull();
+    expect(
+      screen.getByText(
+        "Approve this change? It becomes the next SOP version, in force from tomorrow. The review date is counted from then.",
+      ),
+    ).not.toBeNull();
     click("Yes");
     await waitFor(() => expect(authedPostJson).toHaveBeenCalledTimes(1));
     expect(authedPostJson).toHaveBeenCalledWith(
@@ -269,6 +273,22 @@ describe("ProposalDecisionPanel — positive flow (7.T8)", () => {
       { decision: "approve", acknowledged_constraint_ids: [] },
       expect.anything(),
     );
+  });
+
+  it("owner Approve confirm and done copy in Bahasa name tomorrow and the review date", async () => {
+    authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "approved", status: "approved" } });
+    renderPanel("owner", makeItem("awaiting_owner"), "id");
+    click("Setujui");
+    expect(
+      screen.getByText(
+        "Setujui perubahan ini? Perubahan ini menjadi versi SOP berikutnya, berlaku mulai besok. Tanggal tinjauan dihitung dari hari itu.",
+      ),
+    ).not.toBeNull();
+    click("Ya");
+    await waitFor(() => expect(onSettled).toHaveBeenCalledTimes(1));
+    const { t } = await import("@/lib/i18n/dict");
+    const arg = onSettled.mock.calls[0]![0] as { messageKey: Parameters<typeof t>[1] };
+    expect(t("id", arg.messageKey)).toBe("Disetujui. Versi SOP baru berlaku mulai besok.");
   });
 
   it("Cancel on the positive confirm returns to the action buttons", () => {
@@ -283,7 +303,7 @@ describe("ProposalDecisionPanel — positive flow (7.T8)", () => {
 describe("ProposalDecisionPanel — server answers (7.T9)", () => {
   it.each([
     ["feasible", "supervisor", "awaiting_supervisor", "Marked feasible. Sent to the owner."],
-    ["approved", "owner", "awaiting_owner", "Approved."],
+    ["approved", "owner", "awaiting_owner", "Approved. The new SOP version is in force from tomorrow."],
     ["unchanged", "supervisor", "awaiting_supervisor", "This decision was already saved."],
   ] as const)("ok %s settles with its message and no range", async (result, role, status, message) => {
     authedPostJson.mockResolvedValue({ kind: "ok", data: { result, status: "awaiting_owner" } });
@@ -329,6 +349,20 @@ describe("ProposalDecisionPanel — server answers (7.T9)", () => {
     authedPostJson.mockResolvedValue({ kind: "conflict", code });
     renderPanel("supervisor", makeItem());
     click("Feasible");
+    click("Yes");
+    await waitFor(() => expect(onSettled).toHaveBeenCalledTimes(1));
+    expect(onSettled).toHaveBeenCalledWith({ messageKey: key });
+  });
+
+  // R-10 refusals reach the owner's Approve; each has its own key, not the generic one.
+  it.each([
+    ["SOP_STEP_LIMIT", "C-prop-err-sop-limit"],
+    ["LEGACY_PROPOSAL", "C-prop-err-legacy"],
+    ["STEP_TEXT_TOO_LONG", "C-prop-err-step-too-long"],
+  ])("owner approve: conflict %s maps to %s", async (code, key) => {
+    authedPostJson.mockResolvedValue({ kind: "conflict", code });
+    renderPanel("owner", makeItem("awaiting_owner"));
+    click("Approve");
     click("Yes");
     await waitFor(() => expect(onSettled).toHaveBeenCalledTimes(1));
     expect(onSettled).toHaveBeenCalledWith({ messageKey: key });

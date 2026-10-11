@@ -340,7 +340,7 @@ export const ID = {
   "C-prop-reason-hint-owner": "Alasan ini menjadi batasan permanen untuk setiap usulan berikutnya. Tulis fakta tentang toko, bukan orang. Jangan tulis nama atau nomor telepon.", // PROVISIONAL
   "C-prop-continue": "Lanjut", // PROVISIONAL
   "C-prop-confirm-feasible": "Tandai usulan ini layak? Usulan dikirim ke pemilik untuk disetujui.", // PROVISIONAL
-  "C-prop-confirm-approve": "Setujui perubahan ini? Perubahan ini menjadi versi SOP berikutnya.", // PROVISIONAL
+  "C-prop-confirm-approve": "Setujui perubahan ini? Perubahan ini menjadi versi SOP berikutnya, berlaku mulai besok. Tanggal tinjauan dihitung dari hari itu.", // PROVISIONAL
   "C-prop-confirm-reject-sup": "Tolak usulan ini? Alasannya disimpan sebagai batasan permanen.", // PROVISIONAL
   "C-prop-confirm-reject-owner": "Tolak usulan ini? Alasannya disimpan sebagai batasan permanen.", // PROVISIONAL
   "C-prop-ack-late": "Saya sudah memeriksa usulan ini terhadap batasan di atas.", // PROVISIONAL
@@ -348,7 +348,7 @@ export const ID = {
   "C-prop-confirm-no": "Batal", // PROVISIONAL
   "C-prop-done-feasible": "Ditandai layak. Dikirim ke pemilik.", // PROVISIONAL
   "C-prop-done-rejected-sup": "Ditolak. Alasannya kini menjadi batasan. Buat ulang usulan untuk tanggal yang sama untuk mendapat usulan revisi.", // PROVISIONAL
-  "C-prop-done-approved": "Disetujui.", // PROVISIONAL
+  "C-prop-done-approved": "Disetujui. Versi SOP baru berlaku mulai besok.", // PROVISIONAL
   "C-prop-done-rejected-owner": "Ditolak. Alasannya kini menjadi batasan. Buat ulang usulan untuk tanggal yang sama untuk mendapat usulan revisi.", // PROVISIONAL
   "C-prop-done-unchanged": "Keputusan ini sudah tersimpan.", // PROVISIONAL
   "C-prop-use-dates": "Pakai tanggal ini", // PROVISIONAL
@@ -360,6 +360,9 @@ export const ID = {
   "C-prop-err-sop-changed": "SOP sudah berubah, jadi usulan ini tidak bisa dilanjutkan. Buat ulang.", // PROVISIONAL
   "C-prop-err-constraint-added": "Ada batasan yang baru ditambahkan. Periksa, lalu putuskan lagi.", // PROVISIONAL
   "C-prop-err-forbidden-decide": "Peran Anda tidak bisa membuat keputusan ini.", // PROVISIONAL
+  "C-prop-err-sop-limit": "SOP sudah punya 200 langkah, jadi langkah baru tidak bisa ditambahkan.", // PROVISIONAL
+  "C-prop-err-legacy": "Dibuat oleh versi lama. Tolak, lalu buat ulang.", // PROVISIONAL
+  "C-prop-err-step-too-long": "Langkah ini terlalu panjang untuk diubah otomatis.", // PROVISIONAL
 
   // Constraints panel (/proposals, R-08 Task 8.6, PROVISIONAL)
   "C-con-title": "Batasan", // PROVISIONAL
@@ -711,7 +714,7 @@ export const EN: Record<DictKey, string> = {
   "C-prop-reason-hint-owner": "This reason becomes a permanent constraint for every later proposal. Write a fact about the shop, not a person. No names or phone numbers.", // PROVISIONAL
   "C-prop-continue": "Continue", // PROVISIONAL
   "C-prop-confirm-feasible": "Mark this proposal feasible? It goes to the owner for approval.", // PROVISIONAL
-  "C-prop-confirm-approve": "Approve this change? It becomes the next SOP version.", // PROVISIONAL
+  "C-prop-confirm-approve": "Approve this change? It becomes the next SOP version, in force from tomorrow. The review date is counted from then.", // PROVISIONAL
   "C-prop-confirm-reject-sup": "Reject this proposal? The reason is saved as a permanent constraint.", // PROVISIONAL
   "C-prop-confirm-reject-owner": "Reject this proposal? The reason is saved as a permanent constraint.", // PROVISIONAL
   "C-prop-ack-late": "I checked this proposal against the constraints above.", // PROVISIONAL
@@ -719,7 +722,7 @@ export const EN: Record<DictKey, string> = {
   "C-prop-confirm-no": "Cancel", // PROVISIONAL
   "C-prop-done-feasible": "Marked feasible. Sent to the owner.", // PROVISIONAL
   "C-prop-done-rejected-sup": "Rejected. The reason is now a constraint. Generate again for the same dates to get a revised proposal.", // PROVISIONAL
-  "C-prop-done-approved": "Approved.", // PROVISIONAL
+  "C-prop-done-approved": "Approved. The new SOP version is in force from tomorrow.", // PROVISIONAL
   "C-prop-done-rejected-owner": "Rejected. The reason is now a constraint. Generate again for the same dates to get a revised proposal.", // PROVISIONAL
   "C-prop-done-unchanged": "This decision was already saved.", // PROVISIONAL
   "C-prop-use-dates": "Use these dates", // PROVISIONAL
@@ -731,6 +734,9 @@ export const EN: Record<DictKey, string> = {
   "C-prop-err-sop-changed": "The SOP has changed, so this cannot go ahead. Generate again.", // PROVISIONAL
   "C-prop-err-constraint-added": "A constraint was just added. Check it, then decide again.", // PROVISIONAL
   "C-prop-err-forbidden-decide": "Your role cannot make this decision.", // PROVISIONAL
+  "C-prop-err-sop-limit": "The SOP already has 200 steps, so a new step cannot be added.", // PROVISIONAL
+  "C-prop-err-legacy": "Made by an older version. Reject it and generate again.", // PROVISIONAL
+  "C-prop-err-step-too-long": "This step is too long to change automatically.", // PROVISIONAL
 
   // Constraints panel (/proposals, R-08 Task 8.6, PROVISIONAL)
   "C-con-title": "Constraints", // PROVISIONAL

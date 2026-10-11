@@ -112,9 +112,9 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-function renderApp() {
+function renderApp(lang: "en" | "id" = "en") {
   return render(
-    <LangProvider initial="en">
+    <LangProvider initial={lang}>
       <ProposalsApp config={CONFIG} />
     </LangProvider>,
   );
@@ -429,6 +429,26 @@ describe("ProposalsApp — proposals list and decisions (R-09 8.2)", () => {
     await waitFor(() => expect(getsTo("/api/v1/proposals")).toBe(2));
     expect(banner.getAttribute("tabindex")).toBe("-1");
     expect(document.activeElement).toBe(banner);
+  });
+
+  it.each([
+    ["en", "SOP_STEP_LIMIT", "The SOP already has 200 steps, so a new step cannot be added."],
+    ["id", "SOP_STEP_LIMIT", "SOP sudah punya 200 langkah, jadi langkah baru tidak bisa ditambahkan."],
+    ["en", "LEGACY_PROPOSAL", "Made by an older version. Reject it and generate again."],
+    ["id", "LEGACY_PROPOSAL", "Dibuat oleh versi lama. Tolak, lalu buat ulang."],
+    ["en", "STEP_TEXT_TOO_LONG", "This step is too long to change automatically."],
+    ["id", "STEP_TEXT_TOO_LONG", "Langkah ini terlalu panjang untuk diubah otomatis."],
+  ] as const)("owner approve, %s: conflict %s shows its own banner copy", async (lang, code, copy) => {
+    getIdTokenResult.mockResolvedValue({ claims: { role: "owner" } });
+    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_owner")], decided: [] } };
+    constraintsResult = { kind: "ok", data: { constraints: [] } }; // keeps the constraints panel's own generic error out of the page
+    authedPostJson.mockResolvedValue({ kind: "conflict", code });
+    renderApp(lang);
+    const approve = await screen.findByRole("button", { name: lang === "en" ? "Approve" : "Setujui" });
+    fireEvent.click(approve);
+    fireEvent.click(screen.getByRole("button", { name: lang === "en" ? "Yes" : "Ya" }));
+    expect(await screen.findByText(copy)).not.toBeNull();
+    expect(screen.queryByText(lang === "en" ? "Something went wrong. Try again." : "Ada masalah. Coba lagi.")).toBeNull();
   });
 
   it("a conflict answer shows its message in the banner and reloads the list", async () => {

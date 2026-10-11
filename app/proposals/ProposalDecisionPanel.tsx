@@ -8,7 +8,11 @@ import type { Lang } from "@/lib/i18n/lang";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import { CONSTRAINT_INPUT_MAX, CONSTRAINT_INPUT_MIN } from "@/lib/constraints/contract";
 import { noticeDomId } from "@/app/proposals/ProposalCard";
-import { DecisionResponseSchema, type ProposalListItem } from "@/lib/proposals/review-contract";
+import {
+  DecisionResponseSchema,
+  type DecisionConflictCode,
+  type ProposalListItem,
+} from "@/lib/proposals/review-contract";
 
 /**
  * The decision buttons under a proposal card (R-09 Task 7.2). One panel for
@@ -35,7 +39,9 @@ import { DecisionResponseSchema, type ProposalListItem } from "@/lib/proposals/r
  */
 type Step = "idle" | "confirm-positive" | "reason" | "confirm-reject" | "settled";
 
-const CONFLICT_KEY: Record<string, DictKey> = {
+// Exhaustive on purpose: a new server conflict code that is not mapped here fails `tsc`.
+// CONSTRAINT_LIMIT is not in DECISION_CONFLICT_CODES; createConstraint throws it on a reject.
+const CONFLICT_KEY: Record<DecisionConflictCode | "CONSTRAINT_LIMIT", DictKey> = {
   ALREADY_DECIDED: "C-prop-err-decided",
   NOT_YET_REVIEWABLE: "C-prop-err-not-yet",
   NOT_REVIEWABLE: "C-prop-err-not-reviewable",
@@ -43,6 +49,9 @@ const CONFLICT_KEY: Record<string, DictKey> = {
   EVIDENCE_STALE: "C-prop-err-stale",
   SOP_CHANGED: "C-prop-err-sop-changed",
   CONSTRAINT_ADDED: "C-prop-err-constraint-added",
+  SOP_STEP_LIMIT: "C-prop-err-sop-limit",
+  LEGACY_PROPOSAL: "C-prop-err-legacy",
+  STEP_TEXT_TOO_LONG: "C-prop-err-step-too-long",
   CONSTRAINT_LIMIT: "C-con-err-limit",
 };
 
@@ -191,7 +200,7 @@ export function ProposalDecisionPanel({
     }
     if (result.kind === "conflict") {
       toSettled();
-      onSettled({ messageKey: CONFLICT_KEY[result.code] ?? "C-srv-generic" });
+      onSettled({ messageKey: (Object.hasOwn(CONFLICT_KEY, result.code) ? CONFLICT_KEY[result.code as keyof typeof CONFLICT_KEY] : "C-srv-generic") });
       return;
     }
     if (result.kind === "invalid") {
