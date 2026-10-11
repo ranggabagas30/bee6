@@ -115,15 +115,15 @@ describe("DemoBar visibility", () => {
     // Another tab started a visit: localStorage changes and a storage event arrives here.
     seed("owner", Date.now() + 3_600_000);
     act(() => void window.dispatchEvent(new StorageEvent("storage", { key: DEMO_STATE_KEY })));
-    expect(screen.getByText(/Demo · You are: Owner/)).toBeTruthy();
+    expect(screen.getByText(/Demo · Signed in as Owner/)).toBeTruthy();
     // ...then switched role there.
     seed("staff", Date.now() + 3_600_000);
     act(() => void window.dispatchEvent(new StorageEvent("storage", { key: DEMO_STATE_KEY })));
-    expect(screen.getByText(/Demo · You are: Staff/)).toBeTruthy();
+    expect(screen.getByText(/Demo · Signed in as Staff/)).toBeTruthy();
     // ...then ended the visit there.
     window.localStorage.removeItem(DEMO_STATE_KEY);
     act(() => void window.dispatchEvent(new StorageEvent("storage", { key: DEMO_STATE_KEY })));
-    expect(screen.queryByText(/Demo · You are:/)).toBeNull();
+    expect(screen.queryByText(/Demo · Signed in as/)).toBeNull();
   });
 
   it("is hidden on the landing page, which has its own controls", () => {
@@ -139,7 +139,7 @@ describe("DemoBar live session", () => {
     const expires = Date.now() + 3_600_000;
     seed("staff", expires);
     renderBar();
-    expect(screen.getByText(`Demo · You are: Staff · Ends at ${hhmm(expires)}`)).toBeTruthy();
+    expect(screen.getByText(`Demo · Signed in as Staff · Ends at ${hhmm(expires)}`)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Switch to Supervisor" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Switch to Owner" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Switch to Staff" })).toBeNull();
@@ -150,8 +150,8 @@ describe("DemoBar live session", () => {
     const expires = Date.now() + 3_600_000;
     seed("owner", expires);
     renderBar("id");
-    expect(screen.getByText(`Demo · Anda: Pemilik · Berakhir pukul ${hhmm(expires)}`)).toBeTruthy();
-    expect(screen.getByRole("complementary", { name: /Demo · Anda: Pemilik/ })).toBeTruthy();
+    expect(screen.getByText(`Demo · Masuk sebagai Pemilik · Berakhir pukul ${hhmm(expires)}`)).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: /Demo · Masuk sebagai Pemilik/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Ganti ke Staf" })).toBeTruthy();
   });
 
@@ -201,7 +201,7 @@ describe("DemoBar live session", () => {
     startDemo.mockResolvedValue({ kind: "started" });
     renderBar();
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Switch to Owner" })));
-    expect(document.activeElement?.textContent).toMatch(/^Demo · You are:/);
+    expect(document.activeElement?.textContent).toMatch(/^Demo · Signed in as/);
   });
 
   it("when the server says the sandbox is gone, shows the ended state with a way to start again (never a silent new sandbox)", async () => {
