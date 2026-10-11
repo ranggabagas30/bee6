@@ -452,6 +452,35 @@ export const ID = {
   "C-rev-retry": "Coba lagi", // PROVISIONAL
   "C-sop-outcome": "Hasil: {verdict}", // PROVISIONAL
   "C-sop-outcome-unknown": "Hasil: tidak diketahui (tidak dikonfirmasi, tidak diingat)", // PROVISIONAL
+  // R-12 PR-B: demo landing, demo bar, sign-in link. All PROVISIONAL (plan copy; UX-03 did not design these screens).
+  "C-demo-title": "bee6: Agen Perbaikan SOP", // PROVISIONAL
+  "C-demo-intro": "bee6 mendengarkan hari kerja toko kecil lewat ponsel yang dipasangkan, mengubah ucapan menjadi catatan kerja singkat (audio tidak pernah disimpan), menanyakan momen yang kurang jelas kepada staf, dan mengusulkan perubahan SOP yang dicek supervisor dan disetujui pemilik. Toko demo ini fiktif. Kunjungan Anda mendapat salinan sendiri selama 2 jam.", // PROVISIONAL
+  "C-demo-path": "Jalur yang disarankan (sekitar 4 menit): Staf menjawab pertanyaan → Supervisor meninjau usulan → Pemilik menyetujui → lompat ke tanggal tinjauan.", // PROVISIONAL
+  "C-demo-fictional": "Data demo fiktif", // PROVISIONAL
+  "C-demo-try-staff": "Coba sebagai Staf", // PROVISIONAL
+  "C-demo-try-supervisor": "Coba sebagai Supervisor", // PROVISIONAL
+  "C-demo-try-owner": "Coba sebagai Pemilik", // PROVISIONAL
+  "C-demo-bar": "Demo · Anda: {role} · Berakhir pukul {time}", // PROVISIONAL
+  "C-demo-switch": "Ganti ke {role}", // PROVISIONAL
+  "C-demo-role-staff": "Staf", // PROVISIONAL
+  "C-demo-role-supervisor": "Supervisor", // PROVISIONAL
+  "C-demo-role-owner": "Pemilik", // PROVISIONAL
+  "C-demo-busy": "Menyiapkan toko demo Anda…", // PROVISIONAL
+  "C-demo-expired": "Sesi demo Anda sudah berakhir.", // PROVISIONAL
+  "C-demo-restart": "Mulai demo baru", // PROVISIONAL
+  "C-demo-restart-confirm": "Buang toko demo ini dan mulai dari awal? Jawaban dan keputusan Anda di toko ini tidak bisa dibuka lagi.", // PROVISIONAL
+  "C-demo-restart-yes": "Ya, mulai dari awal", // PROVISIONAL
+  "C-demo-restart-keep": "Tetap di demo ini", // PROVISIONAL
+  "C-demo-restarted": "Demo dibersihkan. Pilih peran untuk mulai lagi.", // PROVISIONAL
+  "C-demo-err-limit": "Terlalu banyak sesi demo dari jaringan ini hari ini.", // PROVISIONAL
+  "C-demo-err-cap": "Demo sudah mencapai batas hari ini.", // PROVISIONAL
+  "C-demo-err-busy": "Demo sedang sibuk sebentar.", // PROVISIONAL
+  "C-demo-err-not-ready": "Demo belum siap.", // PROVISIONAL
+  "C-demo-retry-soon": "Coba lagi dalam beberapa detik.", // PROVISIONAL
+  "C-demo-retry-min": "Coba lagi dalam {n} menit.", // PROVISIONAL
+  "C-demo-retry-hr": "Coba lagi dalam sekitar {n} jam.", // PROVISIONAL
+  "C-demo-retry-tomorrow": "Coba lagi besok.", // PROVISIONAL
+  "C-demo-retry-later": "Coba lagi nanti.", // PROVISIONAL
 } as const;
 
 export type DictKey = keyof typeof ID;
@@ -876,6 +905,35 @@ export const EN: Record<DictKey, string> = {
   "C-rev-retry": "Try again", // PROVISIONAL
   "C-sop-outcome": "Outcome: {verdict}", // PROVISIONAL
   "C-sop-outcome-unknown": "Outcome: unknown (not confirmed, not remembered)", // PROVISIONAL
+  // R-12 PR-B: demo landing, demo bar, sign-in link. All PROVISIONAL (plan copy; UX-03 did not design these screens).
+  "C-demo-title": "bee6: the SOP Improvement Agent", // PROVISIONAL
+  "C-demo-intro": "bee6 listens to a small shop's working day through a paired phone, turns speech into short work notes (audio is never stored), asks staff about unclear moments, and proposes SOP changes that a supervisor checks and the owner approves. This demo shop is fictional. Your visit gets its own copy for 2 hours.", // PROVISIONAL
+  "C-demo-path": "Suggested path (about 4 minutes): Staff answers a question → Supervisor reviews the proposal → Owner approves → fast-forward to the review date.", // PROVISIONAL
+  "C-demo-fictional": "Fictional demo data", // PROVISIONAL
+  "C-demo-try-staff": "Try as Staff", // PROVISIONAL
+  "C-demo-try-supervisor": "Try as Supervisor", // PROVISIONAL
+  "C-demo-try-owner": "Try as Owner", // PROVISIONAL
+  "C-demo-bar": "Demo · You are: {role} · Ends at {time}", // PROVISIONAL
+  "C-demo-switch": "Switch to {role}", // PROVISIONAL
+  "C-demo-role-staff": "Staff", // PROVISIONAL
+  "C-demo-role-supervisor": "Supervisor", // PROVISIONAL
+  "C-demo-role-owner": "Owner", // PROVISIONAL
+  "C-demo-busy": "Preparing your demo shop…", // PROVISIONAL
+  "C-demo-expired": "Your demo session has ended.", // PROVISIONAL
+  "C-demo-restart": "Start a new demo", // PROVISIONAL
+  "C-demo-restart-confirm": "Discard this demo shop and start over? You will not be able to open your answers and decisions in it again.", // PROVISIONAL
+  "C-demo-restart-yes": "Yes, start over", // PROVISIONAL
+  "C-demo-restart-keep": "Stay in this demo", // PROVISIONAL
+  "C-demo-restarted": "Demo cleared. Pick a role to begin again.", // PROVISIONAL
+  "C-demo-err-limit": "Too many demo sessions from this network today.", // PROVISIONAL
+  "C-demo-err-cap": "The demo has reached today's limit.", // PROVISIONAL
+  "C-demo-err-busy": "The demo is busy for a moment.", // PROVISIONAL
+  "C-demo-err-not-ready": "The demo is not ready yet.", // PROVISIONAL
+  "C-demo-retry-soon": "Try again in a few seconds.", // PROVISIONAL
+  "C-demo-retry-min": "Try again in {n} min.", // PROVISIONAL
+  "C-demo-retry-hr": "Try again in about {n} h.", // PROVISIONAL
+  "C-demo-retry-tomorrow": "Try again tomorrow.", // PROVISIONAL
+  "C-demo-retry-later": "Try again later.", // PROVISIONAL
 };
 
 export const DICT: Record<Lang, Record<DictKey, string>> = { id: ID, en: EN };
