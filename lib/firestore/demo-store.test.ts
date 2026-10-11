@@ -214,6 +214,52 @@ describe("5.S1 readTemplate", () => {
   });
 });
 
+describe("readTemplate cache (an anonymous route must not turn every request into ~20 reads)", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("serves a successful read from memory for 60 s, then re-reads", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.UTC(2026, 9, 28, 10, 0, 0));
+    const { db, queries } = fakeDb(seedTemplate());
+    const store = firestoreDemoStore(db);
+    const first = await store.readTemplate();
+    const queriesAfterFirst = queries.length;
+    expect(queriesAfterFirst).toBeGreaterThan(0);
+    vi.setSystemTime(Date.UTC(2026, 9, 28, 10, 0, 59));
+    expect(await firestoreDemoStore(db).readTemplate()).toBe(first); // a new store object for the same db still hits the cache
+    expect(queries.length).toBe(queriesAfterFirst);
+    vi.setSystemTime(Date.UTC(2026, 9, 28, 10, 1, 1));
+    expect(await store.readTemplate()).not.toBeNull();
+    expect(queries.length).toBeGreaterThan(queriesAfterFirst);
+  });
+
+  it("never caches a null (missing or malformed) template, so a fixed template is picked up at once", async () => {
+    const { db, cols } = fakeDb({});
+    const store = firestoreDemoStore(db);
+    expect(await store.readTemplate()).toBeNull();
+    for (const [name, docs] of Object.entries(seedTemplate())) cols.set(name, new Map(Object.entries(docs)));
+    expect(await store.readTemplate()).not.toBeNull();
+  });
+
+  it("never caches an error (template too large)", async () => {
+    const seed = seedTemplate();
+    const first = Object.values(seed[COLLECTIONS.threads]!)[0] as Doc;
+    for (let i = 0; i < 400; i++) seed[COLLECTIONS.threads]![`x${i}`] = { ...first, thread_id: `x${i}` };
+    const { db, cols } = fakeDb(seed);
+    const store = firestoreDemoStore(db);
+    await expect(store.readTemplate()).rejects.toBeInstanceOf(TemplateTooLargeError);
+    for (let i = 0; i < 400; i++) cols.get(COLLECTIONS.threads)!.delete(`x${i}`);
+    expect(await store.readTemplate()).not.toBeNull();
+  });
+
+  it("caches per database (two fake dbs do not share a template)", async () => {
+    const a = fakeDb(seedTemplate());
+    const b = fakeDb({});
+    expect(await firestoreDemoStore(a.db).readTemplate()).not.toBeNull();
+    expect(await firestoreDemoStore(b.db).readTemplate()).toBeNull();
+  });
+});
+
 describe("5.S2 writeSandbox", () => {
   const docs = (n: number) =>
     Array.from({ length: n }, (_, i) => ({ collection: COLLECTIONS.threads, id: `t${i}`, data: { outlet_id: "sbx-1", thread_id: `t${i}` } as Doc }));

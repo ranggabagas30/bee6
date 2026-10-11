@@ -53,6 +53,14 @@ const SANDBOX_COLLECTIONS = [
   COLLECTIONS.segments,
 ] as const;
 
+/**
+ * The template is static between re-seeds, and the session route is anonymous: without a cache every
+ * request would cost about 20 reads before any limit is applied. A successful read is kept per database
+ * for this long (never a null or an error, so a fixed template is picked up at once).
+ */
+const TEMPLATE_CACHE_MS = 60_000;
+const templateCache = new WeakMap<Firestore, { at: number; tpl: TemplateSet }>();
+
 /** A safety valve for the delete loops (a sandbox is small; this only stops a runaway). */
 const MAX_DELETE_PASSES = 200;
 
@@ -83,56 +91,64 @@ export function firestoreDemoStore(db: Firestore = adminDb()): DemoStore {
     throw new Error("demo-store: delete did not finish");
   }
 
+  async function readTemplateUncached(): Promise<TemplateSet | null> {
+    const where = (c: string) =>
+      db.collection(c).where("outlet_id", "==", TEMPLATE_OUTLET_ID).limit(TEMPLATE_DOC_MAX + 1);
+
+    const outletDoc = await outletsCol().doc(TEMPLATE_OUTLET_ID).get();
+    if (!outletDoc.exists) return null;
+    const deviceDoc = await db.collection(COLLECTIONS.devices).doc(deviceDocId(TEMPLATE_OUTLET_ID, TEMPLATE_DEVICE_ID)).get();
+    const sopDoc = await db.collection(COLLECTIONS.sopVersions).doc(`${TEMPLATE_OUTLET_ID}:v1`).get();
+    if (!deviceDoc.exists || !sopDoc.exists) return null;
+
+    const [staffSnap, sessionSnap, threadSnap, questionSnap] = await Promise.all([
+      where(COLLECTIONS.staff).get(),
+      where(COLLECTIONS.captureSessions).get(),
+      where(COLLECTIONS.threads).get(),
+      where(COLLECTIONS.questions).get(),
+    ]);
+    const total = 3 + staffSnap.size + sessionSnap.size + threadSnap.size + questionSnap.size;
+    if (total > TEMPLATE_DOC_MAX) throw new TemplateTooLargeError();
+
+    let malformed = false;
+    const parseAll = <T>(
+      context: string,
+      docs: { id: string; data(): unknown }[],
+      parse: (raw: unknown) => T,
+    ): T[] => {
+      const out: T[] = [];
+      for (const d of docs) {
+        try {
+          out.push(parse(d.data()));
+        } catch {
+          malformed = true;
+          logSkippedDoc(context, d.id);
+        }
+      }
+      return out;
+    };
+    const parseOne = <T>(context: string, doc: { id: string; data(): unknown }, parse: (raw: unknown) => T): T | null =>
+      parseAll(context, [doc], parse)[0] ?? null;
+
+    const outlet = parseOne("outlet", outletDoc, parseOutletDoc);
+    const device = parseOne("device", deviceDoc, (r) => DeviceSchema.parse(r));
+    const sop_v1 = parseOne("sop_version", sopDoc, (r) => SopVersionSchema.parse(r));
+    const staff = parseAll("staff", staffSnap.docs, (r) => StaffSchema.parse(r));
+    const sessions = parseAll("capture_session", sessionSnap.docs, (r) => CaptureSessionSchema.parse(r));
+    const threads = parseAll("thread", threadSnap.docs, (r) => ThreadSchema.parse(r));
+    const questions = parseAll("question", questionSnap.docs, (r) => QuestionDocSchema.parse(r));
+
+    if (malformed || !outlet || !device || !sop_v1) return null;
+    return { outlet, staff, device, sessions, threads, questions, sop_v1 };
+  }
+
   return {
     async readTemplate(): Promise<TemplateSet | null> {
-      const where = (c: string) =>
-        db.collection(c).where("outlet_id", "==", TEMPLATE_OUTLET_ID).limit(TEMPLATE_DOC_MAX + 1);
-
-      const outletDoc = await outletsCol().doc(TEMPLATE_OUTLET_ID).get();
-      if (!outletDoc.exists) return null;
-      const deviceDoc = await db.collection(COLLECTIONS.devices).doc(deviceDocId(TEMPLATE_OUTLET_ID, TEMPLATE_DEVICE_ID)).get();
-      const sopDoc = await db.collection(COLLECTIONS.sopVersions).doc(`${TEMPLATE_OUTLET_ID}:v1`).get();
-      if (!deviceDoc.exists || !sopDoc.exists) return null;
-
-      const [staffSnap, sessionSnap, threadSnap, questionSnap] = await Promise.all([
-        where(COLLECTIONS.staff).get(),
-        where(COLLECTIONS.captureSessions).get(),
-        where(COLLECTIONS.threads).get(),
-        where(COLLECTIONS.questions).get(),
-      ]);
-      const total = 3 + staffSnap.size + sessionSnap.size + threadSnap.size + questionSnap.size;
-      if (total > TEMPLATE_DOC_MAX) throw new TemplateTooLargeError();
-
-      let malformed = false;
-      const parseAll = <T>(
-        context: string,
-        docs: { id: string; data(): unknown }[],
-        parse: (raw: unknown) => T,
-      ): T[] => {
-        const out: T[] = [];
-        for (const d of docs) {
-          try {
-            out.push(parse(d.data()));
-          } catch {
-            malformed = true;
-            logSkippedDoc(context, d.id);
-          }
-        }
-        return out;
-      };
-      const parseOne = <T>(context: string, doc: { id: string; data(): unknown }, parse: (raw: unknown) => T): T | null =>
-        parseAll(context, [doc], parse)[0] ?? null;
-
-      const outlet = parseOne("outlet", outletDoc, parseOutletDoc);
-      const device = parseOne("device", deviceDoc, (r) => DeviceSchema.parse(r));
-      const sop_v1 = parseOne("sop_version", sopDoc, (r) => SopVersionSchema.parse(r));
-      const staff = parseAll("staff", staffSnap.docs, (r) => StaffSchema.parse(r));
-      const sessions = parseAll("capture_session", sessionSnap.docs, (r) => CaptureSessionSchema.parse(r));
-      const threads = parseAll("thread", threadSnap.docs, (r) => ThreadSchema.parse(r));
-      const questions = parseAll("question", questionSnap.docs, (r) => QuestionDocSchema.parse(r));
-
-      if (malformed || !outlet || !device || !sop_v1) return null;
-      return { outlet, staff, device, sessions, threads, questions, sop_v1 };
+      const cached = templateCache.get(db);
+      if (cached && Date.now() - cached.at < TEMPLATE_CACHE_MS) return cached.tpl;
+      const tpl = await readTemplateUncached();
+      if (tpl) templateCache.set(db, { at: Date.now(), tpl });
+      return tpl;
     },
 
     async writeSandbox(docs: ClonedDoc[]): Promise<void> {
