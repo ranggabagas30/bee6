@@ -1,222 +1,272 @@
-# bee6
+# bee6: the SOP Improvement Agent
 
-SOP Improvement Agent for small F&B shops, built for the GATI x Google Cloud
-AI Builder Cup 2026. A web app listens to a shop's day through one paired
-phone — staff tap **Mulai** to start and **Selesai** to end the day; capture
-also stops on its own 1 hour after closing — and turns speech into short work
-notes (audio is never kept). A 1-hour debrief then asks staff, one tap at a
-time, whether flagged moments happened and why. The system proposes changes
-to the shop's SOP from that evidence; a supervisor checks each proposal, the
-owner approves it, it ships as a new SOP version, and the system checks on a
-set date whether it worked. Pilot shop: Proofed (Indonesia). Judges try it
-through a demo outlet in the same app.
+Built for the GATI x Google Cloud AI Builder Cup 2026.
 
-## Stack
+## What it is
 
-- **App:** Next.js (App Router) + TypeScript (strict), one Cloud Run service
-  `web` in `asia-southeast2` (Jakarta) — screens, API routes, pipeline
-  handlers and agents all live in this one service.
-- **Data:** Firestore (Native mode, `asia-southeast2`).
-- **Auth:** Firebase Authentication — Google sign-in for the owner and
-  supervisors, a custom token per paired device (claims
-  `{ outlet_id, role, device_id? }`). No staff sign-in in MVP 1 (the staff
-  PIN route from R-02 exists but is dormant, returns 404).
-- **AI:** `@google/genai` against Google Cloud (Vertex mode) only —
-  `gemini-3.5-transcribe-preview` for transcription, `gemini-3.5-flash-lite`
-  for windows → threads → labels, `gemini-3.5-flash` reserved for the
-  Proposal/Critic/Review agents, and a Live API model for the voice debrief
-  only "if time" (R-16). No other AI provider or API key anywhere in the
-  product code. Each model's region comes from `config/regions.yaml`, filled
-  in by `npm run probe` against a real GCP project — never hard-coded.
-- **Agents:** Google ADK for TypeScript, planned for the Proposal/Critic/
-  Review agents (R-08 onward) — not yet integrated; today the pipeline runs
-  only through the plain-code windowing/thread-builder/evidence-gate step and
-  the label call.
-- **Async work:** Cloud Scheduler drives the pipeline tick and the review
-  dates; Cloud Tasks → `/api/internal/*` (OIDC-verified) for other async
-  work. The debrief itself has no Scheduler job — it starts on the phone at
-  Selesai or the auto-stop.
-- **Browser capture:** `getUserMedia` + AudioWorklet (16 kHz) + Silero VAD
-  (ONNX Runtime Web) + WebCodecs Opus + Screen Wake Lock. An on-device
-  encrypted audio queue (IndexedDB + WebCrypto AES-GCM, capture phase plan P3)
-  is planned but not built; it will stay off on the pilot until Rangga's
-  written sign-off.
-- **Validation:** zod on every API input and every model output.
-- **Tests:** unit tests for the gate, thread builder, windowing, role checks
-  and schemas; a smoke test per milestone with a fictional clip is planned
-  (R-13) but not built yet.
+bee6 listens to a small food-and-beverage shop's working day through one paired phone and turns speech into short
+work notes. Audio is never stored in the cloud. Staff tap **Start** (Mulai) to begin the day and **End** (Selesai)
+to finish it; capture also stops by itself one hour after closing. A one-hour debrief then starts on the phone and
+asks staff, one tap at a time, whether flagged moments happened and why.
 
-## Current state (8 Oct 2026)
+From those notes the system proposes a change to the shop's SOP (standard operating procedure). A supervisor checks
+the proposal, the owner approves it, it ships as a new SOP version, and on a set review date the system compares the
+shop's notes before and after the change and suggests whether it worked. The supervisor and the owner decide.
 
-**Built and merged to `main`:**
-- R-01 foundations — Next.js/TypeScript skeleton, region probe, CI/CD config.
-- R-02 data model, Firebase Auth sign-in, and RBAC (owner/supervisor see only
-  their outlet; a wrong `outlet_id` is rejected server-side).
-- R-03 `/capture` capture pipeline — mic permission, VAD + Opus segment
-  capture, in-memory offline upload queue, screen wake lock, heartbeat and
-  self-restart.
-- Capture phase plan P1 — Mulai/Selesai/Batalkan (cancel) session boundaries,
-  weekly opening hours, and the auto-stop 1 h after closing.
-- R-04 segment API → `gemini-3.5-transcribe-preview` → Sensitive Data
-  Protection redaction → Firestore, with no audio or base64 ever written to
-  storage, logs, or errors.
-- R-05a/R-05b pipeline plain code — windowing, cross-window thread builder,
-  the evidence gate (plain code, not AI), and the label call
-  (`gemini-3.5-flash-lite`) with a staff-name scrub and a scheduled tick
-  route (Cloud Scheduler, OIDC-verified) that orchestrates it end to end.
-- R-07 tap debrief — the server slice (gate v2, reason checks, routes, tick
-  expiry), the phone's answer cache and uploader, and the one-question-at-a-
-  time Ya/Tidak + reason debrief flow on `/capture` (entry card, done and
-  timeout screens).
+Owners and supervisors sign in with email and password. Staff have no account: a phone is paired to the shop with a
+6-digit code. The pilot shop is Proofed (Indonesia); it has not gone live yet. Judges use a demo outlet in the same
+app.
 
-**Deployed:** the demo project (`bee6-playground`) has a live Cloud Run `web`
-service that auto-deploys on every push to `main` via a Cloud Build trigger
-— this is what judges will use. No public submission URL is published here
-yet; making every submission link open without login (R-14) hasn't shipped.
+## Try it
 
-**Pending:** the pilot project (Proofed's real outlet) has no Cloud Run
-service, Cloud Build trigger, or Scheduler job yet. Pilot go-live was
-postponed from Mon 5 Oct to **Mon 12 Oct**, pending internal testing on a
-test outlet and Rangga's written sign-off.
+- Demo: [DEMO URL]
+- Repository: [REPOSITORY LINK]
+- Team contact: [TEAM CONTACT]
 
-**Not started yet:** R-06 (supervisor day-record view), R-08 (ProposalAgent),
-R-09 (approval screens), R-10 (SOP versions + before/after list), R-11
-(ReviewAgent), R-12 (demo outlet polish), R-13 (eval harness), R-14
-(release), capture phase plan P3 (on-device encrypted audio queue), and
-capture phase plan P4 (retention/TTL for thread text). R-15 (CriticAgent)
-and the P5 cross-device merge have moved to the next MVP, after this one.
+Every visit to the demo gets its own **private sandbox**: a copy of a fictional bakery that lasts 2 hours and cannot
+be seen by anyone else. Nothing in it is real shop data. Choose a role on the sign-in page (Staff, Supervisor or
+Owner) and use the shared demo credentials below. They are public on purpose and open nothing but a sandbox.
 
-See `docs/plan.md` and `docs/backlog.md` for the full task list, dates, and
-"done when" criteria.
+| Role | Sign in with |
+| --- | --- |
+| Staff | Staff code `000000` |
+| Supervisor | `supervisor.judge@example.com` / `bee6-demo` |
+| Owner | `owner.judge@example.com` / `bee6-demo` |
 
-## Running locally
+Suggested path:
+
+1. **Staff.** Sign in with the staff code on a phone or laptop with a microphone, and allow the microphone. The
+   capture page opens a **script drawer** with a 5-minute script: tap Start, then read each card aloud and tap Next.
+   In the demo you can start at any time of day and end at once, and a session stops on its own 5 minutes after
+   Start. Then answer the debrief questions. Up to two questions from the fictional bakery's earlier days are added to
+   your own, marked "Earlier day".
+2. **Supervisor.** Use the bar at the top to switch role inside the same sandbox. Open the day record, the questions
+   queue and Proposals. Generate a proposal (the sandbox's earlier days already hold enough evidence), then mark it
+   feasible or reject it.
+3. **Owner.** Approve the proposal. It ships as a new SOP version, shown on the SOP page with a before/after list.
+4. **Review.** On Reviews, use "Fast-forward to the review date (simulated)" to see the review and its suggested
+   verdict. Supervisor and owner each record a verdict.
+
+The demo is English-first. Bahasa Indonesia strings exist but are provisional.
+
+## How it works
+
+1. **Capture.** The paired phone's page listens with the microphone, detects speech in the browser (voice activity
+   detection) and cuts it into short Opus segments of at most 15 seconds.
+2. **Segment upload.** Each segment is sent to our API inside the request. The API checks the device's role and shop
+   on the server.
+3. **Transcription and redaction.** The audio is transcribed in memory by Gemini and dropped. The text is then scrubbed
+   of staff names and redacted by Sensitive Data Protection before anything is written. Redacted segment text expires
+   after 48 hours.
+4. **Windows and threads.** Plain code groups lines into windows, then builds threads that continue across windows.
+5. **Label.** A Gemini Flash-Lite call labels each thread with one of 12 categories, a confidence and the lines it
+   relies on.
+6. **Evidence gate.** Plain code, not AI. A label becomes a fact only if the gate's rules pass; otherwise it becomes a
+   debrief question.
+7. **Debrief.** After End or the auto-stop, staff answer Yes / No / Skip on the phone, with a reason that is scrubbed
+   and redacted. An answer can confirm or reject a label. A supervisor can also confirm or reject one.
+8. **Proposal.** A supervisor or owner asks for a proposal. If the facts reach the evidence floor (at least 2 facts on
+   at least 2 different days, within 14 days), a `ProposalAgent` (Google ADK, Gemini Flash) picks one intervention from
+   a fixed library and writes one SOP step change with a metric, a failure condition and a review date. Plain code
+   checks its output (`pgate-v1`) and refuses anything that does not pass.
+9. **Supervisor, then owner.** The supervisor marks the proposal feasible or rejects it; the owner approves or
+   rejects it. A rejection reason becomes a permanent constraint that later proposals must acknowledge.
+10. **SOP version.** Approval writes a new, immutable SOP version, effective the next day.
+11. **Review.** A daily Cloud Scheduler job finds changes whose review date has come and compares the rate of the
+    affected category per captured day before and after. The suggested verdict is plain code (a change of 20% or more,
+    needing at least 2 captured days in each window), not a model. Supervisor and owner each decide; the owner's
+    verdict is the outcome. A review nobody confirms within 7 days is recorded as "unknown".
+
+More detail: [`docs/architecture.md`](docs/architecture.md).
+
+## Models and regions
+
+<!-- regions:start -->
+| Model | Used for | Location |
+| --- | --- | --- |
+| `gemini-3.5-transcribe-preview` | Transcription | `global` |
+| `gemini-3.5-flash-lite` | Labels | `global` |
+| `gemini-3.5-flash` | Proposals | `asia-southeast1` |
+| `gemini-live-debrief` | Voice debrief (not built) | Not probed |
+| Sensitive Data Protection (service) | Redaction | `asia-southeast2` |
+
+Probed on 2026-10-01 (`config/regions.yaml`).
+<!-- regions:end -->
+
+Services and data are in `asia-southeast2` (Jakarta). Each model's location comes from `config/regions.yaml`, written
+by `npm run probe` and never hard-coded. A row says "Not probed" when the probe has no working location for that
+model. This table is generated: run `npm run readme:regions` after a re-probe and paste the output between the
+markers; a test fails if the two differ.
+
+## Privacy by design
+
+- **Audio is never stored in the cloud.** It arrives in the segment request, is transcribed in memory and dropped.
+  There are no Cloud Storage writes, and no audio or base64 in logs, errors or Firestore. While the network is down the
+  phone keeps about 10 minutes of audio in memory only.
+- **Redaction before storage.** Sensitive Data Protection runs on transcript lines, and on debrief reasons after a
+  staff-name scrub, before anything is written.
+- **Names only in `staff`.** Staff names are used only for the scrub and the transcription vocabulary. Threads,
+  questions, answers, proposals, outcomes and audit logs store no name and no staff id.
+- **Answers carry a device id only.** An answer stores the answering device and timestamps, not a role or a person.
+  Supervisors see "a staff member answered", never who. No supervisor or owner screen shows a device id.
+- **Browsers never talk to Firestore.** Every read and write goes through our API, which checks role and shop on the
+  server.
+- **SOP changes only through proposals** (evidence, supervisor, owner). No endpoint edits the SOP directly.
+- **Google only.** Gemini on Google Cloud (Vertex) through `@google/genai` and Google ADK, with the project's service
+  account. No other AI provider, SDK or key is used anywhere in the product code.
+- **Retention.** Redacted segment text expires after 48 hours. Thread text currently has no expiry; the planned
+  14-day retention is not built yet (see Known gaps).
+- **The public repository holds no real SOP, transcripts, staff or customer data, keys or audio.** Demo data is
+  fictional.
+
+## Setup
+
+You need Node.js and a paid Google Cloud project (real shop data never goes through a free AI Studio key). For local
+development, sign in with Application Default Credentials (`gcloud auth application-default login`).
 
 ```bash
-npm install
-npm run dev            # local dev server
-npm run build          # next build
-npm run lint           # eslint
-npm run typecheck      # tsc --noEmit
-npm test               # unit tests (vitest run)
-npm run probe          # region probe -> config/regions.yaml (needs a real GCP project)
-npm run seed           # outlet, users, device pairing code, staff names (PINs dormant)
-npm run eval           # placeholder for the R-13 eval harness (not implemented yet)
-npm run eval:redaction # measured redaction-accuracy check against a real project
-npm run eval:label     # label-model trap eval
+npm install                  # also points git at .githooks (pre-push: lint, build, unit tests)
+cp .env.example .env.local   # then fill in the values; the names are listed under Environment
+npm run dev                  # local dev server
+npm run probe                # region probe: writes config/regions.yaml (needs a real GCP project)
+GOOGLE_CLOUD_PROJECT=<demo project> DEMO_MODE=true npm run seed -- --project demo
+                             # fictional outlet, users, staff and a 6-digit device pairing code
+npm run provision:web-user -- --project demo --email <email>   # owner or supervisor sign-in account
 ```
 
-`npm install` also runs `npm run prepare`, which points git at `.githooks`
-(`core.hooksPath`) for this repo. From then on, `git push` runs lint, build,
-and unit tests locally first and refuses the push if any of them fail (a
-`smoke` step runs too if that script ever exists — it doesn't yet; R-13 is
-not built). Use `git push --no-verify` to bypass this deliberately; that's
-standard git behavior, reserved for a human's explicit call, not something an
-agent decides on its own.
+Other commands:
 
-## Using the live deployment
+```bash
+npm run lint             # eslint
+npm run typecheck        # tsc --noEmit
+npm test                 # unit tests (vitest run)
+npm run build            # next build
+npm run readme:regions   # prints the Models and regions table for this file
+npm run smoke            # not built: there is no end-to-end smoke script yet
+```
 
-The demo outlet runs on a live Cloud Run service at `https://web-33uzb53tza-et.a.run.app` 
-(project `bee6-playground`). This is for judges, visitors, and internal testing only — it uses 
-fictional data and is safe to publish.
+`npm run seed -- --project demo --template` and `npm run demo:seed-template` build the demo's sandbox template through
+the real segment route, on the demo project only. `npm run seed -- --project pilot` reads an untracked
+`private/seed.pilot.json`. Pilot and demo are separate Google Cloud projects and the scripts refuse to mix them.
 
-### Pairing a device
+**Deploy:** a Cloud Build trigger on `main` builds the image (`cloudbuild.yaml`) and deploys the Cloud Run service
+`web` in `asia-southeast2`. Cloud Scheduler calls two OIDC-verified internal routes: the pipeline tick
+(`/api/internal/pipeline/tick`) and the daily review run (`/api/internal/reviews/run`).
 
-To set up the demo on a phone:
+## Environment
 
-1. **Generate a pairing code** (requires GCP access to the demo project):
-   ```bash
-   GOOGLE_CLOUD_PROJECT=bee6-playground DEMO_MODE=true npm run seed -- --project demo
-   ```
-   This prints a 6-digit code valid for 10 minutes.
+Names only; values live in Secret Manager or an untracked `.env.local`, never in the repository.
 
-2. **Pair the phone:** Open `https://web-33uzb53tza-et.a.run.app/pair` in the phone's browser, 
-   enter the 6-digit code, and submit. The phone is now linked to the demo outlet.
+- Project and region: `GOOGLE_CLOUD_PROJECT`, `APP_REGION`
+- Firebase web config: `FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID`, `FIREBASE_APP_ID`
+- Internal routes: `TASKS_INVOKER_SA`, `PIPELINE_TICK_AUDIENCE`, `REVIEW_RUN_AUDIENCE`
+- Thread action handles: `THREAD_HANDLE_KEY`
+- Demo project only (`DEMO_MODE` must stay unset on the pilot): `DEMO_MODE`, `DEMO_IP_SALT`, `DEMO_XFF_FROM_END`,
+  `DEMO_SWITCH_IP_CAP`, `DEMO_SANDBOX_DAILY_CAP`, `DEMO_SEGMENT_SANDBOX_CAP`, `DEMO_SEGMENT_DAILY_CAP`,
+  `DEMO_GENERATE_SANDBOX_CAP`, `DEMO_GENERATE_DAILY_CAP`, `DEMO_FAST_FORWARD_SANDBOX_CAP`,
+  `DEMO_REDACT_SANDBOX_CAP`, `DEMO_MODEL_DAILY_CAP`
+- Development only: `NEXT_PUBLIC_DEV_CONTROLS` (the `/capture` dev panel; keep it off everywhere real)
+- Named in the project rules but not read by any code yet: `CLOUD_TASKS_QUEUE`, `DAILY_TOKEN_CEILING`,
+  `NEXT_PUBLIC_DEVICE_AUDIO_QUEUE`
 
-### Capture and debrief flow
+## Evaluation
 
-Once paired, open `https://web-33uzb53tza-et.a.run.app/capture` on the same phone:
+The eval scripts read local files or call the demo project; none of them stores or prints transcript text. Their
+inputs (clips, references, the gold-set CSV) stay outside the repository.
 
-1. **Mulai (Start):** Tap to begin a capture session. The phone starts listening and transcribing 
-   speech into short work notes. The page shows a status line.
+**No evaluation figures are reported yet.** When they are, each will carry its sample size `n`, its date and its
+source, and the label figures will say they are measured on internal fictional speech by the team (internal testing and
+the demo outlet), not on shop data. Cost figures are list price, not billed cost.
 
-2. **Speak naturally:** Say something — mention a staff name (e.g., "Ari Demo" or "Bella Demo", 
-   the seeded demo staff), a phone number, a work scenario, or any phrase. The transcription runs 
-   in real time with **name-scrubbing and redaction for sensitive data** (names matched against 
-   known staff are replaced; phone numbers and addresses are redacted). This part works immediately 
-   and can be demoed in minutes.
+How each is run:
 
-3. **Selesai (End):** The **Selesai** button becomes available **4 real hours after Mulai**, 
-   not based on segment count. Tap it to end the session and trigger the debrief. A full live 
-   demo of the Mulai → Selesai → debrief loop therefore requires either waiting 4 hours or is 
-   not practical in a single sitting. What can be demoed quickly is step 1–2: Mulai, live capture, 
-   and the working transcription/redaction pipeline.
+- **Label quality** (confusion matrix, per-category precision, recall and F1, macro-F1, a rush-hour subset and
+  agreement between two reviewers). First export episodes from the demo or test outlet, label them in a sheet, download
+  the sheet as CSV, then report from that pinned snapshot (the report prints its SHA-256):
 
-4. **Batalkan (Cancel):** At any time before Selesai, you can cancel the session with a 
-   confirmation prompt.
+  ```bash
+  npm run eval:export -- --project <id> --outlet <id> --from YYYY-MM-DD --to YYYY-MM-DD --out-dir <dir outside the repo> [--allow-pilot] [--tz <IANA zone>]
+  npm run eval -- --gold <gold CSV file> --source <internal|pilot>
+  ```
 
-5. **Debrief:** After Selesai, one question appears at a time on the capture screen. Each asks 
-   whether a flagged moment happened (based on the captured speech). Answer **Ya** (Yes), **Tidak** 
-   (No), or **Lewati** (Skip), and optionally type a reason (max 500 characters, no staff names). 
-   Reasons are redacted and stored.
+  `eval:export` is read-only, refuses the pilot project unless `--allow-pilot` is given, refuses judge sandbox
+  outlets (`sbx-*`), and never overwrites a file. `--source` is required and printed in the report.
+- **Transcription quality** (pooled word error rate, latency p50 and p95, speech minutes and a list-price estimate)
+  on locally recorded fictional clips of at most 15 seconds, against human-written references:
 
-### Notes
+  ```bash
+  GOOGLE_CLOUD_PROJECT=bee6-playground npm run eval:transcribe -- --clips <clips dir> --refs <refs CSV> [--allow-project <project id>]
+  ```
 
-- **Demo only.** This is the demo outlet (`bee6-playground`). The **pilot project** (Proofed's real 
-  shop) is a separate deployment, not yet live. Pilot go-live is scheduled for **Mon 12 Oct** 
-  pending internal sign-off — no public URL is published until then.
-
-- **Fictional data.** The demo outlet, staff, and test transcripts are all fictional. It is safe 
-  to try the full flow with made-up speech or the seeded staff names (Ari Demo, Bella Demo).
-
-- **Always online.** Capture requires the browser page to stay open, the screen on, and the phone 
-  connected. There is no native app yet.
+  It refuses the pilot project. Word error rate normalisation: Unicode NFKC, then lower-case; apostrophes are removed;
+  a "." or "," between two digits is removed (so 1.5 becomes 15 and Rp 15.000 equals Rp 15000); every other
+  character that is not a letter, digit, combining mark or space becomes a space; whitespace is collapsed.
+- **Trap eval:** `npm run eval:label` runs a fictional what-if line through the real label call five times and
+  checks that it is labelled as training each time.
+- **Redaction check:** `npm run eval:redaction` measures recall and precision of redaction on fictional fixtures.
 
 ## Known gaps
 
-- DPIA under PP 33/2026 is the next priority after submission.
-- Transcription (`gemini-3.5-transcribe-preview`) is in preview.
-- Jakarta (`asia-southeast2`) doesn't yet serve Gemini `generateContent`; per
-  the real probe in `config/regions.yaml`, text models fall back to
-  `asia-southeast1` (`gemini-3.5-flash`) or `global`
-  (`gemini-3.5-transcribe-preview`, `gemini-3.5-flash-lite`). Data and
-  services themselves stay in `asia-southeast2`.
-- `config/regions.yaml` was probed against the demo project
-  (`bee6-playground`) only; it still needs to be re-probed against the pilot
-  project before the pilot handles real transcription or labeling, since
-  preview-model access can be project-specific.
-- The Live API model for the optional voice debrief (R-16, "if time") 404s
-  under its current placeholder id; untested, and not scheduled unless time
-  remains after the main path.
-- Browser capture needs the paired phone's page open, the screen on, and the
-  phone plugged in — there is no native app.
-- Consent is collected outside the app (the bee6–Proofed paper contract plus
-  an emailed notice), not through an in-app gate; revocation is a manual
-  procedure, acknowledged and completed within 7 working days.
-- A forgotten Mulai looks like a day off — there's no retroactive detection.
-- Firestore TTL deletion lags behind the nominal retention window.
-- `DAILY_TOKEN_CEILING` (the per-outlet daily cost-guard cap on non-essential
-  model calls) is specified in `CLAUDE.md` §7 but not enforced in code yet.
-- `T-206` (the incident-keyword fast path — flagging a safety/security
-  incident immediately rather than waiting for the normal label pipeline) is
-  specified but not built; no task currently owns it.
-- A staff-name scrub runs on label-pipeline text today, but the dedicated
-  scrub pass over the 14-day-retained thread text (capture phase plan P4)
-  hasn't shipped yet; threads have no expiry until P4 lands.
-- A measured redaction-accuracy check (`scripts/eval-redaction.ts`, run
-  against the real demo project) found Google DLP's `STREET_ADDRESS`
-  detector misses common Indonesian "Komplek … Blok … No." addresses
-  entirely, and only partially redacts "Jalan … No." addresses it does catch
-  (the house number and district survive in clear text). Phone numbers,
-  emails, and names all scored correctly. Accepted as a known gap rather than
-  building a regex supplement now.
-- The per-device debrief answer rate limit is deferred (a follow-up is due
-  before the Sun 11 Oct sign-off); the answer route has no rate limit yet.
-- The debrief has been verified with unit tests and network-mocked browser
-  runs, but a full real-device end-to-end pass (real capture session →
-  Selesai/auto-stop → debrief → redaction on the answer route) is still
-  pending.
-- See `CLAUDE.md` and `docs/` for the full set of hard rules, architecture,
-  and other honestly-stated known gaps.
+- A full DPIA under Indonesia's PP 33/2026 is the next priority after submission.
+- Gemini 3.5 Transcribe is in preview.
+- Some models run outside Jakarta: transcription and labelling use the `global` endpoint and proposals use
+  `asia-southeast1` (see the table), so model processing may happen outside `asia-southeast2` even though services and
+  stored data are in `asia-southeast2`. `config/regions.yaml` was probed against the demo project only and must be
+  re-probed on the pilot project before the pilot handles real data.
+- Capture needs the capture page open, the screen on and the phone plugged in. There is no native app.
+- Consent is collected outside the app (the bee6-shop paper contract plus an emailed consent notice, privacy policy and
+  terms). There is no in-app consent or revoked-consent state; revocation is handled manually, acknowledged and
+  completed within 7 working days.
+- A forgotten Start looks like a day off.
+- Firestore TTL deletion lags: it is used today for segment text after 48 hours, and deletion is not instant.
+- The pilot shop has not gone live yet, so there is no pilot outcome. The closed loop is shown on the demo outlet. Its
+  earlier days are fictional clips sent through the real pipeline with back-dated session times, and the review
+  fast-forward is simulated time, marked "Simulated time (demo)". A visitor's own capture session and debrief are real.
+- The suggested review verdict is plain code (a change of 20% or more in the per-day rate, with at least 2 captured
+  days in each window), not a model. Supervisor and owner decide.
+- The daily per-outlet token ceiling (`DAILY_TOKEN_CEILING`) is specified but not enforced in code. The demo project
+  has its own request-count caps instead: sandboxes per network and per day, and per-sandbox and per-day limits on
+  recordings, proposals, simulated time-skips and typed-text redactions. They are environment-configurable (see
+  Environment) and are not a token ceiling.
+- Constraints cannot be edited or deleted in the app. Proposals respect them through the prompt and an acknowledgement
+  that plain code checks, not a semantic check.
+- The owner's approval screen has no cost or brand impact field.
+- An outlet without a supervisor account cannot move proposals or reviews forward.
+- A SOP step longer than 400 characters cannot be changed by a proposal: the model rewrites a step at up to 400
+  characters (steps can be up to 800), so approval is refused instead of truncating.
+- An outlet's SOP is loaded by the seed script; there is no upload screen yet.
+- The category definitions, the proposal rubric and the intervention library are v0 drafts written by the team and not
+  yet reviewed by the domain expert.
+- The on-device encrypted audio queue (capture phase P3) is not built. Without it, about 10 minutes of speech survives
+  a network drop, and only while the page stays open.
+- The 14-day thread-text retention (capture phase P4) and its extra staff-name scrub pass over stored thread text are
+  not built. Thread text has no expiry yet; staff names are scrubbed before the text is stored.
+- The incident-keyword fast path (a safety or security keyword flagging a moment at once) is specified but not built.
+- Sensitive Data Protection's street-address detector misses common Indonesian "Komplek ... Blok ... No." addresses and
+  only partly redacts "Jalan ... No." addresses (the house number and district can survive). Phone numbers, emails and
+  names were redacted correctly in the same check. Accepted as a gap for now.
+- The debrief answer route has no per-device rate limit yet.
+- Demo only: reloading the page in the middle of a demo capture session does not restore the session.
+- Demo only: on WebKit browsers (Safari), a tap within about one second of the sign-in page loading may not move the
+  focus into the panel.
+- Demo only: the demo is English-first, and its Bahasa strings are provisional.
+
+## Next
+
+- Upload a SOP in the app (R-17), with a version diff screen and a fixed sections format.
+- Long-step handling, so steps above the model's 400-character rewrite limit can be changed.
+- Pilot hardening: a rate limit on the pairing route and a Content-Security-Policy.
+- A CriticAgent that challenges a proposal before it reaches the supervisor (R-15).
+- Cross-device merge of one shop's notes from several phones (capture phase P5).
+- Voice debrief with the Gemini Live API (R-16).
+- Owner cost and brand impact on the approval screen, and outcome memory that feeds earlier results into new proposals.
+- Constraint editing, a per-outlet token ceiling, and the on-device audio queue and 14-day retention above.
+- The DPIA under PP 33/2026.
+
+## Licences
+
+bee6 is MIT-licensed: see [`LICENSE`](LICENSE). Third-party components and their licences are listed in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 ---
 
