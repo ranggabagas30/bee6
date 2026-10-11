@@ -31,7 +31,14 @@ export const GOLD_CSV_COLUMNS = [
 ] as const;
 
 const REQUIRED_COLUMNS = ["episode", "start_hm", "model_category", "gold", "gold_2"] as const;
-const HM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** H:MM, HH:MM or HH:MM:SS: Google Sheets turns "09:05" into a time value and may download "9:05" or "9:05:00". */
+const HM_RE = /^([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/;
+
+/** Normalises a start time to zero-padded "HH:MM" (seconds dropped), or null when it is not a valid time of day. */
+export function normalizeHm(value: string): string | null {
+  const m = HM_RE.exec(value.trim());
+  return m ? `${(m[1] as string).padStart(2, "0")}:${m[2] as string}` : null;
+}
 
 export const RUSH_WINDOWS: readonly (readonly [string, string])[] = [
   ["11:00", "13:59"],
@@ -80,9 +87,9 @@ export function parseGoldCsv(text: string): { rows: LabelRow[]; skipped: number;
       continue;
     }
 
-    const startHm = cell(r, "start_hm");
-    if (!HM_RE.test(startHm)) {
-      errors.push(`${episode}: start_hm "${startHm}" is not HH:MM`);
+    const startHm = normalizeHm(cell(r, "start_hm"));
+    if (startHm === null) {
+      errors.push(`${episode}: start_hm "${cell(r, "start_hm")}" is not H:MM, HH:MM or HH:MM:SS`);
       continue;
     }
 

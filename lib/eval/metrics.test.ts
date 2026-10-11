@@ -237,6 +237,43 @@ describe("parseGoldCsv", () => {
     expect(parseGoldCsv(bad).errors.some((e) => e.includes("E0002"))).toBe(true);
   });
 
+  it("accepts H:MM, HH:MM and HH:MM:SS start times and stores zero-padded HH:MM (Sheets reformats times)", () => {
+    const text = [
+      HEADER,
+      "E0001,d,9:05,x,TRAINING,TRAINING,,",
+      "E0002,d,09:05,x,TRAINING,TRAINING,,",
+      "E0003,d,9:05:00,x,TRAINING,TRAINING,,",
+      "E0004,d,13:59:59,x,TRAINING,TRAINING,,",
+      "E0005,d,0:00,x,TRAINING,TRAINING,,",
+      "E0006,d, 17:00:00 ,x,TRAINING,TRAINING,,",
+    ].join("\n");
+    const { rows, errors } = parseGoldCsv(text);
+    expect(errors).toEqual([]);
+    expect(rows.map((r) => r.start_hm)).toEqual(["09:05", "09:05", "09:05", "13:59", "00:00", "17:00"]);
+  });
+
+  it("rush-hour edge minutes survive the Sheets reformatting", () => {
+    const text = [
+      HEADER,
+      "E0001,d,11:00:00,x,TRAINING,TRAINING,,",
+      "E0002,d,13:59:00,x,TRAINING,TRAINING,,",
+      "E0003,d,14:00:00,x,TRAINING,TRAINING,,",
+      "E0004,d,10:59,x,TRAINING,TRAINING,,",
+      "E0005,d,9:05,x,TRAINING,TRAINING,,",
+    ].join("\n");
+    const { rows } = parseGoldCsv(text);
+    expect(rows.map((r) => inRushHour(r.start_hm))).toEqual([true, true, false, false, false]);
+  });
+
+  it.each(["25:00", "9", "9:5", "24:00", "12:60", "9:05:7", "09:05:60", "9am", "123:00", "09:05:00:00"])(
+    "rejects start_hm %s",
+    (hm) => {
+      const { rows, errors } = parseGoldCsv([HEADER, `E0009,d,${hm},x,TRAINING,TRAINING,,`].join("\n"));
+      expect(rows).toEqual([]);
+      expect(errors.some((e) => e.includes("E0009") && e.includes(hm))).toBe(true);
+    },
+  );
+
   it("reports an empty file", () => {
     expect(parseGoldCsv("").errors.length).toBeGreaterThan(0);
   });
