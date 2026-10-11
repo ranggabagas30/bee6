@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import { getClientAuth } from "@/lib/auth/client/firebase-client";
 import type { DemoRole } from "@/lib/demo/contract";
@@ -13,7 +12,6 @@ import { startDemo, type DemoRefusal, type StartDemoResult } from "@/app/demo/de
  * The refusal is cleared when the next attempt starts, never before.
  */
 export function useDemoStart(config: FirebaseWebConfig | null, onExpired: "restart" | "stop") {
-  const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<DemoRefusal | null>(null);
   const inFlight = useRef(false);
@@ -25,7 +23,6 @@ export function useDemoStart(config: FirebaseWebConfig | null, onExpired: "resta
     setRefusal(null);
     const result = await startDemo(role, {
       auth: config ? getClientAuth(config) : null,
-      navigate: (path) => router.push(path),
       onExpired,
     });
     inFlight.current = false;

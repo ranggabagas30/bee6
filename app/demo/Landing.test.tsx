@@ -99,7 +99,7 @@ describe("Landing taps", () => {
     expect(role).toBe("supervisor");
     expect(options.onExpired).toBe("restart");
     expect(options.auth).toBe(FAKE_AUTH);
-    expect(typeof options.navigate).toBe("function");
+    expect(options.navigate).toBeUndefined(); // startDemo's default is a hard navigation
   });
 
   it("passes no auth when the server has no Firebase config", async () => {

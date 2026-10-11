@@ -204,15 +204,14 @@ describe("startDemo", () => {
   const navigate = vi.fn();
   beforeEach(() => navigate.mockReset());
 
-  it("web role: signs out the old user, signs in with the custom token, stores per-tab state, navigates, clears device keys", async () => {
+  it("web role: signs in with the custom token without a signed-out gap, stores the state, navigates, clears device keys", async () => {
     fakeLocal.setItem(DEVICE_TOKEN_KEY, "old");
     fakeLocal.setItem(DEVICE_ID_KEY, "old");
     const f = vi.fn().mockResolvedValue(ok(WEB_OK));
     const result = await startDemo("supervisor", { auth: AUTH, navigate, fetchImpl: f as never, now: () => NOW, onExpired: "restart" });
     expect(result).toEqual({ kind: "started" });
-    expect(signOut).toHaveBeenCalledWith(AUTH);
     expect(signInWithCustomToken).toHaveBeenCalledWith(AUTH, "custom-token-1");
-    expect(signOut.mock.invocationCallOrder[0]!).toBeLessThan(signInWithCustomToken.mock.invocationCallOrder[0]!);
+    expect(signOut).not.toHaveBeenCalled(); // the new user replaces the old one in one step
     expect(navigate).toHaveBeenCalledWith("/day");
     expect(readDemoState()).toEqual({ sandbox_key: KEY, expires_at_ms: EXPIRES, role: "supervisor" });
     expect(fakeLocal.getItem(DEVICE_TOKEN_KEY)).toBeNull();
@@ -231,6 +230,14 @@ describe("startDemo", () => {
     expect(navigate).toHaveBeenCalledWith("/capture");
     expect(readDemoState()?.role).toBe("staff");
     expect(fakeLocal.getItem(DEMO_STATE_KEY)).not.toContain("dev-token-1");
+  });
+
+  it("by default goes to the landing page with a hard navigation (window.location.assign), never a soft one", async () => {
+    const assign = vi.fn();
+    vi.stubGlobal("location", { assign });
+    const f = vi.fn().mockResolvedValue(ok(WEB_OK));
+    await startDemo("supervisor", { auth: AUTH, fetchImpl: f as never, now: () => NOW, onExpired: "restart" });
+    expect(assign).toHaveBeenCalledExactlyOnceWith("/day");
   });
 
   it("only navigates to an allow-listed landing path, falling back to the role's own", async () => {

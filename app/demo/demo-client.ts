@@ -218,7 +218,11 @@ export async function requestDemoSession(
 export interface StartDemoOptions {
   /** Browser Firebase Auth; null when the server has no web config (web roles then fail before any request). */
   auth: Auth | null;
-  navigate: (path: string) => void;
+  /**
+   * How to go to the landing page. Defaults to a hard navigation (`window.location.assign`), so no page that
+   * is still mounted (it may react to the sign-out or the new user by redirecting) can override it.
+   */
+  navigate?: (path: string) => void;
   /**
    * What a 409 SANDBOX_EXPIRED (or an unknown key) means. "restart": the visitor tapped a Try-as button, so
    * clear and retry once with no key (a new sandbox). "stop": the visitor tapped a bar switch, so clear and
@@ -242,6 +246,15 @@ function landingFor(role: DemoRole, serverPath: string): string {
   return LANDING_ALLOWED[role].includes(serverPath) ? serverPath : LANDING_DEFAULT[role];
 }
 
+/** A full page load: the old page, its listeners and its pending soft navigations are all discarded. */
+function hardNavigate(path: string): void {
+  window.location.assign(path);
+}
+
+function nextMacrotask(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 async function signOutQuietly(auth: Auth | null): Promise<void> {
   if (!auth) return;
   try {
@@ -257,7 +270,8 @@ async function applyCredentials(data: DemoSessionResponse, auth: Auth | null, na
   if (data.kind === "web") {
     if (!auth) return false;
     try {
-      await signOutQuietly(auth);
+      // No signOut first: signing in as the new user replaces the old one in a single auth-state change,
+      // so a page that is still mounted never sees "signed out" and redirects to /sign-in.
       await signInWithCustomToken(auth, data.custom_token);
     } catch {
       return false;
@@ -274,15 +288,18 @@ async function applyCredentials(data: DemoSessionResponse, auth: Auth | null, na
     removeDeviceKeys();
     return false;
   }
-  await signOutQuietly(auth);
   writeDemoState(state);
+  // The old web user must go (the phone is now a staff device), but a mounted web page redirects to
+  // /sign-in when it sees that. Let those reactions run, then hard-navigate: the load discards the page.
+  await signOutQuietly(auth);
+  await nextMacrotask();
   navigate("/capture");
   return true;
 }
 
 /** Start a visit (no usable key) or switch role in the current sandbox (key stored and unexpired). Never throws. */
 export async function startDemo(role: DemoRole, options: StartDemoOptions): Promise<StartDemoResult> {
-  const { auth, navigate, onExpired, fetchImpl, now = Date.now } = options;
+  const { auth, navigate = hardNavigate, onExpired, fetchImpl, now = Date.now } = options;
   if (role !== "staff" && !auth) return { kind: "error" };
 
   const stored = readDemoState();
