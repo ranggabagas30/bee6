@@ -16,6 +16,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "probe": "tsx scripts/probe.ts",
+    "readme:regions": "tsx scripts/readme-regions.ts",
     "seed": "tsx scripts/seed.ts",
     "demo:seed-template": "tsx scripts/demo-seed-template.ts",
     "seed:day-fixture": "tsx scripts/seed-day-fixture.ts",

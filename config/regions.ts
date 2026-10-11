@@ -60,6 +60,16 @@ function loadRegionsFile(filePath: string = DEFAULT_REGIONS_PATH): RegionsFile {
 }
 
 /**
+ * Returns the whole parsed regions.yaml (models and services, including any
+ * still "UNPROBED"). For read-only reporting such as `npm run readme:regions`;
+ * code that makes a call must use `getModelLocation` / `getServiceLocation`,
+ * which refuse an unprobed entry.
+ */
+export function readRegionsFile(filePath?: string): RegionsFile {
+  return loadRegionsFile(filePath);
+}
+
+/**
  * Returns the probed region entry for a model. Throws a clear error if:
  *  - the model has no entry at all in regions.yaml, or
  *  - the model has never been successfully probed (location is
