@@ -1,15 +1,14 @@
 import { assertOutlet, assertPermission } from "@/lib/auth/rbac";
 import type { CustomClaims } from "@/lib/auth/roles";
-import { maskDigitRuns, normalizeConstraintText } from "@/lib/constraints/normalize";
+import { normalizeConstraintText } from "@/lib/constraints/normalize";
 import type { ConstraintView } from "@/lib/constraints/contract";
 import {
   ConflictError,
   ForbiddenError,
   NotFoundError,
-  ServiceUnavailableError,
   ValidationError,
 } from "@/lib/http/errors";
-import { scrubStaffNames } from "@/lib/pipeline/label/scrub";
+import { redactUserText } from "@/lib/redact/user-text";
 import { ConstraintSchema, type AuditLog, type Constraint, type Outlet } from "@/lib/firestore/schema";
 import { CONSTRAINT_INPUT_MAX, CONSTRAINT_INPUT_MIN } from "@/lib/constraints/contract";
 import { MAX_CONSTRAINTS } from "@/lib/proposals/constants";
@@ -103,16 +102,8 @@ export async function createConstraint(
 
   // 4. Mask -> scrub -> redact, in that order, same pipeline as every other
   // model-facing text write (hard rule #3).
-  const masked = maskDigitRuns(text);
   const names = await store.listStaffScrubNames();
-  const scrubbed = scrubStaffNames(masked, names);
-  let redacted: string;
-  try {
-    const [out] = await deps.redact([scrubbed]);
-    redacted = out ?? "";
-  } catch {
-    throw new ServiceUnavailableError("Redaction unavailable", "redact");
-  }
+  const redacted = await redactUserText(text, names, deps.redact);
 
   // 5. Length after redaction (nothing written on failure).
   if (redacted.trim().length === 0 || redacted.length > 500) {
