@@ -64,6 +64,16 @@ describe("ScriptDrawer (R-18)", () => {
     expect(live.textContent).toBe("Card 1 of 10");
   });
 
+  it("item 10: the live region is mounted (empty) before Start, so 'Card 1 of 10' is announced when it fills", () => {
+    const { rerender } = render(<ScriptDrawer {...props({ state: "before", startedAtMs: null, nowMs: null })} />);
+    const live = screen.getByRole("status");
+    expect(live.textContent).toBe("");
+    expect(live.getAttribute("aria-live")).toBe("polite");
+    rerender(<ScriptDrawer {...props()} />);
+    expect(screen.getByRole("status")).toBe(live); // the same element: it was mounted before its content
+    expect(live.textContent).toBe("Card 1 of 10");
+  });
+
   it("an own-words card shows its example and a say card names the speaker", () => {
     render(<ScriptDrawer {...props()} />);
     fireEvent.click(next()); // bake-time-customer

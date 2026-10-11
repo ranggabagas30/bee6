@@ -95,11 +95,11 @@ export function ScriptDrawer(props: ScriptDrawerProps) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "4px 12px", minHeight: HANDLE_HEIGHT_PX }}>
         <div>
           <h2 style={{ fontSize: 16, margin: 0 }}>{t(lang, "C-script-title")}</h2>
-          {state === "running" ? (
-            <p role="status" aria-live="polite" aria-atomic="true" style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>
-              {t(lang, "C-script-card", { n: safeIndex + 1, total })}
-            </p>
-          ) : null}
+          {/* Mounted in every state and empty before Start: a live region announces changes to its content, not
+              its own arrival, so "Card 1 of 10" is read out when it fills. */}
+          <p role="status" aria-live="polite" aria-atomic="true" style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>
+            {state === "running" ? t(lang, "C-script-card", { n: safeIndex + 1, total }) : ""}
+          </p>
           {countdown ? <p style={{ margin: 0, fontSize: 14 }}>{countdown}</p> : null}
         </div>
         <button

@@ -148,7 +148,7 @@ const CARDS: readonly ScriptCard[] = z.array(ScriptCardSchema).parse([
   {
     id: "phone-call",
     kind: "say",
-    speaker: "caller",
+    speaker: "you", // the staff member answering the call; the caller's words are not on the card
     text: {
       en: "Hello, Demo Bakehouse. Yes, we can keep two loaves for pickup at five.",
       id: "Halo, Demo Bakehouse. Bisa, kami simpankan dua roti untuk diambil jam lima.", // DRAFT: Tiffany

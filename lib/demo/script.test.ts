@@ -56,8 +56,10 @@ describe("bakery-v1 script (R-18)", () => {
   });
 
   it("the phone call card is about a pickup, the hypothetical card talks about something that did not happen", () => {
-    const call = cards.find((c) => c.speaker === "caller")!;
+    const call = cards.find((c) => c.id === "phone-call")!;
     expect(call.expect).toBe("question");
+    // the line on the card is what the staff member says when answering, so the speaker is "you", not the caller
+    expect(call.speaker).toBe("you");
     const hypo = cards.find((c) => c.id === "hypothetical")!;
     expect(hypo.expect).toBe("none");
     expect(cards.find((c) => c.id === "small-talk")!.expect).toBe("dropped");
