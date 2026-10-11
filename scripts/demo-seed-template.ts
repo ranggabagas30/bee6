@@ -19,10 +19,12 @@
  *      (`selectCandidates` + `checkEvidenceFloor`, 2 facts on 2 dates, never lowered), with zero answers.
  *      It prints `READY: facts=<n> dates=<m>` or `NOT READY: ...` (exit code 2). Re-run the whole thing only
  *      if the clips change (delete the `demo-tpl-outlet` data first via dev-ops).
- *   5. If NOT READY: create a supervisor account for the template outlet with the admin web-user script
- *      (see its header; this file never creates accounts), sign in as that supervisor, and confirm 2 or more threads across both days on /day (the product's real
- *      supervisor-confirm path, gate v3 `supervisor_confirmed`; it is NOT a bypass and never edits data),
- *      then re-check without uploading anything:
+ *   5. If NOT READY: the template cannot be fixed by confirming threads. There is deliberately no template
+ *      supervisor login, and template questions expire unanswered, so a confirm is refused (NOT_REVIEWABLE).
+ *      Instead re-cut the clips so that at least 2 different days each have at least 1 clear moment in an
+ *      automatic-fact category (ROUTINE_OPS, CUSTOMER_SERVICE, STAFF_CONSULT, TRAINING or EVENT), spoken clearly
+ *      enough for a label confidence of 0.9 or more. Then ask dev-ops to delete the `demo-tpl-outlet` data,
+ *      re-seed (steps 1 to 4), and re-check without uploading anything:
  *        npm run demo:seed-template -- --check-only
  *      `--check-only` needs no URL, code or clips: no pairing, no upload, no HTTP call; it only reads.
  *
@@ -173,7 +175,8 @@ export async function checkTemplateReadiness(reader: ReadinessReader, tz: string
   const line = floor.passed
     ? `READY: facts=${floor.facts} dates=${floor.dates}`
     : `NOT READY: facts=${floor.facts} dates=${floor.dates} (need ${MIN_EVIDENCE_FACTS} on ${MIN_EVIDENCE_DATES}). ` +
-      "Confirm threads as the template supervisor on /day, then re-run with --check-only";
+      "Re-cut the clips so at least 2 different days each have a clear moment in an automatic-fact category, " +
+      "ask dev-ops to delete the demo-tpl-outlet data, re-seed, then re-run with --check-only";
   return { ready: floor.passed, facts: floor.facts, dates: floor.dates, line };
 }
 

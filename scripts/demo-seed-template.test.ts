@@ -395,12 +395,12 @@ describe("R-18 P0 3.T1-3.T3 readiness check (same candidates and evidence floor 
     expect(res.line).toBe("READY: facts=2 dates=2");
   });
 
-  it("3.T2 three facts on one date -> NOT READY with what a supervisor must do (the real /day confirm path)", async () => {
+  it("3.T2 three facts on one date -> NOT READY with the remedy that works (re-cut clips, delete, re-seed)", async () => {
     const { r } = reader([threadOn(1, "2026-10-18"), threadOn(2, "2026-10-18"), threadOn(3, "2026-10-18")]);
     const res = await checkTemplateReadiness(r);
     expect(res).toMatchObject({ ready: false, facts: 3, dates: 1 });
     expect(res.line).toBe(
-      "NOT READY: facts=3 dates=1 (need 2 on 2). Confirm threads as the template supervisor on /day, then re-run with --check-only",
+      "NOT READY: facts=3 dates=1 (need 2 on 2). Re-cut the clips so at least 2 different days each have a clear moment in an automatic-fact category, ask dev-ops to delete the demo-tpl-outlet data, re-seed, then re-run with --check-only",
     );
   });
 
@@ -457,7 +457,7 @@ describe("R-18 P0 3.T1-3.T3 readiness check (same candidates and evidence floor 
     bad.deps.readiness = reader([threadOn(1, "2026-10-17")]).r;
     const res = await runTemplateSeed(bad.deps);
     expect(res.ready).toBe(false);
-    expect(bad.logs.at(-1)).toMatch(/^\[demo-seed\] NOT READY: facts=1 dates=1 \(need 2 on 2\)\. Confirm threads as the template supervisor on \/day/);
+    expect(bad.logs.at(-1)).toMatch(/^\[demo-seed\] NOT READY: facts=1 dates=1 \(need 2 on 2\)\. Re-cut the clips so at least 2 different days/);
   });
 
   it("3.T3 --check-only is recognised anywhere on the command line and needs no URL, code or clips", () => {
