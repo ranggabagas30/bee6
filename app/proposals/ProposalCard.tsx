@@ -82,11 +82,20 @@ function FollowupLines({ followup, lang }: { followup: Followup; lang: Lang }) {
   );
 }
 
-function ProposalContentView({ content, lang }: { content: ProposalContent; lang: Lang }) {
+function ProposalContentView({
+  content,
+  lang,
+  titleLevel,
+}: {
+  content: ProposalContent;
+  lang: Lang;
+  titleLevel: 2 | 3;
+}) {
+  const Title = titleLevel === 3 ? "h3" : "h2";
   const dirKey: DictKey = content.metric.direction === "decrease" ? "C-prop-dir-decrease" : "C-prop-dir-increase";
   return (
     <>
-      <h2 style={HEADING_STYLE}>{content.change_title}</h2>
+      <Title style={HEADING_STYLE}>{content.change_title}</Title>
       <p style={LINE_STYLE}>
         <strong>{t(lang, "C-prop-intervention")}:</strong>{" "}
         {lang === "en" ? content.intervention.label_en : content.intervention.label_id}
@@ -187,10 +196,13 @@ export function ProposalCard({
   lang,
   review,
   notices,
+  titleLevel = 2,
   children,
 }: {
   proposal: ProposalView;
   lang: Lang;
+  /** Heading level of the change title: 2 on its own (generate result), 3 inside a list section that has its own h2. */
+  titleLevel?: 2 | 3;
   review?: ReviewView;
   notices?: Notices;
   children?: ReactNode;
@@ -213,7 +225,7 @@ export function ProposalCard({
       )}
 
       {proposal.status !== "suppressed" && proposal.status !== "blocked" && proposal.content && (
-        <ProposalContentView content={proposal.content} lang={lang} />
+        <ProposalContentView content={proposal.content} lang={lang} titleLevel={titleLevel} />
       )}
 
       {review && <ReviewLines review={review} lang={lang} />}

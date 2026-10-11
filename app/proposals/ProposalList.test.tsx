@@ -205,6 +205,17 @@ describe("ProposalList — populated", () => {
     expect(within(articles[1]!).getByText("The owner approved this on Tue 6 Oct.")).not.toBeNull();
   });
 
+  it("card titles are h3 under the h2 section headings", async () => {
+    authedGetJson.mockResolvedValue(
+      listOf([makeItem(2, "awaiting_supervisor", "Open one")], [makeItem(1, "approved", "Done one")]),
+    );
+    renderList("supervisor");
+    await waitFor(() => expect(screen.getByText("Open one")).not.toBeNull());
+    expect(screen.getByRole("heading", { level: 3, name: "Open one" })).not.toBeNull();
+    expect(screen.getByRole("heading", { level: 3, name: "Done one" })).not.toBeNull();
+    expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(2);
+  });
+
   it("a supervisor sees panels only on awaiting_supervisor items", async () => {
     authedGetJson.mockResolvedValue(
       listOf([

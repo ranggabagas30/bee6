@@ -105,6 +105,7 @@ export function ProposalList({
               lang={lang}
               review={item.review}
               notices={item.notices}
+              titleLevel={3}
             >
               <ProposalDecisionPanel auth={auth} role={role} item={item} lang={lang} onSettled={onSettled} />
             </ProposalCard>
@@ -116,7 +117,13 @@ export function ProposalList({
         <section style={SECTION_STYLE} aria-labelledby="prop-list-decided">
           <h2 id="prop-list-decided">{t(lang, "C-prop-list-decided")}</h2>
           {decided.map((item) => (
-            <ProposalCard key={item.proposal.proposal_id} proposal={item.proposal} lang={lang} review={item.review} />
+            <ProposalCard
+              key={item.proposal.proposal_id}
+              proposal={item.proposal}
+              lang={lang}
+              review={item.review}
+              titleLevel={3}
+            />
           ))}
         </section>
       )}

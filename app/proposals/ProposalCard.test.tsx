@@ -183,6 +183,19 @@ describe("ProposalCard — awaiting_supervisor (content-bearing)", () => {
   });
 });
 
+describe("ProposalCard — title heading level", () => {
+  it("defaults to an h2 so the generate result card is unchanged", () => {
+    render(<ProposalCard lang="en" proposal={awaitingProposal()} />);
+    expect(screen.getByRole("heading", { level: 2, name: "Add a greeting script" })).not.toBeNull();
+  });
+
+  it("titleLevel 3 renders the title as an h3", () => {
+    render(<ProposalCard lang="en" proposal={awaitingProposal()} titleLevel={3} />);
+    expect(screen.getByRole("heading", { level: 3, name: "Add a greeting script" })).not.toBeNull();
+    expect(screen.queryByRole("heading", { level: 2 })).toBeNull();
+  });
+});
+
 describe("ProposalCard — 360px safety", () => {
   it("the card's root style uses overflowWrap: anywhere and no fixed width over 360", () => {
     const { container } = render(<ProposalCard lang="en" proposal={awaitingProposal()} />);
