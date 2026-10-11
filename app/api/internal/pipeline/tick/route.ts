@@ -36,6 +36,7 @@ export async function POST(req: NextRequest) {
       // (`req.url` on Cloud Run is built from HOSTNAME/port, never the
       // public URL a real Scheduler job hits).
       audience: process.env.PIPELINE_TICK_AUDIENCE ?? "",
+      audienceEnvName: "PIPELINE_TICK_AUDIENCE",
     });
 
     const result = await runTick({

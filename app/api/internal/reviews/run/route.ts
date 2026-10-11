@@ -26,6 +26,7 @@ export async function POST(req: NextRequest) {
     await verifyInternalOidcToken(req, {
       issuerEmail: process.env.TASKS_INVOKER_SA ?? "",
       audience: process.env.REVIEW_RUN_AUDIENCE ?? "",
+      audienceEnvName: "REVIEW_RUN_AUDIENCE",
     });
     const result = await runDueReviews({
       outlets: await listAllOutlets(),

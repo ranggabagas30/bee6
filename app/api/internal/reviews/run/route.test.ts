@@ -75,6 +75,20 @@ describe("POST /api/internal/reviews/run", () => {
     expect(runDueReviews).not.toHaveBeenCalled();
   });
 
+  it("5.R1 M1 every 401 body is the same generic message and never names an env var", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const bodies: unknown[] = [];
+    bodies.push(await (await POST(req({}))).json());
+    delete process.env.REVIEW_RUN_AUDIENCE;
+    bodies.push(await (await POST(req())).json());
+    process.env.REVIEW_RUN_AUDIENCE = AUD;
+    verifyIdToken.mockRejectedValueOnce(new Error("Wrong recipient"));
+    bodies.push(await (await POST(req())).json());
+    for (const b of bodies) expect(b).toEqual({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } });
+    vi.restoreAllMocks();
+  });
+
   it("5.R1 the audience is the env value even when the request Host differs", async () => {
     const res = await POST(req({ authorization: "Bearer tok", "x-forwarded-host": "evil.test" }, "evil.test"));
     expect(res.status).toBe(200);

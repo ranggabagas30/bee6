@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { verifyInternalOidcToken } from "@/lib/http/oidc";
 import { UnauthorizedError } from "@/lib/http/errors";
 
@@ -123,5 +123,53 @@ describe("verifyInternalOidcToken", () => {
       verifyInternalOidcToken(req, { issuerEmail: INVOKER_SA, audience: "" }, { verifyIdToken }),
     ).rejects.toBeInstanceOf(UnauthorizedError);
     expect(verifyIdToken).not.toHaveBeenCalled();
+  });
+
+  describe("M1: the client never learns why (generic 401), the server log names the cause", () => {
+    const rejection = async (
+      req: ReturnType<typeof fakeReq>,
+      opts: { issuerEmail: string; audience: string; audienceEnvName?: string },
+      verifyIdToken: ReturnType<typeof vi.fn> = vi.fn(),
+    ) => {
+      const err = await verifyInternalOidcToken(req, opts, { verifyIdToken }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(UnauthorizedError);
+      return err as UnauthorizedError;
+    };
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it("every failure path throws exactly 'Unauthorized'", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      const good = { issuerEmail: INVOKER_SA, audience: CONFIGURED_AUDIENCE };
+      const messages = [
+        (await rejection(fakeReq("Bearer t"), { issuerEmail: "", audience: CONFIGURED_AUDIENCE })).message,
+        (await rejection(fakeReq("Bearer t"), { issuerEmail: INVOKER_SA, audience: "" })).message,
+        (await rejection(fakeReq(null), good)).message,
+        (await rejection(fakeReq("Bearer t"), good, vi.fn().mockRejectedValue(new Error("Wrong recipient")))).message,
+        (await rejection(fakeReq("Bearer t"), good, vi.fn().mockResolvedValue({ email: "x@y.z", email_verified: true }))).message,
+      ];
+      expect(messages).toEqual(Array(5).fill("Unauthorized"));
+    });
+
+    it("a missing audience is logged server-side with the env var the caller named, not PIPELINE_TICK_AUDIENCE", async () => {
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      await rejection(fakeReq("Bearer t"), { issuerEmail: INVOKER_SA, audience: "", audienceEnvName: "REVIEW_RUN_AUDIENCE" });
+      expect(error).toHaveBeenCalledWith("[oidc] misconfigured", { var: "REVIEW_RUN_AUDIENCE" });
+    });
+
+    it("a missing invoker SA is logged as misconfigured", async () => {
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      await rejection(fakeReq("Bearer t"), { issuerEmail: "", audience: CONFIGURED_AUDIENCE });
+      expect(error).toHaveBeenCalledWith("[oidc] misconfigured", { var: "TASKS_INVOKER_SA" });
+    });
+
+    it("a rejected token is logged with a reason but never the token, the audience or the email", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const verifyIdToken = vi.fn().mockRejectedValue(new Error("Wrong recipient"));
+      await rejection(fakeReq("Bearer secret-token-123"), { issuerEmail: INVOKER_SA, audience: CONFIGURED_AUDIENCE }, verifyIdToken);
+      expect(warn).toHaveBeenCalledWith("[oidc] rejected", { reason: "token_invalid" });
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("secret-token-123");
+    });
   });
 });

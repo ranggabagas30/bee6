@@ -65,23 +65,38 @@ function extractBearerToken(req: MinimalRequest): string | null {
  * token, invalid/expired token, wrong audience (checked by
  * `verifyIdToken` itself), an issuer email that doesn't match
  * `issuerEmail` (`TASKS_INVOKER_SA`), or `audience` itself not configured.
+ *
+ * The client always gets the same generic "Unauthorized": an unauthenticated
+ * caller must not learn whether the route is misconfigured, which variable is
+ * missing, or why its token failed (R-11 security M1). The specific cause goes
+ * to the server log only, never with the token, audience or email.
+ * `audienceEnvName` names the env var the caller reads its audience from, so
+ * the log points at the right one (default: a neutral label).
  */
 export async function verifyInternalOidcToken(
   req: MinimalRequest,
-  opts: { issuerEmail: string; audience: string },
+  opts: { issuerEmail: string; audience: string; audienceEnvName?: string },
   deps: VerifyOidcDeps = {},
 ): Promise<void> {
+  const deny = (): never => {
+    throw new UnauthorizedError("Unauthorized");
+  };
+  const reject = (reason: string): never => {
+    console.warn("[oidc] rejected", { reason });
+    return deny();
+  };
+
   if (!opts.issuerEmail) {
-    throw new UnauthorizedError("TASKS_INVOKER_SA is not configured");
+    console.error("[oidc] misconfigured", { var: "TASKS_INVOKER_SA" });
+    return deny();
   }
   if (!opts.audience) {
-    throw new UnauthorizedError("PIPELINE_TICK_AUDIENCE is not configured");
+    console.error("[oidc] misconfigured", { var: opts.audienceEnvName ?? "audience" });
+    return deny();
   }
 
   const token = extractBearerToken(req);
-  if (!token) {
-    throw new UnauthorizedError("Missing bearer token");
-  }
+  if (!token) return reject("missing_token");
 
   const audience = opts.audience;
   const verify = deps.verifyIdToken ?? defaultVerifyIdToken;
@@ -90,10 +105,8 @@ export async function verifyInternalOidcToken(
   try {
     payload = await verify({ idToken: token, audience });
   } catch {
-    throw new UnauthorizedError("Invalid OIDC token");
+    return reject("token_invalid");
   }
 
-  if (!payload.email || payload.email !== opts.issuerEmail) {
-    throw new UnauthorizedError("OIDC token issuer mismatch");
-  }
+  if (!payload.email || payload.email !== opts.issuerEmail) return reject("issuer_mismatch");
 }
