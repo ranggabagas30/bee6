@@ -11,7 +11,8 @@ import { describe, expect, it } from "vitest";
  *  (a) names or quotes "SOP PROOFED" anywhere in the scanned source, or
  *  (b) wires a new `private/` path into code outside the one allowed path
  *      (`scripts/seed.ts`'s existing `path.join(..., "private", ...)` call
- *      and its own comments).
+ *      and its own comments; R-12 adds `scripts/demo-seed-template.ts`, which reads
+ *      the fictional demo clips from `private/demo-clips/`).
  *
  * The forbidden strings are built by concatenation so this test file does
  * not match its own pattern.
@@ -25,7 +26,13 @@ const SCAN_DIRS = ["lib", "app", "config", "scripts"];
 // backtick or slash directly before AND after "private" counts as code
 // wiring in a new private/ path.
 const PRIVATE_PATH_RE = /["'`/]private["'`/]/;
-const ALLOWED_PRIVATE_FILES = new Set(["scripts/seed.ts", "scripts/private-boundary.test.ts"]);
+// R-12: scripts/demo-seed-template.ts is the one other reader of private/ (Tiffany's fictional demo
+// clips and plan.json under private/demo-clips/, never the SOP); it runs only on Rangga's machine.
+const ALLOWED_PRIVATE_FILES = new Set([
+  "scripts/seed.ts",
+  "scripts/demo-seed-template.ts",
+  "scripts/private-boundary.test.ts",
+]);
 
 const FORBIDDEN_SOP_NAME = ("SOP " + "PROOFED").toLowerCase();
 
