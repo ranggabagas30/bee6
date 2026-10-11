@@ -18,9 +18,10 @@ vi.mock("google-auth-library", () => ({
 const runDueReviews = vi.fn();
 vi.mock("@/lib/reviews/service", () => ({ runDueReviews: (...a: unknown[]) => runDueReviews(...a) }));
 const store = { store: true };
+let listTruncated = false;
 vi.mock("@/lib/firestore/review-store", () => ({
   firestoreReviewStore: () => store,
-  listAllOutlets: async () => [{ outlet_id: "o1" }],
+  listAllOutlets: async () => ({ outlets: [{ outlet_id: "o1" }], truncated: listTruncated }),
 }));
 
 const SA = "invoker@project.iam.gserviceaccount.com";
@@ -105,6 +106,17 @@ describe("POST /api/internal/reviews/run", () => {
     expect(call.outlets).toEqual([{ outlet_id: "o1" }]);
     expect(call.storeFor("o1")).toBe(store);
     expect(call.now_ms).toBeGreaterThanOrEqual(before);
+    expect(call.truncated).toBe(false);
+  });
+
+  it("M2 a truncated outlet list is passed on to the run", async () => {
+    listTruncated = true;
+    try {
+      await POST(req());
+      expect(runDueReviews.mock.calls[0]![0].truncated).toBe(true);
+    } finally {
+      listTruncated = false;
+    }
   });
 
   it("an unexpected failure maps to the 500 envelope", async () => {

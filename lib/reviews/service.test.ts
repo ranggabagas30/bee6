@@ -147,6 +147,14 @@ describe("runDueReviews", () => {
     expect(f.reviews.get(existing.review_id)!.simulated).toBe(true);
   });
 
+  it("4.T4 M2 a truncated outlet list is counted as an error, never silent; the listed outlets still run", async () => {
+    const f = fakeStore(windowData());
+    const r = await runDueReviews({ outlets: [outlet()], storeFor: () => f.store, now_ms: at("2026-10-23"), truncated: true });
+    expect(r).toEqual({ outlets: 1, created: 1, expired: 0, errors: 1 });
+    const ok = await runDueReviews({ outlets: [outlet()], storeFor: () => f.store, now_ms: at("2026-10-23") });
+    expect(ok.errors).toBe(0);
+  });
+
   it("4.T4 one broken outlet does not stop the run", async () => {
     const bad = fakeStore({ throwOnVersions: true });
     const good = fakeStore(windowData());

@@ -28,8 +28,10 @@ export async function POST(req: NextRequest) {
       audience: process.env.REVIEW_RUN_AUDIENCE ?? "",
       audienceEnvName: "REVIEW_RUN_AUDIENCE",
     });
+    const { outlets, truncated } = await listAllOutlets();
     const result = await runDueReviews({
-      outlets: await listAllOutlets(),
+      outlets,
+      truncated,
       storeFor: (id) => firestoreReviewStore(id),
       now_ms: Date.now(),
     });

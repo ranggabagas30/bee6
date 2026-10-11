@@ -159,16 +159,19 @@ export async function createReview(
  * try/catch so one bad outlet never blocks the rest. Creates every due review
  * (review_date <= today, none yet) and expires every review that was not
  * confirmed by confirm_by_date to "unknown" (kept out of memory).
+ * `truncated` (the outlet list hit its read cap) counts as one error so the
+ * summary is never silently incomplete.
  */
 export async function runDueReviews(input: {
   outlets: readonly Outlet[];
   storeFor: (outletId: string) => ReviewStore;
   now_ms: number;
+  truncated?: boolean;
 }): Promise<RunResponse> {
   const { outlets, storeFor, now_ms } = input;
   let created = 0;
   let expired = 0;
-  let errors = 0;
+  let errors = input.truncated ? 1 : 0;
 
   for (const outlet of outlets) {
     try {

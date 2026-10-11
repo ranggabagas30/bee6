@@ -63,18 +63,25 @@ const THREAD_ROW_SHAPE = ThreadSchema.pick({
   fields: true,
 });
 
-/** All outlets of this project (the daily run reviews each, isolated). Malformed docs skipped and logged. */
-export async function listAllOutlets(db: Firestore = adminDb()): Promise<Outlet[]> {
-  const snap = await db.collection(COLLECTIONS.outlets).limit(OUTLETS_READ_MAX).get();
-  const out: Outlet[] = [];
-  for (const doc of snap.docs) {
+/**
+ * All outlets of this project (the daily run reviews each, isolated). Malformed docs skipped and
+ * logged. Reads one past the cap so truncation is detected: the first OUTLETS_READ_MAX are returned
+ * and `truncated` is set (and logged), so the run can count it as an error instead of silently
+ * never reviewing the rest.
+ */
+export async function listAllOutlets(db: Firestore = adminDb()): Promise<{ outlets: Outlet[]; truncated: boolean }> {
+  const snap = await db.collection(COLLECTIONS.outlets).limit(OUTLETS_READ_MAX + 1).get();
+  const truncated = snap.docs.length > OUTLETS_READ_MAX;
+  if (truncated) console.error("[review] outlets truncated", { error_class: "outlets_truncated" });
+  const outlets: Outlet[] = [];
+  for (const doc of snap.docs.slice(0, OUTLETS_READ_MAX)) {
     try {
-      out.push(parseOutletDoc(doc.data()));
+      outlets.push(parseOutletDoc(doc.data()));
     } catch {
       logSkippedDoc("outlet", doc.id);
     }
   }
-  return out;
+  return { outlets, truncated };
 }
 
 export function firestoreReviewStore(outletId: string, db: Firestore = adminDb()): ReviewStore {
