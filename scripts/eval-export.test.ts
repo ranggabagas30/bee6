@@ -137,7 +137,7 @@ describe("runExport", () => {
 describe("read-only guarantee", () => {
   it.each(["scripts/eval-export.ts", "lib/eval/export.ts"])("%s contains no Firestore write call", (rel) => {
     const text = readFileSync(path.join(__dirname, "..", rel), "utf8");
-    for (const call of [".set(", ".create(", ".update(", ".delete(", "batch(", "runTransaction("]) {
+    for (const call of [".set(", ".create(", ".update(", ".delete(", ".add(", "batch(", "bulkWriter(", "recursiveDelete(", "runTransaction("]) {
       expect(text, `${rel} must not contain ${call}`).not.toContain(call);
     }
   });
