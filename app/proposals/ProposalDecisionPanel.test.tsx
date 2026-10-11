@@ -324,6 +324,18 @@ describe("ProposalDecisionPanel — server answers (7.T9)", () => {
     expect(onSettled).toHaveBeenCalledWith({ messageKey: key });
   });
 
+  it.each([
+    ["ok", { kind: "ok", data: { result: "feasible", status: "awaiting_owner" } }],
+    ["conflict", { kind: "conflict", code: "ALREADY_DECIDED" }],
+  ])("after a %s answer the action buttons do not reappear while the list reloads", async (_name, answer) => {
+    authedPostJson.mockResolvedValue(answer);
+    renderPanel("supervisor", makeItem());
+    click("Feasible");
+    click("Yes");
+    await waitFor(() => expect(onSettled).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
   it("signed_out signs out and replaces to /sign-in", async () => {
     authedPostJson.mockResolvedValue({ kind: "signed_out" });
     signOut.mockResolvedValue(undefined);

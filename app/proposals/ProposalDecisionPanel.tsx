@@ -27,7 +27,8 @@ import { DecisionResponseSchema, type ProposalListItem } from "@/lib/proposals/r
  * is user text sent as-is; the server redacts it before storing it.
  */
 
-type Step = "idle" | "confirm-positive" | "reason" | "confirm-reject";
+/** "settled" is terminal: the server answered, so no action shows until the reloaded list replaces this panel. */
+type Step = "idle" | "confirm-positive" | "reason" | "confirm-reject" | "settled";
 
 const CONFLICT_KEY: Record<string, DictKey> = {
   ALREADY_DECIDED: "C-prop-err-decided",
@@ -131,6 +132,12 @@ export function ProposalDecisionPanel({
     setStep("idle");
   }
 
+  function toSettled() {
+    returnFocusTo.current = null;
+    setAcknowledged(false);
+    setStep("settled");
+  }
+
   async function submit(kind: "positive" | "reject") {
     if (inFlight.current) return; // double-tap guard: ignore once already in flight
     inFlight.current = true;
@@ -151,7 +158,7 @@ export function ProposalDecisionPanel({
     if (result.kind === "ok") {
       const outcome = result.data.result;
       setReason("");
-      toIdle(null);
+      toSettled();
       if (outcome === "feasible") {
         onSettled({ messageKey: "C-prop-done-feasible" });
       } else if (outcome === "approved") {
@@ -167,7 +174,7 @@ export function ProposalDecisionPanel({
       return;
     }
     if (result.kind === "conflict") {
-      toIdle(null);
+      toSettled();
       onSettled({ messageKey: CONFLICT_KEY[result.code] ?? "C-srv-generic" });
       return;
     }
