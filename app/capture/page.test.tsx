@@ -595,6 +595,35 @@ describe("CapturePage script drawer (R-18, sandbox only)", () => {
     expect(screen.queryByRole("button", { name: "Finish and end the day" })).toBeNull();
   });
 
+  it("Finish at 4:59.5 with the end request still pending, then the 5:00 stop fires: exactly one end call", async () => {
+    await renderDemoRunning();
+    await vi.advanceTimersByTimeAsync(4 * 60_000 + 59_000 - 1_000); // 4:58, the page clock ticks each second
+    goToLastCard();
+    await vi.advanceTimersByTimeAsync(1_500); // 4:59.5
+    let release: (r: { ok: boolean }) => void = () => {};
+    postSessionEnd.mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
+    fireEvent.click(screen.getByRole("button", { name: "Finish and end the day" }));
+    await vi.advanceTimersByTimeAsync(2_000); // past the 5:00 stop while Finish is in flight
+    expect(postSessionEnd).toHaveBeenCalledTimes(1);
+    expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "selesai" });
+    release({ ok: true });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(postSessionEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("the End dialog's 'Yes, end' while the 5:00 stop is in flight makes no second end call", async () => {
+    await renderDemoRunning();
+    fireEvent.click(screen.getByRole("button", { name: "End" }));
+    let release: (r: { ok: boolean }) => void = () => {};
+    postSessionEnd.mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
+    await vi.advanceTimersByTimeAsync(5 * 60_000 + 1_000);
+    expect(postSessionEnd).toHaveBeenCalledTimes(1);
+    expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "auto_stop" });
+    release({ ok: true });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(postSessionEnd).toHaveBeenCalledTimes(1);
+  });
+
   it("the countdown follows the page clock, in text", async () => {
     await renderDemoRunning();
     expect(screen.getByText("Demo ends automatically in 5:00")).toBeTruthy();

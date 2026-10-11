@@ -292,7 +292,8 @@ export default function CapturePage() {
   const autoStopInFlightRef = useRef(false);
   const [autoStopBusy, setAutoStopBusy] = useState(false);
   useEffect(() => {
-    if (!session || !config || nowMs === null || autoStopInFlightRef.current) return;
+    // Also stay out while a Selesai (End dialog or the drawer's Finish) request is in flight: one end call only.
+    if (!session || !config || nowMs === null || autoStopInFlightRef.current || selesaiBusyRef.current) return;
     const deadline = autoStopDeadline({
       localDate: session.local_date,
       startedAtMs: session.started_at_ms,
@@ -325,7 +326,8 @@ export default function CapturePage() {
         });
         stopRunningSession();
         setSession(null);
-        autoStopInFlightRef.current = false;
+        // autoStopInFlightRef stays true until the next Mulai: this session is over, and a render that still
+        // holds it (a tick between the render and the effect flush) must not end it a second time.
         setAutoStopBusy(false);
       })();
     });
@@ -402,6 +404,9 @@ export default function CapturePage() {
       return;
     }
     mulaiInFlightRef.current = true;
+    // A new session: the previous one's end guards (Selesai, auto-stop) are done.
+    selesaiBusyRef.current = false;
+    autoStopInFlightRef.current = false;
     setMulaiBusy(true);
     setMulaiErrorKey(null);
     const sessionId = crypto.randomUUID();
@@ -461,12 +466,13 @@ export default function CapturePage() {
       ended_at_ms: endedAt,
       end_reason: "selesai",
     });
-    selesaiBusyRef.current = false;
     setSelesaiBusy(false);
     if (!result.ok) {
+      selesaiBusyRef.current = false;
       setSelesaiErrorKey(sessionErrorKey(result.status, result.code));
       return; // stay running; the tap can be retried
     }
+    // On success selesaiBusyRef stays true until the next Mulai, for the same reason as the auto-stop guard.
     setSelesaiConfirmOpen(false);
     setLastEnded({
       business_date: session.local_date,
