@@ -7,12 +7,15 @@ const SCRIPT_KEYS = [
   "C-script-rules",
   "C-script-before",
   "C-script-card",
+  "C-script-card-short",
   "C-script-back",
   "C-script-next",
   "C-script-finish",
   "C-script-finishing",
   "C-script-ended",
   "C-script-countdown",
+  "C-script-countdown-short",
+  "C-script-reload",
   "C-script-collapse",
   "C-script-expand",
   "C-script-say",
@@ -45,6 +48,9 @@ describe("R-18 P2 script copy block", () => {
     expect(t("en", "C-script-earlier-day", { date: "Mon 12 Oct" })).toBe("Earlier day · Mon 12 Oct");
     expect(t("id", "C-script-earlier-day", { date: "Sen 12 Okt" })).toBe("Hari sebelumnya · Sen 12 Okt");
     expect(t("en", "C-script-seconds", { n: 15 })).toBe("About 15 s");
+    expect(t("en", "C-script-card-short", { n: 3, total: 10 })).toBe("3/10");
+    expect(t("en", "C-script-countdown-short", { time: "4:05" })).toBe("Ends in 4:05");
+    expect(t("id", "C-script-countdown-short", { time: "4:05" })).toBe("Berakhir 4:05");
   });
 
   it("the day-ended line tells the judge to switch to Supervisor", () => {

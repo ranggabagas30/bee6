@@ -169,16 +169,49 @@ describe("ScriptDrawer (R-18)", () => {
     expect(container.querySelector("[inert]")).toBeNull();
   });
 
-  it("layout: a bottom sheet under 900 px (max 55 vh open, 56 px handle collapsed), a 360 px side panel from 900 px", () => {
+  it("layout: in flow under 900 px (nothing fixed, so it can never cover End or Cancel), a fixed 360 px side panel from 900 px", () => {
     const { rerender } = render(<ScriptDrawer {...props({ wide: false })} />);
-    expect(region().style.position).toBe("fixed");
-    expect(region().style.bottom).toBe("0px");
-    expect(region().style.maxHeight).toBe("55vh");
+    expect(region().style.position).not.toBe("fixed");
+    expect(region().style.bottom).toBe("");
+    expect(region().style.maxHeight).not.toBe("");
     rerender(<ScriptDrawer {...props({ wide: false, open: false })} />);
-    expect(region().style.height).toBe("56px");
+    expect(region().style.height).toBe(""); // the collapsed handle takes the height of its own content
+    expect(region().style.maxHeight).toBe("");
     rerender(<ScriptDrawer {...props({ wide: true })} />);
+    expect(region().style.position).toBe("fixed");
     expect(region().style.right).toBe("0px");
     expect(region().style.width).toBe("360px");
+    rerender(<ScriptDrawer {...props({ wide: true, open: false })} />);
+    expect(region().style.height).toBe("");
+  });
+
+  it("the handle is ONE row: title, the card count and the short countdown share a line, with a 48 px toggle beside it", () => {
+    render(<ScriptDrawer {...props()} />);
+    const title = within(region()).getByRole("heading", { name: "Demo script" });
+    const count = within(region()).getByText("1/10");
+    const short = within(region()).getByText("Ends in 4:00");
+    expect(count.parentElement).toBe(title.parentElement);
+    expect(short.parentElement).toBe(title.parentElement);
+    const toggle = screen.getByRole("button", { name: "Hide script" }) as HTMLElement;
+    expect(toggle.parentElement).toBe(title.parentElement!.parentElement);
+    expect(Number.parseInt(toggle.style.minHeight, 10)).toBeGreaterThanOrEqual(48);
+    expect(Number.parseInt(toggle.style.minWidth, 10)).toBeGreaterThanOrEqual(48);
+  });
+
+  it("Back and Next sit in a footer outside the scrolling card area, so they never scroll out of reach", () => {
+    render(<ScriptDrawer {...props()} />);
+    const scroll = screen.getByTestId("script-scroll");
+    expect(scroll.style.overflowY).toBe("auto");
+    expect(scroll.contains(next())).toBe(false);
+    expect(scroll.contains(screen.getByRole("button", { name: "Back" }))).toBe(false);
+    expect(scroll.textContent).toContain("first tray of croissants");
+  });
+
+  it("the page-reload line is in the rules, in both languages", () => {
+    const { rerender } = render(<ScriptDrawer {...props({ state: "before", startedAtMs: null, nowMs: null })} />);
+    expect(within(region()).getByText("If this page reloads, tap Start again.")).toBeTruthy();
+    rerender(<ScriptDrawer {...props({ lang: "id" })} />);
+    expect(within(screen.getByRole("region", { name: "Skrip demo" })).getByText("Jika halaman ini dimuat ulang, ketuk Mulai lagi.")).toBeTruthy();
   });
 
   it("prefers-reduced-motion turns the slide off", () => {

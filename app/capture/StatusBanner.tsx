@@ -51,9 +51,15 @@ export interface StatusBannerProps {
   note?: string | null;
   /** ended_auto only: the auto-stop time, HH:MM in the shop's zone. */
   endedAt?: string;
+  /**
+   * R-18: a tighter one-row layout (emoji beside the headline, smaller padding) for narrow screens that also
+   * carry the sandbox script drawer, so banner + End + Cancel + the open drawer fit a 360 x 640 screen. Same
+   * words and the same live region; the pilot never passes it.
+   */
+  compact?: boolean;
 }
 
-export function StatusBanner({ state, micSource, note = null, endedAt = "" }: StatusBannerProps) {
+export function StatusBanner({ state, micSource, note = null, endedAt = "", compact = false }: StatusBannerProps) {
   const { lang } = useLang();
   const { emoji, label, color } = PRESENTATION[state];
   const headline =
@@ -73,18 +79,29 @@ export function StatusBanner({ state, micSource, note = null, endedAt = "" }: St
       style={{
         border: `3px solid ${color}`,
         borderRadius: 12,
-        padding: 20,
+        padding: compact ? 10 : 20,
         textAlign: "center",
       }}
     >
-      <p style={{ fontSize: 56, margin: 0, lineHeight: 1 }} aria-hidden="true">
-        {emoji}
-      </p>
-      <p style={{ fontSize: 28, fontWeight: 700, margin: "8px 0 0", color }}>
-        {headline}
-      </p>
-      <p style={{ fontSize: 16, margin: "8px 0 0" }}>{detail ?? ""}</p>
-      <p style={{ fontSize: 14, margin: "12px 0 0", color: "#444" }}>
+      {compact ? (
+        <p style={{ margin: 0, display: "flex", justifyContent: "center", alignItems: "center", gap: 8 }}>
+          <span aria-hidden="true" style={{ fontSize: 24, lineHeight: 1 }}>
+            {emoji}
+          </span>
+          <span style={{ fontSize: 24, fontWeight: 700, color }}>{headline}</span>
+        </p>
+      ) : (
+        <>
+          <p style={{ fontSize: 56, margin: 0, lineHeight: 1 }} aria-hidden="true">
+            {emoji}
+          </p>
+          <p style={{ fontSize: 28, fontWeight: 700, margin: "8px 0 0", color }}>
+            {headline}
+          </p>
+        </>
+      )}
+      <p style={{ fontSize: compact ? 14 : 16, margin: compact ? "4px 0 0" : "8px 0 0" }}>{detail ?? ""}</p>
+      <p style={{ fontSize: compact ? 13 : 14, margin: compact ? "4px 0 0" : "12px 0 0", color: "#444" }}>
         {t(lang, "C-cap-mic", { source: micSource })}
       </p>
     </section>

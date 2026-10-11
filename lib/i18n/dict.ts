@@ -474,12 +474,15 @@ export const ID = {
   "C-script-rules": "Biarkan tab ini terbuka dan layar menyala. Izinkan mikrofon. Colokkan charger jika baterai menipis.", // PROVISIONAL
   "C-script-before": "Ketuk Mulai untuk memulai. Tidak ada yang direkam sebelum Anda menekannya.", // PROVISIONAL
   "C-script-card": "Kartu {n} dari {total}", // PROVISIONAL
+  "C-script-card-short": "{n}/{total}", // PROVISIONAL
   "C-script-back": "Kembali", // PROVISIONAL
   "C-script-next": "Berikutnya", // PROVISIONAL
   "C-script-finish": "Selesai dan akhiri hari", // PROVISIONAL
   "C-script-finishing": "Mengakhiri…", // PROVISIONAL
   "C-script-ended": "Selesai. Jawab pertanyaan debrief, lalu ganti ke Supervisor.", // PROVISIONAL
   "C-script-countdown": "Demo berakhir otomatis dalam {time}", // PROVISIONAL
+  "C-script-countdown-short": "Berakhir {time}", // PROVISIONAL
+  "C-script-reload": "Jika halaman ini dimuat ulang, ketuk Mulai lagi.", // PROVISIONAL
   "C-script-collapse": "Sembunyikan skrip", // PROVISIONAL
   "C-script-expand": "Tampilkan skrip", // PROVISIONAL
   "C-script-say": "Ucapkan", // PROVISIONAL
@@ -967,12 +970,15 @@ export const EN: Record<DictKey, string> = {
   "C-script-rules": "Keep this tab open and the screen on. Allow the microphone. Plug in if the battery is low.", // PROVISIONAL
   "C-script-before": "Tap Start to begin. Nothing is recorded until you do.", // PROVISIONAL
   "C-script-card": "Card {n} of {total}", // PROVISIONAL
+  "C-script-card-short": "{n}/{total}", // PROVISIONAL
   "C-script-back": "Back", // PROVISIONAL
   "C-script-next": "Next", // PROVISIONAL
   "C-script-finish": "Finish and end the day", // PROVISIONAL
   "C-script-finishing": "Finishing…", // PROVISIONAL
   "C-script-ended": "Done. Answer the debrief questions, then switch to Supervisor.", // PROVISIONAL
   "C-script-countdown": "Demo ends automatically in {time}", // PROVISIONAL
+  "C-script-countdown-short": "Ends in {time}", // PROVISIONAL
+  "C-script-reload": "If this page reloads, tap Start again.", // PROVISIONAL
   "C-script-collapse": "Hide script", // PROVISIONAL
   "C-script-expand": "Show script", // PROVISIONAL
   "C-script-say": "Say", // PROVISIONAL

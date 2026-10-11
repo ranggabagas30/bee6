@@ -20,8 +20,8 @@ import { idleViewFor } from "@/app/capture/idle-view";
 import { selesaiViewFor } from "@/app/capture/selesai-view";
 import { isDiscardArmed, nextMulaiIsNow, shouldAutoClosePanel } from "@/app/capture/batalkan-panel";
 import { DebriefFlow } from "@/app/capture/debrief/DebriefFlow";
-import { ScriptDrawer, type DrawerState } from "@/app/capture/ScriptDrawer";
-import { drawerInsetStyle, useDrawerLayout } from "@/app/capture/drawer-layout";
+import { ScriptDrawer } from "@/app/capture/ScriptDrawer";
+import { drawerInsetStyle, isCompactChrome, useDrawerLayout, type DrawerState } from "@/app/capture/drawer-layout";
 import { scriptFor } from "@/lib/demo/script";
 import { ShopTopBar } from "@/app/shop/ShopTopBar";
 import { useLang } from "@/lib/i18n/context";
@@ -159,8 +159,9 @@ export default function CapturePage() {
   const sessionRef = useRef<CaptureSession | null>(null);
   const sessionGenRef = useRef(0);
   const [sessionRunning, setSessionRunning] = useState(false);
-  // R-18 script drawer (sandbox only): open/collapsed is page state so the page can keep its content clear of it.
-  const [scriptOpen, setScriptOpen] = useState(true);
+  // R-18 script drawer (sandbox only): open/collapsed is page state (the side-panel layout moves the page
+  // column). Collapsed before Start; it opens by itself on Start (see the state change below).
+  const [scriptOpen, setScriptOpen] = useState(false);
   const drawerLayout = useDrawerLayout();
   const [status, setStatus] = useState<CaptureStatus | null>(null);
   const [lastUploadStatus, setLastUploadStatus] = useState<CaptureStatus | null>(null);
@@ -236,6 +237,22 @@ export default function CapturePage() {
     effectiveConfig && nowMs !== null
       ? idleViewFor({ config: effectiveConfig, nowMs, lang })
       : null;
+
+  // R-18: the script drawer exists only for a sandbox judge device (server field `demo_session`).
+  const demoScript = config?.demo_session ? scriptFor(config.demo_session.script_id) : null;
+  const drawerState: DrawerState = session
+    ? "running"
+    : idle && !idle.offered && (idle.headline === "ended" || idle.headline === "ended_auto")
+      ? "ended"
+      : "before";
+  // The drawer is collapsed before Start and opens by itself as Start is tapped (and on the ended text); a
+  // return to "before" (Cancel session) collapses it again. A tap on its toggle wins until the next change.
+  const [seenDrawerState, setSeenDrawerState] = useState<DrawerState>(drawerState);
+  if (seenDrawerState !== drawerState) {
+    setSeenDrawerState(drawerState);
+    setScriptOpen(drawerState !== "before");
+  }
+  const compactChrome = isCompactChrome({ present: demoScript !== null, wide: drawerLayout.wide });
 
   // Debrief entry (R-07, technical spec §8.10): per-device, from this
   // device's own last-ended record — the phone-local one set the instant
@@ -583,6 +600,7 @@ export default function CapturePage() {
         micSource={micSource}
         note={idle.note}
         endedAt={idle.endedAt ?? undefined}
+        compact={compactChrome}
       />
     );
     const primary = (
@@ -745,6 +763,7 @@ export default function CapturePage() {
         <StatusBanner
           state={sessionRunning ? headlineStateFor(status?.state ?? "listening") : "idle"}
           micSource={micSource}
+          compact={compactChrome}
         />
         {sampleRateMsg ? (
           <p role="alert" style={{ color: "#b00020", marginTop: 16 }}>
@@ -771,37 +790,29 @@ export default function CapturePage() {
     );
   }
 
-  // R-18: the script drawer exists only for a sandbox judge device (server field `demo_session`).
-  const demoScript = config?.demo_session ? scriptFor(config.demo_session.script_id) : null;
-  const drawerState: DrawerState = session
-    ? "running"
-    : idle && !idle.offered && (idle.headline === "ended" || idle.headline === "ended_auto")
-      ? "ended"
-      : "before";
   const inset = drawerInsetStyle({
     present: view === "ready" && demoScript !== null,
     wide: drawerLayout.wide,
     open: scriptOpen,
   });
+  // Compact top-of-page chrome keeps banner + End + Cancel + the open drawer on one 360 x 640 screen.
+  const mainPadding = compactChrome ? "12px 24px 24px" : PAGE_STYLE.padding;
   const mainStyle: React.CSSProperties =
     Object.keys(inset).length === 0
-      ? PAGE_STYLE
+      ? { ...PAGE_STYLE, padding: mainPadding }
       : {
           maxWidth: 360,
           marginLeft: "auto",
           marginRight: "auto",
-          paddingTop: 24,
-          paddingLeft: 24,
-          paddingRight: 24,
-          paddingBottom: 24,
+          padding: mainPadding,
           fontFamily: "system-ui, sans-serif",
           ...inset,
         };
 
   return (
     <main style={mainStyle}>
-      <ShopTopBar />
-      <h1 style={{ fontSize: 22 }}>{t(lang, "C-cap-title")}</h1>
+      <ShopTopBar compact={compactChrome} />
+      <h1 style={compactChrome ? { fontSize: 22, margin: "0 0 8px" } : { fontSize: 22 }}>{t(lang, "C-cap-title")}</h1>
 
       {devControlsEnabled ? (
         <DevPanel onStart={handleDevStart} onPause={handleDevStop} onStop={handleDevStop} events={events} />
@@ -825,6 +836,23 @@ export default function CapturePage() {
 
       {view === "ready" ? (sessionRunning ? renderRunning() : renderIdle()) : null}
 
+      {view === "ready" && demoScript ? (
+        <ScriptDrawer
+          script={demoScript}
+          lang={lang}
+          state={drawerState}
+          startedAtMs={session?.started_at_ms ?? null}
+          maxMs={config?.demo_session?.max_ms ?? 0}
+          nowMs={nowMs}
+          onFinish={handleDrawerFinish}
+          finishing={selesaiBusy || autoStopBusy}
+          open={scriptOpen}
+          onToggle={() => setScriptOpen((o) => !o)}
+          wide={drawerLayout.wide}
+          reducedMotion={drawerLayout.reducedMotion}
+        />
+      ) : null}
+
       {/* Upload block (UX-03 §5.7): shown in every mode, including idle and
           stopped. While a session runs it follows the live status; after a
           stop it keeps only the lost line and the retry row, until the next
@@ -847,22 +875,6 @@ export default function CapturePage() {
         {t(lang, "C-notice-pilot")}
       </p>
 
-      {view === "ready" && demoScript ? (
-        <ScriptDrawer
-          script={demoScript}
-          lang={lang}
-          state={drawerState}
-          startedAtMs={session?.started_at_ms ?? null}
-          maxMs={config?.demo_session?.max_ms ?? 0}
-          nowMs={nowMs}
-          onFinish={handleDrawerFinish}
-          finishing={selesaiBusy || autoStopBusy}
-          open={scriptOpen}
-          onToggle={() => setScriptOpen((o) => !o)}
-          wide={drawerLayout.wide}
-          reducedMotion={drawerLayout.reducedMotion}
-        />
-      ) : null}
     </main>
   );
 }

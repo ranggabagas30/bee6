@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
-import { drawerInsetStyle, useDrawerLayout } from "@/app/capture/drawer-layout";
+import { drawerInsetStyle, isCompactChrome, useDrawerLayout } from "@/app/capture/drawer-layout";
 
 afterEach(() => {
   cleanup();
@@ -49,13 +49,13 @@ describe("useDrawerLayout", () => {
   });
 });
 
-describe("drawerInsetStyle: the page keeps its content clear of the drawer", () => {
+describe("drawerInsetStyle: only the side panel moves the page", () => {
   it("no drawer: no change at all", () => {
     expect(drawerInsetStyle({ present: false, wide: false, open: true })).toEqual({});
   });
-  it("bottom sheet open: bottom padding of the sheet's height; collapsed: the 56 px handle", () => {
-    expect(drawerInsetStyle({ present: true, wide: false, open: true })).toEqual({ paddingBottom: "calc(55vh + 24px)" });
-    expect(drawerInsetStyle({ present: true, wide: false, open: false })).toEqual({ paddingBottom: "80px" });
+  it("under 900 px the drawer is in flow, so the page needs no padding or inset in any state", () => {
+    expect(drawerInsetStyle({ present: true, wide: false, open: true })).toEqual({});
+    expect(drawerInsetStyle({ present: true, wide: false, open: false })).toEqual({});
   });
   it("side panel: the 360 px column moves left so the 360 px panel never covers it", () => {
     expect(drawerInsetStyle({ present: true, wide: true, open: true })).toEqual({
@@ -63,5 +63,13 @@ describe("drawerInsetStyle: the page keeps its content clear of the drawer", () 
       marginRight: "auto",
     });
     expect(drawerInsetStyle({ present: true, wide: true, open: false })).toEqual({});
+  });
+});
+
+describe("compact page chrome (narrow screens with a drawer only)", () => {
+  it("is on only when a drawer is present and the screen is narrow, so the pilot and wide screens are untouched", () => {
+    expect(isCompactChrome({ present: true, wide: false })).toBe(true);
+    expect(isCompactChrome({ present: true, wide: true })).toBe(false);
+    expect(isCompactChrome({ present: false, wide: false })).toBe(false);
   });
 });

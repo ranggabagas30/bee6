@@ -132,3 +132,39 @@ describe("StatusBanner: after the planned close (UX-03 5.2)", () => {
     expect(container.textContent).not.toMatch(/Ended|Not started/);
   });
 });
+
+describe("StatusBanner: compact (narrow screens with the sandbox script drawer, R-18)", () => {
+  function renderCompact(compact: boolean | undefined) {
+    return render(
+      <LangProvider initial="en">
+        <StatusBanner state="listening" micSource="built-in" compact={compact} />
+      </LangProvider>,
+    );
+  }
+
+  it("says exactly the same things as the standard banner, only laid out tighter (still a live status region)", () => {
+    const { container: standard } = renderCompact(undefined);
+    const standardText = standard.textContent;
+    cleanup();
+    renderCompact(true);
+    expect(screen.getByRole("status").textContent).toBe(standardText);
+    expect(screen.getByText("Listening")).toBeTruthy();
+    expect(screen.getByText("Audio is being captured")).toBeTruthy();
+    expect(screen.getByText("Microphone: built-in")).toBeTruthy();
+    expect(screen.getByRole("status").getAttribute("aria-live")).toBe("polite");
+  });
+
+  it("drops the 56 px emoji row and the 20 px padding of the standard banner", () => {
+    const { container } = renderCompact(true);
+    const section = container.querySelector("section") as HTMLElement;
+    expect(Number.parseInt(section.style.padding, 10)).toBeLessThanOrEqual(10);
+    expect(container.querySelector('[style*="font-size: 56px"]')).toBeNull();
+  });
+
+  it("the standard banner is unchanged: 20 px padding and the 56 px emoji", () => {
+    const { container } = renderCompact(undefined);
+    const section = container.querySelector("section") as HTMLElement;
+    expect(section.style.padding).toBe("20px");
+    expect(container.querySelector('[style*="font-size: 56px"]')).not.toBeNull();
+  });
+});

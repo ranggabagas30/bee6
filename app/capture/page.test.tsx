@@ -641,6 +641,33 @@ describe("CapturePage script drawer (R-18, sandbox only)", () => {
     expect(screen.getByText("Demo ends automatically in 3:59")).toBeTruthy();
   });
 
+  it("item 4: collapsed by default before Start, open as soon as Start is tapped, collapsed again after Cancel session", async () => {
+    await renderDemoIdle();
+    expect(screen.getByRole("button", { name: "Show script" }).getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    expect(screen.getByRole("button", { name: "Hide script" }).getAttribute("aria-expanded")).toBe("true");
+    await vi.advanceTimersByTimeAsync(1_000);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
+    await vi.advanceTimersByTimeAsync(1_000);
+    fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
+    await waitFor(() => expect(postSessionDiscard).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Show script" })).toBeTruthy());
+  });
+
+  it("item 4: the drawer sits in the page flow AFTER the Listening banner, End and Cancel (never over them), and nothing above it is fixed", async () => {
+    await renderDemoRunning();
+    const drawer = screen.getByRole("region", { name: "Demo script" });
+    const follows = (el: Element) => Boolean(el.compareDocumentPosition(drawer) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(screen.getByText("Listening"))).toBe(true);
+    expect(follows(screen.getByRole("button", { name: "End" }))).toBe(true);
+    expect(follows(screen.getByRole("button", { name: "Cancel session" }))).toBe(true);
+    for (let el: HTMLElement | null = screen.getByRole("button", { name: "End" }); el; el = el.parentElement) {
+      expect(el.style.position).not.toBe("fixed");
+    }
+    expect(drawer.style.position).not.toBe("fixed");
+  });
+
   it("item 7: right after Start the countdown reads 5:00, not 5:25, even when the page clock was 25 s stale", async () => {
     const start = await renderDemoIdle();
     vi.setSystemTime(new Date(Date.parse(MON_1000_WIB) + 25_000)); // 25 s pass; the 30 s tick has not fired
