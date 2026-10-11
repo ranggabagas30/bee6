@@ -4,6 +4,8 @@ import type { AnswerTxSnapshot, AnswerWritePlan } from "@/lib/debrief/answer-pla
 import type { LastEnded, Question, Thread } from "@/lib/firestore/schema";
 import { ServiceUnavailableError, NotFoundError } from "@/lib/http/errors";
 import type { Redactor } from "@/lib/redact/types";
+import { capBeforeRedactor } from "@/lib/demo/redact-cap";
+import { DemoCapError, LockedError } from "@/lib/http/errors";
 
 const OUTLET = "o1";
 const DEVICE = "d1";
@@ -432,5 +434,91 @@ describe("submitAnswer — check order and dispositions", () => {
     expect(first).toEqual({ status: "answered" });
     const second = await submitAnswer(deps, CLAIMS, "q1", answerBody(), ENDS_MS - 4000);
     expect(second).toEqual({ status: "already_answered" });
+  });
+});
+
+describe("R-12 demo redact cap, charged immediately before SDP (QA D2)", () => {
+  function capped() {
+    const charges: string[] = [];
+    const sdp = vi.fn(async (t: string) => `R:${t}`);
+    const redactor = capBeforeRedactor({ redact: sdp }, async () => void charges.push("charge"));
+    return { charges, sdp, redactor };
+  }
+
+  it("an answer replay (already answered) charges nothing and never reaches SDP", async () => {
+    const store = new FakeDebriefStore();
+    store.questions.set("q1", makeQuestion({ status: "answered", answer: "yes", answered_at_ms: 1 }));
+    const c = capped();
+    expect(await submitAnswer({ store, redactor: c.redactor, log: vi.fn() }, CLAIMS, "q1", answerBody(), ENDS_MS - 5000)).toEqual({ status: "already_answered" });
+    expect(c.charges).toHaveLength(0);
+    expect(c.sdp).not.toHaveBeenCalled();
+  });
+
+  it("an unknown question id, an unsent debrief end and an answer outside the window charge nothing", async () => {
+    const c = capped();
+    const run = (store: FakeDebriefStore, body: string, id = "q1") =>
+      submitAnswer({ store, redactor: c.redactor, log: vi.fn() }, CLAIMS, id, body, ENDS_MS - 5000).catch((e) => e);
+
+    expect(await run(new FakeDebriefStore(), answerBody({ question_id: "q_none" }), "q_none")).toBeInstanceOf(NotFoundError);
+
+    const noEnd = new FakeDebriefStore();
+    noEnd.questions.set("q1", makeQuestion());
+    expect(await run(noEnd, answerBody())).toBeInstanceOf(ServiceUnavailableError);
+
+    const outside = new FakeDebriefStore();
+    setUpActiveDebrief(outside);
+    outside.questions.set("q1", makeQuestion());
+    expect(await run(outside, answerBody({ answered_at_ms: ENDS_MS - DEBRIEF_DURATION_MS - 1000 }))).toMatchObject({ code: "not_in_debrief" });
+
+    expect(c.charges).toHaveLength(0);
+    expect(c.sdp).not.toHaveBeenCalled();
+  });
+
+  it("a fresh answer charges exactly once, before SDP, and is stored", async () => {
+    const store = new FakeDebriefStore();
+    setUpActiveDebrief(store);
+    store.questions.set("q1", makeQuestion());
+    const c = capped();
+    expect(await submitAnswer({ store, redactor: c.redactor, log: vi.fn() }, CLAIMS, "q1", answerBody(), ENDS_MS - 5000)).toEqual({ status: "answered" });
+    expect(c.charges).toHaveLength(1);
+    expect(c.sdp).toHaveBeenCalledTimes(1);
+  });
+
+  it("at the cap the answer is a 429 (not a 503), SDP is never called and nothing is written", async () => {
+    const store = new FakeDebriefStore();
+    setUpActiveDebrief(store);
+    store.questions.set("q1", makeQuestion());
+    const sdp = vi.fn(async (t: string) => t);
+    const redactor = capBeforeRedactor({ redact: sdp }, async () => {
+      throw new LockedError(9, "capped", "demo_redact_cap");
+    });
+    const err = await submitAnswer({ store, redactor, log: vi.fn() }, CLAIMS, "q1", answerBody(), ENDS_MS - 5000).catch((e) => e);
+    expect(err).toMatchObject({ statusCode: 429, code: "demo_redact_cap" });
+    expect(sdp).not.toHaveBeenCalled();
+    expect(store.transactCalls).toBe(0);
+  });
+  it("a cap refusal is logged as demo_cap (not redaction_unavailable), with no reason text; a real SDP failure is still redaction_unavailable", async () => {
+    for (const thrown of [new LockedError(9, "capped", "demo_redact_cap"), new DemoCapError("The demo is not ready", "demo_not_ready")]) {
+      const store = new FakeDebriefStore();
+      setUpActiveDebrief(store);
+      store.questions.set("q1", makeQuestion());
+      const log = vi.fn();
+      const redactor = capBeforeRedactor({ redact: async (t) => t }, async () => {
+        throw thrown;
+      });
+      const err = await submitAnswer({ store, redactor, log }, CLAIMS, "q1", answerBody(), ENDS_MS - 5000).catch((e) => e);
+      expect(err).toMatchObject({ statusCode: thrown.statusCode });
+      expect(log).toHaveBeenCalledWith(expect.objectContaining({ question_id: "q1", code: "demo_cap" }));
+      expect(JSON.stringify(log.mock.calls)).not.toContain("redaction_unavailable");
+      expect(JSON.stringify(log.mock.calls)).not.toContain("reason_text");
+    }
+
+    const store = new FakeDebriefStore();
+    setUpActiveDebrief(store);
+    store.questions.set("q1", makeQuestion());
+    const log = vi.fn();
+    const sdpDown = { redact: async () => { throw new Error("sdp down"); } };
+    await submitAnswer({ store, redactor: sdpDown, log }, CLAIMS, "q1", answerBody(), ENDS_MS - 5000).catch(() => {});
+    expect(log).toHaveBeenCalledWith(expect.objectContaining({ code: "redaction_unavailable" }));
   });
 });

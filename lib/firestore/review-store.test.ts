@@ -4,6 +4,7 @@ import { COLLECTIONS } from "@/lib/firestore/collections";
 import { firestoreReviewStore, listAllOutlets } from "@/lib/firestore/review-store";
 import type { Outlet } from "@/lib/firestore/schema";
 import { buildExpiry } from "@/lib/reviews/plan";
+import { OUTLETS_READ_MAX } from "@/lib/reviews/constants";
 import { OUTLET, reviewDoc, shippedVersion } from "@/lib/reviews/testing/fixtures";
 import { proposalV1 } from "@/lib/sop/testing/fixtures";
 
@@ -289,9 +290,9 @@ describe("listAllOutlets (R-12 sandbox filter)", () => {
     expect(all.truncated).toBe(false);
   });
 
-  it("the cap counts raw docs: 501 docs (even if all are sandboxes) is flagged truncated, never silent", async () => {
+  it("the cap counts raw docs: one past the cap (even if all are sandboxes) is flagged truncated, never silent", async () => {
     const sandbox = { template_outlet_id: "demo-tpl-outlet", created_at_ms: 1, expires_at_ms: 2, key_sha256: "a".repeat(64) };
-    const docs = Object.fromEntries(Array.from({ length: 501 }, (_, i) => [`d${i}`, asDoc(outlet({ outlet_id: `sbx-${i}`, sandbox }))]));
+    const docs = Object.fromEntries(Array.from({ length: OUTLETS_READ_MAX + 1 }, (_, i) => [`d${i}`, asDoc(outlet({ outlet_id: `sbx-${i}`, sandbox }))]));
     const over = await listAllOutlets(fakeDb({ [COLLECTIONS.outlets]: docs }).db);
     expect(over.truncated).toBe(true);
     expect(over.outlets).toHaveLength(0);
@@ -306,20 +307,20 @@ describe("listAllOutlets", () => {
     const all = await listAllOutlets(db);
     expect(all.outlets.map((o) => o.outlet_id).sort()).toEqual(["o1", "o2"]);
     expect(all.truncated).toBe(false);
-    expect(queries[0]!.limit).toBe(501);
+    expect(queries[0]!.limit).toBe(OUTLETS_READ_MAX + 1);
     for (const call of errorSpy.mock.calls) expect(JSON.stringify(call)).not.toContain("SECRET_TEXT");
   });
 
   it("M2 exactly the cap is not truncated; one more is processed up to the cap, flagged and logged, never silent", async () => {
     const docs = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`d${i}`, asDoc(outlet({ outlet_id: `o${i}` }))]));
-    const atCap = await listAllOutlets(fakeDb({ [COLLECTIONS.outlets]: docs(500) }).db);
+    const atCap = await listAllOutlets(fakeDb({ [COLLECTIONS.outlets]: docs(OUTLETS_READ_MAX) }).db);
     expect(atCap).toMatchObject({ truncated: false });
-    expect(atCap.outlets).toHaveLength(500);
+    expect(atCap.outlets).toHaveLength(OUTLETS_READ_MAX);
     expect(errorSpy).not.toHaveBeenCalledWith("[review] outlets truncated", expect.anything());
 
-    const over = await listAllOutlets(fakeDb({ [COLLECTIONS.outlets]: docs(501) }).db);
+    const over = await listAllOutlets(fakeDb({ [COLLECTIONS.outlets]: docs(OUTLETS_READ_MAX + 1) }).db);
     expect(over.truncated).toBe(true);
-    expect(over.outlets).toHaveLength(500);
+    expect(over.outlets).toHaveLength(OUTLETS_READ_MAX);
     expect(errorSpy).toHaveBeenCalledWith("[review] outlets truncated", { error_class: "outlets_truncated" });
   });
 });

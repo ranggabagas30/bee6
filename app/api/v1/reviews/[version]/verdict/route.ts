@@ -3,6 +3,7 @@ import { requireClaims } from "@/lib/http/guard";
 import { BadRequestError, NotFoundError, ValidationError, handleApiError } from "@/lib/http/errors";
 import { jsonOk } from "@/lib/http/respond";
 import { enforceDemoCapsForRoute } from "@/lib/demo/route-caps";
+import { capBeforeRedact } from "@/lib/demo/redact-cap";
 import { firestoreReviewStore } from "@/lib/firestore/review-store";
 import { redactBatch } from "@/lib/redact/batch";
 import { VerdictBodySchema, VerdictResponseSchema, VersionParamSchema } from "@/lib/reviews/contract";
@@ -41,11 +42,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ver
     }
 
     // R-12: a sandbox's text entry (the verdict reason goes through Sensitive Data Protection) is capped.
-    await enforceDemoCapsForRoute("redact", claims, "reviews:verdict");
+    // The cap is charged inside the redaction function the service is handed, immediately before SDP, so a
+    // verdict with no reason, or one the service refuses first (a missing, repeated or closed review), spends no slot.
+    const redact = capBeforeRedact(redactBatch(), () => enforceDemoCapsForRoute("redact", claims));
 
     const data = await decideVerdict(
       firestoreReviewStore(claims.outlet_id),
-      { redact: redactBatch() },
+      { redact },
       { claims, version: version.data, body: body.data, now_ms: Date.now() },
     );
 

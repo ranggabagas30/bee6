@@ -65,13 +65,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // R-12: a sandbox may skip time only a few times (writes only; no model call).
-    await enforceDemoCapsForRoute("fast_forward", claims, "reviews:verdict");
-
+    // R-12: a sandbox may skip time only a few times (writes only; no model call). The cap is only CHECKED
+    // before the review is written and CHARGED after the service got "created" back, so a skip that is
+    // refused, loses a race or fails costs no slot.
     const data = await fastForwardReview(firestoreReviewStore(claims.outlet_id), {
       claims,
       now_ms: Date.now(),
       demoMode: true,
+      beforeCreate: () => enforceDemoCapsForRoute("fast_forward", claims, "reviews:verdict", "check"),
+      afterCreate: () => enforceDemoCapsForRoute("fast_forward", claims, "reviews:verdict", "charge"),
     });
 
     const res = jsonOk(FastForwardResponseSchema.parse(data), 200);

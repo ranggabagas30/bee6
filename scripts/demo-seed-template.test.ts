@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it, vi } from "vitest";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   PILOT_PROJECT_ID,
   PlanSchema,
@@ -78,6 +80,7 @@ interface Call {
   url: string;
   headers: Record<string, string>;
   body?: unknown;
+  redirect?: RequestRedirect;
 }
 
 function envelope(data: unknown, status = 200): Response {
@@ -95,10 +98,15 @@ function harness(opts: { pair?: { device_id: string; outlet_id: string }; failAt
       url: String(url),
       headers: Object.fromEntries(Object.entries((init?.headers ?? {}) as Record<string, string>)),
       body: init?.body,
+      redirect: init?.redirect,
     };
     calls.push(call);
     const forced = opts.failAt?.(call);
     if (forced) return forced;
+    if (call.method === "GET" && call.url.endsWith("/api/v1/reviews/fast-forward")) {
+      // A demo service answers a wrong method with 405 + Allow: POST; any other service answers 404.
+      return new Response(null, { status: 405, headers: { Allow: "POST" } });
+    }
     if (call.url.endsWith("/api/v1/devices/pair")) {
       return envelope(
         { ...(opts.pair ?? { device_id: "demo-tpl-phone", outlet_id: "demo-tpl-outlet" }), device_token: TOKEN },
@@ -138,6 +146,7 @@ describe("runTemplateSeed", () => {
     await runTemplateSeed(deps);
     const routes = calls.map((c) => `${c.method} ${c.url.replace(deps.baseUrl, "").replace(/[0-9a-f-]{36}/g, "<uuid>")}`);
     expect(routes).toEqual([
+      "GET /api/v1/reviews/fast-forward",
       "POST /api/v1/devices/pair",
       "POST /api/v1/capture/sessions",
       "PUT /api/v1/segments/demo-tpl-phone:<uuid>",
@@ -181,7 +190,40 @@ describe("runTemplateSeed", () => {
   it("aborts when the pairing code belongs to another device or outlet (never seeds the wrong shop)", async () => {
     const { deps, calls } = harness({ pair: { device_id: "demo-phone", outlet_id: "demo-outlet" } });
     await expect(runTemplateSeed(deps)).rejects.toBeInstanceOf(TemplateSeedError);
-    expect(calls).toHaveLength(1);
+    expect(calls.map((c) => c.method)).toEqual(["GET", "POST"]); // the demo probe, then the pairing; nothing after
+  });
+
+  describe("LOW-7 the service must prove it is a demo service before any state-changing call", () => {
+    const probeResponses: [string, () => Response | Promise<Response>][] = [
+      ["404 (DEMO_MODE off: a pilot or any non-demo service)", () => new Response("{}", { status: 404 })],
+      ["200 (some unrelated service)", () => new Response("ok", { status: 200 })],
+      ["405 without Allow: POST", () => new Response(null, { status: 405 })],
+      ["a 5xx", () => new Response(null, { status: 502 })],
+      ["a network error", () => Promise.reject(new TypeError("fetch failed"))],
+    ];
+    for (const [name, make] of probeResponses) {
+      it(`refuses on ${name}: the pairing code is never sent and nothing is uploaded`, async () => {
+        const h = harness();
+        h.fetchFn.mockImplementation(async (url: string, init?: RequestInit) => {
+          h.calls.push({ method: init?.method ?? "GET", url: String(url), headers: {}, body: init?.body });
+          return make();
+        });
+        const err = await runTemplateSeed(h.deps).catch((e) => e);
+        expect(err).toBeInstanceOf(TemplateSeedError);
+        expect(h.calls).toHaveLength(1);
+        expect(h.calls[0]).toMatchObject({ method: "GET" });
+        expect(h.calls[0]!.url).toBe("https://demo.example.run.app/api/v1/reviews/fast-forward");
+        expect(h.deps.readClip).not.toHaveBeenCalled();
+        expect(err.message).not.toContain("123456");
+      });
+    }
+
+    it("the probe sends no credentials", async () => {
+      const { deps, calls } = harness();
+      await runTemplateSeed(deps);
+      expect(calls[0]!.headers.Authorization).toBeUndefined();
+      expect(calls[0]!.body).toBeUndefined();
+    });
   });
 
   it("an HTTP error exits with status and route only (no body, no token)", async () => {
@@ -240,6 +282,59 @@ describe("runTemplateSeed", () => {
     const h = harness();
     h.deps.readClip.mockResolvedValue(new Uint8Array(256 * 1024 + 1));
     await expect(runTemplateSeed(h.deps)).rejects.toBeInstanceOf(TemplateSeedError);
+  });
+});
+
+describe("N-2 redirects are never followed (the token and the single-use code must not leave the base URL)", () => {
+  it("every request, the probe included, is sent with redirect: 'error'", async () => {
+    const { deps, calls } = harness();
+    await runTemplateSeed(deps);
+    expect(calls.length).toBeGreaterThan(5);
+    for (const c of calls) expect(c.redirect, `${c.method} ${c.url}`).toBe("error");
+  });
+
+  describe("against a real server that answers with a redirect", () => {
+    let server: Server | undefined;
+    afterEach(async () => {
+      await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
+      server = undefined;
+    });
+
+    async function serve(status: number, redirectOn: (method: string, url: string) => boolean) {
+      const seen: string[] = [];
+      server = createServer((req, res) => {
+        seen.push(`${req.method} ${req.url}`);
+        if (req.url === "/elsewhere") {
+          res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: {} }));
+        } else if (req.method === "GET" && req.url === "/api/v1/reviews/fast-forward" && !redirectOn("GET", req.url)) {
+          res.writeHead(405, { Allow: "POST" }).end();
+        } else if (redirectOn(req.method ?? "", req.url ?? "")) {
+          res.writeHead(status, { Location: "/elsewhere" }).end();
+        } else {
+          res.writeHead(404).end();
+        }
+      });
+      await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
+      return { seen, baseUrl: `http://127.0.0.1:${(server!.address() as AddressInfo).port}` };
+    }
+
+    for (const status of [307, 308]) {
+      it(`a ${status} on the probe refuses the run and nothing is resent`, async () => {
+        const { seen, baseUrl } = await serve(status, (m) => m === "GET");
+        const h = harness();
+        const err = await runTemplateSeed({ ...h.deps, baseUrl, fetchFn: fetch }).catch((e) => e);
+        expect(err).toBeInstanceOf(TemplateSeedError);
+        expect(seen).toEqual(["GET /api/v1/reviews/fast-forward"]);
+      });
+
+      it(`a ${status} on the pairing POST is refused and the code is not resent`, async () => {
+        const { seen, baseUrl } = await serve(status, (m, u) => m === "POST" && u === "/api/v1/devices/pair");
+        const h = harness();
+        const err = await runTemplateSeed({ ...h.deps, baseUrl, fetchFn: fetch }).catch((e) => e);
+        expect(err).toBeInstanceOf(TemplateSeedError);
+        expect(seen).toEqual(["GET /api/v1/reviews/fast-forward", "POST /api/v1/devices/pair"]);
+      });
+    }
   });
 });
 

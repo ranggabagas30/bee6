@@ -5,7 +5,7 @@ import {
   type ConstraintDeps,
   type ConstraintStore,
 } from "@/lib/constraints/service";
-import { ForbiddenError, ConflictError, ServiceUnavailableError, ValidationError } from "@/lib/http/errors";
+import { ForbiddenError, ConflictError, LockedError, ServiceUnavailableError, ValidationError } from "@/lib/http/errors";
 import type { AuditLog, Constraint, Outlet } from "@/lib/firestore/schema";
 import type { CustomClaims } from "@/lib/auth/roles";
 
@@ -239,6 +239,23 @@ describe("createConstraint", () => {
     expect(store.audits).toHaveLength(0);
     expect(store.createInTransactionCalls).toBe(0);
     expectNeverLogged("DLP down");
+  });
+
+  it("R-12 a demo cap refusal (LockedError 429) from the redactor is not turned into a 503, and nothing is written", async () => {
+    const store = new FakeConstraintStore();
+    const redact = vi.fn(async () => {
+      throw new LockedError(5, "capped", "demo_redact_cap");
+    });
+    await expect(
+      createConstraint(store, identityDeps({ redact }), {
+        claims: claims("supervisor"),
+        text: "a valid constraint",
+        now_ms: 1,
+        source: "manual",
+      }),
+    ).rejects.toMatchObject({ statusCode: 429, code: "demo_redact_cap" });
+    expect(store.docs).toHaveLength(0);
+    expect(store.audits).toHaveLength(0);
   });
 
   it("redactor returns 501 chars -> 422, no write", async () => {

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { zonedTimeToEpochMs } from "@/lib/capture/calendar";
 import type { CustomClaims } from "@/lib/auth/roles";
 import type { ConstraintStore } from "@/lib/constraints/service";
-import { ConflictError, ForbiddenError, NotFoundError, ServiceUnavailableError } from "@/lib/http/errors";
+import { ConflictError, ForbiddenError, LockedError, NotFoundError, ServiceUnavailableError } from "@/lib/http/errors";
 import { LibraryNotReadyError, type ProposalLibrary } from "@/config/proposal-library";
 import {
   ProposalSchema,
@@ -22,6 +22,7 @@ import {
 } from "@/lib/proposals/review-service";
 import type { DecisionSnapshot } from "@/lib/proposals/review-plan";
 import { seedV1 } from "@/lib/sop/testing/fixtures";
+import { capBeforeRedact } from "@/lib/demo/redact-cap";
 import { LIST_DECIDED_MAX, LIST_OPEN_MAX } from "@/lib/proposals/review-contract";
 import type { ApproveBody, ReviewBody } from "@/lib/proposals/review-contract";
 
@@ -985,5 +986,73 @@ describe("decideProposal: permissions, logging, errors", () => {
     const err = await sup(ctx, feasibleBody([C1])).catch((e) => e);
     expect(err.constructor.name).toBe("Error");
     expect((err as Error).message).toMatch(/internal schema violation/);
+  });
+});
+
+describe("R-12 demo redact cap, charged immediately before SDP (QA D2)", () => {
+  function cap(ctx: Ctx, over: { refuse?: boolean } = {}) {
+    const charges: string[] = [];
+    const inner = ctx.deps.redact;
+    ctx.deps.redact = capBeforeRedact(inner, async () => {
+      if (over.refuse) throw new LockedError(9, "capped", "demo_redact_cap");
+      charges.push("charge");
+    });
+    return charges;
+  }
+
+  it("a reject on an already decided, superseded or missing proposal charges nothing and never reaches SDP", async () => {
+    const decided = setup();
+    decided.store.put(awaitingOwner(1));
+    const c1 = cap(decided);
+    expect(await sup(decided, rejectBody()).catch((e) => e)).toBeInstanceOf(ConflictError);
+
+    const done = setup();
+    done.store.put(supRejected(1));
+    const c2 = cap(done);
+    expect(await sup(done, rejectBody())).toEqual({ result: "unchanged", status: "rejected" });
+
+    const superseded = setup();
+    superseded.store.put(proposal(1), proposal(2));
+    const c3 = cap(superseded);
+    expect(await sup(superseded, rejectBody()).catch((e) => e)).toBeInstanceOf(ConflictError);
+
+    const missing = setup();
+    const c4 = cap(missing);
+    expect(await sup(missing, rejectBody(), { id: uuid(77) }).catch((e) => e)).toBeInstanceOf(NotFoundError);
+
+    for (const ctx of [decided, done, superseded, missing]) expect(ctx.redactCalls).toHaveLength(0);
+    expect([c1, c2, c3, c4].map((c) => c.length)).toEqual([0, 0, 0, 0]);
+  });
+
+  it("a reject that reaches SDP charges once, before the redaction", async () => {
+    const ctx = setup();
+    ctx.store.put(proposal(1));
+    const charges = cap(ctx);
+    expect(await sup(ctx, rejectBody())).toEqual({ result: "rejected", status: "rejected" });
+    expect(charges).toHaveLength(1);
+    expect(ctx.redactCalls).toHaveLength(1);
+  });
+
+  it("a feasible or approve decision (no text) charges nothing", async () => {
+    const a = setup();
+    a.store.put(proposal(1));
+    const ca = cap(a);
+    await sup(a, feasibleBody());
+    const b = setup();
+    b.store.put(awaitingOwner(1));
+    const cb = cap(b);
+    await own(b, approveBody());
+    expect([ca.length, cb.length]).toEqual([0, 0]);
+  });
+
+  it("at the cap the reject is a 429 (not a 503): no SDP, no constraint, the proposal is unchanged", async () => {
+    const ctx = setup();
+    ctx.store.put(proposal(1));
+    cap(ctx, { refuse: true });
+    const err = await sup(ctx, rejectBody()).catch((e) => e);
+    expect(err).toMatchObject({ statusCode: 429, code: "demo_redact_cap" });
+    expect(ctx.redactCalls).toHaveLength(0);
+    expect(ctx.cstore.docs).toHaveLength(0);
+    expect(ctx.store.proposals.get(P1)!.status).toBe("awaiting_supervisor");
   });
 });

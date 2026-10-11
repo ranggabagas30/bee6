@@ -3,7 +3,7 @@ import type { CustomClaims } from "@/lib/auth/roles";
 import { localDateOf, zonedTimeToEpochMs } from "@/lib/capture/calendar";
 import type { AttributionSession } from "@/lib/day/attribution";
 import type { AuditLog, Outcome, Outlet, Review, SopVersion } from "@/lib/firestore/schema";
-import { ConflictError, ForbiddenError, NotFoundError, ServiceUnavailableError } from "@/lib/http/errors";
+import { ConflictError, ForbiddenError, LockedError, NotFoundError, ServiceUnavailableError } from "@/lib/http/errors";
 import type { ProposalThreadRow } from "@/lib/proposals/candidates";
 import {
   createReview,
@@ -15,6 +15,10 @@ import {
 } from "@/lib/reviews/service";
 import { OUTLET, REASON_SENTINEL, reviewDoc, seedV1, shippedVersion, TZ, verdictEntry } from "@/lib/reviews/testing/fixtures";
 import { proposalV1 } from "@/lib/sop/testing/fixtures";
+import { enforceDemoCaps } from "@/lib/demo/caps";
+import { capBeforeRedact } from "@/lib/demo/redact-cap";
+import { fakeStore as fakeDemoStore } from "@/lib/demo/testing/fake-store";
+import { templateSet } from "@/lib/demo/testing/fixtures";
 
 const DEVICE = "dev-DEVSENTINEL-77";
 const at = (date: string, hm = "09:00") => zonedTimeToEpochMs(date, hm, TZ);
@@ -432,10 +436,208 @@ describe("fastForwardReview", () => {
     await expect(ff(f)).rejects.toBeInstanceOf(ConflictError);
   });
 
+  it("R-12 beforeCreate runs after the pre-check and before the review is written", async () => {
+    const f = fakeStore({ ...windowData() });
+    const seen: number[] = [];
+    await fastForwardReview(f.store, {
+      claims: claims("supervisor"),
+      now_ms: at("2026-10-17"),
+      demoMode: true,
+      beforeCreate: async () => {
+        seen.push(f.reviews.size);
+      },
+    });
+    expect(seen).toEqual([0]);
+    expect(f.reviews.size).toBe(1);
+  });
+
+  it("R-12 beforeCreate is never called for a skip that cannot run (404, 403, 409) so no cap slot is spent", async () => {
+    const beforeCreate = vi.fn(async () => {});
+    const call = (f: ReturnType<typeof fakeStore>, demoMode: boolean, role: CustomClaims["role"]) =>
+      fastForwardReview(f.store, { claims: claims(role), now_ms: at("2026-10-17"), demoMode, beforeCreate });
+    await expect(call(fakeStore({ ...windowData() }), false, "supervisor")).rejects.toBeInstanceOf(NotFoundError);
+    await expect(call(fakeStore({ ...windowData(), outletDoc: outlet({ project_kind: "pilot" }) }), true, "supervisor")).rejects.toBeInstanceOf(NotFoundError);
+    await expect(call(fakeStore({ ...windowData() }), true, "staff")).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(call(fakeStore({ ...windowData(), reviews: [reviewDoc()] }), true, "supervisor")).rejects.toMatchObject({ code: "NOTHING_TO_REVIEW" });
+    expect(beforeCreate).not.toHaveBeenCalled();
+  });
+
+  it("R-12 a beforeCreate refusal (cap) stops the skip: nothing is written", async () => {
+    const f = fakeStore({ ...windowData() });
+    await expect(
+      fastForwardReview(f.store, {
+        claims: claims("supervisor"),
+        now_ms: at("2026-10-17"),
+        demoMode: true,
+        beforeCreate: async () => {
+          throw new ConflictError("capped", "CAPPED");
+        },
+      }),
+    ).rejects.toMatchObject({ code: "CAPPED" });
+    expect(f.reviews.size).toBe(0);
+  });
+
   it("4.T11 a lost race (exists) -> 409 NOTHING_TO_REVIEW", async () => {
     const f = fakeStore({ ...windowData() });
     const orig = f.store.createReview;
     f.store.createReview = async () => { await orig(reviewDoc(), f.audits[0] ?? ({} as AuditLog)); return "exists"; };
     await expect(ff(f)).rejects.toMatchObject({ code: "NOTHING_TO_REVIEW" });
+  });
+
+  it("R-12 afterCreate runs once, only after the review was really created", async () => {
+    const f = fakeStore({ ...windowData() });
+    const seen: number[] = [];
+    await fastForwardReview(f.store, {
+      claims: claims("supervisor"),
+      now_ms: at("2026-10-17"),
+      demoMode: true,
+      afterCreate: async () => {
+        seen.push(f.reviews.size);
+      },
+    });
+    expect(seen).toEqual([1]);
+  });
+
+  it("R-12 afterCreate is not called when the skip loses the race (exists) or createReview throws", async () => {
+    const afterCreate = vi.fn(async () => {});
+    const call = (f: ReturnType<typeof fakeStore>) =>
+      fastForwardReview(f.store, { claims: claims("supervisor"), now_ms: at("2026-10-17"), demoMode: true, afterCreate });
+    const lost = fakeStore({ ...windowData() });
+    const orig = lost.store.createReview;
+    lost.store.createReview = async () => { await orig(reviewDoc(), lost.audits[0] ?? ({} as AuditLog)); return "exists"; };
+    await expect(call(lost)).rejects.toMatchObject({ code: "NOTHING_TO_REVIEW" });
+    await expect(call(fakeStore({ ...windowData(), proposal: false }))).rejects.toThrow("source proposal missing");
+    expect(afterCreate).not.toHaveBeenCalled();
+  });
+
+  it("R-12 an afterCreate failure (a cap overshoot, an outage) never fails a skip that already ran", async () => {
+    const f = fakeStore({ ...windowData() });
+    await expect(
+      fastForwardReview(f.store, {
+        claims: claims("supervisor"),
+        now_ms: at("2026-10-17"),
+        demoMode: true,
+        afterCreate: async () => {
+          throw new ConflictError("capped", "CAPPED");
+        },
+      }),
+    ).resolves.toEqual({ version: 2 });
+    expect(f.reviews.size).toBe(1);
+  });
+});
+
+describe("fastForwardReview with the real sandbox cap (QA D1: a refused or lost skip costs no slot)", () => {
+  const SBX = "sbx-0123456789ab";
+  const NOW = at("2026-10-17");
+  const sandbox = (): Outlet => ({
+    ...templateSet().outlet,
+    outlet_id: SBX,
+    sandbox: { template_outlet_id: "demo-tpl-outlet", created_at_ms: NOW, expires_at_ms: NOW + 3_600_000, key_sha256: "a".repeat(64) },
+  });
+  const manyVersions = () => [seedV1(), ...[2, 3, 4, 5, 6, 7].map((v) => shippedVersion(v, "2026-10-16", "2026-10-23"))];
+  function setup(opts: Parameters<typeof fakeStore>[0] = {}) {
+    const f = fakeStore({ ...windowData(), versions: manyVersions(), ...opts });
+    const demo = fakeDemoStore();
+    const cap = (mode: "check" | "charge") => () => enforceDemoCaps(demo.store, { outlet: sandbox(), now_ms: NOW, key: "fast_forward", mode });
+    const skip = () =>
+      fastForwardReview(f.store, {
+        claims: claims("supervisor"),
+        now_ms: NOW,
+        demoMode: true,
+        beforeCreate: cap("check"),
+        afterCreate: cap("charge"),
+      });
+    const slots = () => demo.counters.get(`fast_forward_sandbox:${SBX}`) ?? 0;
+    return { f, skip, slots };
+  }
+
+  it("a double tap makes one review and spends exactly one slot", async () => {
+    const { f, skip, slots } = setup();
+    const results = await Promise.allSettled([skip(), skip()]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const lost = results.find((r) => r.status === "rejected") as PromiseRejectedResult;
+    expect(lost.reason).toMatchObject({ code: "NOTHING_TO_REVIEW" });
+    expect(f.reviews.size).toBe(1);
+    expect(slots()).toBe(1);
+  });
+
+  it("8 parallel skips on 6 versions: the slots spent equal the skips that really happened; no loser is charged", async () => {
+    const { f, skip, slots } = setup();
+    const results = await Promise.allSettled(Array.from({ length: 8 }, () => skip()));
+    const ok = results.filter((r) => r.status === "fulfilled").length;
+    expect(ok).toBe(f.reviews.size);
+    expect(slots()).toBe(ok);
+    for (const r of results) {
+      if (r.status === "rejected") expect((r.reason as { code?: string }).code).toBe("NOTHING_TO_REVIEW");
+    }
+  });
+
+  it("a skip whose source proposal is missing throws and spends nothing", async () => {
+    const { skip, slots } = setup({ proposal: false });
+    await expect(skip()).rejects.toThrow("source proposal missing");
+    expect(slots()).toBe(0);
+  });
+
+  it("nothing to review spends nothing", async () => {
+    const { skip, slots } = setup({ reviews: [reviewDoc()], versions: [seedV1(), shippedVersion(2)] });
+    await expect(skip()).rejects.toMatchObject({ code: "NOTHING_TO_REVIEW" });
+    expect(slots()).toBe(0);
+  });
+
+  it("the cap still stops the 4th successful skip (429 demo_fast_forward_cap) and writes no 4th review", async () => {
+    const { f, skip, slots } = setup();
+    for (let i = 0; i < 3; i++) await skip();
+    expect(slots()).toBe(3);
+    await expect(skip()).rejects.toMatchObject({ code: "demo_fast_forward_cap", statusCode: 429 });
+    expect(f.reviews.size).toBe(3);
+    expect(slots()).toBe(3);
+  });
+});
+
+describe("decideVerdict with the demo redact cap charged immediately before SDP (R-12, QA D2)", () => {
+  const run = (f: ReturnType<typeof fakeStore>, redact: (t: readonly string[]) => Promise<string[]>, role: CustomClaims["role"], v: number, b: { verdict: "worked" | "revise" | "revert"; reason?: string }, today = "2026-10-24") =>
+    decideVerdict(f.store, { redact }, { claims: claims(role), version: v, body: b, now_ms: at(today) });
+  function capped(over: { refuse?: boolean } = {}) {
+    const charges: string[] = [];
+    const sdp = vi.fn(async (t: readonly string[]) => t.map((x) => `SDP[${x}]`));
+    const redact = capBeforeRedact(sdp, async () => {
+      if (over.refuse) throw new LockedError(9, "capped", "demo_redact_cap");
+      charges.push("charge");
+    });
+    return { charges, sdp, redact };
+  }
+
+  it("a verdict with a reason on a missing review, a repeated verdict or a refused one charges nothing and never reaches SDP", async () => {
+    const c = capped();
+    const f = fakeStore({ reviews: [reviewDoc()] });
+    await expect(run(f, c.redact, "supervisor", 9, { verdict: "worked", reason: "Went well" })).rejects.toBeInstanceOf(NotFoundError);
+    await expect(run(f, c.redact, "owner", 2, { verdict: "worked", reason: "Went well" })).rejects.toMatchObject({ code: "NOT_YET_REVIEWABLE" });
+    await expect(run(f, c.redact, "supervisor", 2, { verdict: "worked", reason: "Went well" }, "2026-10-31")).rejects.toMatchObject({ code: "EXPIRED" });
+    expect(c.charges).toHaveLength(0);
+    expect(c.sdp).not.toHaveBeenCalled();
+
+    const g = fakeStore({ reviews: [reviewDoc()] });
+    await run(g, capped().redact, "supervisor", 2, { verdict: "revise" });
+    expect(await run(g, c.redact, "supervisor", 2, { verdict: "revise", reason: "same again" })).toMatchObject({ result: "unchanged" });
+    expect(c.charges).toHaveLength(0);
+    expect(c.sdp).not.toHaveBeenCalled();
+  });
+
+  it("a verdict with no reason charges nothing; with a reason it charges once, before SDP", async () => {
+    const c = capped();
+    const f = fakeStore({ reviews: [reviewDoc()] });
+    await run(f, c.redact, "supervisor", 2, { verdict: "revise" });
+    expect(c.charges).toHaveLength(0);
+    await run(f, c.redact, "owner", 2, { verdict: "worked", reason: "Went well" });
+    expect(c.charges).toHaveLength(1);
+    expect(c.sdp).toHaveBeenCalledTimes(1);
+  });
+
+  it("at the cap the verdict is a 429 (not a 503): no SDP, nothing stored", async () => {
+    const c = capped({ refuse: true });
+    const f = fakeStore({ reviews: [reviewDoc()] });
+    await expect(run(f, c.redact, "supervisor", 2, { verdict: "revise", reason: "Because" })).rejects.toMatchObject({ statusCode: 429, code: "demo_redact_cap" });
+    expect(c.sdp).not.toHaveBeenCalled();
+    expect(f.reviews.get(`${OUTLET}:v2`)!.status).toBe("awaiting_supervisor");
   });
 });

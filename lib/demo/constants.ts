@@ -47,5 +47,8 @@ export const MODEL_DAILY = 5000;
 /** Lazy cleanup: at most this many expired sandboxes are deleted per new-sandbox request. */
 export const CLEANUP_PER_CREATE = 2;
 
+/** DEMO_IP_SALT must be at least this long, or the demo is not ready (a short salt makes the IP hashes guessable). */
+export const IP_SALT_MIN_LENGTH = 16;
+
 /** Counter docs are kept 2 days, then Firestore TTL (dev-ops) removes them. */
 export const COUNTER_TTL_MS = 2 * 24 * 60 * 60_000;

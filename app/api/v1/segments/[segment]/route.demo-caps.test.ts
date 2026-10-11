@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { PUT } from "./route";
@@ -158,4 +159,30 @@ describe("PUT /api/v1/segments: sandbox segment caps", () => {
     await put();
     expect(f.bumps.map((b) => b.id)).toEqual([`segment_sandbox:${SBX}`, `segment_day:${utcDay(Date.now())}`, `model_day:${utcDay(Date.now())}`]);
   });
+});
+
+describe("PUT /api/v1/segments: an untyped cap-check failure fails closed (QA)", () => {
+  const SENTINEL = "sentinel-raw-firestore-message-7f3a";
+  for (const [where, inject] of [
+    ["the counter transaction", () => vi.spyOn(f.store, "bumpCounter").mockRejectedValue(new Error(SENTINEL))],
+    ["the outlet read", () => vi.spyOn(f.store, "getOutlet").mockRejectedValue(new Error(SENTINEL))],
+  ] as const) {
+    it(`${where}: 503 demo_cap_unavailable, nothing transcribed, redacted or stored, no raw message in the response or any console output`, async () => {
+      const out = (["error", "warn", "info", "log", "debug"] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}));
+      deviceIn(SBX);
+      f.sandboxes.set(SBX, sandboxOutlet());
+      inject();
+      const res = await put();
+      expect(res.status).toBe(503);
+      const text = JSON.stringify(await res.json());
+      expect(JSON.parse(text).error).toMatchObject({ code: "demo_cap_unavailable", message: "The demo is temporarily unavailable" });
+      expect(text).not.toContain(SENTINEL);
+      expect(transcribe).not.toHaveBeenCalled();
+      expect(vi.mocked(redactModule.dlpRedactor)).not.toHaveBeenCalled();
+      expect(storeGet).not.toHaveBeenCalled();
+      expect(f.bumps).toEqual([]);
+      expect(inspect(out.flatMap((s) => s.mock.calls), { depth: 6 })).not.toContain(SENTINEL);
+      expect(out[0]).toHaveBeenCalledWith("[demo] cap check failed", { error_class: "Error" });
+    });
+  }
 });

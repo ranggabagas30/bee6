@@ -26,7 +26,7 @@ beforeEach(() => {
   hoisted.store = f.store;
   hoisted.mint.mockImplementation(async (uid: string) => `custom-${uid}`);
   process.env.DEMO_MODE = "true";
-  process.env.DEMO_IP_SALT = "route-test-salt";
+  process.env.DEMO_IP_SALT = "route-test-salt-0123";
   delete process.env.DEMO_XFF_FROM_END;
   delete process.env.DEMO_SANDBOX_DAILY_CAP;
 });
@@ -248,8 +248,8 @@ describe("on-demo", () => {
     expect((await res.json()).error.code).toBe("demo_daily_cap");
   });
 
-  it("D1 a missing or empty DEMO_IP_SALT is 503 demo_not_ready on a role switch too, before any store call", async () => {
-    for (const salt of ["", undefined]) {
+  it("D1 a missing, empty or too-short (< 16 characters) DEMO_IP_SALT is 503 demo_not_ready on a role switch too, before any store call", async () => {
+    for (const salt of ["", undefined, "x".repeat(15)]) {
       if (salt === undefined) delete process.env.DEMO_IP_SALT;
       else process.env.DEMO_IP_SALT = salt;
       const res = await POST(req({ role: "owner", sandbox_key: KEY }));
@@ -279,7 +279,7 @@ describe("on-demo", () => {
     delete process.env.DEMO_IP_SALT;
     expect((await POST(req({ role: "owner" }))).status).toBe(503);
 
-    process.env.DEMO_IP_SALT = "salt";
+    process.env.DEMO_IP_SALT = "route-test-salt-0123";
     f.state.template = null;
     const noTemplate = await POST(req({ role: "owner" }));
     expect(noTemplate.status).toBe(503);
@@ -290,7 +290,7 @@ describe("on-demo", () => {
   it("6.T9 counts the LAST x-forwarded-for entry by default as a salted hash; the raw IP is never stored or logged", async () => {
     await POST(req({ role: "owner" }));
     const day = utcDay(Date.now());
-    expect(f.bumps[0]!.id).toBe(ipBucketKey("203.0.113.50", day, "route-test-salt"));
+    expect(f.bumps[0]!.id).toBe(ipBucketKey("203.0.113.50", day, "route-test-salt-0123"));
 
     const everything = JSON.stringify([f.written, f.bumps, consoleSpies.map((s) => s.mock.calls)]);
     for (const ip of ["203.0.113.50", "6.6.6.6"]) expect(everything).not.toContain(ip);
@@ -302,13 +302,13 @@ describe("on-demo", () => {
     }
     const res = await POST(req({ role: "owner" }, { "x-forwarded-for": "9.9.9.9, a, 198.51.100.77" }));
     expect(res.status).toBe(429);
-    expect(f.bumps.filter((b) => b.kind === "sandbox_ip").every((b) => b.id === ipBucketKey("198.51.100.77", utcDay(Date.now()), "route-test-salt"))).toBe(true);
+    expect(f.bumps.filter((b) => b.kind === "sandbox_ip").every((b) => b.id === ipBucketKey("198.51.100.77", utcDay(Date.now()), "route-test-salt-0123"))).toBe(true);
   });
 
   it("H1 DEMO_XFF_FROM_END=2 uses the second entry from the end", async () => {
     process.env.DEMO_XFF_FROM_END = "2";
     await POST(req({ role: "owner" }, { "x-forwarded-for": "6.6.6.6, 203.0.113.99, 10.0.0.1" }));
-    expect(f.bumps[0]!.id).toBe(ipBucketKey("203.0.113.99", utcDay(Date.now()), "route-test-salt"));
+    expect(f.bumps[0]!.id).toBe(ipBucketKey("203.0.113.99", utcDay(Date.now()), "route-test-salt-0123"));
   });
 
   it("H1 an invalid DEMO_XFF_FROM_END ('1\\n' is fine, ' 1', '100', 'abc' fail closed) never falls back to the first entry", async () => {
@@ -317,13 +317,13 @@ describe("on-demo", () => {
       f.bumps.length = 0;
       process.env.DEMO_XFF_FROM_END = bad;
       await POST(req({ role: "owner" }, { "x-forwarded-for": "6.6.6.6, 203.0.113.99" }));
-      expect(f.bumps[0]!.id, bad).toBe(ipBucketKey("203.0.113.99", day, "route-test-salt"));
+      expect(f.bumps[0]!.id, bad).toBe(ipBucketKey("203.0.113.99", day, "route-test-salt-0123"));
     }
     for (const ok of ["1\n", " 1"]) {
       f.bumps.length = 0;
       process.env.DEMO_XFF_FROM_END = ok;
       await POST(req({ role: "owner" }, { "x-forwarded-for": "6.6.6.6, 203.0.113.99" }));
-      expect(f.bumps[0]!.id, JSON.stringify(ok)).toBe(ipBucketKey("203.0.113.99", day, "route-test-salt"));
+      expect(f.bumps[0]!.id, JSON.stringify(ok)).toBe(ipBucketKey("203.0.113.99", day, "route-test-salt-0123"));
     }
   });
 
