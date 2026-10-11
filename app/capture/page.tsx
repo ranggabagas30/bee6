@@ -484,7 +484,9 @@ export default function CapturePage() {
     setSelesaiConfirmOpen(false);
   }
   async function confirmSelesai() {
-    if (!session || selesaiBusyRef.current) return;
+    // The 5:00 auto-stop already ended (or is ending) this session: a second end call would race it and could
+    // flip the headline from "Ended automatically" to a plain Selesai.
+    if (!session || selesaiBusyRef.current || autoStopInFlightRef.current) return;
     const auth = readDeviceAuth();
     if (!auth) return;
     selesaiBusyRef.current = true;
@@ -709,7 +711,7 @@ export default function CapturePage() {
           type="button"
           style={SECONDARY_BUTTON_STYLE}
           onClick={confirmSelesai}
-          disabled={selesaiBusy}
+          disabled={selesaiBusy || autoStopBusy}
         >
           {t(lang, "C-b-ya-selesai")}
         </button>

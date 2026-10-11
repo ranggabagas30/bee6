@@ -636,6 +636,28 @@ describe("CapturePage script drawer (R-18, sandbox only)", () => {
     expect(postSessionEnd).toHaveBeenCalledTimes(1);
   });
 
+  it("End dialog opened at 4:58, auto-stop fires at 5:00, 'Yes, end' tapped during the round trip: ONE end call, headline stays 'Ended automatically'", async () => {
+    await renderDemoRunning();
+    await vi.advanceTimersByTimeAsync(4 * 60_000 + 58_000);
+    fireEvent.click(screen.getByRole("button", { name: "End" }));
+    expect(screen.getByText("End today's operations?")).toBeTruthy();
+    let release: (r: { ok: boolean }) => void = () => {};
+    postSessionEnd.mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
+    await vi.advanceTimersByTimeAsync(2_500); // 5:00 passes: the auto-stop request is now in flight
+    expect(postSessionEnd).toHaveBeenCalledTimes(1);
+    expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "auto_stop" });
+    const yes = screen.getByRole("button", { name: "Yes, end" }) as HTMLButtonElement;
+    await waitFor(() => expect(yes.disabled).toBe(true));
+    fireEvent.click(yes);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(postSessionEnd).toHaveBeenCalledTimes(1);
+    release({ ok: true });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(postSessionEnd).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("End today's operations?")).toBeNull();
+    expect(screen.getByText(/^Ended automatically at \d/)).toBeTruthy();
+  });
+
   it("the countdown follows the page clock, in text", async () => {
     await renderDemoRunning();
     expect(screen.getByText("Demo ends automatically in 5:00")).toBeTruthy();
