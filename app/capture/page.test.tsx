@@ -505,6 +505,129 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
   });
 });
 
+describe("CapturePage script drawer (R-18, sandbox only)", () => {
+  const MON_1000_WIB = "2026-10-12T03:00:00Z";
+  const demoConfig = () => ({
+    ...config({ sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } }),
+    capture_mode: "room",
+    demo_session: { max_ms: 300_000, script_id: "bakery-v1" },
+  });
+  async function renderDemoIdle() {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date(MON_1000_WIB));
+    fetchCaptureConfig.mockResolvedValue(demoConfig());
+    await renderReady();
+    return screen.findByRole("button", { name: "Start" });
+  }
+  async function renderDemoRunning() {
+    fireEvent.click(await renderDemoIdle());
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+  }
+  const goToLastCard = () => {
+    for (let i = 0; i < 9; i += 1) fireEvent.click(screen.getByRole("button", { name: "Next" }));
+  };
+
+  it("9.T1 renders only with demo_session: the rules card and the Tap Start line before Mulai", async () => {
+    await renderDemoIdle();
+    const drawer = screen.getByRole("region", { name: "Demo script" });
+    expect(within(drawer).getByText("Tap Start to begin. Nothing is recorded until you do.")).toBeTruthy();
+  });
+
+  it("the cards appear once Mulai is tapped, and Listening, End and Cancel session stay on the page", async () => {
+    await renderDemoRunning();
+    const drawer = screen.getByRole("region", { name: "Demo script" });
+    expect(within(drawer).getByText("Card 1 of 10")).toBeTruthy();
+    expect(screen.getByText("Listening")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "End" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel session" })).toBeTruthy();
+    // the drawer is a sibling of the page content, not a wrapper: nothing is hidden or inert
+    expect(drawer.contains(screen.getByRole("button", { name: "End" }))).toBe(false);
+    expect(document.querySelector("[inert], [aria-hidden='true'] button")).toBeNull();
+  });
+
+  it("Finish on the last card runs the existing Selesai path: selesai, no confirm dialog, engine stopped", async () => {
+    await renderDemoRunning();
+    goToLastCard();
+    fireEvent.click(screen.getByRole("button", { name: "Finish and end the day" }));
+    await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+    expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "selesai" });
+    expect(screen.queryByText("End today's operations?")).toBeNull();
+    await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.getByText("Done. Answer the debrief questions, then switch to Supervisor.")).toBeTruthy(),
+    );
+  });
+
+  it("9.T5 a double tap on Finish makes one end request", async () => {
+    await renderDemoRunning();
+    goToLastCard();
+    const finish = screen.getByRole("button", { name: "Finish and end the day" });
+    fireEvent.click(finish);
+    fireEvent.click(finish);
+    await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(postSessionEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("9.T6 the 5:00 auto-stop while on card 5 ends the drawer without a second end request", async () => {
+    await renderDemoRunning();
+    for (let i = 0; i < 4; i += 1) fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("Card 5 of 10")).toBeTruthy();
+    await vi.advanceTimersByTimeAsync(5 * 60_000 + 1_000);
+    await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+    expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "auto_stop" });
+    await waitFor(() =>
+      expect(screen.getByText("Done. Answer the debrief questions, then switch to Supervisor.")).toBeTruthy(),
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(postSessionEnd).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Finish and end the day" })).toBeNull();
+  });
+
+  it("the countdown follows the page clock, in text", async () => {
+    await renderDemoRunning();
+    expect(screen.getByText("Demo ends automatically in 5:00")).toBeTruthy();
+    await vi.advanceTimersByTimeAsync(61_000);
+    expect(screen.getByText("Demo ends automatically in 3:59")).toBeTruthy();
+  });
+
+  it("Cancel session returns the drawer to the rules card and offers Mulai again", async () => {
+    await renderDemoRunning();
+    await vi.advanceTimersByTimeAsync(1_000);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
+    await vi.advanceTimersByTimeAsync(1_000);
+    fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
+    await waitFor(() => expect(postSessionDiscard).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.getByText("Tap Start to begin. Nothing is recorded until you do.")).toBeTruthy(),
+    );
+    const start = await screen.findByRole("button", { name: "Start" });
+    expect(start.getAttribute("aria-disabled")).not.toBe("true");
+  });
+
+  it("collapsing the drawer does not end or pause anything", async () => {
+    await renderDemoRunning();
+    fireEvent.click(screen.getByRole("button", { name: "Hide script" }));
+    expect(screen.getByRole("button", { name: "Show script" }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByText("Listening")).toBeTruthy();
+    expect(postSessionEnd).not.toHaveBeenCalled();
+  });
+
+  it("pilot: no script drawer, and the page container style is the unchanged pilot style", async () => {
+    pinClock(MON_1000_WIB);
+    fetchCaptureConfig.mockResolvedValue(
+      config({ sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } }),
+    );
+    const { container } = await renderReady();
+    await screen.findByRole("button", { name: "Start" });
+    expect(screen.queryByRole("region", { name: "Demo script" })).toBeNull();
+    const main = container.querySelector("main")!;
+    expect(main.getAttribute("style")).toBe(
+      "max-width: 360px; margin: 0px auto; padding: 24px; font-family: system-ui, sans-serif;",
+    );
+  });
+});
+
 describe("CapturePage dev panel (DEV-01, unaffected by the Mulai rewrite)", () => {
   it("renders no dev-panel node at all when the flag is unset", async () => {
     isDevControlsEnabled.mockReturnValue(false);

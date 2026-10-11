@@ -20,6 +20,9 @@ import { idleViewFor } from "@/app/capture/idle-view";
 import { selesaiViewFor } from "@/app/capture/selesai-view";
 import { isDiscardArmed, nextMulaiIsNow, shouldAutoClosePanel } from "@/app/capture/batalkan-panel";
 import { DebriefFlow } from "@/app/capture/debrief/DebriefFlow";
+import { ScriptDrawer, type DrawerState } from "@/app/capture/ScriptDrawer";
+import { drawerInsetStyle, useDrawerLayout } from "@/app/capture/drawer-layout";
+import { scriptFor } from "@/lib/demo/script";
 import { ShopTopBar } from "@/app/shop/ShopTopBar";
 import { useLang } from "@/lib/i18n/context";
 import { t, type DictKey } from "@/lib/i18n/dict";
@@ -156,6 +159,9 @@ export default function CapturePage() {
   const sessionRef = useRef<CaptureSession | null>(null);
   const sessionGenRef = useRef(0);
   const [sessionRunning, setSessionRunning] = useState(false);
+  // R-18 script drawer (sandbox only): open/collapsed is page state so the page can keep its content clear of it.
+  const [scriptOpen, setScriptOpen] = useState(true);
+  const drawerLayout = useDrawerLayout();
   const [status, setStatus] = useState<CaptureStatus | null>(null);
   const [lastUploadStatus, setLastUploadStatus] = useState<CaptureStatus | null>(null);
   const retainedUploadRef = useRef<RetainedUpload>(NO_RETAINED_UPLOAD);
@@ -284,6 +290,7 @@ export default function CapturePage() {
   // effect's own synchronous body) so it stays a real microtask — safe under
   // fake timers in tests, unlike a macrotask such as `setTimeout`.
   const autoStopInFlightRef = useRef(false);
+  const [autoStopBusy, setAutoStopBusy] = useState(false);
   useEffect(() => {
     if (!session || !config || nowMs === null || autoStopInFlightRef.current) return;
     const deadline = autoStopDeadline({
@@ -299,6 +306,7 @@ export default function CapturePage() {
     autoStopInFlightRef.current = true;
     const current = session;
     queueMicrotask(() => {
+      setAutoStopBusy(true);
       void (async () => {
         const endedAt = Date.now();
         await postSessionEnd(auth, current.session_id, {
@@ -318,6 +326,7 @@ export default function CapturePage() {
         stopRunningSession();
         setSession(null);
         autoStopInFlightRef.current = false;
+        setAutoStopBusy(false);
       })();
     });
   }, [session, config, nowMs, stopRunningSession]);
@@ -466,6 +475,13 @@ export default function CapturePage() {
     });
     stopRunningSession();
     setSession(null);
+  }
+
+  // R-18: the drawer's Finish IS the Selesai confirmation (it skips the dialog) and runs the same handler.
+  // It does nothing while the 5:00 auto-stop is already ending the session.
+  function handleDrawerFinish() {
+    if (autoStopInFlightRef.current) return;
+    void confirmSelesai();
   }
 
   // ── Batalkan (§5.6, web spec §6.6.5) ────────────────────────────────────────
@@ -744,8 +760,35 @@ export default function CapturePage() {
     );
   }
 
+  // R-18: the script drawer exists only for a sandbox judge device (server field `demo_session`).
+  const demoScript = config?.demo_session ? scriptFor(config.demo_session.script_id) : null;
+  const drawerState: DrawerState = session
+    ? "running"
+    : idle && !idle.offered && (idle.headline === "ended" || idle.headline === "ended_auto")
+      ? "ended"
+      : "before";
+  const inset = drawerInsetStyle({
+    present: view === "ready" && demoScript !== null,
+    wide: drawerLayout.wide,
+    open: scriptOpen,
+  });
+  const mainStyle: React.CSSProperties =
+    Object.keys(inset).length === 0
+      ? PAGE_STYLE
+      : {
+          maxWidth: 360,
+          marginLeft: "auto",
+          marginRight: "auto",
+          paddingTop: 24,
+          paddingLeft: 24,
+          paddingRight: 24,
+          paddingBottom: 24,
+          fontFamily: "system-ui, sans-serif",
+          ...inset,
+        };
+
   return (
-    <main style={PAGE_STYLE}>
+    <main style={mainStyle}>
       <ShopTopBar />
       <h1 style={{ fontSize: 22 }}>{t(lang, "C-cap-title")}</h1>
 
@@ -792,6 +835,23 @@ export default function CapturePage() {
       <p data-testid="capture-notice" style={{ marginTop: 24, fontSize: 14, color: "#444" }}>
         {t(lang, "C-notice-pilot")}
       </p>
+
+      {view === "ready" && demoScript ? (
+        <ScriptDrawer
+          script={demoScript}
+          lang={lang}
+          state={drawerState}
+          startedAtMs={session?.started_at_ms ?? null}
+          maxMs={config?.demo_session?.max_ms ?? 0}
+          nowMs={nowMs}
+          onFinish={handleDrawerFinish}
+          finishing={selesaiBusy || autoStopBusy}
+          open={scriptOpen}
+          onToggle={() => setScriptOpen((o) => !o)}
+          wide={drawerLayout.wide}
+          reducedMotion={drawerLayout.reducedMotion}
+        />
+      ) : null}
     </main>
   );
 }

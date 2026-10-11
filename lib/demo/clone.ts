@@ -178,7 +178,6 @@ export function cloneTemplate(input: {
   const k = daysBetween(D, addDays(anchor_business_date, -1));
   if (k < 0) throw new Error("cloneTemplate: negative shift (the template's last day is after the sandbox's yesterday)");
   const deltaMs = k * DAY_MS;
-  const shiftedD = addDays(D, k);
   const tz = tpl.outlet.timezone;
   if (k > 0) {
     // DST guard: a moved instant must keep its local wall-clock time (Asia/Jakarta never differs).
