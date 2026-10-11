@@ -95,6 +95,9 @@ describe("POST /api/v1/proposals/{id}/approve", () => {
       "SOP_CHANGED",
       "CONSTRAINT_ADDED",
       "CONSTRAINT_LIMIT",
+      "SOP_STEP_LIMIT",
+      "LEGACY_PROPOSAL",
+      "STEP_TEXT_TOO_LONG",
     ]) {
       asOwner();
       decideProposal.mockRejectedValueOnce(new ConflictError("x", code));
