@@ -343,6 +343,20 @@ async function applyCredentials(data: DemoSessionResponse, auth: Auth | null, na
   return true;
 }
 
+/**
+ * A switch found the sandbox gone (a 409/404, or the stored one already past its end). Keep the record, marked
+ * as ended now (or at its own earlier end), so the bar and /sign-in both still say "Your demo session has
+ * ended." when the signed-out web page bounces the visitor there; a cleared state would leave /sign-in with
+ * nothing to explain. Never throws.
+ */
+async function endedBySwitch(stored: DemoState | null, auth: Auth | null, now: () => number): Promise<StartDemoResult> {
+  if (stored) writeDemoState({ ...stored, expires_at_ms: Math.min(stored.expires_at_ms, now()) });
+  else notifyChange();
+  removeDeviceKeys();
+  await signOutQuietly(auth); // do not leave a web user signed in behind a forgotten sandbox
+  return { kind: "sandbox_expired" };
+}
+
 /** Start a visit (no usable key) or switch role in the current sandbox (key stored and unexpired). Never throws. */
 export async function startDemo(role: DemoRole, options: StartDemoOptions): Promise<StartDemoResult> {
   const { auth, navigate = hardNavigate, onExpired, fetchImpl, now = Date.now } = options;
@@ -351,18 +365,14 @@ export async function startDemo(role: DemoRole, options: StartDemoOptions): Prom
   const stored = readDemoState();
   const key = stored && !isDemoExpired(stored, now()) ? stored.sandbox_key : undefined;
 
+  // A bar switch works inside the visitor's existing sandbox or not at all. If the stored one has already
+  // ended by this clock (the bar's timer has not re-rendered yet) or there is none, report the end without
+  // a request: a keyless POST would create a brand-new sandbox behind their back.
+  if (onExpired === "stop" && key === undefined) return endedBySwitch(stored, auth, now);
+
   let outcome = await requestDemoSession(role, key, fetchImpl, now);
   if (outcome.kind === "sandbox_expired") {
-    if (onExpired === "stop") {
-      // Keep the record, marked as ended now, so the bar and /sign-in both still say "Your demo session has
-      // ended." when the signed-out web page bounces the visitor there. A cleared state would leave /sign-in
-      // with nothing to explain.
-      if (stored) writeDemoState({ ...stored, expires_at_ms: now() });
-      else notifyChange();
-      removeDeviceKeys();
-      await signOutQuietly(auth); // do not leave a web user signed in behind a forgotten sandbox
-      return { kind: "sandbox_expired" };
-    }
+    if (onExpired === "stop") return endedBySwitch(stored, auth, now);
     clearDemoState();
     outcome = await requestDemoSession(role, undefined, fetchImpl, now);
     // A retry that works replaces the user in one step; one that does not leaves nobody signed in to a dead sandbox.

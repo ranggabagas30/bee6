@@ -363,6 +363,47 @@ describe("startDemo", () => {
     expect(signOut).toHaveBeenCalledWith(AUTH); // no signed-in web user is left behind a forgotten sandbox
   });
 
+  it("onExpired stop: a stored record past its expiry makes NO request at all (no sandbox is created behind the visitor's back)", async () => {
+    writeDemoState({ sandbox_key: KEY, expires_at_ms: EXPIRES, role: "staff" });
+    fakeLocal.setItem(DEVICE_TOKEN_KEY, "old");
+    fakeLocal.setItem(DEVICE_ID_KEY, "old");
+    const f = vi.fn().mockResolvedValue(ok(WEB_OK));
+    // The exact window: the clock is at the expiry instant but the bar's timer has not re-rendered yet.
+    const result = await startDemo("owner", { auth: AUTH, navigate, fetchImpl: f as never, now: () => EXPIRES, onExpired: "stop" });
+    expect(result).toEqual({ kind: "sandbox_expired" });
+    expect(f).toHaveBeenCalledTimes(0);
+    expect(readDemoState()).toMatchObject({ expires_at_ms: EXPIRES, role: "staff" }); // kept as ended, same end time
+    expect(demoSnapshot(EXPIRES).endsWith("|expired")).toBe(true);
+    expect(fakeLocal.getItem(DEVICE_TOKEN_KEY)).toBeNull();
+    expect(fakeLocal.getItem(DEVICE_ID_KEY)).toBeNull();
+    expect(signOut).toHaveBeenCalledWith(AUTH);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("onExpired stop: one millisecond before the expiry the request still goes out with the key", async () => {
+    writeDemoState({ sandbox_key: KEY, expires_at_ms: EXPIRES, role: "staff" });
+    const f = vi.fn().mockResolvedValue(ok(WEB_OK));
+    await startDemo("owner", { auth: AUTH, navigate, fetchImpl: f as never, now: () => EXPIRES - 1, onExpired: "stop" });
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(f.mock.calls[0]![1].body).sandbox_key).toBe(KEY);
+  });
+
+  it("onExpired stop: with no stored record at all there is nothing to switch inside, so no request is made", async () => {
+    const f = vi.fn().mockResolvedValue(ok(WEB_OK));
+    const result = await startDemo("owner", { auth: AUTH, navigate, fetchImpl: f as never, now: () => NOW, onExpired: "stop" });
+    expect(result).toEqual({ kind: "sandbox_expired" });
+    expect(f).toHaveBeenCalledTimes(0);
+    expect(readDemoState()).toBeNull();
+  });
+
+  it("onExpired restart: an expired stored record still starts a fresh sandbox with no key", async () => {
+    writeDemoState({ sandbox_key: KEY, expires_at_ms: EXPIRES, role: "staff" });
+    const f = vi.fn().mockResolvedValue(ok({ ...WEB_OK, sandbox_key: KEY2 }));
+    const result = await startDemo("owner", { auth: AUTH, navigate, fetchImpl: f as never, now: () => EXPIRES, onExpired: "restart" });
+    expect(result).toEqual({ kind: "started" });
+    expect(JSON.parse(f.mock.calls[0]![1].body)).toEqual({ role: "owner" });
+  });
+
   it("onExpired restart: when the retry is refused too, the web user is signed out (the sandbox is forgotten)", async () => {
     writeDemoState({ sandbox_key: KEY, expires_at_ms: EXPIRES, role: "owner" });
     const f = vi
