@@ -80,7 +80,24 @@ const RESULT_KEY: Record<"added" | "duplicate" | "err-length" | "err-limit" | "e
   error: "C-srv-generic",
 };
 
-export function ConstraintsPanel({ auth, role, lang }: { auth: Auth; role: "owner" | "supervisor"; lang: Lang }) {
+const SOURCE_KEY: Record<ConstraintView["source"], DictKey> = {
+  manual: "C-con-src-manual",
+  supervisor_rejection: "C-con-src-rejection",
+  owner_rejection: "C-con-src-owner-rejection",
+};
+
+export function ConstraintsPanel({
+  auth,
+  role,
+  lang,
+  reloadKey = 0,
+}: {
+  auth: Auth;
+  role: "owner" | "supervisor";
+  lang: Lang;
+  /** Bump to re-fetch the list (a rejection just wrote a constraint). The old list stays on screen meanwhile. */
+  reloadKey?: number;
+}) {
   const router = useRouter();
   const [listState, setListState] = useState<ListState>({ kind: "loading" });
   const [text, setText] = useState("");
@@ -101,9 +118,9 @@ export function ConstraintsPanel({ auth, role, lang }: { auth: Auth; role: "owne
     return () => {
       active = false;
     };
-    // Runs once on mount; `auth` is stable for the component's lifetime.
+    // Runs on mount and whenever `reloadKey` changes; `auth` is stable for the component's lifetime.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [reloadKey]);
 
   useEffect(() => {
     if (formState.kind === "confirm") {
@@ -199,7 +216,7 @@ export function ConstraintsPanel({ auth, role, lang }: { auth: Auth; role: "owne
             <li key={c.constraint_id}>
               <p style={ITEM_TEXT_STYLE}>{c.text}</p>
               <p style={ITEM_META_STYLE}>
-                {t(lang, c.source === "manual" ? "C-con-src-manual" : "C-con-src-rejection")} ·{" "}
+                {t(lang, SOURCE_KEY[c.source])} ·{" "}
                 {dayLabel(localDateFromMs(c.created_at_ms), lang)}
               </p>
             </li>
