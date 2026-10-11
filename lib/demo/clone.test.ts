@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { COLLECTIONS, type CollectionName } from "@/lib/firestore/collections";
+import { addDays, businessDateOf, localHmOf } from "@/lib/capture/calendar";
+import { selectCandidates, type ProposalThreadRow } from "@/lib/proposals/candidates";
+import { checkEvidenceFloor } from "@/lib/proposals/precheck";
 import {
   CaptureSessionSchema,
   DeviceSchema,
@@ -8,6 +11,9 @@ import {
   SopVersionSchema,
   StaffSchema,
   ThreadSchema,
+  type CaptureSession,
+  type Question,
+  type Thread,
 } from "@/lib/firestore/schema";
 import { cloneTemplate, judgeDeviceIdOf, rewriteDeep, sandboxIds, type ClonedDoc, type TemplateSet } from "@/lib/demo/clone";
 import { SANDBOX_TTL_MS, TEMPLATE_DEVICE_ID, TEMPLATE_OUTLET_ID } from "@/lib/demo/constants";
@@ -26,8 +32,20 @@ const KEY = "a".repeat(64);
 const HASH = "$2a$10$judgehashjudgehashjudge";
 const MAP = { device: IDS.device_id, outlet: IDS.outlet_id };
 
-const clone = (tpl: TemplateSet = templateSet(), ids = IDS, now = NOW) =>
-  cloneTemplate({ tpl, ids, now_ms: now, key_sha256: KEY, device_token_hash: HASH });
+const TZ = "Asia/Jakarta";
+/** NOW is 10:00 WIB on 28 Oct, so the anchor is 28 Oct, yesterday is 27 Oct and the template's last day (19 Oct) moves 8 days. */
+const K = 8;
+const DELTA = K * 86_400_000;
+const SHIFTED = DAYS.map((d) => addDays(d, K));
+const clone = (tpl: TemplateSet = templateSet(), ids = IDS, now = NOW, anchor?: string) =>
+  cloneTemplate({
+    tpl,
+    ids,
+    now_ms: now,
+    key_sha256: KEY,
+    device_token_hash: HASH,
+    anchor_business_date: anchor ?? businessDateOf(now, tpl.outlet.timezone),
+  });
 const byCol = (docs: ClonedDoc[], c: CollectionName) => docs.filter((d) => d.collection === c);
 
 function deepFreeze<T>(value: T): T {
@@ -37,6 +55,23 @@ function deepFreeze<T>(value: T): T {
   }
   return value;
 }
+
+// Independent oracle for the shift: lists the shifted fields by name (the plan's explicit review list).
+const addMs = <T extends Record<string, unknown>>(o: T, keys: readonly string[]): T => {
+  const out: Record<string, unknown> = { ...o };
+  for (const k of keys) if (typeof out[k] === "number") out[k] = (out[k] as number) + DELTA;
+  return out as T;
+};
+function shiftedThread(t: Thread): Record<string, unknown> {
+  return {
+    ...addMs(t, ["first_line_start_ms", "last_line_end_ms", "created_at_ms", "updated_at_ms"]),
+    lines: t.lines.map((l) => addMs(l, ["start_ms", "end_ms"])),
+  };
+}
+function shiftedQuestion(q: Question): Record<string, unknown> {
+  return addMs(q, ["window_start_ms", "window_end_ms", "created_at_ms", "answered_at_ms", "expired_by_debrief_end_ms"]);
+}
+const isoPlus = (iso: string) => new Date(Date.parse(iso) + DELTA).toISOString();
 
 describe("sandboxIds", () => {
   it("builds sbx-/jdg- ids from the two hex strings", () => {
@@ -153,17 +188,17 @@ describe("cloneTemplate", () => {
     const docs = clone();
     const device = byCol(docs, COLLECTIONS.devices)[0]!.data as ReturnType<typeof DeviceSchema.parse>;
     expect(device.last_ended).toEqual({
-      business_date: DAYS[2],
+      business_date: SHIFTED[2],
       end_reason: "selesai",
       ended_at_ms: NOW,
       debrief_ends_at_ms: NOW + 3_600_000,
     });
-    const session = byCol(docs, COLLECTIONS.captureSessions).find((d) => (d.data as { local_date: string }).local_date === DAYS[2])!.data as ReturnType<typeof CaptureSessionSchema.parse>;
+    const session = byCol(docs, COLLECTIONS.captureSessions).find((d) => (d.data as { local_date: string }).local_date === SHIFTED[2])!.data as ReturnType<typeof CaptureSessionSchema.parse>;
     expect(session.ended_at_ms).toBe(NOW);
     expect(session.end_reason).toBe("selesai");
     expect(session.debrief_ends_at_ms).toBe(NOW + 3_600_000);
     // earlier days untouched
-    const day1 = byCol(docs, COLLECTIONS.captureSessions).find((d) => (d.data as { local_date: string }).local_date === DAYS[0])!.data as ReturnType<typeof CaptureSessionSchema.parse>;
+    const day1 = byCol(docs, COLLECTIONS.captureSessions).find((d) => (d.data as { local_date: string }).local_date === SHIFTED[0])!.data as ReturnType<typeof CaptureSessionSchema.parse>;
     expect(day1.ended_at_ms).not.toBe(NOW);
   });
 
@@ -206,19 +241,19 @@ describe("cloneTemplate", () => {
     expect(t3.status).toBe("unverified");
   });
 
-  it("4.T5 every thread and question equals rewriteDeep(template) except the listed re-arm fields", () => {
+  it("4.T5 / 1.T7 every thread and question equals rewriteDeep(template) except ids, the shifted fields and the re-arm fields", () => {
     const tpl = templateSet();
     const docs = clone(tpl);
     const rearmedQuestionIds = new Set(tpl.questions.filter((q) => q.status === "unverified").map((q) => q.question_id));
     const rearmedThreadIds = new Set(tpl.questions.filter((q) => rearmedQuestionIds.has(q.question_id)).map((q) => q.thread_id));
     for (const t of tpl.threads) {
-      const expected: Record<string, unknown> = rewriteDeep(t, MAP);
+      const expected: Record<string, unknown> = shiftedThread(rewriteDeep(t, MAP));
       if (rearmedThreadIds.has(t.thread_id)) expected.status = "open";
       const got = byCol(docs, COLLECTIONS.threads).find((d) => d.id === expected.thread_id);
       expect(got?.data).toEqual(expected);
     }
     for (const q of tpl.questions) {
-      const expected: Record<string, unknown> = rewriteDeep(q, MAP);
+      const expected: Record<string, unknown> = shiftedQuestion(rewriteDeep(q, MAP));
       if (rearmedQuestionIds.has(q.question_id)) {
         expected.status = "open";
         expected.expired_by_debrief_end_ms = null;
@@ -262,7 +297,9 @@ describe("cloneTemplate", () => {
   it("throws when no ended session matches the last_ended date, or a session starts after now", () => {
     const tpl = templateSet();
     expect(() => clone({ ...tpl, sessions: tpl.sessions.filter((s) => s.local_date !== DAYS[2]) })).toThrow(/no ended session/);
-    expect(() => clone(tpl, IDS, Date.UTC(2026, 9, 17))).toThrow(/after now/);
+    // a session far beyond the shifted days would sit in the future after the shift
+    const future = { ...tpl.sessions[2]!, session_id: "66666666-6666-4666-8666-666666666666", started_at_ms: tpl.sessions[2]!.started_at_ms + 30 * 86_400_000, ended_at_ms: null };
+    expect(() => clone({ ...tpl, sessions: [...tpl.sessions, future] })).toThrow(/after now/);
   });
 
   it("picks the D session with the largest ended_at_ms and ignores a discarded one", () => {
@@ -305,3 +342,207 @@ describe("cloneTemplate", () => {
     expect(q4.status).toBe("unverified");
   });
 });
+
+describe("R-18 P0 whole-day time shift", () => {
+  const cloned = (tpl = templateSet(), anchor?: string, now = NOW) => clone(tpl, IDS, now, anchor);
+  const sessionsOf = (docs: ClonedDoc[]) => byCol(docs, COLLECTIONS.captureSessions).map((d) => d.data as CaptureSession);
+
+  it("1.T1 the template's last day becomes yesterday's business date (anchor - 1)", () => {
+    const docs = cloned();
+    const dates = sessionsOf(docs).map((s) => s.local_date).sort();
+    expect(dates).toEqual(SHIFTED);
+    expect(dates[2]).toBe(addDays(businessDateOf(NOW, TZ), -1));
+    const device = byCol(docs, COLLECTIONS.devices)[0]!.data as ReturnType<typeof DeviceSchema.parse>;
+    expect(device.last_ended?.business_date).toBe("2026-10-27");
+  });
+
+  it("1.T1 the anchor is the caller's business date: just after midnight local time it is still the previous day", () => {
+    // 00:30 WIB on 28 Oct is still business date 27 Oct, so yesterday is 26 Oct (k = 7)
+    const now = Date.UTC(2026, 9, 27, 17, 30);
+    expect(businessDateOf(now, TZ)).toBe("2026-10-27");
+    const docs = cloned(templateSet(), undefined, now);
+    const dates = sessionsOf(docs).map((s) => s.local_date).sort();
+    expect(dates[2]).toBe("2026-10-26");
+  });
+
+  it("1.T2 every session, thread and question time moves by exactly a whole number of days; the local clock time never changes", () => {
+    expect(DELTA % 86_400_000).toBe(0);
+    const tpl = templateSet();
+    const docs = cloned(tpl);
+    const outcome: number[] = [];
+    for (const t of tpl.threads) {
+      const got = byCol(docs, COLLECTIONS.threads).find((d) => d.id === rewriteDeep(t.thread_id, MAP))!.data as Thread;
+      for (const key of ["first_line_start_ms", "last_line_end_ms", "created_at_ms", "updated_at_ms"] as const) {
+        expect(got[key] - t[key], key).toBe(DELTA);
+        expect(localHmOf(got[key], TZ)).toBe(localHmOf(t[key], TZ));
+      }
+      t.lines.forEach((l, i) => {
+        expect(got.lines[i]!.start_ms - l.start_ms).toBe(DELTA);
+        expect(got.lines[i]!.end_ms - l.end_ms).toBe(DELTA);
+      });
+      outcome.push(got.first_line_start_ms);
+    }
+    for (const q of tpl.questions) {
+      const got = byCol(docs, COLLECTIONS.questions).find((d) => d.id === rewriteDeep(q.question_id, MAP))!.data as Question;
+      expect(got.window_start_ms - q.window_start_ms).toBe(DELTA);
+      expect(got.window_end_ms - q.window_end_ms).toBe(DELTA);
+      expect(got.created_at_ms - q.created_at_ms).toBe(DELTA);
+      if (typeof q.answered_at_ms === "number") expect(got.answered_at_ms! - q.answered_at_ms).toBe(DELTA);
+    }
+    for (const s of tpl.sessions.slice(0, 2)) {
+      const got = sessionsOf(docs).find((x) => x.session_id === s.session_id)!;
+      expect(got.started_at_ms - s.started_at_ms).toBe(DELTA);
+      expect(got.ended_at_ms! - s.ended_at_ms!).toBe(DELTA);
+      expect(got.auto_stop_at_ms - s.auto_stop_at_ms).toBe(DELTA);
+      expect(got.debrief_ends_at_ms! - s.debrief_ends_at_ms!).toBe(DELTA);
+      expect(got.received_start_at).toBe(isoPlus(s.received_start_at));
+      expect(got.received_end_at).toBe(isoPlus(s.received_end_at!));
+      expect(localHmOf(got.started_at_ms, TZ)).toBe(localHmOf(s.started_at_ms, TZ));
+      expect(localHmOf(got.ended_at_ms!, TZ)).toBe(localHmOf(s.ended_at_ms!, TZ));
+    }
+    // the D session keeps its re-armed end (now) and its auto-stop/start move with the days
+    const d = sessionsOf(docs).find((x) => x.session_id === SESSION_IDS[2])!;
+    expect(d.started_at_ms - tpl.sessions[2]!.started_at_ms).toBe(DELTA);
+    expect(d.auto_stop_at_ms - tpl.sessions[2]!.auto_stop_at_ms).toBe(DELTA);
+    expect(outcome.length).toBe(tpl.threads.length);
+  });
+
+  it("1.T2 the earlier-day expired question keeps its relationship to its (shifted) debrief end", () => {
+    const tpl = templateSet();
+    const earlierEnd = LAST_DEBRIEF_END_MS - 86_400_000;
+    tpl.questions = tpl.questions.map((q) => (q.question_id.endsWith("_4") ? { ...q, expired_by_debrief_end_ms: earlierEnd } : q));
+    const q4 = byCol(cloned(tpl), COLLECTIONS.questions).map((d) => d.data as Question).find((q) => q.question_id.endsWith("_4"))!;
+    expect(q4.status).toBe("unverified");
+    expect(q4.expired_by_debrief_end_ms).toBe(earlierEnd + DELTA);
+  });
+
+  it("1.T3 summary, line text and fields stay byte-identical, even when a field looks like a date or a time", () => {
+    const tpl = templateSet();
+    const fields = { business_date: "2026-10-17", note_ms: 1_800_000_000_000, nested: { local_date: "2026-10-18", at: "2026-10-17T00:00:00.000Z" } };
+    tpl.threads = [threadDoc(7, 1, { fields }), ...tpl.threads];
+    const docs = cloned(tpl);
+    for (const t of tpl.threads) {
+      const got = byCol(docs, COLLECTIONS.threads).find((d) => d.id === t.thread_id.replace(TEMPLATE_DEVICE_ID, IDS.device_id))!.data as Thread;
+      const orig = rewriteDeep(t, MAP);
+      expect(got.summary).toBe(orig.summary);
+      expect(got.lines.map((l) => l.text)).toEqual(orig.lines.map((l) => l.text));
+      expect(JSON.stringify(got.fields ?? null)).toBe(JSON.stringify(orig.fields ?? null));
+      expect(JSON.stringify(got.gate)).toBe(JSON.stringify(orig.gate));
+      expect(got.category).toBe(orig.category);
+      expect(got.confidence).toBe(orig.confidence);
+      expect(got.line_ids).toEqual(orig.line_ids);
+    }
+  });
+
+  it("1.T4 the SOP v1 copy keeps its schema (created_at_ms moves by whole days, effective_from_date null stays null)", () => {
+    const tpl = templateSet();
+    const sop = byCol(cloned(tpl), COLLECTIONS.sopVersions)[0]!.data as ReturnType<typeof SopVersionSchema.parse>;
+    expect(() => SopVersionSchema.parse(sop)).not.toThrow();
+    expect(sop.effective_from_date ?? null).toBeNull();
+    expect(sop.created_at_ms).toBe(Math.min(tpl.sop_v1.created_at_ms + DELTA, NOW));
+  });
+
+  it("1.T5 a template whose last day is not before the anchor day refuses (negative shift)", () => {
+    // now = 17 Oct: yesterday (16 Oct) is before the template's last day (19 Oct)
+    expect(() => cloned(templateSet(), undefined, Date.UTC(2026, 9, 17, 3))).toThrow(/negative shift/);
+  });
+
+  it("1.T5b k = 0 (last day already yesterday) changes no template time", () => {
+    const tpl = templateSet();
+    const docs = cloned(tpl, addDays(DAYS[2], 1), Date.UTC(2026, 9, 20, 3));
+    for (const t of tpl.threads) {
+      const got = byCol(docs, COLLECTIONS.threads).find((d) => d.id === t.thread_id.replace(TEMPLATE_DEVICE_ID, IDS.device_id))!.data as Thread;
+      expect(got.first_line_start_ms).toBe(t.first_line_start_ms);
+      expect(got.created_at_ms).toBe(t.created_at_ms);
+    }
+    expect(sessionsOf(docs).map((s) => s.local_date).sort()).toEqual([...DAYS]);
+  });
+
+  it("1.T6 a DST zone whose offset changes inside the shift refuses (the local clock time would move)", () => {
+    const tpl = templateSet();
+    const berlin = { ...tpl, outlet: { ...tpl.outlet, timezone: "Europe/Berlin" } };
+    // k = 8 days moves 17-19 Oct (CEST) onto 25-27 Oct (CET): the wall clock would shift one hour
+    expect(() => cloned(berlin)).toThrow(/clock|DST/i);
+    // the same Berlin template shifted within one offset is fine (k = 1)
+    expect(() => cloned(berlin, "2026-10-21", Date.UTC(2026, 9, 21, 12))).not.toThrow();
+  });
+
+  it("1.T8 the default Generate range [anchor-6, anchor] keeps every template fact on 2 dates (floor passes with no answers)", () => {
+    const tpl = templateSet();
+    const fact = tpl.threads.find((t) => t.status === "fact")!;
+    tpl.threads = [...tpl.threads, threadDoc(8, 1, { status: "fact", gate: fact.gate })];
+    const rowsOf = (threads: Thread[]): ProposalThreadRow[] => threads;
+    const sessionsRaw = (sessions: CaptureSession[]) => sessions;
+    const range = (anchor: string) => ({ from_date: addDays(anchor, -6), to_date: anchor });
+
+    const before = selectCandidates(rowsOf(tpl.threads), sessionsRaw(tpl.sessions), TZ, { from_date: DAYS[0], to_date: DAYS[2] });
+    const anchor = businessDateOf(NOW, TZ);
+    const docs = cloned(tpl);
+    const after = selectCandidates(
+      rowsOf(byCol(docs, COLLECTIONS.threads).map((d) => d.data as Thread)),
+      sessionsRaw(sessionsOf(docs)),
+      TZ,
+      range(anchor),
+    );
+    expect(after).toHaveLength(before.length);
+    expect(before.length).toBeGreaterThanOrEqual(3);
+    expect(after.map((c) => c.start_hm)).toEqual(before.map((c) => c.start_hm)); // local times unchanged
+    expect(after.map((c) => c.local_date)).toEqual(before.map((c) => addDays(c.local_date, K)));
+    const floor = checkEvidenceFloor(after);
+    expect(floor.passed).toBe(true);
+    expect(floor.dates).toBe(2);
+  });
+
+  it("is deterministic: the same input and the same injected now give the same docs", () => {
+    expect(clone()).toEqual(clone());
+    expect(JSON.stringify(clone())).toBe(JSON.stringify(clone()));
+  });
+
+  it("re-anchors: a later now gives the same relative shape, shifted by whole days only", () => {
+    const later = Date.UTC(2026, 10, 3, 3); // 3 Nov 10:00 WIB: k = 14 (8 for NOW)
+    const a = byCol(clone(), COLLECTIONS.threads).map((d) => d.data as Thread);
+    const b = byCol(clone(templateSet(), IDS, later), COLLECTIONS.threads).map((d) => d.data as Thread);
+    for (let i = 0; i < a.length; i += 1) {
+      const diff = b[i]!.first_line_start_ms - a[i]!.first_line_start_ms;
+      expect(diff).toBe(6 * 86_400_000);
+      expect(b[i]!.last_line_end_ms - b[i]!.first_line_start_ms).toBe(a[i]!.last_line_end_ms - a[i]!.first_line_start_ms);
+    }
+  });
+
+  it("nothing cloned sits in the future: record times that would land after now are capped at now, and relations hold", () => {
+    const tpl = templateSet();
+    // a template seeded late on its last-but-one day: created/updated/received would land after `now` once shifted
+    const lateCreated = Date.UTC(2026, 9, 20, 9, 0); // 20 Oct 16:00 WIB -> 28 Oct 16:00 WIB, after NOW (10:00 WIB)
+    tpl.threads = tpl.threads.map((t, i) => (i === 0 ? { ...t, created_at_ms: lateCreated, updated_at_ms: lateCreated + 60_000 } : t));
+    tpl.sessions = tpl.sessions.map((s) => ({ ...s, received_start_at: new Date(lateCreated).toISOString(), received_end_at: new Date(lateCreated).toISOString() }));
+    const docs = cloned(tpl);
+    const t0 = byCol(docs, COLLECTIONS.threads).map((d) => d.data as Thread).find((t) => t.thread_id === tpl.threads[0]!.thread_id.replace(TEMPLATE_DEVICE_ID, IDS.device_id))!;
+    expect(t0.created_at_ms).toBe(NOW);
+    expect(t0.updated_at_ms).toBe(NOW);
+    expect(t0.created_at_ms).toBeGreaterThanOrEqual(t0.last_line_end_ms);
+    for (const s of sessionsOf(docs)) {
+      expect(Date.parse(s.received_start_at)).toBeLessThanOrEqual(NOW);
+      expect(Date.parse(s.received_end_at!)).toBeLessThanOrEqual(NOW);
+    }
+    for (const d of docs) {
+      if (d.collection === COLLECTIONS.threads) {
+        const t = d.data as Thread;
+        expect(t.created_at_ms).toBeLessThanOrEqual(NOW);
+        expect(t.updated_at_ms).toBeLessThanOrEqual(NOW);
+        expect(t.last_line_end_ms).toBeLessThanOrEqual(NOW);
+      }
+      if (d.collection === COLLECTIONS.questions) expect((d.data as Question).created_at_ms).toBeLessThanOrEqual(NOW);
+    }
+  });
+
+  it("a re-armed question created late in the shifted day can still expire at the judge's debrief end (created_at <= debrief end)", () => {
+    const tpl = templateSet();
+    const lateCreated = Date.UTC(2026, 9, 20, 9, 0);
+    tpl.questions = tpl.questions.map((q) => (q.question_id.endsWith("_3") ? { ...q, created_at_ms: lateCreated } : q));
+    const docs = cloned(tpl);
+    const device = byCol(docs, COLLECTIONS.devices)[0]!.data as ReturnType<typeof DeviceSchema.parse>;
+    const q3 = byCol(docs, COLLECTIONS.questions).map((d) => d.data as Question).find((q) => q.question_id.endsWith("_3"))!;
+    expect(q3.created_at_ms).toBeLessThanOrEqual(device.last_ended!.debrief_ends_at_ms!);
+  });
+});
+

@@ -1,5 +1,7 @@
 import { createHash, randomBytes as nodeRandomBytes } from "node:crypto";
+import { ZodError } from "zod";
 import { generateDeviceToken, hashDeviceToken } from "@/lib/auth/pairing";
+import { businessDateOf } from "@/lib/capture/calendar";
 import type { CustomClaims } from "@/lib/auth/roles";
 import { AppError, ConflictError, LockedError, NotFoundError } from "@/lib/http/errors";
 import { cloneTemplate, judgeDeviceIdOf, sandboxIds } from "@/lib/demo/clone";
@@ -49,6 +51,26 @@ export interface IssueInput {
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 const defaultLog = (event: string, fields: Record<string, unknown>) => console.info(`[demo] ${event}`, fields);
 const notReady = () => new AppError("The demo is not ready", "demo_not_ready", 503);
+
+/** Clone error message prefix -> stable code. Codes carry no id, date or path. */
+const CLONE_FAILURE_CODES: readonly (readonly [string, string])[] = [
+  ["cloneTemplate: template has no ended debrief", "no_ended_debrief"],
+  ["cloneTemplate: negative shift", "negative_shift"],
+  ["cloneTemplate: the shift would change the local clock time", "dst_guard"],
+  ["cloneTemplate: template free text contains a template id token", "template_id_token"],
+  ["cloneTemplate: template has no ended session", "missing_session_day"],
+  ["cloneTemplate: a template session starts after now", "session_after_now"],
+];
+
+/** The only thing logged about a failed clone: a fixed code, never the error message. */
+export function cloneFailureReason(error: unknown): string {
+  if (error instanceof ZodError) return "invalid_template_doc";
+  if (!(error instanceof Error)) return "unknown";
+  if (error.message.startsWith("cloneTemplate:")) {
+    return CLONE_FAILURE_CODES.find(([prefix]) => error.message.startsWith(prefix))?.[1] ?? "other";
+  }
+  return error.name;
+}
 
 const LANDING: Record<"owner" | "supervisor", string> = { owner: "/home", supervisor: "/day" };
 
@@ -109,9 +131,21 @@ async function createSandbox(store: DemoStore, deps: DemoDeps, input: IssueInput
 
   let docs;
   try {
-    docs = cloneTemplate({ tpl, ids, now_ms, key_sha256: sha256(key), device_token_hash: tokenHash });
-  } catch {
-    throw notReady(); // e.g. a template with no ended debrief: a template bug, not the caller's
+    docs = cloneTemplate({
+      tpl,
+      ids,
+      now_ms,
+      key_sha256: sha256(key),
+      device_token_hash: tokenHash,
+      // R-18: the template's days move so the last one is yesterday's business date in the OUTLET's timezone
+      anchor_business_date: businessDateOf(now_ms, tpl.outlet.timezone),
+    });
+  } catch (error) {
+    // e.g. a template with no ended debrief, or one that cannot be shifted: a template bug, not the caller's.
+    // Only a fixed reason code is logged: some clone messages interpolate a thread id or a business date and a
+    // ZodError message lists paths and values, so the message itself is never printed.
+    log("clone_failed", { reason: cloneFailureReason(error) });
+    throw notReady();
   }
   try {
     await store.writeSandbox(docs);

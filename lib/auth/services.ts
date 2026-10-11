@@ -18,6 +18,7 @@ import {
   generateDeviceToken,
   hashDeviceToken,
   isPairingCodeExpired,
+  RESERVED_PAIRING_CODES,
   verifyDeviceToken,
 } from "@/lib/auth/pairing";
 
@@ -111,6 +112,11 @@ export async function pairDevice(
   input: { code: string },
 ): Promise<PairDeviceResult> {
   const now = (deps.now ?? systemClock)();
+  // A reserved code (the published demo staff code) is refused BEFORE any store read, with the same error as an
+  // unknown code: no lookup, no existence oracle.
+  if (RESERVED_PAIRING_CODES.has(input.code)) {
+    throw new UnauthorizedError("Invalid or expired pairing code");
+  }
   const device = await deps.devices.findByPairingCode(input.code);
   if (!device || device.revoked) {
     throw new UnauthorizedError("Invalid or expired pairing code");

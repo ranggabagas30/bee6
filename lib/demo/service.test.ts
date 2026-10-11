@@ -4,12 +4,14 @@ import bcrypt from "bcryptjs";
 import { COLLECTIONS } from "@/lib/firestore/collections";
 import { AppError, ConflictError, LockedError, NotFoundError } from "@/lib/http/errors";
 import type { CustomClaims } from "@/lib/auth/roles";
-import { issueDemoSession, type DemoDeps } from "@/lib/demo/service";
+import { z } from "zod";
+import { cloneFailureReason, issueDemoSession, type DemoDeps } from "@/lib/demo/service";
 import { DemoSessionResponseSchema, type DemoSessionBody } from "@/lib/demo/contract";
 import { ipBucketKey, secondsToUtcMidnight, utcDay } from "@/lib/demo/limits";
 import { SANDBOX_TTL_MS, TEMPLATE_OUTLET_ID } from "@/lib/demo/constants";
 import { fakeStore } from "@/lib/demo/testing/fake-store";
-import { templateSet } from "@/lib/demo/testing/fixtures";
+import { templateSet, threadDoc } from "@/lib/demo/testing/fixtures";
+import { TEMPLATE_DEVICE_ID } from "@/lib/demo/constants";
 
 const NOW = Date.UTC(2026, 9, 28, 10, 0, 0);
 const SALT = "test-salt-0123456789"; // >= 16 characters
@@ -144,6 +146,89 @@ describe("issueDemoSession: gates", () => {
     const f = fakeStore({ template: { ...tpl, device } });
     await expectCode(issueDemoSession(f.store, deps().d, input({ role: "owner" })), AppError, "demo_not_ready");
     expect(f.written).toEqual([]);
+  });
+});
+
+describe("issueDemoSession: R-18 time shift anchor", () => {
+  it("1.6 the clone's last day is yesterday's business date in the OUTLET timezone, not UTC", async () => {
+    // 20:00 UTC on 27 Oct = 03:00 on 28 Oct in Asia/Jakarta: business date 28 Oct, so the last day must be 27 Oct (UTC would give 26 Oct)
+    const f = fakeStore();
+    await issueDemoSession(f.store, deps().d, input({ role: "owner" }, { now_ms: Date.UTC(2026, 9, 27, 20, 0) }));
+    const dates = f.written
+      .filter((d) => d.collection === COLLECTIONS.captureSessions)
+      .map((d) => (d.data as { local_date: string }).local_date)
+      .sort();
+    expect(dates.at(-1)).toBe("2026-10-27");
+  });
+
+  it("a template that cannot be shifted (its last day is after yesterday) is 503 demo_not_ready, logged with the reason, nothing written", async () => {
+    const f = fakeStore();
+    const { d, logs } = deps();
+    await expectCode(issueDemoSession(f.store, d, input({ role: "owner" }, { now_ms: Date.UTC(2026, 9, 17, 3) })), AppError, "demo_not_ready");
+    expect(f.written).toEqual([]);
+    expect(logs.find((l) => l.event === "clone_failed")?.fields.reason).toBe("negative_shift");
+  });
+});
+
+describe("issueDemoSession: clone_failed logs a fixed reason code only (R-18 security LOW-2)", () => {
+  const reasonOf = async (tplOver: (t: ReturnType<typeof templateSet>) => void) => {
+    const tpl = templateSet();
+    tplOver(tpl);
+    const f = fakeStore({ template: tpl });
+    const { d, logs } = deps();
+    await expectCode(issueDemoSession(f.store, d, input({ role: "owner" })), AppError, "demo_not_ready");
+    return logs.find((l) => l.event === "clone_failed")?.fields.reason;
+  };
+
+  it("no ended debrief -> no_ended_debrief", async () => {
+    expect(await reasonOf((t) => delete (t.device as { last_ended?: unknown }).last_ended)).toBe("no_ended_debrief");
+  });
+
+  it("a template id inside a thread's free text -> template_id_token, and the thread id never reaches the console", async () => {
+    const tpl = templateSet();
+    const bad = threadDoc(9, 1, { summary: `see ${TEMPLATE_DEVICE_ID}` });
+    tpl.threads = [bad, ...tpl.threads];
+    const f = fakeStore({ template: tpl });
+    await expectCode(issueDemoSession(f.store, { mintToken: async () => "t" }, input({ role: "owner" })), AppError, "demo_not_ready");
+    const printed = consoleSpies.flatMap((s) => s.mock.calls).map((c) => JSON.stringify(c)).join("\n");
+    expect(printed).toContain("template_id_token");
+    expect(printed).not.toContain(bad.thread_id);
+  });
+
+  it("a missing D session -> missing_session_day, and the business date never reaches the console", async () => {
+    const tpl = templateSet();
+    tpl.sessions = tpl.sessions.filter((s) => s.local_date !== tpl.device.last_ended?.business_date);
+    const f = fakeStore({ template: tpl });
+    await expectCode(issueDemoSession(f.store, { mintToken: async () => "t" }, input({ role: "owner" })), AppError, "demo_not_ready");
+    const printed = consoleSpies.flatMap((s) => s.mock.calls).map((c) => JSON.stringify(c)).join("\n");
+    expect(printed).toContain("missing_session_day");
+    expect(printed).not.toContain(tpl.device.last_ended!.business_date);
+  });
+
+  it("every clone error site maps to its stable code; no id, date or path survives", () => {
+    const cases: [Error, string][] = [
+      [new Error("cloneTemplate: template has no ended debrief"), "no_ended_debrief"],
+      [new Error("cloneTemplate: negative shift (the template's last day is after the sandbox's yesterday)"), "negative_shift"],
+      [new Error("cloneTemplate: the shift would change the local clock time (DST offset differs)"), "dst_guard"],
+      [new Error("cloneTemplate: template free text contains a template id token (thread thr-secret-1)"), "template_id_token"],
+      [new Error("cloneTemplate: template has no ended session for 2026-10-19"), "missing_session_day"],
+      [new Error("cloneTemplate: a template session starts after now"), "session_after_now"],
+      [new Error("cloneTemplate: something added later 2026-10-19 thr-x"), "other"],
+    ];
+    for (const [err, code] of cases) expect(cloneFailureReason(err)).toBe(code);
+  });
+
+  it("a ZodError -> invalid_template_doc (its message lists paths and values)", () => {
+    const err = z.object({ secret_field: z.number() }).safeParse({ secret_field: "thr-secret-1" }).error!;
+    expect(cloneFailureReason(err)).toBe("invalid_template_doc");
+  });
+
+  it("any other Error -> its name only; a non-Error -> unknown", () => {
+    class Odd extends Error {
+      override name = "OddError";
+    }
+    expect(cloneFailureReason(new Odd("thr-secret-1 2026-10-19"))).toBe("OddError");
+    expect(cloneFailureReason("thr-secret-1")).toBe("unknown");
   });
 });
 

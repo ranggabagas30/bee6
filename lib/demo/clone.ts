@@ -1,4 +1,4 @@
-import { DEBRIEF_DURATION_MS } from "@/lib/capture/calendar";
+import { addDays, DEBRIEF_DURATION_MS, localHmOf } from "@/lib/capture/calendar";
 import { COLLECTIONS, type CollectionName } from "@/lib/firestore/collections";
 import {
   CaptureSessionSchema,
@@ -28,9 +28,14 @@ import {
 /**
  * Pure template clone (R-12 Task 4). A judge's sandbox is a copy of the template outlet's pipeline
  * output (made by the real segment route, tick, gate and question writer) under fresh ids. The
- * only state the clone changes is the last debrief: it ends "now" so the judge can answer for an
- * hour (the state the template's own debrief end moved to `unverified` is restored exactly).
- * No I/O, no clock reads, no model. Hard rule #10: nothing here decides a label or a fact.
+ * only state the clone changes is (1) the last debrief: it ends "now" so the judge can answer for an
+ * hour (the state the template's own debrief end moved to `unverified` is restored exactly), and
+ * (2) R-18 P0: the template's days move by a WHOLE number of days so its last day is the sandbox's
+ * "yesterday" (business date), so the days never age out of the default Generate range or the
+ * retention window. That is a timing change only: no label, summary, line text, category,
+ * confidence, gate decision or fact status is touched (hard rule #10), and the local clock time of
+ * every moved instant is unchanged (a zone whose offset changes inside the shift is refused).
+ * No I/O, no clock reads, no model.
  */
 
 export interface TemplateSet {
@@ -93,17 +98,96 @@ function assertNoTokenInText(thread: Thread): void {
 
 const isoOf = (ms: number) => new Date(ms).toISOString();
 
+const DAY_MS = 86_400_000;
+/** Epoch ms values below this are durations or zero, never an instant (1 Sep 2001). */
+const EPOCH_MS_FLOOR = 1_000_000_000_000;
+const DATE_KEYS = new Set(["local_date", "business_date", "effective_from_date"]);
+const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+/**
+ * Free text and model output: the shift never descends into these keys, so nothing a person said, a model
+ * wrote or the gate decided can change (a `fields` entry named `business_date` stays as it is).
+ */
+const UNTOUCHED_KEYS = new Set(["summary", "text", "fields", "gate", "runner_up", "answer"]);
+/** Record-keeping times: after the shift none may sit after `now` (a template seeded late in its day would land in the future). */
+const RECORD_MS_KEYS = ["created_at_ms", "updated_at_ms"] as const;
+const RECORD_ISO_KEYS = ["received_start_at", "received_end_at"] as const;
+
+function daysBetween(from: string, to: string): number {
+  const [fy, fm, fd] = from.split("-").map(Number);
+  const [ty, tm, td] = to.split("-").map(Number);
+  return Math.round((Date.UTC(ty ?? 1970, (tm ?? 1) - 1, td ?? 1) - Date.UTC(fy ?? 1970, (fm ?? 1) - 1, fd ?? 1)) / DAY_MS);
+}
+
+/**
+ * Copies `value` moving only time: numbers under `*_ms` keys that are epoch instants, `YYYY-MM-DD` strings under
+ * the date keys, and ISO datetimes under `*_at` keys. Nothing else changes and the input is never mutated.
+ *
+ * WARNING (P4, thread retention): when threads gain an ISO `expires_at`, it MUST be excluded from this shift
+ * (add it to the untouched keys). The `/_at$/` rule would otherwise move it forward by the shift and extend a
+ * cloned thread's retention beyond `retention_days`.
+ */
+export function shiftDeep<T>(value: T, deltaMs: number, days: number, key = ""): T {
+  if (typeof value === "number") {
+    return (/_ms$/.test(key) && Number.isInteger(value) && value >= EPOCH_MS_FLOOR ? value + deltaMs : value) as T;
+  }
+  if (typeof value === "string") {
+    if (DATE_KEYS.has(key) && /^\d{4}-\d{2}-\d{2}$/.test(value)) return addDays(value, days) as T;
+    if (/_at$/.test(key) && ISO_DATETIME.test(value)) return isoOf(Date.parse(value) + deltaMs) as T;
+    return value;
+  }
+  if (Array.isArray(value)) return value.map((v) => shiftDeep(v, deltaMs, days)) as T;
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = UNTOUCHED_KEYS.has(k) ? v : shiftDeep(v, deltaMs, days, k);
+    }
+    return out as T;
+  }
+  return value;
+}
+
+/** Caps the top-level record-keeping times at `now_ms` (monotone, so created <= updated still holds). */
+function capAtNow<T extends object>(doc: T, now_ms: number): T {
+  const out: Record<string, unknown> = { ...(doc as Record<string, unknown>) };
+  for (const k of RECORD_MS_KEYS) if (typeof out[k] === "number" && (out[k] as number) > now_ms) out[k] = now_ms;
+  for (const k of RECORD_ISO_KEYS) {
+    if (typeof out[k] === "string" && Date.parse(out[k] as string) > now_ms) out[k] = isoOf(now_ms);
+  }
+  return out as T;
+}
+
 export function cloneTemplate(input: {
   tpl: TemplateSet;
   ids: { outlet_id: string; device_id: string };
   now_ms: number;
   key_sha256: string;
   device_token_hash: string;
+  /** The sandbox's current business date (the caller passes `businessDateOf(now_ms, outlet timezone)`). */
+  anchor_business_date: string;
 }): ClonedDoc[] {
-  const { tpl, ids, now_ms, key_sha256, device_token_hash } = input;
+  const { tpl, ids, now_ms, key_sha256, device_token_hash, anchor_business_date } = input;
   const last = tpl.device.last_ended;
   if (!last) throw new Error("cloneTemplate: template has no ended debrief");
   const D = last.business_date;
+
+  // R-18: whole days, so the template's last day lands on yesterday's business date.
+  const k = daysBetween(D, addDays(anchor_business_date, -1));
+  if (k < 0) throw new Error("cloneTemplate: negative shift (the template's last day is after the sandbox's yesterday)");
+  const deltaMs = k * DAY_MS;
+  const shiftedD = addDays(D, k);
+  const tz = tpl.outlet.timezone;
+  if (k > 0) {
+    // DST guard: a moved instant must keep its local wall-clock time (Asia/Jakarta never differs).
+    const started = tpl.sessions.map((s) => s.started_at_ms);
+    const ended = tpl.sessions.flatMap((s) => (s.ended_at_ms === null ? [] : [s.ended_at_ms]));
+    const probes = [Math.min(...started), Math.max(...ended, ...started)].filter(Number.isFinite);
+    for (const t of probes) {
+      if (localHmOf(t, tz) !== localHmOf(t + deltaMs, tz)) {
+        throw new Error("cloneTemplate: the shift would change the local clock time (DST offset differs)");
+      }
+    }
+  }
+  const shift = <T extends object>(doc: T): T => capAtNow(shiftDeep(doc, deltaMs, k), now_ms);
   const map = { device: ids.device_id, outlet: ids.outlet_id };
   const expiresAt = now_ms + SANDBOX_TTL_MS;
   const newDebriefEnd = now_ms + DEBRIEF_DURATION_MS;
@@ -125,7 +209,7 @@ export function cloneTemplate(input: {
   );
   if (!dSession) throw new Error(`cloneTemplate: template has no ended session for ${D}`);
   for (const s of tpl.sessions) {
-    if (s.started_at_ms > now_ms) throw new Error("cloneTemplate: a template session starts after now");
+    if (s.started_at_ms + deltaMs > now_ms) throw new Error("cloneTemplate: a template session starts after now");
   }
   const originalEnd = dSession.debrief_ends_at_ms;
 
@@ -170,7 +254,7 @@ export function cloneTemplate(input: {
   }
 
   // SOP v1 (a copy of the seeded version, not an edit)
-  const sop = SopVersionSchema.parse(rewriteDeep(tpl.sop_v1, map));
+  const sop = SopVersionSchema.parse(shift(rewriteDeep(tpl.sop_v1, map)));
   push(COLLECTIONS.sopVersions, sop.sop_version_id, sop);
 
   // judge device
@@ -178,7 +262,7 @@ export function cloneTemplate(input: {
     COLLECTIONS.devices,
     deviceDocId(ids.outlet_id, ids.device_id),
     DeviceSchema.parse({
-      ...rewriteDeep(tpl.device, map),
+      ...shift(rewriteDeep(tpl.device, map)),
       token_hash: device_token_hash,
       paired_at: isoOf(now_ms),
       revoked: false,
@@ -186,7 +270,7 @@ export function cloneTemplate(input: {
       pairing_code_expires_at: null,
       created_at: isoOf(now_ms),
       expires_at_ms: expiresAt,
-      last_ended: { business_date: D, end_reason: "selesai", ended_at_ms: now_ms, debrief_ends_at_ms: newDebriefEnd },
+      last_ended: { business_date: shiftedD, end_reason: "selesai", ended_at_ms: now_ms, debrief_ends_at_ms: newDebriefEnd },
     }),
   );
 
@@ -194,7 +278,7 @@ export function cloneTemplate(input: {
   for (const s of tpl.sessions) {
     const isD = s.session_id === dSession.session_id && s.device_id === dSession.device_id;
     const data = CaptureSessionSchema.parse({
-      ...rewriteDeep(s, map),
+      ...shift(rewriteDeep(s, map)),
       ...(isD ? { ended_at_ms: now_ms, end_reason: "selesai", debrief_ends_at_ms: newDebriefEnd } : {}),
     });
     push(COLLECTIONS.captureSessions, captureSessionDocId({ device_id: data.device_id, session_id: data.session_id }), data);
@@ -203,7 +287,7 @@ export function cloneTemplate(input: {
   // threads
   for (const t of tpl.threads) {
     const data = ThreadSchema.parse({
-      ...rewriteDeep(t, map),
+      ...shift(rewriteDeep(t, map)),
       ...(rearmedThreads.has(t.thread_id) && t.status === "unverified" && t.excluded_from_evidence !== true
         ? { status: "open" }
         : {}),
@@ -213,7 +297,7 @@ export function cloneTemplate(input: {
 
   // questions
   for (const q of tpl.questions) {
-    const rewritten = rewriteDeep(q, map);
+    const rewritten = shift(rewriteDeep(q, map));
     if (rearmed.has(q.question_id)) {
       const { answer: _answer, answered_at_ms: _answeredAt, ...rest } = rewritten;
       const data = QuestionSchema.parse({ ...rest, status: "open", expired_by_debrief_end_ms: null });

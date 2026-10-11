@@ -135,6 +135,22 @@ describe("pairDevice", () => {
     ).rejects.toThrow(UnauthorizedError);
   });
 
+  it("2.T2 refuses a reserved code before any store lookup, with the same error as an unknown code", async () => {
+    const store = makeDeviceStore([device({ pairing_code: "000000" })]);
+    let lookups = 0;
+    const findByPairingCode = store.findByPairingCode.bind(store);
+    store.findByPairingCode = async (code) => {
+      lookups += 1;
+      return findByPairingCode(code);
+    };
+    const reserved = await pairDevice({ devices: store, now: clock }, { code: "000000" }).catch((e: unknown) => e);
+    const unknown = await pairDevice({ devices: store, now: clock }, { code: "999999" }).catch((e: unknown) => e);
+    expect(reserved).toBeInstanceOf(UnauthorizedError);
+    expect((reserved as Error).message).toBe((unknown as Error).message);
+    expect(lookups).toBe(1); // only the unknown code reached the store
+    expect(store.saved).toHaveLength(0);
+  });
+
   it("rejects an expired code", async () => {
     const store = makeDeviceStore([
       device({ pairing_code_expires_at: new Date(NOW.getTime() - 1).toISOString() }),
