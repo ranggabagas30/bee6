@@ -402,6 +402,29 @@ describe("ProposalDecisionPanel — invalid, error, busy (7.T10)", () => {
     expect(authedPostJson.mock.calls[1]![2]).toEqual({ decision: "reject", reason: "A reason" });
   });
 
+  it("Cancel after a server error clears the stale error text", async () => {
+    authedPostJson.mockResolvedValue({ kind: "error" });
+    renderPanel("supervisor", makeItem());
+    click("Feasible");
+    click("Yes");
+    expect(await screen.findByRole("alert")).not.toBeNull();
+    click("Cancel");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("button", { name: "Feasible" })).not.toBeNull();
+  });
+
+  it("Cancel after the length error clears the stale error text", async () => {
+    authedPostJson.mockResolvedValue({ kind: "invalid" });
+    renderPanel("supervisor", makeItem());
+    click("Reject");
+    typeReason("A reason");
+    click("Continue");
+    click("Yes");
+    expect(await screen.findByRole("alert")).not.toBeNull();
+    click("Cancel");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("controls are disabled while busy and a second click sends nothing more", async () => {
     let resolveFn: (value: unknown) => void = () => {};
     authedPostJson.mockImplementationOnce(() => new Promise((resolve) => { resolveFn = resolve; }));

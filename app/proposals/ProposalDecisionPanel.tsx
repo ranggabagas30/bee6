@@ -129,6 +129,7 @@ export function ProposalDecisionPanel({
   function toIdle(focus: "positive" | "reject" | null) {
     returnFocusTo.current = focus;
     setAcknowledged(false);
+    setMessage(null);
     setStep("idle");
   }
 
