@@ -1,15 +1,15 @@
-import { createHash } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { isIP } from "node:net";
 
 /**
  * Pure helpers for the demo's per-IP limits (R-12 Task 6.2). IPs are never stored or logged: the
- * counter key is a SHA-256 of ip + UTC day + a secret salt (DEMO_IP_SALT), so a key is useless
- * outside one day and cannot be reversed without the salt.
+ * counter key is an HMAC-SHA256, keyed by the secret salt (DEMO_IP_SALT), of ip + UTC day, so a key
+ * is useless outside one day and the small IPv4 space cannot be brute-forced without the salt.
  */
 
 export function ipBucketKey(ip: string, utcDayString: string, salt: string): string {
   if (salt.length === 0) throw new Error("ipBucketKey: salt is required (never hash an IP unsalted)");
-  return createHash("sha256").update(`${ip}:${utcDayString}:${salt}`).digest("hex");
+  return createHmac("sha256", salt).update(`${ip}:${utcDayString}`).digest("hex");
 }
 
 /** Largest position from the end DEMO_XFF_FROM_END may name (a real proxy chain is 1 to 3 hops). */

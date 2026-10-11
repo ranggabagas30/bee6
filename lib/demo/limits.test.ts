@@ -1,13 +1,13 @@
-import { createHash } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { clientIp, ipBucketKey, resolveXffFromEnd, secondsToUtcMidnight, utcDay } from "@/lib/demo/limits";
 
 const h = (v: Record<string, string>) => new Headers(v);
 
 describe("ipBucketKey", () => {
-  it("is SHA-256 hex of ip:day:salt and never contains the ip", () => {
+  it("is HMAC-SHA256 (the salt is the key) of ip:day, hex, and never contains the ip", () => {
     const key = ipBucketKey("203.0.113.9", "2026-10-28", "pepper");
-    expect(key).toBe(createHash("sha256").update("203.0.113.9:2026-10-28:pepper").digest("hex"));
+    expect(key).toBe(createHmac("sha256", "pepper").update("203.0.113.9:2026-10-28").digest("hex"));
     expect(key).toMatch(/^[a-f0-9]{64}$/);
     expect(key).not.toContain("203.0.113.9");
   });
