@@ -116,11 +116,14 @@ interface Common {
   session_id: string;
   cal: CalendarCtx;
   now_ms: number;
+  /** R-18: set only for a sandbox device on a demo deployment; the session then hard-stops at started + this. */
+  demo_max_ms?: number;
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-function autoStopFor(localDate: string, startedAt: number, cal: CalendarCtx): number {
+function autoStopFor(localDate: string, startedAt: number, cal: CalendarCtx, demoMaxMs?: number): number {
+  if (demoMaxMs !== undefined) return startedAt + demoMaxMs;
   const auto = autoStopAtMs(localDate, cal.weekly, cal.tz);
   return auto !== null && auto > startedAt ? auto : startedAt + AUTO_STOP_AFTER_CLOSE_MS;
 }
@@ -137,7 +140,7 @@ function newSession(c: Common, startedAt: number): CaptureSession {
     ended_at_ms: null,
     end_reason: null,
     local_date: localDate,
-    auto_stop_at_ms: autoStopFor(localDate, startedAt, c.cal),
+    auto_stop_at_ms: autoStopFor(localDate, startedAt, c.cal, c.demo_max_ms),
     debrief_ends_at_ms: null,
     received_start_at: isoOf(c.now_ms),
     received_end_at: null,

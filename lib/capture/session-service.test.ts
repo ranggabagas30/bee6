@@ -138,6 +138,16 @@ describe("startSession (PROD-01 4.2)", () => {
     expect(f.session?.received_end_at).toBeNull();
   });
 
+  it("R-18: a sandbox session (demo_max_ms) auto-stops at start + 5 min; without it the auto-stop stays close + 1 h", async () => {
+    const started = wib("2026-10-14T11:59:00");
+    const demo = fakeStore();
+    await startSession(demo.store, { ...base, started_at_ms: started, demo_max_ms: 300_000 });
+    expect(demo.session?.auto_stop_at_ms).toBe(started + 300_000);
+    const pilot = fakeStore();
+    await startSession(pilot.store, { ...base, started_at_ms: started });
+    expect(pilot.session?.auto_stop_at_ms).toBe(wib("2026-10-15T02:00:00"));
+  });
+
   it("is idempotent: a retry returns the stored doc and writes nothing", async () => {
     const f = fakeStore();
     await startSession(f.store, { ...base, started_at_ms: wib("2026-10-14T10:00:00") });
