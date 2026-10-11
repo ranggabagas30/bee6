@@ -212,15 +212,20 @@ export function cohensKappa(pairs: readonly (readonly [Category, Category])[]): 
 }
 
 /**
- * Word list used by WER: Unicode NFKC, lower-case, apostrophes removed, every other character that
- * is not a letter, digit or space becomes a space, whitespace collapsed.
+ * The exact WER normalisation rule, printed verbatim in the transcribe report's method line.
+ * Order matters: NFKC, lower-case, drop apostrophes, join digit groups, then split on the rest.
  */
+export const WER_NORMALIZATION_RULE =
+  "Normalisation: Unicode NFKC, then lower-case; apostrophes (' and \u2019) are removed; a '.' or ',' that sits between two digits is removed (so 1.5 becomes 15 and Rp 15.000 equals Rp 15000); every other character that is not a letter, digit, combining mark or space becomes a space (so e-mail is two words, e and mail, while email is one); whitespace is collapsed.";
+
+/** Word list used by WER; see {@link WER_NORMALIZATION_RULE} for the rule. */
 export function normalizeForWer(text: string): string[] {
   const cleaned = text
     .normalize("NFKC")
     .toLowerCase()
-    .replace(/['’]/g, "")
-    .replace(/[^\p{L}\p{N}\s]/gu, " ");
+    .replace(/['\u2019]/g, "")
+    .replace(/(?<=\p{Nd})[.,](?=\p{Nd})/gu, "")
+    .replace(/[^\p{L}\p{N}\p{M}\s]/gu, " ");
   return cleaned.split(/\s+/).filter((w) => w.length > 0);
 }
 

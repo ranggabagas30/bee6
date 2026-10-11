@@ -10,6 +10,7 @@ import {
   parseGoldCsv,
   percentile,
   perCategory,
+  WER_NORMALIZATION_RULE,
   wer,
   type LabelRow,
 } from "@/lib/eval/metrics";
@@ -145,6 +146,35 @@ describe("normalizeForWer / wer", () => {
 
   it("applies Unicode NFKC", () => {
     expect(normalizeForWer("ＡＢＣ")).toEqual(["abc"]);
+  });
+
+  it("joins digit groups split by a thousands or decimal mark ('1.5' -> '15')", () => {
+    expect(normalizeForWer("add 1.5 liters")).toEqual(["add", "15", "liters"]);
+    expect(normalizeForWer("Rp 15.000")).toEqual(["rp", "15000"]);
+    expect(normalizeForWer("1,250,000")).toEqual(["1250000"]);
+    expect(wer("add 1.5 liters", "add 15 liters")).toEqual({ edits: 0, words: 3 });
+    expect(wer("Rp 15.000", "Rp 15000")).toEqual({ edits: 0, words: 2 });
+  });
+
+  it("keeps a '.' or ',' that is not between two digits as a separator", () => {
+    expect(normalizeForWer("done.5 more")).toEqual(["done", "5", "more"]);
+    expect(normalizeForWer("page 5. Next, 3")).toEqual(["page", "5", "next", "3"]);
+    expect(normalizeForWer("a1.b2")).toEqual(["a1", "b2"]);
+  });
+
+  it("other punctuation stays a separator: 'e-mail' vs 'email' is 2 edits over 2 words (documented)", () => {
+    expect(normalizeForWer("e-mail")).toEqual(["e", "mail"]);
+    expect(wer("e-mail", "email")).toEqual({ edits: 2, words: 2 });
+  });
+
+  it("keeps Unicode combining marks so a Devanagari or Thai word is not split", () => {
+    expect(normalizeForWer("हिन्दी भाषा")).toEqual(["हिन्दी", "भाषा"]);
+    expect(normalizeForWer("ที่นี่")).toEqual(["ที่นี่"]);
+  });
+
+  it("states the exact rule in one exported sentence", () => {
+    expect(WER_NORMALIZATION_RULE).toContain("NFKC");
+    expect(WER_NORMALIZATION_RULE).toMatch(/between two digits/);
   });
 
   it("identical text has 0 edits", () => {

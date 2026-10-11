@@ -1,6 +1,6 @@
 import { MAX_SEGMENT_BYTES, SEGMENT_CONTENT_TYPE } from "@/lib/capture/contract";
 import { parseCsv } from "@/lib/eval/csv";
-import { percentile, wer } from "@/lib/eval/metrics";
+import { percentile, WER_NORMALIZATION_RULE, wer } from "@/lib/eval/metrics";
 import { ServiceUnavailableError } from "@/lib/http/errors";
 import type { Transcriber } from "@/lib/transcribe/types";
 
@@ -168,7 +168,7 @@ export function renderTranscribeReport(results: readonly ClipResult[], runDate: 
   }
   out.push(
     "",
-    "WER = (S + D + I) / N words after normalising both texts (Unicode NFKC, lower-case, punctuation removed, whitespace collapsed); pooled WER = sum of edits / sum of reference words.",
+    `WER = (S + D + I) / N words after normalising both texts; pooled WER = sum of edits / sum of reference words. ${WER_NORMALIZATION_RULE}`,
     "",
   );
   return out.join("\n");

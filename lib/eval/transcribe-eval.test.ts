@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ServiceUnavailableError } from "@/lib/http/errors";
 import { MAX_SEGMENT_BYTES, SEGMENT_CONTENT_TYPE } from "@/lib/capture/contract";
 import type { Transcriber, TranscribeInput } from "@/lib/transcribe/types";
+import { WER_NORMALIZATION_RULE } from "@/lib/eval/metrics";
 import {
   CLIP_MAX_MS,
   TRANSCRIBE_USD_PER_MIN,
@@ -171,6 +172,10 @@ describe("renderTranscribeReport", () => {
   it("prints n/a, not 0, for a clip with no reference words and when nothing was evaluated", () => {
     expect(renderTranscribeReport([ok("a.webm", 0, 2, 100, null)], "d")).toMatch(/\| a\.webm \| 0 \| 2 \| n\/a \| 100 \|/);
     expect(renderTranscribeReport([], "d")).toMatch(/Pooled WER: n\/a/);
+  });
+
+  it("prints the exact WER normalisation rule in the method line", () => {
+    expect(renderTranscribeReport([], "d")).toContain(WER_NORMALIZATION_RULE);
   });
 
   it("names the sample as local fictional clips", () => {
