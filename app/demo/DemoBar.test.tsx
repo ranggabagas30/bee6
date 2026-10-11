@@ -34,7 +34,14 @@ vi.mock("@/app/demo/demo-client", async (importOriginal) => ({
 import { DemoBar } from "@/app/demo/DemoBar";
 import { DEMO_STATE_KEY } from "@/app/demo/demo-client";
 
-const FAKE_AUTH = { kind: "fake-auth" };
+// A judge's custom-token uid is demo-<role>-<sandbox>; Rangga's own email/password accounts are not.
+const DEMO_UID = "demo-owner-sbx1";
+const readyGate = { current: Promise.resolve() as Promise<void> };
+const FAKE_AUTH: { kind: string; currentUser: { uid: string } | null; authStateReady: () => Promise<void> } = {
+  kind: "fake-auth",
+  currentUser: { uid: DEMO_UID },
+  authStateReady: () => readyGate.current,
+};
 
 function seed(role: "owner" | "supervisor" | "staff", expiresAtMs: number) {
   window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: expiresAtMs, role }));
@@ -61,6 +68,8 @@ let consoleSpies: ReturnType<typeof vi.spyOn>[] = [];
 beforeEach(() => {
   pathname = "/day";
   vi.stubGlobal("localStorage", createMemoryStorage());
+  FAKE_AUTH.currentUser = { uid: DEMO_UID };
+  readyGate.current = Promise.resolve();
   getClientAuth.mockReturnValue(FAKE_AUTH);
   consoleSpies = ["log", "info", "warn", "error"].map((m) => vi.spyOn(console, m as "log").mockImplementation(() => {}));
 });
@@ -286,23 +295,58 @@ describe("DemoBar signs the Firebase web user out when the demo ends", () => {
     expect(signOut).not.toHaveBeenCalled();
   });
 
-  it("signs the user out when the timer ends the demo, and keeps the ended record so /sign-in can say so", () => {
+  it("signs the user out when the timer ends the demo, and keeps the ended record so /sign-in can say so", async () => {
     vi.useFakeTimers({ now: new Date("2026-10-19T08:00:00Z") });
     const expires = Date.now() + 5_000;
     seed("owner", expires);
     renderBar();
     expect(signOut).not.toHaveBeenCalled();
-    act(() => void vi.advanceTimersByTime(5_001));
+    await act(async () => void vi.advanceTimersByTime(5_001));
     expect(signOut).toHaveBeenCalledTimes(1);
     expect(signOut).toHaveBeenCalledWith(FAKE_AUTH);
     expect(JSON.parse(window.localStorage.getItem(DEMO_STATE_KEY)!)).toEqual({ sandbox_key: KEY, expires_at_ms: expires, role: "owner" });
   });
 
-  it("does so on /sign-in too, where the bar itself is hidden", () => {
+  it("does so on /sign-in too, where the bar itself is hidden", async () => {
     seed("owner", Date.now() - 1000);
     pathname = "/sign-in";
     renderBar();
+    await act(async () => {});
     expect(signOut).toHaveBeenCalledWith(FAKE_AUTH);
+  });
+
+  it("leaves a normal email/password session alone, on every mount, while an expired demo record is stored", async () => {
+    FAKE_AUTH.currentUser = { uid: "k3Jx9OwnerAccountUid" }; // not a judge's demo- uid
+    seed("owner", Date.now() - 1000);
+    renderBar();
+    await act(async () => {});
+    cleanup();
+    renderBar(); // a reload / hard navigation mounts the bar again
+    await act(async () => {});
+    expect(signOut).not.toHaveBeenCalled();
+    expect(screen.getByText("Your demo session has ended.")).toBeTruthy();
+  });
+
+  it("signs a demo- user out once Firebase has finished restoring the session", async () => {
+    let release!: () => void;
+    readyGate.current = new Promise<void>((r) => (release = r));
+    FAKE_AUTH.currentUser = null; // not restored yet
+    seed("owner", Date.now() - 1000);
+    renderBar();
+    await act(async () => {});
+    expect(signOut).not.toHaveBeenCalled(); // still waiting for readiness
+    FAKE_AUTH.currentUser = { uid: DEMO_UID };
+    await act(async () => release());
+    expect(signOut).toHaveBeenCalledTimes(1);
+    expect(signOut).toHaveBeenCalledWith(FAKE_AUTH);
+  });
+
+  it("does nothing to the user when nobody is signed in (a staff judge phone)", async () => {
+    FAKE_AUTH.currentUser = null;
+    seed("staff", Date.now() - 1000);
+    renderBar();
+    await act(async () => {});
+    expect(signOut).not.toHaveBeenCalled();
   });
 
   it("a sign-out that fails does not break the ended bar", async () => {

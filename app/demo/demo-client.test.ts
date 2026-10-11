@@ -11,6 +11,7 @@ vi.mock("@/lib/auth/client/firebase-client", () => ({
 import {
   DEMO_STATE_KEY,
   clearDemoState,
+  closeEndedDemo,
   endDemo,
   demoSnapshot,
   isDemoExpired,
@@ -433,6 +434,15 @@ describe("startDemo", () => {
     signOut.mockRejectedValue(new Error("offline"));
     await expect(endDemo(AUTH)).resolves.toBeUndefined();
     await expect(endDemo(null)).resolves.toBeUndefined();
+  });
+
+  it("closeEndedDemo without any stored demo record touches nothing (a real paired phone keeps its device keys and user)", async () => {
+    fakeLocal.setItem(DEVICE_TOKEN_KEY, "real");
+    fakeLocal.setItem(DEVICE_ID_KEY, "real");
+    await closeEndedDemo({ currentUser: { uid: "demo-owner-x" }, authStateReady: async () => {} } as never);
+    expect(fakeLocal.getItem(DEVICE_TOKEN_KEY)).toBe("real");
+    expect(fakeLocal.getItem(DEVICE_ID_KEY)).toBe("real");
+    expect(signOut).not.toHaveBeenCalled();
   });
 
   it("returns the refusal untouched and changes nothing on 429 / 503 / 404", async () => {

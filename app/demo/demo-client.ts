@@ -19,6 +19,8 @@ import { DEVICE_ID_KEY, DEVICE_TOKEN_KEY } from "@/lib/capture/browser/client";
 export const DEMO_STATE_KEY = "bee6.demo";
 const DEMO_CHANGE_EVENT = "bee6:demo-change";
 const SESSION_PATH = "/api/v1/demo/session";
+/** The uid prefix of every judge web user (`demo-<role>-<sandbox>`). */
+const DEMO_UID_PREFIX = "demo-";
 
 const DemoStateSchema = z
   .object({
@@ -293,10 +295,21 @@ export async function endDemo(auth: Auth | null): Promise<void> {
  * The demo has ended by the clock or because a switch found the sandbox gone: remove the judge phone's device
  * keys and sign the Firebase web user out, but KEEP the stored (expired) record, so the bar and /sign-in
  * still say "Your demo session has ended." Never throws.
+ *
+ * It acts only when this browser holds a demo record, and signs out only a judge's own user (custom-token
+ * uids are `demo-<role>-<sandbox>`, read once Firebase has restored the session). A normal email/password
+ * session in a browser that once ran a demo is left alone, so it survives every reload.
  */
 export async function closeEndedDemo(auth: Auth | null): Promise<void> {
+  if (readDemoState() === null) return;
   removeDeviceKeys();
-  await signOutQuietly(auth);
+  if (!auth) return;
+  try {
+    await auth.authStateReady();
+  } catch {
+    return;
+  }
+  if (auth.currentUser?.uid.startsWith(DEMO_UID_PREFIX)) await signOutQuietly(auth);
 }
 
 async function signOutQuietly(auth: Auth | null): Promise<void> {
