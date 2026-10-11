@@ -17,6 +17,11 @@ export const SANDBOX_TTL_MS = 2 * 60 * 60_000;
 /** Expired sandboxes are deleted only after this extra grace (a judge may still be inside; E18). */
 export const CLEANUP_GRACE_MS = 24 * 60 * 60_000;
 
+/** R-18 P2: how many of the template's expired questions are carried into the judge's own debrief (labelled "Earlier day"). */
+export const CARRY_OVER_MAX = 2;
+/** R-18 P2: the hard stop of a sandbox demo session (started_at + this). */
+export const DEMO_SESSION_MAX_MS = 300_000;
+
 /** The template must stay under this many docs; over it the clone refuses (503 template_too_large). */
 export const TEMPLATE_DOC_MAX = 400;
 /** Firestore allows 500 writes per batch; stay below it. */
@@ -31,7 +36,7 @@ export const SWITCH_IP_DAILY = 60;
 export const GENERATE_PER_SANDBOX = 5;
 export const GENERATE_DAILY = 300;
 /** Segment uploads (Gemini transcription + Sensitive Data Protection) per judge sandbox, and per day across all of them. */
-export const SEGMENT_PER_SANDBOX = 40;
+export const SEGMENT_PER_SANDBOX = 60;
 export const SEGMENT_DAILY = 3000;
 /** Simulated review fast-forwards per sandbox (writes only, no model call). */
 export const FAST_FORWARD_PER_SANDBOX = 3;

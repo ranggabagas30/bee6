@@ -105,8 +105,8 @@ describe("kill switch: DEMO_*_CAP=0 refuses everything for the model ceiling and
 });
 
 describe("capSpec / modelDailyLimit: defaults and env overrides", () => {
-  it("defaults: 40 segments per sandbox, 3000 a day; 3 fast-forwards; 5 generations, 300 a day; model ceiling", () => {
-    expect(capSpec("segment", {})).toMatchObject({ sandboxKind: "segment_sandbox", sandboxLimit: 40, daily: { kind: "segment_day", limit: 3000 }, model: true });
+  it("defaults: 60 segments per sandbox, 3000 a day; 3 fast-forwards; 5 generations, 300 a day; model ceiling", () => {
+    expect(capSpec("segment", {})).toMatchObject({ sandboxKind: "segment_sandbox", sandboxLimit: 60, daily: { kind: "segment_day", limit: 3000 }, model: true });
     expect(capSpec("fast_forward", {})).toMatchObject({ sandboxKind: "fast_forward_sandbox", sandboxLimit: 3, model: false });
     expect(capSpec("fast_forward", {}).daily).toBeUndefined();
     expect(capSpec("generate", {})).toMatchObject({ sandboxKind: "generate_sandbox", sandboxLimit: 5, daily: { kind: "generate_day", limit: 300 }, model: true });
@@ -129,7 +129,7 @@ describe("capSpec / modelDailyLimit: defaults and env overrides", () => {
     expect(capSpec("generate", env)).toMatchObject({ sandboxLimit: 2, daily: { limit: 20 } });
     expect(capSpec("redact", env).sandboxLimit).toBe(9);
     expect(modelDailyLimit(env)).toBe(99);
-    expect(capSpec("segment", { DEMO_SEGMENT_SANDBOX_CAP: "abc" }).sandboxLimit).toBe(40);
+    expect(capSpec("segment", { DEMO_SEGMENT_SANDBOX_CAP: "abc" }).sandboxLimit).toBe(60);
   });
 });
 

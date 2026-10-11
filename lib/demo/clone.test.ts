@@ -15,14 +15,18 @@ import {
   type Question,
   type Thread,
 } from "@/lib/firestore/schema";
+import { expireAtDebriefEnd } from "@/lib/pipeline/gate";
+import { mulaiAvailability } from "@/lib/capture/calendar";
 import { cloneTemplate, judgeDeviceIdOf, rewriteDeep, sandboxIds, type ClonedDoc, type TemplateSet } from "@/lib/demo/clone";
 import { SANDBOX_TTL_MS, TEMPLATE_DEVICE_ID, TEMPLATE_OUTLET_ID } from "@/lib/demo/constants";
 import {
   DAYS,
   LAST_DEBRIEF_END_MS,
+  LAST_ENDED_MS,
   SECRET_STAFF_NAMES,
   SESSION_IDS,
   templateSet,
+  questionDoc,
   threadDoc,
 } from "@/lib/demo/testing/fixtures";
 
@@ -184,32 +188,45 @@ describe("cloneTemplate", () => {
     for (const d of b) expect(idsA.has(`${d.collection}/${d.id}`)).toBe(false);
   });
 
-  it("4.T4 re-arm: device last_ended and the D session end at now with a fresh 1 h debrief", () => {
+  it("6.1 carry-over: the judge device keeps the template's own (shifted) last_ended, so no debrief is running at sign-in", () => {
     const docs = clone();
     const device = byCol(docs, COLLECTIONS.devices)[0]!.data as ReturnType<typeof DeviceSchema.parse>;
     expect(device.last_ended).toEqual({
       business_date: SHIFTED[2],
       end_reason: "selesai",
-      ended_at_ms: NOW,
-      debrief_ends_at_ms: NOW + 3_600_000,
+      ended_at_ms: LAST_ENDED_MS + DELTA,
+      debrief_ends_at_ms: LAST_DEBRIEF_END_MS + DELTA,
     });
     const session = byCol(docs, COLLECTIONS.captureSessions).find((d) => (d.data as { local_date: string }).local_date === SHIFTED[2])!.data as ReturnType<typeof CaptureSessionSchema.parse>;
-    expect(session.ended_at_ms).toBe(NOW);
+    expect(session.ended_at_ms).toBe(LAST_ENDED_MS + DELTA);
     expect(session.end_reason).toBe("selesai");
-    expect(session.debrief_ends_at_ms).toBe(NOW + 3_600_000);
-    // earlier days untouched
-    const day1 = byCol(docs, COLLECTIONS.captureSessions).find((d) => (d.data as { local_date: string }).local_date === SHIFTED[0])!.data as ReturnType<typeof CaptureSessionSchema.parse>;
-    expect(day1.ended_at_ms).not.toBe(NOW);
+    expect(session.debrief_ends_at_ms).toBe(LAST_DEBRIEF_END_MS + DELTA);
   });
 
-  it("4.T4 re-arm: the 2 expired questions are open with no expiry; the earlier answered one is untouched", () => {
+  it("6.T3 Mulai is not blocked by a running debrief at sign-in", () => {
+    const device = byCol(clone(), COLLECTIONS.devices)[0]!.data as ReturnType<typeof DeviceSchema.parse>;
+    const last = device.last_ended!;
+    expect(last.debrief_ends_at_ms!).toBeLessThan(NOW);
+    const day = { open: "07:00", close: "21:45" };
+    const a = mulaiAvailability({
+      now_ms: NOW, // 10:00 WIB, inside the Mulai window
+      weekly: { mon: day, tue: day, wed: day, thu: day, fri: day, sat: day, sun: day },
+      tz: TZ,
+      last_ended: last,
+      session_open: false,
+    });
+    expect(a.offered).toBe(true);
+  });
+
+  it("6.T1 carry-over: the 2 expired questions are open with no expiry, created now; the earlier answered one is untouched", () => {
     const docs = clone();
     const qs = byCol(docs, COLLECTIONS.questions).map((d) => d.data as ReturnType<typeof QuestionSchema.parse>);
-    const rearmed = qs.filter((q) => q.question_id.includes("_3") || q.question_id.includes("_4"));
-    expect(rearmed).toHaveLength(2);
-    for (const q of rearmed) {
+    const carried = qs.filter((q) => q.question_id.includes("_3") || q.question_id.includes("_4"));
+    expect(carried).toHaveLength(2);
+    for (const q of carried) {
       expect(q.status).toBe("open");
       expect(q.expired_by_debrief_end_ms).toBeNull();
+      expect(q.created_at_ms).toBe(NOW);
       expect("answer" in q).toBe(false);
       expect("answered_at_ms" in q).toBe(false);
     }
@@ -218,7 +235,37 @@ describe("cloneTemplate", () => {
     expect(answered.answered_at_ms).toBeTypeOf("number");
   });
 
-  it("4.T4 re-arm: threads of the re-armed gate questions return from unverified to open; others keep their status; gate is untouched", () => {
+  it("6.T1 at most 2 are carried (the oldest window first); every other expired question stays unverified with its thread", () => {
+    const tpl = templateSet();
+    const t5 = tpl.threads.find((t) => t.thread_id.endsWith("_5"))!;
+    tpl.threads = tpl.threads.map((t) => (t === t5 ? { ...t, status: "unverified" as const } : t));
+    tpl.questions = [...tpl.questions, questionDoc(t5, { status: "unverified", expired_by_debrief_end_ms: LAST_DEBRIEF_END_MS })];
+    const docs = clone(tpl);
+    const qs = byCol(docs, COLLECTIONS.questions).map((d) => d.data as Question);
+    const open = qs.filter((q) => q.status === "open").map((q) => q.question_id.slice(-1)).sort();
+    expect(open).toEqual(["3", "4"]);
+    const q5 = qs.find((q) => q.question_id.endsWith("_5"))!;
+    expect(q5.status).toBe("unverified");
+    expect(q5.expired_by_debrief_end_ms).toBe(LAST_DEBRIEF_END_MS + DELTA);
+    expect(q5.created_at_ms).toBe(t5.created_at_ms + DELTA);
+    const threads = byCol(docs, COLLECTIONS.threads).map((d) => d.data as Thread);
+    expect(threads.find((t) => t.thread_id.endsWith("_5"))!.status).toBe("unverified");
+    expect(threads.find((t) => t.thread_id.endsWith("_3"))!.status).toBe("open");
+  });
+
+  it("6.T2 the next tick leaves a carried question alone; the judge's own debrief end expires it normally (6.T4)", () => {
+    const docs = clone();
+    const device = byCol(docs, COLLECTIONS.devices)[0]!.data as ReturnType<typeof DeviceSchema.parse>;
+    const carried = byCol(docs, COLLECTIONS.questions).map((d) => d.data as Question).filter((q) => q.status === "open");
+    expect(carried).toHaveLength(2);
+    for (const q of carried) {
+      expect(expireAtDebriefEnd(q, device.last_ended!.debrief_ends_at_ms, NOW + 60_000)).toBeNull();
+      const t = NOW + 10 * 60_000; // the judge's session ends
+      expect(expireAtDebriefEnd(q, t + 3_600_000, t + 3_600_000)).toEqual({ status: "unverified", expired_by_debrief_end_ms: t + 3_600_000 });
+    }
+  });
+
+  it("4.T4 carry-over: threads of the carried gate questions return from unverified to open; others keep their status; gate is untouched", () => {
     const tpl = templateSet();
     const docs = clone(tpl);
     const threads = byCol(docs, COLLECTIONS.threads).map((d) => d.data as ReturnType<typeof ThreadSchema.parse>);
@@ -241,7 +288,7 @@ describe("cloneTemplate", () => {
     expect(t3.status).toBe("unverified");
   });
 
-  it("4.T5 / 1.T7 every thread and question equals rewriteDeep(template) except ids, the shifted fields and the re-arm fields", () => {
+  it("4.T5 / 1.T7 every thread and question equals rewriteDeep(template) except ids, the shifted fields and the carry-over fields", () => {
     const tpl = templateSet();
     const docs = clone(tpl);
     const rearmedQuestionIds = new Set(tpl.questions.filter((q) => q.status === "unverified").map((q) => q.question_id));
@@ -257,6 +304,7 @@ describe("cloneTemplate", () => {
       if (rearmedQuestionIds.has(q.question_id)) {
         expected.status = "open";
         expected.expired_by_debrief_end_ms = null;
+        expected.created_at_ms = NOW;
       }
       const got = byCol(docs, COLLECTIONS.questions).find((d) => d.id === expected.question_id);
       expect(got?.data).toEqual(expected);
@@ -302,16 +350,18 @@ describe("cloneTemplate", () => {
     expect(() => clone({ ...tpl, sessions: [...tpl.sessions, future] })).toThrow(/after now/);
   });
 
-  it("picks the D session with the largest ended_at_ms and ignores a discarded one", () => {
+  it("picks the D session with the largest ended_at_ms and ignores a discarded one (its debrief end is the carry-over marker)", () => {
     const tpl = templateSet();
     const base = tpl.sessions[2]!;
-    const discarded = { ...base, session_id: "44444444-4444-4444-8444-444444444444", end_reason: "discarded" as const, ended_at_ms: base.ended_at_ms! + 1000 };
-    const earlier = { ...base, session_id: "55555555-5555-4555-8555-555555555555", ended_at_ms: base.ended_at_ms! - 60_000 };
+    const discarded = { ...base, session_id: "44444444-4444-4444-8444-444444444444", end_reason: "discarded" as const, ended_at_ms: base.ended_at_ms! + 1000, debrief_ends_at_ms: base.debrief_ends_at_ms! + 1000 };
+    const earlier = { ...base, session_id: "55555555-5555-4555-8555-555555555555", ended_at_ms: base.ended_at_ms! - 60_000, debrief_ends_at_ms: base.debrief_ends_at_ms! - 60_000 };
     const docs = clone({ ...tpl, sessions: [...tpl.sessions.slice(0, 2), earlier, base, discarded] });
     const sessions = byCol(docs, COLLECTIONS.captureSessions).map((d) => d.data as ReturnType<typeof CaptureSessionSchema.parse>);
-    expect(sessions.filter((s) => s.ended_at_ms === NOW)).toHaveLength(1);
-    expect(sessions.find((s) => s.session_id === base.session_id)!.ended_at_ms).toBe(NOW);
+    expect(sessions.find((s) => s.session_id === base.session_id)!.ended_at_ms).toBe(base.ended_at_ms! + DELTA);
     expect(sessions.find((s) => s.session_id === discarded.session_id)!.end_reason).toBe("discarded");
+    // the questions expired at BASE's debrief end are the ones carried; picking another session would carry none
+    const open = byCol(docs, COLLECTIONS.questions).map((d) => d.data as Question).filter((q) => q.status === "open");
+    expect(open).toHaveLength(2);
   });
 
   it("refuses a template whose free text contains a template id token (a template bug)", () => {
@@ -386,7 +436,8 @@ describe("R-18 P0 whole-day time shift", () => {
       const got = byCol(docs, COLLECTIONS.questions).find((d) => d.id === rewriteDeep(q.question_id, MAP))!.data as Question;
       expect(got.window_start_ms - q.window_start_ms).toBe(DELTA);
       expect(got.window_end_ms - q.window_end_ms).toBe(DELTA);
-      expect(got.created_at_ms - q.created_at_ms).toBe(DELTA);
+      // a carried question is created "now" (it belongs to the judge's own debrief)
+      expect(got.created_at_ms - q.created_at_ms).toBe(got.status === "open" ? NOW - q.created_at_ms : DELTA);
       if (typeof q.answered_at_ms === "number") expect(got.answered_at_ms! - q.answered_at_ms).toBe(DELTA);
     }
     for (const s of tpl.sessions.slice(0, 2)) {
@@ -400,7 +451,7 @@ describe("R-18 P0 whole-day time shift", () => {
       expect(localHmOf(got.started_at_ms, TZ)).toBe(localHmOf(s.started_at_ms, TZ));
       expect(localHmOf(got.ended_at_ms!, TZ)).toBe(localHmOf(s.ended_at_ms!, TZ));
     }
-    // the D session keeps its re-armed end (now) and its auto-stop/start move with the days
+    // the D session keeps its shifted end and its auto-stop/start move with the days
     const d = sessionsOf(docs).find((x) => x.session_id === SESSION_IDS[2])!;
     expect(d.started_at_ms - tpl.sessions[2]!.started_at_ms).toBe(DELTA);
     expect(d.auto_stop_at_ms - tpl.sessions[2]!.auto_stop_at_ms).toBe(DELTA);
@@ -534,15 +585,4 @@ describe("R-18 P0 whole-day time shift", () => {
       if (d.collection === COLLECTIONS.questions) expect((d.data as Question).created_at_ms).toBeLessThanOrEqual(NOW);
     }
   });
-
-  it("a re-armed question created late in the shifted day can still expire at the judge's debrief end (created_at <= debrief end)", () => {
-    const tpl = templateSet();
-    const lateCreated = Date.UTC(2026, 9, 20, 9, 0);
-    tpl.questions = tpl.questions.map((q) => (q.question_id.endsWith("_3") ? { ...q, created_at_ms: lateCreated } : q));
-    const docs = cloned(tpl);
-    const device = byCol(docs, COLLECTIONS.devices)[0]!.data as ReturnType<typeof DeviceSchema.parse>;
-    const q3 = byCol(docs, COLLECTIONS.questions).map((d) => d.data as Question).find((q) => q.question_id.endsWith("_3"))!;
-    expect(q3.created_at_ms).toBeLessThanOrEqual(device.last_ended!.debrief_ends_at_ms!);
-  });
 });
-
