@@ -121,6 +121,10 @@ function daysBetween(from: string, to: string): number {
 /**
  * Copies `value` moving only time: numbers under `*_ms` keys that are epoch instants, `YYYY-MM-DD` strings under
  * the date keys, and ISO datetimes under `*_at` keys. Nothing else changes and the input is never mutated.
+ *
+ * WARNING (P4, thread retention): when threads gain an ISO `expires_at`, it MUST be excluded from this shift
+ * (add it to the untouched keys). The `/_at$/` rule would otherwise move it forward by the shift and extend a
+ * cloned thread's retention beyond `retention_days`.
  */
 export function shiftDeep<T>(value: T, deltaMs: number, days: number, key = ""): T {
   if (typeof value === "number") {
