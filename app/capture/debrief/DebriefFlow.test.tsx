@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { DebriefFlow } from "@/app/capture/debrief/DebriefFlow";
 import { LangProvider, useLang } from "@/lib/i18n/context";
-import { ANSWER_CACHE_KEY } from "@/lib/debrief/answer-cache";
+import { ANSWER_CACHE_KEY, readCache } from "@/lib/debrief/answer-cache";
 
 /**
  * DebriefFlow container (R-07 Task 7.5): owns the reducer, the GET-on-OPEN
@@ -109,7 +109,7 @@ function Harness({
   refresh,
 }: {
   refresh?: boolean;
-  fetchFn: typeof fetch;
+  fetchFn?: typeof fetch;
   storage: Storage;
   endsAtMs?: number;
   nowMs?: number;
@@ -224,6 +224,37 @@ describe("DebriefFlow: Lewati never writes or sends", () => {
     await waitFor(() => expect(screen.getByText("Question 2 of 2")).toBeTruthy());
     expect(storage.calls.filter((c) => c.op === "setItem")).toHaveLength(0);
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
+  });
+});
+
+describe("DebriefFlow: the global fetch (no test seam)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("a real browser fetch (strict `this`) reaches the network: the answer is POSTed and the cache entry cleared", async () => {
+    const posted: string[] = [];
+    // Behaves like window.fetch: "Illegal invocation" unless called with undefined/globalThis as `this`.
+    const strict = function (this: unknown, input: RequestInfo | URL, init?: RequestInit) {
+      if (this !== undefined && this !== globalThis) throw new TypeError("Illegal invocation");
+      const url = String(input);
+      if (init?.method === "POST") {
+        posted.push(url);
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({}) } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => listResponse([q("q1")]),
+      } as Response);
+    };
+    vi.stubGlobal("fetch", strict);
+    const storage = new FakeStorage();
+    render(<Harness storage={storage} />);
+    await openCard();
+    fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "sudah" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(posted).toEqual(["/api/v1/questions/q1/answer"]));
+    await waitFor(() => expect(readCache(storage)).toEqual([]));
   });
 });
 

@@ -527,7 +527,7 @@ async function main(): Promise<void> {
         code,
         plan,
         nowMs: Date.now(),
-        fetchFn: fetch,
+        fetchFn: (input, init) => fetch(input, init),
         readClip: async (file) => new Uint8Array(await readFile(path.join(clipsDir, file))),
         randomUUID,
         readProgress: () => readProgressFromFirestore(TZ),

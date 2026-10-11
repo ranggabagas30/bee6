@@ -71,7 +71,9 @@ export function DebriefFlow({
   storage,
 }: DebriefFlowProps) {
   const { lang } = useLang();
-  const effectiveFetch = fetchFn ?? fetch;
+  // Wrapped, not the bare global: window.fetch throws "Illegal invocation" when it is stored in an object and
+  // called as a method of it (the answer uploader's deps).
+  const effectiveFetch: typeof fetch = fetchFn ?? ((input, init) => fetch(input, init));
   const effectiveStorage = storage ?? (typeof window !== "undefined" ? window.localStorage : undefined);
 
   const [state, dispatch] = useReducer(
