@@ -618,6 +618,7 @@ export default function CapturePage() {
         nextMulaiText={nextMulaiText}
         headline={headline}
         primary={primary}
+        refresh={config?.demo_session !== undefined}
       />
     );
   }

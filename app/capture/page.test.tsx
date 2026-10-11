@@ -34,6 +34,7 @@ const postSessionDiscard = vi.fn<
 
 vi.mock("@/lib/capture/browser/client", () => ({
   readDeviceAuth: () => readDeviceAuth(),
+  deviceAuthHeaders: () => ({}),
   fetchCaptureConfig: (auth: unknown) => fetchCaptureConfig(auth),
   postSessionStart: (auth: unknown, body: unknown) => postSessionStart(auth, body),
   postSessionEnd: (auth: unknown, id: string, body: unknown) => postSessionEnd(auth, id, body),
@@ -625,6 +626,45 @@ describe("CapturePage script drawer (R-18, sandbox only)", () => {
     expect(main.getAttribute("style")).toBe(
       "max-width: 360px; margin: 0px auto; padding: 24px; font-family: system-ui, sans-serif;",
     );
+  });
+});
+
+describe("CapturePage debrief refresh wiring (R-18)", () => {
+  const listBody = {
+    data: {
+      debrief: { business_date: "2026-10-12", ends_at_ms: Date.parse("2026-10-12T04:00:00Z") },
+      questions: [{ question_id: "q1", kind: "gate", category: "ROUTINE_OPS", start_hm: "09:00", end_hm: "09:05" }],
+    },
+  };
+  async function openDebrief(demo: boolean) {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date("2026-10-12T03:30:00Z")); // 10:30 WIB
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => listBody }) as Response),
+    );
+    fetchCaptureConfig.mockResolvedValue({
+      ...config(
+        { sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } },
+        { business_date: "2026-10-12", end_reason: "selesai", debrief_ends_at_ms: Date.parse("2026-10-12T04:00:00Z") },
+      ),
+      capture_mode: "room",
+      ...(demo ? { demo_session: { max_ms: 300_000, script_id: "bakery-v1" } } : {}),
+    });
+    await renderReady();
+    fireEvent.click(await screen.findByRole("button", { name: "Answer questions" }));
+    await waitFor(() => expect(screen.getByText("Question 1 of 1")).toBeTruthy());
+  }
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("a sandbox device's debrief offers 'Check for new questions'", async () => {
+    await openDebrief(true);
+    expect(screen.getByRole("button", { name: "Check for new questions" })).toBeTruthy();
+  });
+
+  it("pilot: the same debrief has no such button", async () => {
+    await openDebrief(false);
+    expect(screen.queryByRole("button", { name: "Check for new questions" })).toBeNull();
   });
 });
 

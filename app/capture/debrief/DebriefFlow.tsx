@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useReducer, useState, type ReactNode } from "react";
+import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
 import { canCommit, reduceDebrief, type DebriefState } from "@/lib/debrief/flow";
 import { DebriefListResponseSchema } from "@/lib/debrief/contract";
 import { appendAnswer, CacheWriteError, cachedIds, pendingSummary, purgeNow, readCache } from "@/lib/debrief/answer-cache";
 import { createAnswerUploader, type AnswerUploader, type Disposition } from "@/lib/debrief/answer-uploader";
-import { ANSWER_PURGE_INTERVAL_MS, ANSWER_RETRY_MS } from "@/lib/debrief/constants";
+import { ANSWER_PURGE_INTERVAL_MS, ANSWER_RETRY_MS, REFRESH_POLL_MAX_MS, REFRESH_POLL_MS } from "@/lib/debrief/constants";
 import { deviceAuthHeaders, type DeviceAuth } from "@/lib/capture/browser/client";
 import { t } from "@/lib/i18n/dict";
 import { useLang } from "@/lib/i18n/context";
@@ -40,6 +40,12 @@ export interface DebriefFlowProps {
   headline?: ReactNode;
   /** The Mulai button + its help line + any Mulai error, rendered below the card or the timeout block only (see `headline`). */
   primary?: ReactNode;
+  /**
+   * R-18, sandbox judge devices only (the page passes the capture config's `demo_session`): shows a
+   * "Check for new questions" button and re-fetches the list every 20 s while it is on screen (until the
+   * debrief ends or 10 minutes). Absent on the pilot: no button, no poll, one fetch per open.
+   */
+  refresh?: boolean;
   /** Test seam only; defaults to the global fetch. */
   fetchFn?: typeof fetch;
   /** Test seam only; defaults to window.localStorage. */
@@ -60,6 +66,7 @@ export function DebriefFlow({
   nextMulaiText,
   headline,
   primary,
+  refresh = false,
   fetchFn,
   storage,
 }: DebriefFlowProps) {
@@ -149,6 +156,54 @@ export function DebriefFlow({
     return () => clearInterval(id);
   }, [state.view.kind]);
 
+  // R-18: ids any earlier response offered, so a skipped question is not offered again by a refresh.
+  const seenRef = useRef<Set<string>>(new Set());
+  const refreshInFlightRef = useRef(false);
+  const [checking, setChecking] = useState(false);
+
+  async function refreshQuestions(manual: boolean) {
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
+    if (manual) setChecking(true);
+    try {
+      const res = await effectiveFetch("/api/v1/questions", { headers: deviceAuthHeaders(auth) });
+      if (!res.ok) return; // a failed check never replaces the screen the judge is on
+      const payload: unknown = await res.json();
+      const parsed = DebriefListResponseSchema.safeParse((payload as { data?: unknown } | null)?.data);
+      if (!parsed.success || parsed.data.debrief === null) return;
+      const cached = effectiveStorage ? cachedIds(effectiveStorage, Date.now()) : new Set<string>();
+      dispatch({ type: "REFRESHED", questions: parsed.data.questions, cached, seen: new Set(seenRef.current) });
+      for (const item of parsed.data.questions) seenRef.current.add(item.question_id);
+    } catch {
+      // network failure: keep the screen as it is
+    } finally {
+      refreshInFlightRef.current = false;
+      if (manual) setChecking(false);
+    }
+  }
+
+  // The poll runs only on a sandbox device, only while a list screen is showing, and stops at the debrief's
+  // end or REFRESH_POLL_MAX_MS after it began. The latest closure is read through a ref so the interval is
+  // created once per "list is showing" span.
+  const refreshRef = useRef(refreshQuestions);
+  useEffect(() => {
+    refreshRef.current = refreshQuestions;
+  });
+  const listShown = state.view.kind === "empty" || state.view.kind === "question" || state.view.kind === "done";
+  useEffect(() => {
+    if (!refresh || !listShown) return;
+    const startedAt = Date.now();
+    const id = setInterval(() => {
+      const now = Date.now();
+      if (now >= endsAtMs || now - startedAt >= REFRESH_POLL_MAX_MS) {
+        clearInterval(id);
+        return;
+      }
+      void refreshRef.current(false);
+    }, REFRESH_POLL_MS);
+    return () => clearInterval(id);
+  }, [refresh, listShown, endsAtMs]);
+
   async function loadQuestions() {
     try {
       const res = await effectiveFetch("/api/v1/questions", { headers: deviceAuthHeaders(auth) });
@@ -163,6 +218,7 @@ export function DebriefFlow({
         return;
       }
       const cached = effectiveStorage ? cachedIds(effectiveStorage, Date.now()) : new Set<string>();
+      for (const item of parsed.data.questions) seenRef.current.add(item.question_id);
       dispatch({
         type: "LOADED",
         questions: parsed.data.questions,
@@ -267,7 +323,13 @@ export function DebriefFlow({
       );
 
     case "empty":
-      return <DebriefEmpty onBack={handleBack} />;
+      return (
+        <DebriefEmpty
+          onBack={handleBack}
+          onCheck={refresh ? () => void refreshQuestions(true) : undefined}
+          checking={checking}
+        />
+      );
 
     case "question":
       return (
@@ -279,6 +341,8 @@ export function DebriefFlow({
           onTypeReason={(reason) => dispatch({ type: "TYPE", reason })}
           onLanjut={handleLanjut}
           onLewati={handleLewati}
+          onCheck={refresh ? () => void refreshQuestions(true) : undefined}
+          checking={checking}
         />
       );
 
@@ -291,6 +355,8 @@ export function DebriefFlow({
           tz={tz}
           nextMulaiText={nextMulaiText}
           onBack={handleBack}
+          onCheck={refresh ? () => void refreshQuestions(true) : undefined}
+          checking={checking}
         />
       );
 

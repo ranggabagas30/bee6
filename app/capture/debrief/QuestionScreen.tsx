@@ -6,7 +6,9 @@ import { reasonLength } from "@/lib/debrief/reason";
 import { REASON_MAX_CHARS } from "@/lib/debrief/constants";
 import { questionLines, questionText } from "@/lib/i18n/category-labels";
 import { t } from "@/lib/i18n/dict";
+import { dayLabel } from "@/lib/i18n/format";
 import type { Lang } from "@/lib/i18n/lang";
+import { CheckNewButton } from "@/app/capture/debrief/CheckNewButton";
 
 /**
  * One debrief question at a time (R-07 Task 7.2, UX-03 section 4.2/5.8).
@@ -27,6 +29,9 @@ export interface QuestionScreenProps {
   onTypeReason: (reason: string) => void;
   onLanjut: () => void;
   onLewati: () => void;
+  /** R-18, sandbox only: omitted on the pilot, so no "Check for new questions" button renders there. */
+  onCheck?: () => void;
+  checking?: boolean;
 }
 
 const RADIOGROUP_STYLE: React.CSSProperties = {
@@ -53,7 +58,7 @@ const RADIO_SELECTED_STYLE: React.CSSProperties = {
   borderColor: "#1a4d2e",
 };
 
-export function QuestionScreen({ view, lang, uploadNote, onChoose, onTypeReason, onLanjut, onLewati }: QuestionScreenProps) {
+export function QuestionScreen({ view, lang, uploadNote, onChoose, onTypeReason, onLanjut, onLewati, onCheck, checking = false }: QuestionScreenProps) {
   const question = view.list[view.index];
   const headingRef = useRef<HTMLDivElement>(null);
   const alertRef = useRef<HTMLDivElement>(null);
@@ -111,6 +116,21 @@ export function QuestionScreen({ view, lang, uploadNote, onChoose, onTypeReason,
         <p style={{ fontSize: 14, margin: 0, color: "#555" }}>
           {t(lang, "C-d-prog", { N: view.index + 1, M: view.list.length })}
         </p>
+        {question.business_date ? (
+          <p
+            style={{
+              display: "inline-block",
+              margin: "6px 0 0",
+              padding: "2px 8px",
+              border: "1px solid #7A4F00",
+              borderRadius: 12,
+              fontSize: 13,
+              color: "#7A4F00",
+            }}
+          >
+            {t(lang, "C-script-earlier-day", { date: dayLabel(question.business_date, lang) })}
+          </p>
+        ) : null}
         <h2 style={{ fontSize: 18, margin: "4px 0 0" }}>
           {qLines.map((line, i) => (
             <span key={i} style={{ display: "block" }}>
@@ -194,6 +214,7 @@ export function QuestionScreen({ view, lang, uploadNote, onChoose, onTypeReason,
           {t(lang, "C-b-lanjut")}
         </button>
       </div>
+      {onCheck ? <CheckNewButton lang={lang} onCheck={onCheck} checking={checking} /> : null}
       {disabledHelp() ? <p style={{ fontSize: 13, color: "#555" }}>{disabledHelp()}</p> : null}
       {view.index === 0 ? <p style={{ fontSize: 13, color: "#555" }}>{t(lang, "C-d-locked")}</p> : null}
     </section>

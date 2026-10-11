@@ -223,3 +223,49 @@ describe("QuestionScreen: Lewati and the locked helper", () => {
     expect(screen.queryByText("An answer sent with Next cannot be changed.")).toBeNull();
   });
 });
+
+describe("QuestionScreen: R-18 Earlier day chip", () => {
+  it("shows the chip with the day when the question carries a business_date, and none otherwise", () => {
+    render(<Harness initial={baseView({ list: [q({ business_date: "2026-10-12" }), q({ question_id: "q2" })] })} />);
+    expect(screen.getByText("Earlier day · Mon 12 Oct")).toBeTruthy();
+  });
+
+  it("no chip for a same-day question (every pilot question)", () => {
+    render(<Harness initial={baseView()} />);
+    expect(screen.queryByText(/Earlier day/)).toBeNull();
+  });
+
+  it("Bahasa chip", () => {
+    render(
+      <QuestionScreen
+        view={baseView({ list: [q({ business_date: "2026-10-12" })] })}
+        lang="id"
+        uploadNote={null}
+        onChoose={() => {}}
+        onTypeReason={() => {}}
+        onLanjut={() => {}}
+        onLewati={() => {}}
+      />,
+    );
+    expect(screen.getByText("Hari sebelumnya · Sen 12 Okt")).toBeTruthy();
+  });
+});
+
+describe("QuestionScreen: R-18 Check for new questions", () => {
+  const props = { lang: "en" as const, uploadNote: null, onChoose: () => {}, onTypeReason: () => {}, onLanjut: () => {}, onLewati: () => {} };
+  it("absent unless the caller passes onCheck (the pilot never does)", () => {
+    render(<QuestionScreen view={baseView()} {...props} />);
+    expect(screen.queryByRole("button", { name: /Check for new questions/ })).toBeNull();
+  });
+  it("a 48 px button that calls onCheck; disabled and relabelled while checking", () => {
+    const onCheck = vi.fn();
+    const { rerender } = render(<QuestionScreen view={baseView()} {...props} onCheck={onCheck} checking={false} />);
+    const btn = screen.getByRole("button", { name: "Check for new questions" }) as HTMLButtonElement;
+    expect(btn.style.minHeight).toBe("48px");
+    fireEvent.click(btn);
+    expect(onCheck).toHaveBeenCalledTimes(1);
+    rerender(<QuestionScreen view={baseView()} {...props} onCheck={onCheck} checking />);
+    expect((screen.getByRole("button", { name: "Checking…" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+

@@ -42,6 +42,11 @@ export type DebriefEvent =
   | { type: "RETRY" }
   | { type: "LOADED"; questions: DebriefQuestionView[]; business_date: string; cached: ReadonlySet<string> }
   | { type: "LOAD_FAILED" }
+  /**
+   * R-18 (sandbox only): a re-fetch of the list while it is on screen. `seen` holds every id any earlier
+   * response already offered, so a skipped question is never offered twice.
+   */
+  | { type: "REFRESHED"; questions: DebriefQuestionView[]; cached: ReadonlySet<string>; seen: ReadonlySet<string> }
   | { type: "CHOOSE"; answer: "yes" | "no" }
   | { type: "TYPE"; reason: string }
   | { type: "COMMITTED" }
@@ -101,6 +106,26 @@ export function reduceDebrief(s: DebriefState, e: DebriefEvent): DebriefState {
       // that already moved on (e.g. a timeout that beat the GET).
       if (s.view.kind !== "loading") return s;
       return { ...s, view: { kind: "load_error" } };
+
+    case "REFRESHED": {
+      const v = s.view;
+      if (v.kind !== "empty" && v.kind !== "question" && v.kind !== "done") return s;
+      const inList = new Set(v.kind === "question" ? v.list.map((item) => item.question_id) : []);
+      const fresh = e.questions.filter(
+        (item) => !e.cached.has(item.question_id) && !e.seen.has(item.question_id) && !inList.has(item.question_id),
+      );
+      if (v.kind === "question") {
+        const room = DEBRIEF_SHOW_MAX - v.list.length;
+        const add = fresh.slice(0, Math.max(0, room));
+        if (add.length === 0) return s;
+        return { ...s, view: { ...v, list: [...v.list, ...add] } };
+      }
+      const add = fresh.slice(0, DEBRIEF_SHOW_MAX);
+      if (add.length === 0) return s;
+      const answered = v.kind === "done" ? v.answered : 0;
+      const skipped = v.kind === "done" ? v.skipped : 0;
+      return { ...s, view: freshQuestion(add, 0, answered, skipped) };
+    }
 
     case "CHOOSE": {
       if (s.view.kind !== "question") return s;

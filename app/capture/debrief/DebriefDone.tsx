@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { t } from "@/lib/i18n/dict";
 import { useLang } from "@/lib/i18n/context";
 import { clockLabel } from "@/lib/i18n/format";
+import { CheckNewButton } from "@/app/capture/debrief/CheckNewButton";
 
 /**
  * The debrief done screen, and the zero-question empty state (R-07 Task 7.2,
@@ -38,9 +39,12 @@ export interface DebriefDoneProps {
   tz: string;
   nextMulaiText: { day: string; hm: string } | null;
   onBack: () => void;
+  /** R-18, sandbox only: omitted on the pilot, so no "Check for new questions" button renders there. */
+  onCheck?: () => void;
+  checking?: boolean;
 }
 
-export function DebriefDone({ pending, skipped, endsAtMs, tz, nextMulaiText, onBack }: DebriefDoneProps) {
+export function DebriefDone({ pending, skipped, endsAtMs, tz, nextMulaiText, onBack, onCheck, checking = false }: DebriefDoneProps) {
   const { lang } = useLang();
   const headingRef = useFocusOnMount<HTMLHeadingElement>();
   return (
@@ -70,6 +74,7 @@ export function DebriefDone({ pending, skipped, endsAtMs, tz, nextMulaiText, onB
           {t(lang, "C-d-done-mulai", { day: nextMulaiText.day, hm: nextMulaiText.hm })}
         </p>
       ) : null}
+      {onCheck ? <CheckNewButton lang={lang} onCheck={onCheck} checking={checking} /> : null}
       <button type="button" style={BACK_BUTTON_STYLE} onClick={onBack}>
         {t(lang, "C-b-kembali")}
       </button>
@@ -79,10 +84,12 @@ export function DebriefDone({ pending, skipped, endsAtMs, tz, nextMulaiText, onB
 
 export interface DebriefEmptyProps {
   onBack: () => void;
+  onCheck?: () => void;
+  checking?: boolean;
 }
 
 /** Zero open questions on load: same shape, neutral thanks, no stats. */
-export function DebriefEmpty({ onBack }: DebriefEmptyProps) {
+export function DebriefEmpty({ onBack, onCheck, checking = false }: DebriefEmptyProps) {
   const { lang } = useLang();
   const headingRef = useFocusOnMount<HTMLHeadingElement>();
   return (
@@ -91,6 +98,7 @@ export function DebriefEmpty({ onBack }: DebriefEmptyProps) {
         {t(lang, "C-d-empty-h")}
       </h2>
       <p style={{ margin: "4px 0 0" }}>{t(lang, "C-d-empty-h-2")}</p>
+      {onCheck ? <CheckNewButton lang={lang} onCheck={onCheck} checking={checking} /> : null}
       <button type="button" style={BACK_BUTTON_STYLE} onClick={onBack}>
         {t(lang, "C-b-kembali")}
       </button>
