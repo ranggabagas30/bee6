@@ -41,7 +41,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ver
     }
 
     // R-12: a sandbox's text entry (the verdict reason goes through Sensitive Data Protection) is capped.
-    await enforceDemoCapsForRoute("redact", claims, "reviews:verdict");
+    // Only a verdict that carries a reason reaches SDP; one without spends no slot.
+    if (body.data.reason !== undefined) await enforceDemoCapsForRoute("redact", claims, "reviews:verdict");
 
     const data = await decideVerdict(
       firestoreReviewStore(claims.outlet_id),

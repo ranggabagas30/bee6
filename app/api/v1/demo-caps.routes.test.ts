@@ -255,3 +255,44 @@ describe("fast-forward: a skip that cannot run spends no cap slot", () => {
     expect(f.bumps).toHaveLength(1);
   });
 });
+
+describe("redact cap: charged only when text that will reach Sensitive Data Protection is present", () => {
+  const byName = (n: string) => CASES.find((x) => x.name === n)!;
+  const burn = async (name: string, body: unknown, ctxId?: string) => {
+    const c = byName(name);
+    principal(c, SBX);
+    c.service.mockResolvedValue(c.serviceResult);
+    const res = ctxId ? await answerPOST(mk(headers(), JSON.stringify(body)), ctx({ id: ctxId })) : await c.call(headers(), JSON.stringify(body));
+    return { res, bumps: f.bumps.length, service: c.service };
+  };
+
+  it("approving or marking feasible (no reason) spends no slot, a rejection with a reason spends one", async () => {
+    for (const [name, body] of [
+      ["proposal approve", { decision: "approve" }],
+      ["proposal review", { decision: "feasible" }],
+    ] as const) {
+      const r = await burn(name, body);
+      expect(r.res.status).toBe(200);
+      expect(r.bumps).toBe(0);
+    }
+    const rej = await burn("proposal approve", { decision: "reject", reason: "Not now" });
+    expect(rej.bumps).toBeGreaterThan(0);
+  });
+
+  it("a verdict with no reason spends no slot, with a reason it does", async () => {
+    expect((await burn("review verdict", { verdict: "worked" })).bumps).toBe(0);
+    expect((await burn("review verdict", { verdict: "worked", reason: "Worked well" })).bumps).toBeGreaterThan(0);
+  });
+
+  const ANSWER = { question_id: "q_abc", debrief_business_date: "2026-10-19", answer: "yes", reason: "ok", answered_at_ms: 1 };
+  it("an answer with no text (empty or blank reason), or a path id that does not match the body, spends no slot", async () => {
+    expect((await burn("debrief answer (device)", { ...ANSWER, reason: "" }, "q_abc")).bumps).toBe(0);
+    expect((await burn("debrief answer (device)", { ...ANSWER, reason: "   " }, "q_abc")).bumps).toBe(0);
+    expect((await burn("debrief answer (device)", ANSWER, "q_other")).bumps).toBe(0);
+    expect((await burn("debrief answer (device)", { ...ANSWER, reason: "x".repeat(20_000) }, "q_abc")).bumps).toBe(0); // over the reason bound: the service refuses before SDP
+  });
+
+  it("an answer with text and a matching path id spends a slot", async () => {
+    expect((await burn("debrief answer (device)", ANSWER, "q_abc")).bumps).toBeGreaterThan(0);
+  });
+});

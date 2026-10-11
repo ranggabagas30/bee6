@@ -42,7 +42,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     // R-12: a sandbox's text entry (the rejection reason goes through Sensitive Data Protection) is capped.
-    await enforceDemoCapsForRoute("redact", claims, "proposals:approve");
+    // Only a rejection carries text; an approval or "feasible" reaches no model and spends no slot.
+    if (body.data.decision === "reject") await enforceDemoCapsForRoute("redact", claims, "proposals:approve");
 
     const data = await decideProposal(
       firestoreProposalReviewStore(claims.outlet_id),

@@ -7,6 +7,7 @@ import { firestoreDebriefStore } from "@/lib/firestore/debrief-store";
 import { dlpRedactor } from "@/lib/redact/dlp";
 import { enforceDemoCapsForRoute } from "@/lib/demo/route-caps";
 import { AnswerBodySchema } from "@/lib/debrief/contract";
+import { checkReason } from "@/lib/debrief/reason";
 
 /**
  * POST /api/v1/questions/{id}/answer (device; R-07, web spec §6.2/§6.6.6).
@@ -20,9 +21,15 @@ import { AnswerBodySchema } from "@/lib/debrief/contract";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function isWellFormedAnswer(text: string): boolean {
+/**
+ * Will this request reach Sensitive Data Protection? Only a well-formed body whose question_id equals the
+ * path id and whose reason is non-empty and within its bound does; the service refuses anything else
+ * (400) before the scrub and SDP, so it must not spend a demo slot.
+ */
+function reachesRedaction(text: string, pathId: string): boolean {
   try {
-    return AnswerBodySchema.safeParse(JSON.parse(text)).success;
+    const parsed = AnswerBodySchema.safeParse(JSON.parse(text));
+    return parsed.success && parsed.data.question_id === pathId && checkReason(parsed.data.reason).ok;
   } catch {
     return false;
   }
@@ -37,9 +44,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const { id } = await params;
     const text = await req.text();
 
-    // R-12: a sandbox's typed reasons go through Sensitive Data Protection, so they are capped. Only a
-    // well-formed body spends the cap (a malformed one gets the service's own 400, charged nothing).
-    if (isWellFormedAnswer(text)) await enforceDemoCapsForRoute("redact", claims);
+    // R-12: a sandbox's typed reasons go through Sensitive Data Protection, so they are capped. Only a request
+    // that will reach SDP spends the cap (anything the service refuses first gets its own 400, charged nothing).
+    if (reachesRedaction(text, id)) await enforceDemoCapsForRoute("redact", claims);
 
     const result = await submitAnswer(
       {
