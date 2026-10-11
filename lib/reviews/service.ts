@@ -344,12 +344,16 @@ export async function decideVerdict(
  * The 404 comes BEFORE any role or permission check, so a caller on the pilot
  * (or any non-demo outlet) cannot tell this route exists from a 403.
  * Calls the same `createReview` as the daily run, flagged `simulated`.
+ *
+ * `beforeCreate` (R-12) runs once every refusal that needs no spend has passed (404, role, outlet, nothing
+ * to review) and right before the review is written: the route charges the per-sandbox skip cap there, so
+ * a skip that cannot run never costs a slot. A throw from it stops the skip.
  */
 export async function fastForwardReview(
   store: ReviewStore,
-  input: { claims: CustomClaims; now_ms: number; demoMode: boolean },
+  input: { claims: CustomClaims; now_ms: number; demoMode: boolean; beforeCreate?: () => Promise<void> },
 ): Promise<FastForwardResponse> {
-  const { claims, now_ms, demoMode } = input;
+  const { claims, now_ms, demoMode, beforeCreate } = input;
   if (!demoMode) throw new NotFoundError("route", "route");
   const outlet = await store.getOutlet();
   if (!outlet || outlet.project_kind !== "demo") throw new NotFoundError("route", "route");
@@ -364,6 +368,7 @@ export async function fastForwardReview(
   const next = nextFastForward({ versions, reviewedIds });
   if (!next) throw new ConflictError("Nothing to review", "NOTHING_TO_REVIEW");
 
+  if (beforeCreate) await beforeCreate();
   const result = await createReview(store, { outlet, sop: next, versions, simulated: true, now_ms, actor_role: claims.role });
   if (result === "exists") throw new ConflictError("Nothing to review", "NOTHING_TO_REVIEW");
   return FastForwardResponseSchema.parse({ version: next.version });

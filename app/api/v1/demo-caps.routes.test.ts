@@ -10,7 +10,7 @@ import { POST as verdictPOST } from "./reviews/[version]/verdict/route";
 import { POST as constraintsPOST } from "./constraints/route";
 import { POST as fastForwardPOST } from "./reviews/fast-forward/route";
 import { POST as answerPOST } from "./questions/[id]/answer/route";
-import { UnauthorizedError } from "@/lib/http/errors";
+import { ConflictError, UnauthorizedError } from "@/lib/http/errors";
 import * as guardModule from "@/lib/http/guard";
 
 /**
@@ -34,10 +34,16 @@ vi.mock("@/lib/redact/dlp", () => ({ dlpRedactor: () => ({ redact: async (t: str
 const decideProposal = vi.fn();
 vi.mock("@/lib/proposals/review-service", () => ({ decideProposal: (...a: unknown[]) => decideProposal(...a) }));
 const decideVerdict = vi.fn();
+const ffRefuses = vi.hoisted(() => ({ value: false }));
 const fastForwardReview = vi.fn();
 vi.mock("@/lib/reviews/service", () => ({
   decideVerdict: (...a: unknown[]) => decideVerdict(...a),
-  fastForwardReview: (...a: unknown[]) => fastForwardReview(...a),
+  // The real service calls beforeCreate (the cap charge) once its own pre-checks pass; ffRefuses models one that cannot run.
+  fastForwardReview: async (store: unknown, input: { beforeCreate?: () => Promise<void> }) => {
+    if (ffRefuses.value) throw new ConflictError("Nothing to review", "NOTHING_TO_REVIEW");
+    await input.beforeCreate?.();
+    return fastForwardReview(store, input);
+  },
 }));
 const createConstraint = vi.fn();
 vi.mock("@/lib/constraints/service", () => ({ createConstraint: (...a: unknown[]) => createConstraint(...a), listConstraintViews: vi.fn() }));
@@ -152,6 +158,7 @@ beforeEach(() => {
   f.sandboxes.set(SBX, sandboxOutlet());
   vi.mocked(firestoreDemoStore).mockReturnValue(f.store);
   vi.stubEnv("DEMO_MODE", "true");
+  ffRefuses.value = false;
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -231,5 +238,20 @@ describe.each(CASES)("sandbox caps on $name", (c) => {
     c.service.mockResolvedValue(c.serviceResult);
     expect((await c.call(headers(), JSON.stringify(c.body))).status).toBeLessThan(400);
     expect(firestoreDemoStore).not.toHaveBeenCalled();
+  });
+});
+
+describe("fast-forward: a skip that cannot run spends no cap slot", () => {
+  it("a 409 NOTHING_TO_REVIEW from the service burns no per-sandbox slot", async () => {
+    const c = CASES.find((x) => x.name === "review fast-forward")!;
+    vi.stubEnv(c.capEnv, "1");
+    principal(c, SBX);
+    ffRefuses.value = true;
+    for (let i = 0; i < 3; i++) expect((await c.call(headers(), JSON.stringify(c.body))).status).toBe(409);
+    expect(f.bumps).toEqual([]);
+    ffRefuses.value = false;
+    c.service.mockResolvedValue(c.serviceResult);
+    expect((await c.call(headers(), JSON.stringify(c.body))).status).toBe(200); // the single slot is still there
+    expect(f.bumps).toHaveLength(1);
   });
 });

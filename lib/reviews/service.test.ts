@@ -432,6 +432,47 @@ describe("fastForwardReview", () => {
     await expect(ff(f)).rejects.toBeInstanceOf(ConflictError);
   });
 
+  it("R-12 beforeCreate runs after the pre-check and before the review is written", async () => {
+    const f = fakeStore({ ...windowData() });
+    const seen: number[] = [];
+    await fastForwardReview(f.store, {
+      claims: claims("supervisor"),
+      now_ms: at("2026-10-17"),
+      demoMode: true,
+      beforeCreate: async () => {
+        seen.push(f.reviews.size);
+      },
+    });
+    expect(seen).toEqual([0]);
+    expect(f.reviews.size).toBe(1);
+  });
+
+  it("R-12 beforeCreate is never called for a skip that cannot run (404, 403, 409) so no cap slot is spent", async () => {
+    const beforeCreate = vi.fn(async () => {});
+    const call = (f: ReturnType<typeof fakeStore>, demoMode: boolean, role: CustomClaims["role"]) =>
+      fastForwardReview(f.store, { claims: claims(role), now_ms: at("2026-10-17"), demoMode, beforeCreate });
+    await expect(call(fakeStore({ ...windowData() }), false, "supervisor")).rejects.toBeInstanceOf(NotFoundError);
+    await expect(call(fakeStore({ ...windowData(), outletDoc: outlet({ project_kind: "pilot" }) }), true, "supervisor")).rejects.toBeInstanceOf(NotFoundError);
+    await expect(call(fakeStore({ ...windowData() }), true, "staff")).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(call(fakeStore({ ...windowData(), reviews: [reviewDoc()] }), true, "supervisor")).rejects.toMatchObject({ code: "NOTHING_TO_REVIEW" });
+    expect(beforeCreate).not.toHaveBeenCalled();
+  });
+
+  it("R-12 a beforeCreate refusal (cap) stops the skip: nothing is written", async () => {
+    const f = fakeStore({ ...windowData() });
+    await expect(
+      fastForwardReview(f.store, {
+        claims: claims("supervisor"),
+        now_ms: at("2026-10-17"),
+        demoMode: true,
+        beforeCreate: async () => {
+          throw new ConflictError("capped", "CAPPED");
+        },
+      }),
+    ).rejects.toMatchObject({ code: "CAPPED" });
+    expect(f.reviews.size).toBe(0);
+  });
+
   it("4.T11 a lost race (exists) -> 409 NOTHING_TO_REVIEW", async () => {
     const f = fakeStore({ ...windowData() });
     const orig = f.store.createReview;
