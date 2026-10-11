@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type CSSProperties, type FormEvent, type MutableRefObject } from "react";
+import { useRef, useState, type CSSProperties, type FormEvent, type MutableRefObject } from "react";
 import { useRouter } from "next/navigation";
 import { signInWithEmailAndPassword, signOut, type Auth } from "@/lib/auth/client/firebase-client";
 import { postAuthSession } from "@/lib/auth/client/api";
@@ -93,9 +93,21 @@ export function EmailSignInForm({
   const router = useRouter();
   const { email, setEmail, password, setPassword, messageKey, setMessageKey } = fields;
 
+  // Double-submit guard: a ref, so a second Enter in the same tick cannot slip past `disabled` (state, not yet re-rendered).
+  const inFlight = useRef(false);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!auth || disabled) return;
+    if (!auth || disabled || inFlight.current) return;
+    inFlight.current = true;
+    try {
+      await submit(auth);
+    } finally {
+      inFlight.current = false;
+    }
+  }
+
+  async function submit(auth: Auth) {
 
     const trimmedEmail = email.trim();
     if (trimmedEmail === "" || password === "") {

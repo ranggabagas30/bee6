@@ -93,6 +93,22 @@ describe("EmailSignInForm", () => {
       expect((screen.getByLabelText("Password") as HTMLInputElement).value).toBe("");
     });
 
+    it("two submits in the same tick make one call to the intercept", async () => {
+      let release!: (v: boolean) => void;
+      const demoIntercept = vi.fn(() => new Promise<boolean>((r) => (release = r)));
+      render(<Harness demoIntercept={demoIntercept} />);
+      fireEvent.change(screen.getByLabelText("Email"), { target: { value: "owner.judge@example.com" } });
+      fireEvent.change(screen.getByLabelText("Password"), { target: { value: "bee6-demo" } });
+      const form = screen.getByRole("button", { name: "Sign in" }).closest("form")!;
+      act(() => {
+        fireEvent.submit(form); // two Enter presses before React re-renders `disabled`
+        fireEvent.submit(form);
+      });
+      expect(demoIntercept).toHaveBeenCalledTimes(1);
+      await act(async () => release(true));
+      expect(signInWithEmailAndPassword).not.toHaveBeenCalled();
+    });
+
     it("takes the real Firebase path when it does not handle the input", async () => {
       const demoIntercept = vi.fn(async () => false);
       render(<Harness demoIntercept={demoIntercept} />);
