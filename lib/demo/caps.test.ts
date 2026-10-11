@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { AppError, LockedError } from "@/lib/http/errors";
 import type { Outlet } from "@/lib/firestore/schema";
-import { capFromEnv, capSpec, enforceDemoCaps, modelDailyLimit, sandboxDailyLimit, type DemoCapKey } from "@/lib/demo/caps";
+import { capFromEnv, killableCapFromEnv, capSpec, enforceDemoCaps, modelDailyLimit, sandboxDailyLimit, type DemoCapKey } from "@/lib/demo/caps";
 import { SANDBOX_DAILY } from "@/lib/demo/constants";
 import { OUTLETS_READ_MAX } from "@/lib/reviews/constants";
 import { secondsToUtcMidnight, utcDay } from "@/lib/demo/limits";
@@ -31,6 +31,62 @@ describe("capFromEnv", () => {
   it("uses a positive integer override, otherwise the default", () => {
     expect(capFromEnv("50", 300)).toBe(50);
     for (const bad of [undefined, "", "abc", "-4", "0", "1.5", " 7"]) expect(capFromEnv(bad, 300)).toBe(300);
+  });
+});
+
+describe("killableCapFromEnv: 0 is an explicit kill switch, garbage still falls back (LOW-2)", () => {
+  it('exactly "0" is 0; a positive integer is itself; anything else is the default', () => {
+    expect(killableCapFromEnv("0", 300)).toBe(0);
+    expect(killableCapFromEnv("50", 300)).toBe(50);
+    for (const bad of [undefined, "", "abc", "-4", "00", "1.5", " 0", "0 ", "0x0", "9".repeat(30)]) expect(killableCapFromEnv(bad, 300)).toBe(300);
+  });
+
+  it("capFromEnv itself keeps rejecting 0 (the other caps are not killable)", () => {
+    expect(capFromEnv("0", 300)).toBe(300);
+  });
+});
+
+describe("kill switch: DEMO_*_CAP=0 refuses everything for the model ceiling and segment/generate/redact caps", () => {
+  it("capSpec and modelDailyLimit read 0", () => {
+    expect(capSpec("segment", { DEMO_SEGMENT_SANDBOX_CAP: "0", DEMO_SEGMENT_DAILY_CAP: "0" })).toMatchObject({ sandboxLimit: 0, daily: { limit: 0 } });
+    expect(capSpec("generate", { DEMO_GENERATE_SANDBOX_CAP: "0", DEMO_GENERATE_DAILY_CAP: "0" })).toMatchObject({ sandboxLimit: 0, daily: { limit: 0 } });
+    expect(capSpec("redact", { DEMO_REDACT_SANDBOX_CAP: "0" }).sandboxLimit).toBe(0);
+    expect(modelDailyLimit({ DEMO_MODEL_DAILY_CAP: "0" })).toBe(0);
+  });
+
+  it("fast-forward is not killable: 0 falls back to the default", () => {
+    expect(capSpec("fast_forward", { DEMO_FAST_FORWARD_SANDBOX_CAP: "0" }).sandboxLimit).toBe(3);
+  });
+
+  it("each switch refuses with its own code and spends no counter at all", async () => {
+    const cases: [DemoCapKey, Record<string, string>, string][] = [
+      ["segment", { DEMO_SEGMENT_SANDBOX_CAP: "0" }, "demo_segment_cap"],
+      ["segment", { DEMO_SEGMENT_DAILY_CAP: "0" }, "demo_daily_cap"],
+      ["generate", { DEMO_GENERATE_SANDBOX_CAP: "0" }, "demo_generate_cap"],
+      ["generate", { DEMO_GENERATE_DAILY_CAP: "0" }, "demo_daily_cap"],
+      ["redact", { DEMO_REDACT_SANDBOX_CAP: "0" }, "demo_redact_cap"],
+      ["segment", { DEMO_MODEL_DAILY_CAP: "0" }, "demo_model_cap"],
+      ["redact", { DEMO_MODEL_DAILY_CAP: "0" }, "demo_model_cap"],
+    ];
+    for (const [key, env, code] of cases) {
+      const f = fakeStore();
+      const err = await refusal(enforceDemoCaps(f.store, { outlet: sandboxOutlet(), now_ms: NOW, key, env }));
+      expect(err.statusCode).toBe(429);
+      expect(err.code).toBe(code);
+      expect(f.bumps).toEqual([]);
+    }
+  });
+
+  it("the model ceiling at 0 never stops fast-forward (it calls no model)", async () => {
+    const f = fakeStore();
+    await enforceDemoCaps(f.store, { outlet: sandboxOutlet(), now_ms: NOW, key: "fast_forward", env: { DEMO_MODEL_DAILY_CAP: "0" } });
+    expect(f.bumps).toHaveLength(1);
+  });
+
+  it("a garbage value is not a kill switch: the default applies", async () => {
+    const f = fakeStore();
+    await enforceDemoCaps(f.store, { outlet: sandboxOutlet(), now_ms: NOW, key: "segment", env: { DEMO_MODEL_DAILY_CAP: "off", DEMO_SEGMENT_SANDBOX_CAP: "zero" } });
+    expect(f.bumps).toHaveLength(3);
   });
 });
 

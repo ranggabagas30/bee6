@@ -49,11 +49,20 @@ export interface DemoCapSpec {
 
 export type CapEnv = Record<string, string | undefined>;
 
-/** A positive-integer env override, else the default. */
+/** A positive-integer env override, else the default ("0" is NOT accepted here; see killableCapFromEnv). */
 export function capFromEnv(value: string | undefined, fallback: number): number {
   if (value === undefined || !/^\d+$/.test(value)) return fallback;
   const n = Number(value);
   return Number.isSafeInteger(n) && n > 0 ? n : fallback;
+}
+
+/**
+ * Like capFromEnv, but exactly "0" is an explicit kill switch (refuse everything). Used only for the model
+ * ceiling and the segment, generate and redact caps. Garbage (including "00", " 0", "-1") is NOT a kill
+ * switch: it falls back to the default like any other bad value.
+ */
+export function killableCapFromEnv(value: string | undefined, fallback: number): number {
+  return value === "0" ? 0 : capFromEnv(value, fallback);
 }
 
 export function capSpec(key: DemoCapKey, env: CapEnv = process.env): DemoCapSpec {
@@ -61,19 +70,19 @@ export function capSpec(key: DemoCapKey, env: CapEnv = process.env): DemoCapSpec
     case "segment":
       return {
         sandboxKind: "segment_sandbox",
-        sandboxLimit: capFromEnv(env.DEMO_SEGMENT_SANDBOX_CAP, SEGMENT_PER_SANDBOX),
+        sandboxLimit: killableCapFromEnv(env.DEMO_SEGMENT_SANDBOX_CAP, SEGMENT_PER_SANDBOX),
         code: "demo_segment_cap",
         message: "This demo shop has reached its recording limit",
-        daily: { kind: "segment_day", limit: capFromEnv(env.DEMO_SEGMENT_DAILY_CAP, SEGMENT_DAILY) },
+        daily: { kind: "segment_day", limit: killableCapFromEnv(env.DEMO_SEGMENT_DAILY_CAP, SEGMENT_DAILY) },
         model: true,
       };
     case "generate":
       return {
         sandboxKind: "generate_sandbox",
-        sandboxLimit: capFromEnv(env.DEMO_GENERATE_SANDBOX_CAP, GENERATE_PER_SANDBOX),
+        sandboxLimit: killableCapFromEnv(env.DEMO_GENERATE_SANDBOX_CAP, GENERATE_PER_SANDBOX),
         code: "demo_generate_cap",
         message: "This demo shop has reached its proposal limit",
-        daily: { kind: "generate_day", limit: capFromEnv(env.DEMO_GENERATE_DAILY_CAP, GENERATE_DAILY) },
+        daily: { kind: "generate_day", limit: killableCapFromEnv(env.DEMO_GENERATE_DAILY_CAP, GENERATE_DAILY) },
         model: true,
       };
     case "fast_forward":
@@ -87,7 +96,7 @@ export function capSpec(key: DemoCapKey, env: CapEnv = process.env): DemoCapSpec
     case "redact":
       return {
         sandboxKind: "redact_sandbox",
-        sandboxLimit: capFromEnv(env.DEMO_REDACT_SANDBOX_CAP, REDACT_PER_SANDBOX),
+        sandboxLimit: killableCapFromEnv(env.DEMO_REDACT_SANDBOX_CAP, REDACT_PER_SANDBOX),
         code: "demo_redact_cap",
         message: "This demo shop has reached its text-entry limit",
         model: true,
@@ -116,7 +125,7 @@ export function sandboxDailyLimit(env: CapEnv = process.env): number {
 }
 
 export function modelDailyLimit(env: CapEnv = process.env): number {
-  return capFromEnv(env.DEMO_MODEL_DAILY_CAP, MODEL_DAILY);
+  return killableCapFromEnv(env.DEMO_MODEL_DAILY_CAP, MODEL_DAILY);
 }
 
 export async function enforceDemoCaps(
@@ -130,6 +139,15 @@ export async function enforceDemoCaps(
   const day = utcDay(now_ms);
   const expiry = new Date(now_ms + COUNTER_TTL_MS).toISOString();
   const midnight = secondsToUtcMidnight(now_ms);
+
+  // Kill switches (a cap set to exactly 0): refuse before any counter is touched.
+  if (spec.sandboxLimit === 0) {
+    throw new LockedError(Math.max(1, Math.ceil((outlet.sandbox.expires_at_ms - now_ms) / 1000)), spec.message, spec.code);
+  }
+  if (spec.daily?.limit === 0) throw new LockedError(midnight, "The demo has reached today's limit", "demo_daily_cap");
+  if (spec.model && modelDailyLimit(input.env) === 0) {
+    throw new LockedError(midnight, "The demo has reached today's usage limit", "demo_model_cap");
+  }
 
   if (!(await store.bumpCounter(`${spec.sandboxKind}:${outlet.outlet_id}`, spec.sandboxKind, day, spec.sandboxLimit, expiry))) {
     throw new LockedError(Math.max(1, Math.ceil((outlet.sandbox.expires_at_ms - now_ms) / 1000)), spec.message, spec.code);
