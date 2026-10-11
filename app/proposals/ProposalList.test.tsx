@@ -276,3 +276,122 @@ describe("ProposalList — populated", () => {
     expect(screen.getByRole("region", { name: "Open proposals" })).not.toBeNull();
   });
 });
+
+describe("ProposalList — a panel recovers after an answer that leaves the proposal open", () => {
+  const LATE = "11111111-1111-4111-8111-111111111111";
+
+  async function settleThenReload(
+    item: ProposalListItem,
+    reloaded: ListProposalsResponse,
+    act: () => void,
+  ) {
+    authedGetJson.mockResolvedValueOnce({ kind: "ok", data: { open: [item], decided: [] } });
+    const view = renderList("supervisor", 0);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Reject" })).not.toBeNull());
+    act();
+    await waitFor(() => expect(onSettled).toHaveBeenCalledTimes(1));
+    // The panel has settled: no action while the reload is pending.
+    expect(screen.queryByRole("button", { name: "Reject" })).toBeNull();
+    authedGetJson.mockResolvedValueOnce({ kind: "ok", data: reloaded });
+    view.rerender(
+      <ProposalList auth={FAKE_AUTH} role="supervisor" lang="en" reloadKey={1} onSettled={onSettled} />,
+    );
+  }
+
+  it("EVIDENCE_STALE conflict: the reloaded stale proposal gets Reject back and Feasible stays disabled", async () => {
+    authedPostJson.mockResolvedValue({ kind: "conflict", code: "EVIDENCE_STALE" });
+    const fresh = makeItem(2, "awaiting_supervisor", "Open one");
+    const stale = makeItem(2, "awaiting_supervisor", "Open one", {
+      notices: { ...EMPTY_NOTICES, evidence_stale: true },
+    });
+    await settleThenReload(fresh, { open: [stale], decided: [] }, () => {
+      fireEvent.click(screen.getByRole("button", { name: "Feasible" }));
+      fireEvent.click(screen.getByRole("button", { name: "Yes" }));
+    });
+    const reject = await screen.findByRole("button", { name: "Reject" });
+    expect((reject as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Feasible" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("CONSTRAINT_ADDED conflict: the reloaded proposal asks for the acknowledgement and Yes works again", async () => {
+    authedPostJson.mockResolvedValue({ kind: "conflict", code: "CONSTRAINT_ADDED" });
+    const fresh = makeItem(2, "awaiting_supervisor", "Open one");
+    const withLate = makeItem(2, "awaiting_supervisor", "Open one", {
+      notices: { ...EMPTY_NOTICES, late_constraints: [{ constraint_id: LATE, text: "No price talk" }] },
+    });
+    await settleThenReload(fresh, { open: [withLate], decided: [] }, () => {
+      fireEvent.click(screen.getByRole("button", { name: "Feasible" }));
+      fireEvent.click(screen.getByRole("button", { name: "Yes" }));
+    });
+    const feasible = await screen.findByRole("button", { name: "Feasible" });
+    fireEvent.click(feasible);
+    const yes = screen.getByRole("button", { name: "Yes" }) as HTMLButtonElement;
+    expect(yes.disabled).toBe(true);
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect((screen.getByRole("button", { name: "Yes" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("CONSTRAINT_LIMIT conflict on a rejection: Feasible and Reject come back after the reload", async () => {
+    authedPostJson.mockResolvedValue({ kind: "conflict", code: "CONSTRAINT_LIMIT" });
+    const item = makeItem(2, "awaiting_supervisor", "Open one");
+    await settleThenReload(item, { open: [makeItem(2, "awaiting_supervisor", "Open one")], decided: [] }, () => {
+      fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+      fireEvent.change(screen.getByRole("textbox"), { target: { value: "Does not fit our floor" } });
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+      fireEvent.click(screen.getByRole("button", { name: "Yes" }));
+    });
+    expect(await screen.findByRole("button", { name: "Reject" })).not.toBeNull();
+    expect((screen.getByRole("button", { name: "Feasible" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("an unchanged ok answer: the reloaded, still open proposal gets its buttons back", async () => {
+    authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "unchanged", status: "awaiting_supervisor" } });
+    const item = makeItem(2, "awaiting_supervisor", "Open one");
+    await settleThenReload(item, { open: [makeItem(2, "awaiting_supervisor", "Open one")], decided: [] }, () => {
+      fireEvent.click(screen.getByRole("button", { name: "Feasible" }));
+      fireEvent.click(screen.getByRole("button", { name: "Yes" }));
+    });
+    expect(await screen.findByRole("button", { name: "Reject" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Feasible" })).not.toBeNull();
+  });
+
+  it("an ok answer where the proposal leaves the open list: no panel remains", async () => {
+    authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "feasible", status: "awaiting_owner" } });
+    const item = makeItem(2, "awaiting_supervisor", "Open one");
+    await settleThenReload(item, { open: [makeItem(2, "awaiting_owner", "Open one")], decided: [] }, () => {
+      fireEvent.click(screen.getByRole("button", { name: "Feasible" }));
+      fireEvent.click(screen.getByRole("button", { name: "Yes" }));
+    });
+    await waitFor(() => expect(screen.getByText("Waiting for owner approval")).not.toBeNull());
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+  });
+
+  it("a reload does not drop the reason text typed on another card", async () => {
+    authedGetJson.mockResolvedValueOnce({
+      kind: "ok",
+      data: {
+        open: [makeItem(3, "awaiting_supervisor", "Card A"), makeItem(2, "awaiting_supervisor", "Card B")],
+        decided: [],
+      },
+    });
+    const view = renderList("supervisor", 0);
+    await waitFor(() => expect(screen.getByText("Card A")).not.toBeNull());
+    const [, cardB] = screen.getAllByRole("article");
+    fireEvent.click(within(cardB!).getByRole("button", { name: "Reject" }));
+    fireEvent.change(within(cardB!).getByRole("textbox"), { target: { value: "Typing a reason" } });
+    authedGetJson.mockResolvedValueOnce({
+      kind: "ok",
+      data: {
+        open: [makeItem(3, "awaiting_supervisor", "Card A"), makeItem(2, "awaiting_supervisor", "Card B")],
+        decided: [],
+      },
+    });
+    view.rerender(
+      <ProposalList auth={FAKE_AUTH} role="supervisor" lang="en" reloadKey={1} onSettled={onSettled} />,
+    );
+    await waitFor(() => expect(authedGetJson).toHaveBeenCalledTimes(2));
+    await Promise.resolve();
+    const [, cardB2] = screen.getAllByRole("article");
+    expect((within(cardB2!).getByRole("textbox") as HTMLTextAreaElement).value).toBe("Typing a reason");
+  });
+});

@@ -28,7 +28,11 @@ import { DecisionResponseSchema, type ProposalListItem } from "@/lib/proposals/r
  * is user text sent as-is; the server redacts it before storing it.
  */
 
-/** "settled" is terminal: the server answered, so no action shows until the reloaded list replaces this panel. */
+/**
+ * "settled" holds until a fresh `item` arrives: the server answered, so no action shows while the list reloads.
+ * Every fetch yields a new item object, so a proposal that is still open after the answer (conflict, unchanged)
+ * gets its buttons back; one that left the open list simply unmounts.
+ */
 type Step = "idle" | "confirm-positive" | "reason" | "confirm-reject" | "settled";
 
 const CONFLICT_KEY: Record<string, DictKey> = {
@@ -85,6 +89,12 @@ export function ProposalDecisionPanel({
   const [acknowledged, setAcknowledged] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<DictKey | null>(null);
+  // A fresh `item` (a reload) ends "settled": adjusted during render, the React-recommended way to reset state on a prop change.
+  const [seenItem, setSeenItem] = useState(item);
+  if (seenItem !== item) {
+    setSeenItem(item);
+    if (step === "settled") setStep("idle");
+  }
   const inFlight = useRef(false);
   const confirmRef = useRef<HTMLParagraphElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
