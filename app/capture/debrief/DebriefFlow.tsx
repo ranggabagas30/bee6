@@ -78,7 +78,7 @@ export function DebriefFlow({
 
   const [state, dispatch] = useReducer(
     reduceDebrief,
-    { view: { kind: "closed" }, ends_at_ms: endsAtMs, business_date: null } satisfies DebriefState,
+    { view: { kind: "closed" }, ends_at_ms: endsAtMs, business_date: null, seen: new Set() } satisfies DebriefState,
   );
   const [uploadNote, setUploadNote] = useState<"offline" | "refused" | null>(null);
   // The done screen's unsent-answer count. Seeded in `handleLanjut` right
@@ -158,8 +158,6 @@ export function DebriefFlow({
     return () => clearInterval(id);
   }, [state.view.kind]);
 
-  // R-18: ids any earlier response offered, so a skipped question is not offered again by a refresh.
-  const seenRef = useRef<Set<string>>(new Set());
   const refreshInFlightRef = useRef(false);
   const [checking, setChecking] = useState(false);
 
@@ -174,8 +172,7 @@ export function DebriefFlow({
       const parsed = DebriefListResponseSchema.safeParse((payload as { data?: unknown } | null)?.data);
       if (!parsed.success || parsed.data.debrief === null) return;
       const cached = effectiveStorage ? cachedIds(effectiveStorage, Date.now()) : new Set<string>();
-      dispatch({ type: "REFRESHED", questions: parsed.data.questions, cached, seen: new Set(seenRef.current) });
-      for (const item of parsed.data.questions) seenRef.current.add(item.question_id);
+      dispatch({ type: "REFRESHED", questions: parsed.data.questions, cached });
     } catch {
       // network failure: keep the screen as it is
     } finally {
@@ -220,7 +217,6 @@ export function DebriefFlow({
         return;
       }
       const cached = effectiveStorage ? cachedIds(effectiveStorage, Date.now()) : new Set<string>();
-      for (const item of parsed.data.questions) seenRef.current.add(item.question_id);
       dispatch({
         type: "LOADED",
         questions: parsed.data.questions,
