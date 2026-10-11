@@ -21,6 +21,7 @@ import { adminAuth, adminDb } from "@/lib/firebase/admin";
 import { COLLECTIONS } from "@/lib/firestore/collections";
 import { assertProjectMatchesEnv, type ProjectKind } from "@/scripts/seed";
 import { UserSchema, parseOutletDoc, type User } from "@/lib/firestore/schema";
+import { isReservedDemoEmail } from "@/lib/demo/credentials";
 
 const USAGE =
   "Usage: npm run provision:web-user -- --project <pilot|demo> --email <email> [--reset-password]";
@@ -41,7 +42,7 @@ const EmailSchema = z.email();
 /**
  * Parses the script's CLI arguments. Strict: any flag other than --project,
  * --email and --reset-password (in particular, no --password) is a usage
- * error. The email is lower-cased so it matches the seeded `users` doc the
+ * error. A reserved demo address (`*.judge@example.com`) is refused outright. The email is lower-cased so it matches the seeded `users` doc the
  * same way `linkGoogleUser` does.
  */
 export function parseProvisionArgs(argv: readonly string[]): ProvisionArgs {
@@ -72,6 +73,8 @@ export function parseProvisionArgs(argv: readonly string[]): ProvisionArgs {
   if (!email) throw usageError();
   const parsedEmail = EmailSchema.safeParse(email);
   if (!parsedEmail.success) throw usageError();
+  // R-18 P1: the published demo sign-in emails must never become real accounts, on any project. Checked here, before any I/O.
+  if (isReservedDemoEmail(parsedEmail.data)) throw new Error("reserved demo address");
 
   return { project, email: parsedEmail.data.toLowerCase(), reset };
 }
