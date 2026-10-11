@@ -339,6 +339,8 @@ export async function decideVerdict(
 /**
  * POST /api/v1/reviews/fast-forward. Demo only: 404 unless DEMO_MODE is on AND
  * the outlet is a demo outlet (double guard; the pilot never sets DEMO_MODE).
+ * The 404 comes BEFORE any role or permission check, so a caller on the pilot
+ * (or any non-demo outlet) cannot tell this route exists from a 403.
  * Calls the same `createReview` as the daily run, flagged `simulated`.
  */
 export async function fastForwardReview(
@@ -346,14 +348,14 @@ export async function fastForwardReview(
   input: { claims: CustomClaims; now_ms: number; demoMode: boolean },
 ): Promise<FastForwardResponse> {
   const { claims, now_ms, demoMode } = input;
+  if (!demoMode) throw new NotFoundError("route", "route");
+  const outlet = await store.getOutlet();
+  if (!outlet || outlet.project_kind !== "demo") throw new NotFoundError("route", "route");
   assertPermission(claims, "reviews:verdict");
   if (claims.role !== "supervisor" && claims.role !== "owner") {
     throw new ForbiddenError(`Role "${claims.role}" may not perform "reviews:verdict".`);
   }
-  const outlet = await store.getOutlet();
-  if (!outlet) throw new NotFoundError("outlet", "outlet");
   assertOutlet(claims, outlet.outlet_id);
-  if (!demoMode || outlet.project_kind !== "demo") throw new NotFoundError("route", "route");
 
   const versions = await store.listVersions();
   const reviewedIds = new Set((await store.listReviews()).map((r) => r.review_id));

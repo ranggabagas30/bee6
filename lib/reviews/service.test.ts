@@ -382,13 +382,29 @@ describe("fastForwardReview", () => {
     expect(await ff(f, true, "owner")).toEqual({ version: 3 });
   });
 
-  it("4.T11 demoMode false -> 404; a pilot outlet -> 404 even with demoMode; staff -> 403", async () => {
+  it("4.T11 demoMode false -> 404; a pilot outlet -> 404 even with demoMode; staff on a demo outlet in demo mode -> 403", async () => {
     const f = fakeStore({ ...windowData() });
     await expect(ff(f, false)).rejects.toBeInstanceOf(NotFoundError);
     const pilot = fakeStore({ ...windowData(), outletDoc: outlet({ project_kind: "pilot" }) });
     await expect(ff(pilot, true)).rejects.toBeInstanceOf(NotFoundError);
     expect(pilot.reviews.size).toBe(0);
     await expect(ff(f, true, "staff")).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("4.T11 D1/L2 the 404 comes before the role check: staff, device and supervisor all get 404 off-demo, nobody learns the route exists", async () => {
+    const f = fakeStore({ ...windowData() });
+    const pilot = fakeStore({ ...windowData(), outletDoc: outlet({ project_kind: "pilot" }) });
+    for (const role of ["staff", "device", "supervisor", "owner"] as const) {
+      await expect(ff(f, false, role)).rejects.toBeInstanceOf(NotFoundError);
+      await expect(ff(pilot, true, role)).rejects.toBeInstanceOf(NotFoundError);
+    }
+    expect(pilot.reviews.size).toBe(0);
+    expect(f.reviews.size).toBe(0);
+  });
+
+  it("4.T11 a missing outlet doc is also 404", async () => {
+    const f = fakeStore({ outletDoc: null });
+    await expect(ff(f, true, "staff")).rejects.toBeInstanceOf(NotFoundError);
   });
 
   it("4.T11 nothing left -> 409 NOTHING_TO_REVIEW", async () => {
