@@ -59,7 +59,7 @@ export type CreateConstraintInput =
       claims: CustomClaims;
       text: string;
       now_ms: number;
-      source: "supervisor_rejection";
+      source: "supervisor_rejection" | "owner_rejection";
       source_proposal_id: string;
     };
 
