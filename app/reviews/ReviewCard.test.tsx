@@ -53,7 +53,20 @@ describe("ReviewCard", () => {
         lang="en"
       />,
     );
-    screen.getByText("After (Fri 16 Oct to Thu 22 Oct): 0 in 0 captured days, no captured days per day");
+    screen.getByText("After (Fri 16 Oct to Thu 22 Oct): no captured days");
+  });
+
+  it("words a before window with 0 days the same way, in Bahasa too", () => {
+    render(
+      <ReviewCard
+        review={reviewView({
+          before: { from_date: "2026-10-06", to_date: "2026-10-12", days_captured: 0, count: 0 },
+          suggestion: { verdict: null, reason: "no_baseline", change_ratio: null },
+        })}
+        lang="id"
+      />,
+    );
+    screen.getByText("Sebelum (Sel 6 Okt s.d. Sen 12 Okt): tidak ada hari terekam");
   });
 
   it("draws the bars in proportion to the rate: before 2/day -> 100%, after 1/day -> 50%, hidden from screen readers", () => {

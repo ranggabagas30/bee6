@@ -411,7 +411,8 @@ export const ID = {
   "C-rev-simulated": "Waktu simulasi (demo)", // PROVISIONAL
   "C-rev-window-before": "Sebelum ({from} s.d. {to}): {count} dalam {days} hari terekam, {rate} per hari", // PROVISIONAL
   "C-rev-window-after": "Sesudah ({from} s.d. {to}): {count} dalam {days} hari terekam, {rate} per hari", // PROVISIONAL
-  "C-rev-rate-none": "tidak ada hari terekam", // PROVISIONAL
+  "C-rev-window-before-none": "Sebelum ({from} s.d. {to}): tidak ada hari terekam", // PROVISIONAL
+  "C-rev-window-after-none": "Sesudah ({from} s.d. {to}): tidak ada hari terekam", // PROVISIONAL
   "C-rev-short-window": "Ini jangka waktu pendek, jadi baca angkanya dengan hati-hati.", // PROVISIONAL
   "C-rev-suggest": "Saran bee6: {verdict}", // PROVISIONAL
   "C-rev-suggest-none": "bee6 tidak punya saran: {why}", // PROVISIONAL
@@ -834,7 +835,8 @@ export const EN: Record<DictKey, string> = {
   "C-rev-simulated": "Simulated time (demo)", // PROVISIONAL
   "C-rev-window-before": "Before ({from} to {to}): {count} in {days} captured days, {rate} per day", // PROVISIONAL
   "C-rev-window-after": "After ({from} to {to}): {count} in {days} captured days, {rate} per day", // PROVISIONAL
-  "C-rev-rate-none": "no captured days", // PROVISIONAL
+  "C-rev-window-before-none": "Before ({from} to {to}): no captured days", // PROVISIONAL
+  "C-rev-window-after-none": "After ({from} to {to}): no captured days", // PROVISIONAL
   "C-rev-short-window": "This is a short window, so read the numbers with care.", // PROVISIONAL
   "C-rev-suggest": "bee6 suggests: {verdict}", // PROVISIONAL
   "C-rev-suggest-none": "bee6 has no suggestion: {why}", // PROVISIONAL

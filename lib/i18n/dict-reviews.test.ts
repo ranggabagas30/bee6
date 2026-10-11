@@ -16,7 +16,8 @@ const REVIEW_KEYS = [
   "C-rev-simulated",
   "C-rev-window-before",
   "C-rev-window-after",
-  "C-rev-rate-none",
+  "C-rev-window-before-none",
+  "C-rev-window-after-none",
   "C-rev-short-window",
   "C-rev-suggest",
   "C-rev-suggest-none",
@@ -64,6 +65,15 @@ describe("R-11 review copy keys", () => {
       expect(ID[key as DictKey], `ID ${key}`).toBeTypeOf("string");
       expect(EN[key as DictKey], `EN ${key}`).toBeTypeOf("string");
     }
+  });
+
+  it("words a zero-captured-days window as one line, with no dead rate-none copy", () => {
+    expect(EN["C-rev-window-before-none" as DictKey]).toBe("Before ({from} to {to}): no captured days");
+    expect(EN["C-rev-window-after-none" as DictKey]).toBe("After ({from} to {to}): no captured days");
+    expect(ID["C-rev-window-before-none" as DictKey]).toBe("Sebelum ({from} s.d. {to}): tidak ada hari terekam");
+    expect(ID["C-rev-window-after-none" as DictKey]).toBe("Sesudah ({from} s.d. {to}): tidak ada hari terekam");
+    expect("C-rev-rate-none" in EN).toBe(false);
+    expect("C-rev-rate-none" in ID).toBe(false);
   });
 
   it("uses the generic overlap notice, with no claim about which days", () => {

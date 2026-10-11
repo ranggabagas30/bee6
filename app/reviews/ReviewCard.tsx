@@ -64,8 +64,21 @@ function rateOf(w: { days_captured: number; count: number }): number | null {
   return w.days_captured === 0 ? null : w.count / w.days_captured;
 }
 
-function rateText(rate: number | null, lang: Lang): string {
-  return rate === null ? t(lang, "C-rev-rate-none") : rate.toFixed(1);
+/** One window's line: with no captured day there is no rate to show, so the line says so instead of "0 in 0 days, X per day". */
+function windowLine(
+  which: "before" | "after",
+  w: { from_date: string; to_date: string; days_captured: number; count: number },
+  lang: Lang,
+): string {
+  const range = { from: dayLabel(w.from_date, lang), to: dayLabel(w.to_date, lang) };
+  const rate = rateOf(w);
+  if (rate === null) return t(lang, which === "before" ? "C-rev-window-before-none" : "C-rev-window-after-none", range);
+  return t(lang, which === "before" ? "C-rev-window-before" : "C-rev-window-after", {
+    ...range,
+    count: w.count,
+    days: w.days_captured,
+    rate: rate.toFixed(1),
+  });
 }
 
 function Bar({ rate, max, tone }: { rate: number | null; max: number; tone: string }) {
@@ -138,25 +151,9 @@ export function ReviewCard({
       </p>
       <p style={LINE_STYLE}>{review.metric.description}</p>
 
-      <p style={LINE_STYLE}>
-        {t(lang, "C-rev-window-before", {
-          from: dayLabel(before.from_date, lang),
-          to: dayLabel(before.to_date, lang),
-          count: before.count,
-          days: before.days_captured,
-          rate: rateText(beforeRate, lang),
-        })}
-      </p>
+      <p style={LINE_STYLE}>{windowLine("before", before, lang)}</p>
       <Bar rate={beforeRate} max={maxRate} tone="#6b7280" />
-      <p style={LINE_STYLE}>
-        {t(lang, "C-rev-window-after", {
-          from: dayLabel(after.from_date, lang),
-          to: dayLabel(after.to_date, lang),
-          count: after.count,
-          days: after.days_captured,
-          rate: rateText(afterRate, lang),
-        })}
-      </p>
+      <p style={LINE_STYLE}>{windowLine("after", after, lang)}</p>
       <Bar rate={afterRate} max={maxRate} tone="#1d4ed8" />
       <p style={LINE_STYLE}>{t(lang, "C-rev-short-window")}</p>
 
