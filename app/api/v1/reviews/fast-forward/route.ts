@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireClaims } from "@/lib/http/guard";
 import { BadRequestError, ValidationError, handleApiError } from "@/lib/http/errors";
 import { jsonOk } from "@/lib/http/respond";
+import { enforceDemoCapsForRoute } from "@/lib/demo/route-caps";
 import { firestoreReviewStore } from "@/lib/firestore/review-store";
 import { FastForwardBodySchema, FastForwardResponseSchema } from "@/lib/reviews/contract";
 import { fastForwardReview } from "@/lib/reviews/service";
@@ -63,6 +64,9 @@ export async function POST(req: NextRequest) {
         body.error.issues.map((issue) => ({ field: issue.path.join("."), message: issue.code })),
       );
     }
+
+    // R-12: a sandbox may skip time only a few times (writes only; no model call).
+    await enforceDemoCapsForRoute("fast_forward", claims, "reviews:verdict");
 
     const data = await fastForwardReview(firestoreReviewStore(claims.outlet_id), {
       claims,

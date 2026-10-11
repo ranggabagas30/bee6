@@ -5,6 +5,8 @@ import { requireDevice } from "@/lib/http/guard";
 import { submitAnswer } from "@/lib/debrief/service";
 import { firestoreDebriefStore } from "@/lib/firestore/debrief-store";
 import { dlpRedactor } from "@/lib/redact/dlp";
+import { enforceDemoCapsForRoute } from "@/lib/demo/route-caps";
+import { AnswerBodySchema } from "@/lib/debrief/contract";
 
 /**
  * POST /api/v1/questions/{id}/answer (device; R-07, web spec §6.2/§6.6.6).
@@ -18,6 +20,14 @@ import { dlpRedactor } from "@/lib/redact/dlp";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function isWellFormedAnswer(text: string): boolean {
+  try {
+    return AnswerBodySchema.safeParse(JSON.parse(text)).success;
+  } catch {
+    return false;
+  }
+}
+
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const claims = await requireDevice(req);
@@ -26,6 +36,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
     const { id } = await params;
     const text = await req.text();
+
+    // R-12: a sandbox's typed reasons go through Sensitive Data Protection, so they are capped. Only a
+    // well-formed body spends the cap (a malformed one gets the service's own 400, charged nothing).
+    if (isWellFormedAnswer(text)) await enforceDemoCapsForRoute("redact", claims);
 
     const result = await submitAnswer(
       {

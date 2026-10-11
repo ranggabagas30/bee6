@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { requireClaims } from "@/lib/http/guard";
 import { BadRequestError, NotFoundError, ValidationError, handleApiError } from "@/lib/http/errors";
 import { jsonOk } from "@/lib/http/respond";
+import { enforceDemoCapsForRoute } from "@/lib/demo/route-caps";
 import { firestoreReviewStore } from "@/lib/firestore/review-store";
 import { redactBatch } from "@/lib/redact/batch";
 import { VerdictBodySchema, VerdictResponseSchema, VersionParamSchema } from "@/lib/reviews/contract";
@@ -38,6 +39,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ver
         body.error.issues.map((issue) => ({ field: issue.path.join("."), message: issue.code })),
       );
     }
+
+    // R-12: a sandbox's text entry (the verdict reason goes through Sensitive Data Protection) is capped.
+    await enforceDemoCapsForRoute("redact", claims, "reviews:verdict");
 
     const data = await decideVerdict(
       firestoreReviewStore(claims.outlet_id),
