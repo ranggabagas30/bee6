@@ -286,6 +286,16 @@ export async function endDemo(auth: Auth | null): Promise<void> {
   await signOutQuietly(auth);
 }
 
+/**
+ * The demo has ended by the clock or because a switch found the sandbox gone: remove the judge phone's device
+ * keys and sign the Firebase web user out, but KEEP the stored (expired) record, so the bar and /sign-in
+ * still say "Your demo session has ended." Never throws.
+ */
+export async function closeEndedDemo(auth: Auth | null): Promise<void> {
+  removeDeviceKeys();
+  await signOutQuietly(auth);
+}
+
 async function signOutQuietly(auth: Auth | null): Promise<void> {
   if (!auth) return;
   try {

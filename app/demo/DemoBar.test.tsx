@@ -18,9 +18,10 @@ const push = vi.fn();
 const ROUTER = { push, replace: vi.fn() };
 
 const getClientAuth = vi.fn();
+const signOut = vi.fn();
 vi.mock("@/lib/auth/client/firebase-client", () => ({
   getClientAuth: (...a: unknown[]) => getClientAuth(...a),
-  signOut: vi.fn(),
+  signOut: (...a: unknown[]) => signOut(...a),
   signInWithCustomToken: vi.fn(),
 }));
 
@@ -70,6 +71,7 @@ afterEach(() => {
   startDemo.mockReset();
   push.mockReset();
   getClientAuth.mockReset();
+  signOut.mockReset();
   vi.unstubAllGlobals();
 });
 
@@ -274,6 +276,52 @@ describe("DemoBar clears the judge phone's device keys once the demo has ended",
     pathname = "/sign-in";
     renderBar();
     expect(keys()).toEqual([null, null]);
+  });
+});
+
+describe("DemoBar signs the Firebase web user out when the demo ends", () => {
+  it("does not touch the user while the sandbox is live", () => {
+    seed("owner", Date.now() + 3_600_000);
+    renderBar();
+    expect(signOut).not.toHaveBeenCalled();
+  });
+
+  it("signs the user out when the timer ends the demo, and keeps the ended record so /sign-in can say so", () => {
+    vi.useFakeTimers({ now: new Date("2026-10-19T08:00:00Z") });
+    const expires = Date.now() + 5_000;
+    seed("owner", expires);
+    renderBar();
+    expect(signOut).not.toHaveBeenCalled();
+    act(() => void vi.advanceTimersByTime(5_001));
+    expect(signOut).toHaveBeenCalledTimes(1);
+    expect(signOut).toHaveBeenCalledWith(FAKE_AUTH);
+    expect(JSON.parse(window.localStorage.getItem(DEMO_STATE_KEY)!)).toEqual({ sandbox_key: KEY, expires_at_ms: expires, role: "owner" });
+  });
+
+  it("does so on /sign-in too, where the bar itself is hidden", () => {
+    seed("owner", Date.now() - 1000);
+    pathname = "/sign-in";
+    renderBar();
+    expect(signOut).toHaveBeenCalledWith(FAKE_AUTH);
+  });
+
+  it("a sign-out that fails does not break the ended bar", async () => {
+    signOut.mockRejectedValue(new Error("offline"));
+    seed("owner", Date.now() - 1000);
+    renderBar();
+    await act(async () => {});
+    expect(screen.getByText("Your demo session has ended.")).toBeTruthy();
+  });
+
+  it("without a web config there is nothing to sign out of and the bar still ends", () => {
+    seed("staff", Date.now() - 1000);
+    render(
+      <LangProvider initial="en">
+        <DemoBar config={null} />
+      </LangProvider>,
+    );
+    expect(signOut).not.toHaveBeenCalled();
+    expect(screen.getByText("Your demo session has ended.")).toBeTruthy();
   });
 });
 

@@ -7,9 +7,9 @@ import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import type { DemoRole } from "@/lib/demo/contract";
 import { useLang } from "@/lib/i18n/context";
 import { t, type DictKey } from "@/lib/i18n/dict";
-import { demoSnapshot, notifyDemoChange, removeDeviceKeys, subscribeDemoState, viewFromSnapshot } from "@/app/demo/demo-client";
+import { closeEndedDemo, demoSnapshot, notifyDemoChange, subscribeDemoState, viewFromSnapshot } from "@/app/demo/demo-client";
 import { refusalLines } from "@/app/demo/demo-errors";
-import { useDemoStart } from "@/app/demo/useDemoStart";
+import { authOrNull, useDemoStart } from "@/app/demo/useDemoStart";
 
 /**
  * The demo bar (R-12 Task 8.4). Mounted by the root layout only when the server has DEMO_MODE on, and shown
@@ -78,11 +78,12 @@ export function DemoBar({ config }: { config: FirebaseWebConfig | null }) {
   const expiresAt = view && !view.expired ? view.state.expires_at_ms : null;
   const ended = endedHere || view?.expired === true;
 
-  // Once the demo has ended (timer, or a switch that learned the sandbox is gone) the judge phone's device
-  // keys are of no use any more: remove them so /capture does not keep a dead credential.
+  // Once the demo has ended (timer, or a switch that learned the sandbox is gone) its credentials are of no
+  // use any more: remove the judge phone's device keys so /capture does not keep a dead credential, and sign
+  // the Firebase web user out. The expired record stays, so /sign-in can say the session ended.
   useEffect(() => {
-    if (ended) removeDeviceKeys();
-  }, [ended]);
+    if (ended) void closeEndedDemo(authOrNull(config));
+  }, [ended, config]);
 
   // The switch button the visitor just tapped is gone once the end is noticed: put keyboard and screen-reader
   // focus on the status line, which now says the demo ended. (A timer-driven end does not move focus; the
