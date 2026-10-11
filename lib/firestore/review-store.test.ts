@@ -273,6 +273,31 @@ describe("firestoreReviewStore writes", () => {
   });
 });
 
+describe("listAllOutlets (R-12 sandbox filter)", () => {
+  it("9.T1 skips demo sandbox outlets (they carry a sandbox object) and keeps the shared demo outlet", async () => {
+    const sandbox = { template_outlet_id: "demo-tpl-outlet", created_at_ms: 1, expires_at_ms: 2, key_sha256: "a".repeat(64) };
+    const { db } = fakeDb({
+      [COLLECTIONS.outlets]: {
+        "demo-outlet": asDoc(outlet({ outlet_id: "demo-outlet" })),
+        "sbx-aaaaaaaaaaaa": asDoc(outlet({ outlet_id: "sbx-aaaaaaaaaaaa", sandbox })),
+        "sbx-bbbbbbbbbbbb": asDoc(outlet({ outlet_id: "sbx-bbbbbbbbbbbb", sandbox })),
+        real: asDoc(outlet({ outlet_id: "real", project_kind: "pilot" })),
+      },
+    });
+    const all = await listAllOutlets(db);
+    expect(all.outlets.map((o) => o.outlet_id).sort()).toEqual(["demo-outlet", "real"]);
+    expect(all.truncated).toBe(false);
+  });
+
+  it("the cap counts raw docs: 501 docs (even if all are sandboxes) is flagged truncated, never silent", async () => {
+    const sandbox = { template_outlet_id: "demo-tpl-outlet", created_at_ms: 1, expires_at_ms: 2, key_sha256: "a".repeat(64) };
+    const docs = Object.fromEntries(Array.from({ length: 501 }, (_, i) => [`d${i}`, asDoc(outlet({ outlet_id: `sbx-${i}`, sandbox }))]));
+    const over = await listAllOutlets(fakeDb({ [COLLECTIONS.outlets]: docs }).db);
+    expect(over.truncated).toBe(true);
+    expect(over.outlets).toHaveLength(0);
+  });
+});
+
 describe("listAllOutlets", () => {
   it("reads outlets with a cap (+1 to detect truncation) and skips malformed docs", async () => {
     const { db, queries } = fakeDb({
@@ -281,20 +306,20 @@ describe("listAllOutlets", () => {
     const all = await listAllOutlets(db);
     expect(all.outlets.map((o) => o.outlet_id).sort()).toEqual(["o1", "o2"]);
     expect(all.truncated).toBe(false);
-    expect(queries[0]!.limit).toBe(51);
+    expect(queries[0]!.limit).toBe(501);
     for (const call of errorSpy.mock.calls) expect(JSON.stringify(call)).not.toContain("SECRET_TEXT");
   });
 
   it("M2 exactly the cap is not truncated; one more is processed up to the cap, flagged and logged, never silent", async () => {
     const docs = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`d${i}`, asDoc(outlet({ outlet_id: `o${i}` }))]));
-    const atCap = await listAllOutlets(fakeDb({ [COLLECTIONS.outlets]: docs(50) }).db);
+    const atCap = await listAllOutlets(fakeDb({ [COLLECTIONS.outlets]: docs(500) }).db);
     expect(atCap).toMatchObject({ truncated: false });
-    expect(atCap.outlets).toHaveLength(50);
+    expect(atCap.outlets).toHaveLength(500);
     expect(errorSpy).not.toHaveBeenCalledWith("[review] outlets truncated", expect.anything());
 
-    const over = await listAllOutlets(fakeDb({ [COLLECTIONS.outlets]: docs(51) }).db);
+    const over = await listAllOutlets(fakeDb({ [COLLECTIONS.outlets]: docs(501) }).db);
     expect(over.truncated).toBe(true);
-    expect(over.outlets).toHaveLength(50);
+    expect(over.outlets).toHaveLength(500);
     expect(errorSpy).toHaveBeenCalledWith("[review] outlets truncated", { error_class: "outlets_truncated" });
   });
 });

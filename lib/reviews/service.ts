@@ -168,7 +168,9 @@ export async function runDueReviews(input: {
   now_ms: number;
   truncated?: boolean;
 }): Promise<RunResponse> {
-  const { outlets, storeFor, now_ms } = input;
+  const { storeFor, now_ms } = input;
+  // R-12: a demo sandbox is never reviewed by the daily run (defence in depth; the outlet list already skips them).
+  const outlets = input.outlets.filter((o) => o.sandbox === undefined);
   let created = 0;
   let expired = 0;
   let errors = input.truncated ? 1 : 0;

@@ -14,6 +14,7 @@ import { recordSegment } from "@/lib/capture/segment-service";
 import { geminiTranscriber } from "@/lib/transcribe/gemini";
 import { dlpRedactor } from "@/lib/redact/dlp";
 import { firestoreSegmentStore } from "@/lib/firestore/stores";
+import { enforceDemoCapsForRoute } from "@/lib/demo/route-caps";
 
 /**
  * PUT /api/v1/segments/{device_id}:{seg_id}
@@ -25,9 +26,10 @@ import { firestoreSegmentStore } from "@/lib/firestore/stores";
  * 4. Reads metadata from headers
  * 5. Reads the body (audio)
  * 6. Validates size
- * 7. Calls the service to transcribe, redact, and store
- * 8. Logs usage
- * 9. Returns 200 or an error status
+ * 7. (Demo sandboxes only) enforces the per-sandbox, daily and model-call caps
+ * 8. Calls the service to transcribe, redact, and store
+ * 9. Logs usage
+ * 10. Returns 200 or an error status
  *
  * Hard rules observed:
  * - No audio in logs, errors, or returned responses
@@ -117,6 +119,10 @@ export async function PUT(
 
     // Step 7: Validate actual body size (413 if too large)
     assertSegmentSize(audioBuffer.length);
+
+    // Step 7b (R-12): inside a demo sandbox only, cap the Gemini/SDP spend of this judge's phone. After
+    // auth and every validation above, before the first model call; inert for the pilot (zero reads).
+    await enforceDemoCapsForRoute("segment", claims, "segments:upload");
 
     // Step 8: Record the segment (tombstone check → transcribe → redact → store)
     const outcome = await recordSegment(

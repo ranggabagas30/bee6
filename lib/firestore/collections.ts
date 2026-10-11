@@ -34,6 +34,8 @@ export const COLLECTIONS = {
   salesEvents: "sales_events",
   eventCards: "event_cards",
   auditLog: "audit_log",
+  /** Demo project only (R-12): rate-limit and cap counters. */
+  demoCounters: "demo_counters",
 } as const;
 
 export type CollectionName = (typeof COLLECTIONS)[keyof typeof COLLECTIONS];

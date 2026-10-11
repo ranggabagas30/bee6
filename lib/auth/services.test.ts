@@ -205,6 +205,48 @@ describe("authenticateDeviceToken", () => {
   });
 });
 
+describe("authenticateDeviceToken expiry (R-12)", () => {
+  const nowMs = NOW.getTime();
+
+  it("2.T3 a judge device past expires_at_ms is the same 401 as a bad token", async () => {
+    const token = "judge-token";
+    const store = makeDeviceStore([
+      device({ token_hash: await hashDeviceToken(token), expires_at_ms: nowMs - 1 }),
+    ]);
+    const expired = await authenticateDeviceToken({ devices: store, now: clock }, { device_id: "d1", token }).catch((e) => e);
+    const bad = await authenticateDeviceToken({ devices: store, now: clock }, { device_id: "d1", token: "wrong" }).catch((e) => e);
+    expect(expired).toBeInstanceOf(UnauthorizedError);
+    expect(expired.statusCode).toBe(bad.statusCode);
+    expect(expired.code).toBe(bad.code);
+    expect(expired.message).toBe(bad.message);
+    expect(expired.message).toBe("Invalid device token");
+  });
+
+  it("2.T3b expiring exactly now is expired (>=)", async () => {
+    const token = "judge-token";
+    const store = makeDeviceStore([device({ token_hash: await hashDeviceToken(token), expires_at_ms: nowMs })]);
+    await expect(
+      authenticateDeviceToken({ devices: store, now: clock }, { device_id: "d1", token }),
+    ).rejects.toThrow(UnauthorizedError);
+  });
+
+  it("2.T4 a judge device before expires_at_ms authenticates", async () => {
+    const token = "judge-token";
+    const store = makeDeviceStore([device({ token_hash: await hashDeviceToken(token), expires_at_ms: nowMs + 1 })]);
+    expect(await authenticateDeviceToken({ devices: store, now: clock }, { device_id: "d1", token })).toEqual({
+      outlet_id: "proofed",
+      role: "device",
+      device_id: "d1",
+    });
+  });
+
+  it("2.T5 a device without expires_at_ms never expires (no now needed)", async () => {
+    const token = "real-token";
+    const store = makeDeviceStore([device({ token_hash: await hashDeviceToken(token) })]);
+    expect(await authenticateDeviceToken({ devices: store }, { device_id: "d1", token })).toMatchObject({ role: "device" });
+  });
+});
+
 // ── staffPinLogin ────────────────────────────────────────────────────────────
 describe("staffPinLogin", () => {
   const mintToken = async (uid: string, claims: CustomClaims) =>

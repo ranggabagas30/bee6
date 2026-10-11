@@ -4,6 +4,7 @@
  * device with a 6-digit pairing code (valid 10 min), then prints the code.
  *
  *   npm run seed -- --project demo    # built-in FICTIONAL data
+ *   npm run seed -- --project demo --template   # R-12 judge-sandbox template (demo project only)
  *   npm run seed -- --project pilot   # reads private/seed.pilot.json (untracked)
  *
  * Hard rules honoured:
@@ -38,6 +39,7 @@ import {
 import { hashPin } from "@/lib/auth/pin";
 import { generatePairingCode, pairingCodeExpiry } from "@/lib/auth/pairing";
 import { normalizeStaffName } from "@/lib/auth/staff-name";
+import { DEMO_SOP_V1 } from "@/scripts/demo-sop";
 
 // ── seed config shape ────────────────────────────────────────────────────────
 export const SeedConfigSchema = z
@@ -104,44 +106,23 @@ export const DEMO_SEED: SeedConfig = {
     { staff_id: "demo-staff-2", name: "Bella Demo", role: "staff", pin: "2222" },
   ],
   device: { device_id: "demo-phone", label: "Demo shop phone" },
-  // FICTIONAL PLACEHOLDER SOP. Used by internal testing, QA and the demo outlet (judges). Not Proofed's SOP: the
-  // real one is private, never committed, and only ever reaches the PILOT project via private/seed.pilot.json
-  // (R-08 §0 item 5).
-  // Tiffany may replace this content before promotion #2; it must stay fictional.
-  sop_v1: {
-    steps: [
-      {
-        step_id: "open-01",
-        title: "Open the shop",
-        text: "Turn on the oven and the display lights. Check the float in the till.",
-        role: "staff",
-      },
-      {
-        step_id: "bake-01",
-        title: "Morning bake",
-        text: "Bake the first tray of each bread by opening time.",
-        role: "staff",
-      },
-      {
-        step_id: "stock-01",
-        title: "Display check",
-        text: "Check the display every hour and refill items that are running low.",
-        role: "staff",
-      },
-      {
-        step_id: "serve-01",
-        title: "Serve a customer",
-        text: "Greet, take the order, confirm it back, take payment.",
-        role: "staff",
-      },
-      {
-        step_id: "close-01",
-        title: "Close the shop",
-        text: "Count the till, clean the oven, log leftover items.",
-        role: "supervisor",
-      },
-    ],
-  },
+  // FICTIONAL demo SOP, pluggable in scripts/demo-sop.ts (R-12: the full-size English SOP lands there later).
+  sop_v1: DEMO_SOP_V1,
+};
+
+/**
+ * FICTIONAL. Template for R-12 judge sandboxes; never real data. The template outlet is seeded
+ * with `--template` on the demo project only, then filled through the real segment API by
+ * `scripts/demo-seed-template.ts`; each judge visit clones its pipeline output. Same fictional
+ * staff and SOP v1 as `DEMO_SEED`; distinct sign-in emails so an email maps to one outlet only.
+ */
+export const DEMO_TEMPLATE_SEED: SeedConfig = {
+  outlet: { ...DEMO_SEED.outlet, outlet_id: "demo-tpl-outlet", name: "Demo Bakehouse" },
+  owner: { email: "demo-tpl-owner@example.com" },
+  supervisors: [{ email: "demo-tpl-supervisor@example.com" }],
+  staff: DEMO_SEED.staff,
+  device: { device_id: "demo-tpl-phone", label: "Demo shop phone" },
+  sop_v1: DEMO_SEED.sop_v1,
 };
 
 // ── document builder (pure; unit-tested) ─────────────────────────────────────
@@ -264,6 +245,25 @@ function parseProjectArg(argv: string[]): ProjectKind {
   return value;
 }
 
+/** True when `--template` is on the command line (R-12). */
+export function parseTemplateArg(argv: string[]): boolean {
+  return argv.includes("--template");
+}
+
+/**
+ * Picks the built-in demo config, or the R-12 template config with `--template`. The template
+ * exists on the demo project only: `--template` with the pilot project throws (exit 1).
+ */
+export function selectSeedConfig(project: ProjectKind, opts: { template: boolean }): SeedConfig {
+  if (opts.template) {
+    if (project !== "demo") {
+      throw new Error("Refusing --template on the pilot project: the demo template is demo-project only.");
+    }
+    return SeedConfigSchema.parse(DEMO_TEMPLATE_SEED);
+  }
+  return loadConfig(project);
+}
+
 /** Refuses to seed demo data into the pilot project (and vice versa). */
 export function assertProjectMatchesEnv(project: ProjectKind): void {
   const demoMode = (process.env.DEMO_MODE ?? "").toLowerCase() === "true";
@@ -346,7 +346,7 @@ async function main(): Promise<void> {
   const project = parseProjectArg(process.argv.slice(2));
   assertProjectMatchesEnv(project);
 
-  const config = loadConfig(project);
+  const config = selectSeedConfig(project, { template: parseTemplateArg(process.argv.slice(2)) });
   const docs = await buildSeedDocuments(config, project, {
     pairingCode: generatePairingCode(),
     now: new Date(),

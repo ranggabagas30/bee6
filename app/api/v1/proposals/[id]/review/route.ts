@@ -3,6 +3,7 @@ import { defaultAllowDraft, loadProposalLibrary } from "@/config/proposal-librar
 import { requireClaims } from "@/lib/http/guard";
 import { BadRequestError, NotFoundError, ValidationError, handleApiError } from "@/lib/http/errors";
 import { jsonOk } from "@/lib/http/respond";
+import { enforceDemoCapsForRoute } from "@/lib/demo/route-caps";
 import { firestoreConstraintStore } from "@/lib/firestore/constraint-store";
 import { firestoreProposalReviewStore } from "@/lib/firestore/proposal-review-store";
 import { redactBatch } from "@/lib/redact/batch";
@@ -39,6 +40,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         body.error.issues.map((issue) => ({ field: issue.path.join("."), message: issue.code })),
       );
     }
+
+    // R-12: a sandbox's text entry (the rejection reason goes through Sensitive Data Protection) is capped.
+    await enforceDemoCapsForRoute("redact", claims, "proposals:review");
 
     const data = await decideProposal(
       firestoreProposalReviewStore(claims.outlet_id),

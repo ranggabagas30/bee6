@@ -1,0 +1,141 @@
+import type { DemoCounterKind, Outlet } from "@/lib/firestore/schema";
+import { LockedError } from "@/lib/http/errors";
+import {
+  COUNTER_TTL_MS,
+  FAST_FORWARD_PER_SANDBOX,
+  GENERATE_DAILY,
+  GENERATE_PER_SANDBOX,
+  MODEL_DAILY,
+  REDACT_PER_SANDBOX,
+  SEGMENT_DAILY,
+  SANDBOX_DAILY,
+  SEGMENT_PER_SANDBOX,
+} from "@/lib/demo/constants";
+import { secondsToUtcMidnight, utcDay } from "@/lib/demo/limits";
+import type { DemoStore } from "@/lib/demo/store-types";
+import { OUTLETS_READ_MAX } from "@/lib/reviews/constants";
+
+/**
+ * Spend caps for the public demo (R-12 H2). A judge in a sandbox can reach routes that call Gemini or
+ * Sensitive Data Protection (segment upload, proposal generation, rejection reasons, answers,
+ * constraints), so every such path takes one generic check here, built on the same demo_counters
+ * mechanism as the sign-in limits:
+ *
+ *   1. a per-sandbox cap for the path (id `<kind>:<sandbox outlet id>`; Retry-After to the sandbox expiry),
+ *   2. the path's own daily cap across all sandboxes, if it has one (id `<kind>:<UTC day>`),
+ *   3. the shared model-call ceiling for the day (`model_day:<UTC day>`), for paths that call a model.
+ *
+ * Narrow to wide, so a refused sandbox does not burn the day's counters. A no-op unless the outlet has a
+ * `sandbox` object (the pilot and the shared demo outlet are untouched). The check belongs AFTER
+ * authentication, permission and body validation and BEFORE the first model or SDP call, so only an
+ * authorised, well-formed request spends a cap and a capped one spends nothing downstream.
+ */
+
+export type DemoCapKey = "segment" | "generate" | "fast_forward" | "redact";
+
+export interface DemoCapSpec {
+  /** Per-sandbox counter kind. */
+  sandboxKind: DemoCounterKind;
+  sandboxLimit: number;
+  /** Error code of the per-sandbox 429. */
+  code: string;
+  message: string;
+  /** The path's own daily cap across all sandboxes. */
+  daily?: { kind: DemoCounterKind; limit: number };
+  /** Does the path call a model (counts toward the shared ceiling)? */
+  model: boolean;
+}
+
+export type CapEnv = Record<string, string | undefined>;
+
+/** A positive-integer env override, else the default. */
+export function capFromEnv(value: string | undefined, fallback: number): number {
+  if (value === undefined || !/^\d+$/.test(value)) return fallback;
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n > 0 ? n : fallback;
+}
+
+export function capSpec(key: DemoCapKey, env: CapEnv = process.env): DemoCapSpec {
+  switch (key) {
+    case "segment":
+      return {
+        sandboxKind: "segment_sandbox",
+        sandboxLimit: capFromEnv(env.DEMO_SEGMENT_SANDBOX_CAP, SEGMENT_PER_SANDBOX),
+        code: "demo_segment_cap",
+        message: "This demo shop has reached its recording limit",
+        daily: { kind: "segment_day", limit: capFromEnv(env.DEMO_SEGMENT_DAILY_CAP, SEGMENT_DAILY) },
+        model: true,
+      };
+    case "generate":
+      return {
+        sandboxKind: "generate_sandbox",
+        sandboxLimit: capFromEnv(env.DEMO_GENERATE_SANDBOX_CAP, GENERATE_PER_SANDBOX),
+        code: "demo_generate_cap",
+        message: "This demo shop has reached its proposal limit",
+        daily: { kind: "generate_day", limit: capFromEnv(env.DEMO_GENERATE_DAILY_CAP, GENERATE_DAILY) },
+        model: true,
+      };
+    case "fast_forward":
+      return {
+        sandboxKind: "fast_forward_sandbox",
+        sandboxLimit: capFromEnv(env.DEMO_FAST_FORWARD_SANDBOX_CAP, FAST_FORWARD_PER_SANDBOX),
+        code: "demo_fast_forward_cap",
+        message: "This demo shop has reached its time-skip limit",
+        model: false,
+      };
+    case "redact":
+      return {
+        sandboxKind: "redact_sandbox",
+        sandboxLimit: capFromEnv(env.DEMO_REDACT_SANDBOX_CAP, REDACT_PER_SANDBOX),
+        code: "demo_redact_cap",
+        message: "This demo shop has reached its text-entry limit",
+        model: true,
+      };
+  }
+}
+
+let sandboxCapWarned = false;
+
+/**
+ * The effective per-day sandbox-creation cap (DEMO_SANDBOX_DAILY_CAP, default 300). Sandboxes are outlets
+ * too, and the daily review run reads at most OUTLETS_READ_MAX outlets, so the cap must stay below it or the
+ * demo could crowd real outlets out of that read. A value at or above the limit falls back to the default
+ * and is logged once.
+ */
+export function sandboxDailyLimit(env: CapEnv = process.env): number {
+  const n = capFromEnv(env.DEMO_SANDBOX_DAILY_CAP, SANDBOX_DAILY);
+  if (n < OUTLETS_READ_MAX) return n;
+  if (!sandboxCapWarned) {
+    sandboxCapWarned = true;
+    console.error("[demo] DEMO_SANDBOX_DAILY_CAP must stay below the review run's outlet read; using the default", {
+      error_class: "InvalidEnv",
+    });
+  }
+  return SANDBOX_DAILY;
+}
+
+export function modelDailyLimit(env: CapEnv = process.env): number {
+  return capFromEnv(env.DEMO_MODEL_DAILY_CAP, MODEL_DAILY);
+}
+
+export async function enforceDemoCaps(
+  store: DemoStore,
+  input: { outlet: Outlet; now_ms: number; key: DemoCapKey; env?: CapEnv },
+): Promise<void> {
+  const { outlet, now_ms } = input;
+  if (!outlet.sandbox) return;
+  const spec = capSpec(input.key, input.env);
+  const day = utcDay(now_ms);
+  const expiry = new Date(now_ms + COUNTER_TTL_MS).toISOString();
+  const midnight = secondsToUtcMidnight(now_ms);
+
+  if (!(await store.bumpCounter(`${spec.sandboxKind}:${outlet.outlet_id}`, spec.sandboxKind, day, spec.sandboxLimit, expiry))) {
+    throw new LockedError(Math.max(1, Math.ceil((outlet.sandbox.expires_at_ms - now_ms) / 1000)), spec.message, spec.code);
+  }
+  if (spec.daily && !(await store.bumpCounter(`${spec.daily.kind}:${day}`, spec.daily.kind, day, spec.daily.limit, expiry))) {
+    throw new LockedError(midnight, "The demo has reached today's limit", "demo_daily_cap");
+  }
+  if (spec.model && !(await store.bumpCounter(`model_day:${day}`, "model_day", day, modelDailyLimit(input.env), expiry))) {
+    throw new LockedError(midnight, "The demo has reached today's usage limit", "demo_model_cap");
+  }
+}

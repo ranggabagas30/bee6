@@ -68,6 +68,9 @@ const THREAD_ROW_SHAPE = ThreadSchema.pick({
  * logged. Reads one past the cap so truncation is detected: the first OUTLETS_READ_MAX are returned
  * and `truncated` is set (and logged), so the run can count it as an error instead of silently
  * never reviewing the rest.
+ *
+ * R-12: demo sandbox outlets (an outlet doc with a `sandbox` object) are skipped here; the shared
+ * `demo-outlet` and the pilot outlet have no `sandbox` and are kept. The cap counts raw docs.
  */
 export async function listAllOutlets(db: Firestore = adminDb()): Promise<{ outlets: Outlet[]; truncated: boolean }> {
   const snap = await db.collection(COLLECTIONS.outlets).limit(OUTLETS_READ_MAX + 1).get();
@@ -76,7 +79,8 @@ export async function listAllOutlets(db: Firestore = adminDb()): Promise<{ outle
   const outlets: Outlet[] = [];
   for (const doc of snap.docs.slice(0, OUTLETS_READ_MAX)) {
     try {
-      outlets.push(parseOutletDoc(doc.data()));
+      const outlet = parseOutletDoc(doc.data());
+      if (outlet.sandbox === undefined) outlets.push(outlet);
     } catch {
       logSkippedDoc("outlet", doc.id);
     }

@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { requireClaims } from "@/lib/http/guard";
 import { BadRequestError, ValidationError, handleApiError } from "@/lib/http/errors";
 import { jsonOk } from "@/lib/http/respond";
+import { enforceDemoCapsForRoute } from "@/lib/demo/route-caps";
 import { firestoreConstraintStore } from "@/lib/firestore/constraint-store";
 import { redactBatch } from "@/lib/redact/batch";
 import {
@@ -58,6 +59,9 @@ export async function POST(req: NextRequest) {
         body.error.issues.map((issue) => ({ field: issue.path.join("."), message: issue.code })),
       );
     }
+
+    // R-12: a sandbox's text entry (the constraint text goes through Sensitive Data Protection) is capped.
+    await enforceDemoCapsForRoute("redact", claims, "constraints:write");
 
     const { constraint, duplicate } = await createConstraint(
       firestoreConstraintStore(claims.outlet_id),

@@ -13,6 +13,13 @@ const ALLOWLIST = new Set([
   "lib/firestore/sop-store.ts", // read
   "lib/firestore/proposal-review-store.ts", // R-09 read; R-10 PR-2 create (inside the owner approval)
   "scripts/seed.ts", // v1, once
+  // R-12 (tech-lead ratified 11 Oct): demo sandboxes only. clone.ts copies the template's seeded v1
+  // (source "seed", never an edit of an existing SOP) into a brand-new sbx-* outlet; demo-store.ts
+  // reads the template's v1 and deletes a whole expired sandbox (every version of an sbx-* outlet,
+  // E23). Neither can touch a non-sandbox outlet: deleteSandbox refuses unless the outlet doc has a
+  // `sandbox` object and an sbx- id (lib/firestore/demo-store.test.ts 5.S5).
+  "lib/demo/clone.ts",
+  "lib/firestore/demo-store.ts",
 ]);
 
 const ROOT = process.cwd();

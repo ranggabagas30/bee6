@@ -49,6 +49,8 @@ export const CustomClaimsSchema = z
     role: PrincipalRoleSchema,
     staff_id: z.string().min(1).optional(),
     device_id: z.string().min(1).optional(),
+    /** R-12: demo sandbox session expiry (epoch ms); absent for every real principal. */
+    demo_exp_ms: z.number().int().positive().optional(),
   })
   .strict();
 export type CustomClaims = z.infer<typeof CustomClaimsSchema>;

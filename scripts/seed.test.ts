@@ -12,7 +12,10 @@ vi.mock("node:fs", async (importOriginal) => {
 
 import {
   DEMO_SEED,
+  DEMO_TEMPLATE_SEED,
   SeedConfigSchema,
+  parseTemplateArg,
+  selectSeedConfig,
   assertProjectMatchesEnv,
   buildSeedDocuments,
   buildSopVersionDoc,
@@ -218,5 +221,45 @@ describe("R-08 §0 item 5: SOP separation guards", () => {
       if (prev === undefined) delete process.env.DEMO_MODE;
       else process.env.DEMO_MODE = prev;
     }
+  });
+});
+
+describe("R-12 Task 3.1: --template seed", () => {
+  it("DEMO_TEMPLATE_SEED is a valid fictional config with the template ids and the same SOP and staff as the demo", () => {
+    expect(SeedConfigSchema.safeParse(DEMO_TEMPLATE_SEED).success).toBe(true);
+    expect(DEMO_TEMPLATE_SEED.outlet.outlet_id).toBe("demo-tpl-outlet");
+    expect(DEMO_TEMPLATE_SEED.outlet.name).toBe("Demo Bakehouse");
+    expect(DEMO_TEMPLATE_SEED.device).toEqual({ device_id: "demo-tpl-phone", label: "Demo shop phone" });
+    expect(DEMO_TEMPLATE_SEED.staff).toEqual(DEMO_SEED.staff);
+    expect(DEMO_TEMPLATE_SEED.sop_v1).toEqual(DEMO_SEED.sop_v1);
+    expect(DEMO_TEMPLATE_SEED.owner.email.endsWith("@example.com")).toBe(true);
+    // distinct sign-in emails from demo-outlet so findByEmail never matches two outlets
+    expect(DEMO_TEMPLATE_SEED.owner.email).not.toBe(DEMO_SEED.owner.email);
+    for (const s of DEMO_TEMPLATE_SEED.supervisors) {
+      expect(s.email.endsWith("@example.com")).toBe(true);
+      expect(DEMO_SEED.supervisors.map((d) => d.email)).not.toContain(s.email);
+    }
+  });
+
+  it("selectSeedConfig(demo, template) picks the template config; without the flag the demo one", () => {
+    expect(selectSeedConfig("demo", { template: true }).outlet.outlet_id).toBe("demo-tpl-outlet");
+    expect(selectSeedConfig("demo", { template: false }).outlet.outlet_id).toBe("demo-outlet");
+  });
+
+  it("selectSeedConfig refuses --template on the pilot project", () => {
+    expect(() => selectSeedConfig("pilot", { template: true })).toThrow(/template/i);
+  });
+
+  it("parseTemplateArg reads the --template flag", () => {
+    expect(parseTemplateArg(["--project", "demo", "--template"])).toBe(true);
+    expect(parseTemplateArg(["--project", "demo"])).toBe(false);
+  });
+
+  it("the template config never touches fs (a literal, like the demo one)", () => {
+    vi.mocked(fs.readFileSync).mockClear();
+    vi.mocked(fs.existsSync).mockClear();
+    selectSeedConfig("demo", { template: true });
+    expect(fs.readFileSync).not.toHaveBeenCalled();
+    expect(fs.existsSync).not.toHaveBeenCalled();
   });
 });

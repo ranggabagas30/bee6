@@ -3,6 +3,7 @@ import { getModelLocation } from "@/config/regions";
 import { defaultAllowDraft, loadProposalLibrary } from "@/config/proposal-library";
 import { adkProposalModel, PROPOSAL_GENERATOR_KIND } from "@/lib/agents/proposal-agent";
 import { requireClaims } from "@/lib/http/guard";
+import { enforceDemoCapsForRoute } from "@/lib/demo/route-caps";
 import { BadRequestError, ValidationError, handleApiError } from "@/lib/http/errors";
 import { jsonOk } from "@/lib/http/respond";
 import { firestoreProposalStore } from "@/lib/firestore/proposal-store";
@@ -16,6 +17,11 @@ import { generateProposal } from "@/lib/proposals/service";
  * `proposals:generate` + outlet on the server; the route never trusts a
  * client-supplied role. Every response carries `Cache-Control: private,
  * no-store`.
+ *
+ * R-12: on the demo project only (DEMO_MODE exactly "true"), a generation inside a per-judge
+ * sandbox outlet is capped (5 per sandbox, 300 per day, plus the shared model-call ceiling) before the
+ * model is reached. Off-demo, and for any outlet that is not an sbx- sandbox, this does nothing and
+ * makes no extra read.
  */
 
 export const runtime = "nodejs";
@@ -38,6 +44,9 @@ export async function POST(req: NextRequest) {
         body.error.issues.map((issue) => ({ field: issue.path.join("."), message: issue.code })),
       );
     }
+
+    // R-12: inside a demo sandbox only (inert, zero reads, anywhere else), cap generations before the model is reached.
+    await enforceDemoCapsForRoute("generate", claims, "proposals:generate");
 
     const data = await generateProposal(
       firestoreProposalStore(claims.outlet_id),
