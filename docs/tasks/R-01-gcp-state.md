@@ -4,14 +4,14 @@ Canonical project IDs (use these everywhere — env, triggers, seed, probe):
 
 | Role | Project ID | Name | Billing |
 |---|---|---|---|
-| **PILOT** (real Proofed data) | `project-a10437b4-b198-402e-97e` | bee6 Pilot | ✅ |
-| **DEMO** (fictional/judges) | `bee6-playground` | bee6 Demo | ✅ |
+| **PILOT** (real Proofed data) | `<PILOT_PROJECT_ID>` | bee6 Pilot | ✅ |
+| **DEMO** (fictional/judges) | `<DEMO_PROJECT_ID>` | bee6 Demo | ✅ |
 
-Billing account: `019612-9B317A-0C08A8` (My Billing Account).
+Billing account: `<BILLING_ACCOUNT_ID>` (My Billing Account).
 Region: `asia-southeast2` (Jakarta) everywhere.
 
-Duplicate to clean up: `project-a575fdee-a05f-466f-88d` ("bee6 Demo", empty, no billing) — the
-abandoned demo project. Safe for **Rangga** to delete: `gcloud projects delete project-a575fdee-a05f-466f-88d`.
+Duplicate to clean up: `<ABANDONED_DEMO_PROJECT_ID>` ("bee6 Demo", empty, no billing) — the
+abandoned demo project. Safe for **Rangga** to delete: `gcloud projects delete <ABANDONED_DEMO_PROJECT_ID>`.
 
 ## Done (I ran these via gcloud)
 - [x] Billing linked on both projects.
@@ -23,7 +23,7 @@ abandoned demo project. Safe for **Rangga** to delete: `gcloud projects delete p
       logging.logWriter) and `tasks-invoker@<project>` (roles/run.invoker).
 - [x] Firestore Native databases created in asia-southeast2 on both.
 - [x] `.env.local` written (untracked) with pilot GOOGLE_CLOUD_PROJECT + tasks-invoker SA + Firebase web config.
-- [x] Both projects under org **wearegati-org** (957669223173); demo migrated from No-Organization.
+- [x] Both projects under org **wearegati-org** (<ORG_ID>); demo migrated from No-Organization.
 - [x] Firebase enabled on both projects; web apps created; SDK config pulled.
 - [x] Cloud Tasks queue `pipeline` created in asia-southeast2 on both.
 - [x] R-01c: real `@google/genai` Vertex-mode probe wired + run live (committed locally).
@@ -31,8 +31,8 @@ abandoned demo project. Safe for **Rangga** to delete: `gcloud projects delete p
 ## Firebase web apps
 | Project | App ID | apiKey (public client id) |
 |---|---|---|
-| PILOT | `1:959020386278:web:479a081099f93e2e927827` | AIzaSyDwi6tJoJOYreCdVXk9iEnox7X91kvU_S0 |
-| DEMO  | `1:934166416062:web:70f010e0913869ffed2cef` | AIzaSyDXlnz45ViQquUupRYQJdiUV_ETJvcnAAo |
+| PILOT | `<FIREBASE_APP_ID_PILOT>` | <FIREBASE_WEB_API_KEY_PILOT> |
+| DEMO  | `<FIREBASE_APP_ID_DEMO>` | <FIREBASE_WEB_API_KEY_DEMO> |
 Pilot config is in `.env.local`. Demo config recorded here for R-12 (demo deploy).
 
 ## Region probe results (live, 2026-09-29) — from R-01c
@@ -52,20 +52,20 @@ Pilot config is in `.env.local`. Demo config recorded here for R-12 (demo deploy
    (working as designed). Confirm this is acceptable, or investigate enabling Jakarta.
 4. **RESOLVED (1 Oct).** The original theory here — "Jakarta has no DLP regional endpoint" — was
    **wrong**, traced back to a bad doc fetch. A second, independent dev-ops investigation confirmed
-   `asia-southeast2` IS a supported DLP region, and DLP was already enabled on `bee6-playground`.
+   `asia-southeast2` IS a supported DLP region, and DLP was already enabled on `<DEMO_PROJECT_ID>`.
    The real root cause of the `/capture` redaction failures: the local machine's `gcloud` ADC
    `quota_project_id` pointed at a deleted project, unrelated to region support entirely — fixed by
-   Rangga running `gcloud auth application-default set-quota-project bee6-playground`. Separately
+   Rangga running `gcloud auth application-default set-quota-project <DEMO_PROJECT_ID>`. Separately
    and correctly, `lib/redact/dlp.ts` was ALSO hardcoding its region (`DEFAULT_REGION`/`APP_REGION`
    env read) instead of going through `config/regions.yaml`'s probed fallback — a genuine hard
    rule #5 gap, fixed on `fix/dlp-region-fallback` (PR #5). See the "Verified" entry below for the
    IAM follow-up on this same PR.
 
-## Verified (dev-ops, 2 Oct 2026): `web-runtime@bee6-playground` IAM for PR #5
+## Verified (dev-ops, 2 Oct 2026): `web-runtime@<DEMO_PROJECT_ID>` IAM for PR #5
 PR #5 (DLP region fallback) flagged a known gap: it was tested under Rangga's personal ADC
 (Owner), never under the Cloud Run runtime SA, so a missing `roles/dlp.user` grant on
-`web-runtime@bee6-playground` couldn't have been caught. Checked live via
-`gcloud projects get-iam-policy bee6-playground --flatten="bindings[].members" --filter="bindings.members:web-runtime@bee6-playground.iam.gserviceaccount.com"`:
+`web-runtime@<DEMO_PROJECT_ID>` couldn't have been caught. Checked live via
+`gcloud projects get-iam-policy <DEMO_PROJECT_ID> --flatten="bindings[].members" --filter="bindings.members:web-runtime@<DEMO_PROJECT_ID>.iam.gserviceaccount.com"`:
 the SA has `roles/aiplatform.user`, `roles/cloudtasks.enqueuer`, `roles/datastore.user`,
 `roles/dlp.user`, `roles/logging.logWriter`, `roles/secretmanager.secretAccessor` — matches what's
 documented above as provisioned; no drift.
@@ -92,7 +92,7 @@ documented above as provisioned; no drift.
   for `[PHONE_NUMBER]` — is still unverified and needs a real deploy + live test, which is separate
   from the IAM question this entry answers.)
 
-## Demo project (bee6-playground) first deploy attempt, 3 Oct
+## Demo project (<DEMO_PROJECT_ID>) first deploy attempt, 3 Oct
 
 Neither project had a Cloud Build trigger or any deployed Cloud Run `web` service before today — the
 "Remaining for R-01 — CONSOLE-ONLY" items below were apparently never actually finished despite R-01
@@ -106,16 +106,16 @@ being marked done. Standing this up live, 3 Oct:
 - Trigger creation via CLI (`gcloud builds triggers create github --repository=... --region=...`) also
   failed with the same bare `400 INVALID_ARGUMENT` even with the correct 2nd-gen payload — worked fine
   via the Console wizard instead. Cause never fully diagnosed (Console succeeded, so not pursued further).
-- Trigger's service account: `934166416062-compute@developer.gserviceaccount.com` (demo project's default
+- Trigger's service account: `<DEMO_PROJECT_NUMBER>-compute@developer.gserviceaccount.com` (demo project's default
   Compute Engine SA) — chosen pragmatically for the hackathon over provisioning a new least-privilege
   build SA; Rangga explicitly accepted the Console's "broad permissions" warning. **Actual live roles on
-  `bee6-playground`** (verified via `get-iam-policy`, not just what was granted): `roles/artifactregistry
+  `<DEMO_PROJECT_ID>`** (verified via `get-iam-policy`, not just what was granted): `roles/artifactregistry
   .reader`, `roles/artifactregistry.writer`, `roles/editor`, `roles/run.developer`, plus
-  `roles/iam.serviceAccountUser` scoped on `web-runtime@bee6-playground.iam.gserviceaccount.com`
+  `roles/iam.serviceAccountUser` scoped on `web-runtime@<DEMO_PROJECT_ID>.iam.gserviceaccount.com`
   specifically (needed since the deploy step runs `gcloud run deploy --service-account=web-runtime@...`).
   Note it already holds `roles/editor` from the Console default — stricter than what was separately
   granted on top of it.
-- **First build (`e9374e73-e40f-4200-a128-7420703dc5e6`) failed at step 2/3 ("deploy").** Root cause:
+- **First build (`<BUILD_ID>`) failed at step 2/3 ("deploy").** Root cause:
   `cloudbuild.yaml`'s step 2 `name:` field (`gcr.io/google-cloud-sdk/slim`) is not a real Google-hosted
   image path — confirmed via dev-ops read-only investigation (IAM state checked directly, org policies
   at both project and org level checked and ruled out, Google's own current docs/GitHub cited). **Not an
@@ -143,7 +143,7 @@ traffic switch (`docs/plan.md` §6, go-live step 3).
       client. This genuinely can't be scripted cleanly — I tried the Identity Toolkit Admin API.)
 - [ ] **Cloud Build → GitHub connection.** Cloud Build → Triggers → Connect repository → GitHub →
       authorize `ranggabagas30/bee6` (installs the Cloud Build GitHub App).
-- [ ] **Then I can run (CLI):** `gcloud builds triggers create github --project=project-a10437b4-b198-402e-97e --name=bee6-web-main --repo-owner=ranggabagas30 --repo-name=bee6 --branch-pattern='^main$' --build-config=cloudbuild.yaml --region=asia-southeast2`
+- [ ] **Then I can run (CLI):** `gcloud builds triggers create github --project=<PILOT_PROJECT_ID> --name=bee6-web-main --repo-owner=ranggabagas30 --repo-name=bee6 --branch-pattern='^main$' --build-config=cloudbuild.yaml --region=asia-southeast2`
 - [ ] **Rangga:** `git push -u origin main` (after reviewing the scaffold) → first Cloud Run deploy.
 
 ## Remaining for R-01 (blocking "done")
@@ -153,7 +153,7 @@ traffic switch (`docs/plan.md` §6, go-live step 3).
 - [ ] **Rangga (console-only):** Cloud Build → Triggers → Connect repository → GitHub → authorize
       `ranggabagas30/bee6` (installs the Cloud Build GitHub App).
 - [ ] **Then (I can run):** create the trigger:
-      `gcloud builds triggers create github --project=project-a10437b4-b198-402e-97e --name=bee6-web-main --repo-owner=ranggabagas30 --repo-name=bee6 --branch-pattern='^main$' --build-config=cloudbuild.yaml --region=asia-southeast2`
+      `gcloud builds triggers create github --project=<PILOT_PROJECT_ID> --name=bee6-web-main --repo-owner=ranggabagas30 --repo-name=bee6 --branch-pattern='^main$' --build-config=cloudbuild.yaml --region=asia-southeast2`
 - [ ] **R-01c (agent-buildable now):** wire the real `@google/genai` call into `scripts/probe.ts`
       (add dep; implement the per-model, per-region attempt), then run `npm run probe` to fill
       `config/regions.yaml`. ADC is already set, so the probe can run once R-01c lands.
