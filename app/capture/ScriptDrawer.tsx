@@ -4,14 +4,14 @@ import { useId, useState } from "react";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import type { Lang } from "@/lib/i18n/lang";
 import { scriptFor, type ScriptCard } from "@/lib/demo/script";
-import { HANDLE_HEIGHT_PX, PANEL_WIDTH_PX, SHEET_MAX_DVH, type DrawerState } from "@/app/capture/drawer-layout";
+import { HANDLE_HEIGHT_PX, PANEL_WIDTH_PX, SHEET_MAX_DVH, sidePanelBoxStyle, type DrawerState } from "@/app/capture/drawer-layout";
 
 /**
  * R-18 script drawer on /capture: sandbox judge devices only (the page mounts it only when the server's
  * capture config carries `demo_session`). Non-modal on purpose: it never traps focus, sets no aria-modal and
  * makes nothing inert, because the judge must still reach the Listening status, End and Cancel. Under 900 px
  * it sits IN THE PAGE FLOW after the status banner and the End / Cancel buttons (so it can never cover them);
- * from 900 px it is a fixed 360 px side panel. See `drawer-layout.ts` for the layout rationale and the manual
+ * from 900 px it is a fixed 360 px side panel pinned to the bottom edge. See `drawer-layout.ts` for the layout rationale and the manual
  * geometry check.
  *
  * Structure: a one-row handle (title, "Card n of N", short countdown, a 48 px show/hide toggle) that always
@@ -101,9 +101,8 @@ export function ScriptDrawer(props: ScriptDrawerProps) {
       ? {
           position: "fixed",
           zIndex: 20,
-          top: 0,
           right: 0,
-          bottom: open ? 0 : undefined,
+          ...sidePanelBoxStyle(open),
           width: PANEL_WIDTH_PX,
           borderLeft: "2px solid #444",
         }

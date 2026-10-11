@@ -180,7 +180,12 @@ describe("ScriptDrawer (R-18)", () => {
     expect(region().style.position).toBe("fixed");
     expect(region().style.right).toBe("0px");
     expect(region().style.width).toBe("360px");
+    // pinned to the bottom edge with a clear band above it (the demo bar and the top bar), never top: 0
+    expect(region().style.top).toBe("");
+    expect(region().style.bottom).toBe("0px");
+    expect(region().style.height).toContain("100dvh");
     rerender(<ScriptDrawer {...props({ wide: true, open: false })} />);
+    expect(region().style.bottom).toBe("0px");
     expect(region().style.height).toBe("");
   });
 

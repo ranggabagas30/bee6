@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
-import { drawerInsetStyle, isCompactChrome, useDrawerLayout } from "@/app/capture/drawer-layout";
+import {
+  PANEL_WIDTH_PX,
+  SIDE_PANEL_TOP_CLEARANCE_PX,
+  drawerInsetStyle,
+  isCompactChrome,
+  sidePanelBoxStyle,
+  useDrawerLayout,
+} from "@/app/capture/drawer-layout";
 
 afterEach(() => {
   cleanup();
@@ -57,12 +64,28 @@ describe("drawerInsetStyle: only the side panel moves the page", () => {
     expect(drawerInsetStyle({ present: true, wide: false, open: true })).toEqual({});
     expect(drawerInsetStyle({ present: true, wide: false, open: false })).toEqual({});
   });
-  it("side panel: the 360 px column moves left so the 360 px panel never covers it", () => {
-    expect(drawerInsetStyle({ present: true, wide: true, open: true })).toEqual({
+  it("side panel: the page column moves left of the 360 px panel in BOTH states, so even the collapsed handle never covers the top bar or the EN/ID switch (900-1100 px)", () => {
+    const shifted = {
       marginLeft: "max(0px, calc((100vw - 720px) / 2))",
       marginRight: "auto",
-    });
-    expect(drawerInsetStyle({ present: true, wide: true, open: false })).toEqual({});
+    };
+    expect(drawerInsetStyle({ present: true, wide: true, open: true })).toEqual(shifted);
+    expect(drawerInsetStyle({ present: true, wide: true, open: false })).toEqual(shifted);
+  });
+});
+
+describe("side panel box: pinned to the bottom edge, never reaching the demo bar or the top bar", () => {
+  it("the clearance above the panel is at least the tallest demo bar (about 110 px, about 150 px with a two-line status) so it can never cover that bar's buttons", () => {
+    expect(SIDE_PANEL_TOP_CLEARANCE_PX).toBeGreaterThanOrEqual(160);
+  });
+  it("collapsed: only the handle's own height, anchored to the bottom edge", () => {
+    expect(sidePanelBoxStyle(false)).toEqual({ bottom: 0 });
+  });
+  it("open: anchored to the bottom edge and as tall as the viewport minus the clearance", () => {
+    expect(sidePanelBoxStyle(true)).toEqual({ bottom: 0, height: `calc(100dvh - ${SIDE_PANEL_TOP_CLEARANCE_PX}px)` });
+  });
+  it("is exactly as wide as the room the page column leaves (the column offset assumes two 360 px halves)", () => {
+    expect(PANEL_WIDTH_PX).toBe(360);
   });
 });
 

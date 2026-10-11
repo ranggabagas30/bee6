@@ -12,18 +12,36 @@ import { useEffect, useState } from "react";
  *   obscured (WCAG 2.4.11). Open it is at most `SHEET_MAX_DVH` of the screen height, with its card area
  *   scrolling inside it and Back / Next pinned below that area. The page chrome above it is compacted
  *   (`isCompactChrome`) so banner + End + Cancel + the open drawer fit one 640 px screen.
- * - From 900 px up it is a fixed 360 px side panel and the page column moves left of it.
+ * - From 900 px up it is a fixed 360 px side panel. The page column sits left of it in BOTH states (open and
+ *   collapsed), and the panel is pinned to the BOTTOM edge with `SIDE_PANEL_TOP_CLEARANCE_PX` of clear space
+ *   above it. Why: the column is centred, so from 900 to about 1080 px its right edge lies under the 360 px
+ *   panel; a collapsed panel pinned to the top covered the EN/ID switch (reproduced at 900, 960 and 1024 px),
+ *   and an open full-height panel covered the right-hand "Switch to ..." button of the demo bar, which sits
+ *   above `<main>` and can be about 110 px tall. Shifting the column always (no jump on toggle) clears the
+ *   top bar; the clear band at the top keeps the panel off the demo bar.
  *
- * MANUAL GEOMETRY CHECK (jsdom has no layout, so this part is checked in a real browser): in Chromium at
- * 360 x 640 and 360 x 740, with a sandbox device (capture config carrying `demo_session`), tap Start and with
- * the drawer open and a card shown measure `getBoundingClientRect()` of the Listening banner, "End" and
- * "Cancel session": each must lie inside [0, innerHeight] with no scroll (`scrollY === 0`), and
- * `document.elementFromPoint` at the centre of End and of Cancel (after `.focus()`) must return the button
- * itself. The drawer's own bottom must also be <= innerHeight so its Next button is on screen.
+ * MANUAL GEOMETRY CHECK (jsdom has no layout, so this part is checked in a real browser, Chromium, with a
+ * sandbox device: capture config carrying `demo_session`, and, for the demo bar, DEMO_MODE=true plus a
+ * `bee6.demo` record in localStorage):
+ * 1. 360 x 640 and 360 x 740, Start tapped, drawer open with a card shown: `getBoundingClientRect()` of the
+ *    Listening banner, "End" and "Cancel session" each inside [0, innerHeight] with no scroll
+ *    (`scrollY === 0`); `document.elementFromPoint` at the centre of End and of Cancel (after `.focus()`)
+ *    returns the button itself; the drawer's bottom is <= innerHeight so its Next button is on screen.
+ * 2. Widths 900, 960, 1024, 1100, 1280, 1440 x 800, drawer collapsed and open: for every button, link and
+ *    heading outside the panel (EN/ID switch, Start, the demo bar's buttons), `elementFromPoint` at its
+ *    centre must return that element, never the panel; and the panel's rect must not overlap the page
+ *    column's rect (`main`) nor the demo bar's rect.
  */
 
 export const HANDLE_HEIGHT_PX = 56;
 export const PANEL_WIDTH_PX = 360;
+/**
+ * Free space kept above the side panel (from 900 px up), in px. The demo bar above `<main>` is about 106 px
+ * tall at these widths (one line, one row of buttons, an empty status line) and about 150 px with a
+ * two-line status message; 200 clears both with margin and still leaves the open panel 600 px of an
+ * 800 px-tall screen.
+ */
+export const SIDE_PANEL_TOP_CLEARANCE_PX = 200;
 /** Open height cap of the in-flow drawer on narrow screens, in dynamic viewport height units. */
 export const SHEET_MAX_DVH = 45;
 
@@ -51,11 +69,21 @@ export function useDrawerLayout(): { wide: boolean; reducedMotion: boolean } {
 
 /**
  * Extra style for the page `<main>`. Only the side panel needs it (the 360 px column moves to the left of the
- * 360 px panel); the in-flow narrow drawer needs nothing. No drawer means no change at all (the pilot).
+ * 360 px panel, open OR collapsed, so the collapsed handle never covers the top bar); the in-flow narrow
+ * drawer needs nothing. No drawer means no change at all (the pilot). `open` is accepted so callers can pass
+ * the drawer state, but it deliberately does not matter.
  */
-export function drawerInsetStyle(input: { present: boolean; wide: boolean; open: boolean }): React.CSSProperties {
-  if (!input.present || !input.wide || !input.open) return {};
+export function drawerInsetStyle(input: { present: boolean; wide: boolean; open?: boolean }): React.CSSProperties {
+  if (!input.present || !input.wide) return {};
   return { marginLeft: `max(0px, calc((100vw - ${PANEL_WIDTH_PX * 2}px) / 2))`, marginRight: "auto" };
+}
+
+/**
+ * Vertical box of the fixed side panel: pinned to the bottom edge, never to the top. Open it is the viewport
+ * height minus `SIDE_PANEL_TOP_CLEARANCE_PX`; collapsed it is just its own handle.
+ */
+export function sidePanelBoxStyle(open: boolean): React.CSSProperties {
+  return open ? { bottom: 0, height: `calc(100dvh - ${SIDE_PANEL_TOP_CLEARANCE_PX}px)` } : { bottom: 0 };
 }
 
 /**
