@@ -119,6 +119,16 @@ describe("runDueReviews", () => {
     expect(g.reviews.size).toBe(0);
   });
 
+  it("9.T1 (R-12) a sandbox outlet with a due change is not reviewed and not counted; a plain outlet beside it still is", async () => {
+    const sbx = outlet({ outlet_id: "sbx-aaaaaaaaaaaa", sandbox: { template_outlet_id: "demo-tpl-outlet", created_at_ms: 1, expires_at_ms: 2, key_sha256: "a".repeat(64) } });
+    const f = fakeStore(windowData());
+    const storeFor = vi.fn(() => f.store);
+    const r = await runDueReviews({ outlets: [sbx, outlet()], storeFor, now_ms: at("2026-10-23") });
+    expect(storeFor).toHaveBeenCalledTimes(1);
+    expect(storeFor).toHaveBeenCalledWith(OUTLET);
+    expect(r).toEqual({ outlets: 1, created: 1, expired: 0, errors: 0 });
+  });
+
   it("4.T2 catches up a missed run; a second run the same day creates nothing", async () => {
     const f = fakeStore(windowData());
     const run = () => runDueReviews({ outlets: [outlet()], storeFor: () => f.store, now_ms: at("2026-10-25") });
@@ -380,6 +390,15 @@ describe("fastForwardReview", () => {
     expect(f.reviews.get(`${OUTLET}:v2`)).toMatchObject({ simulated: true, status: "awaiting_supervisor" });
     expect(f.audits[0]).toMatchObject({ action: "review.created", actor_role: "supervisor" });
     expect(await ff(f, true, "owner")).toEqual({ version: 3 });
+  });
+
+  it("9.T1 (R-12) fast-forward still works inside a sandbox outlet (project_kind demo)", async () => {
+    const f = fakeStore({
+      ...windowData(),
+      outletDoc: outlet({ sandbox: { template_outlet_id: "demo-tpl-outlet", created_at_ms: 1, expires_at_ms: 2, key_sha256: "a".repeat(64) } }),
+    });
+    expect(await ff(f)).toEqual({ version: 2 });
+    expect(f.reviews.get(`${OUTLET}:v2`)).toMatchObject({ simulated: true });
   });
 
   it("4.T11 demoMode false -> 404; a pilot outlet -> 404 even with demoMode; staff on a demo outlet in demo mode -> 403", async () => {

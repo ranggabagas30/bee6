@@ -10,5 +10,5 @@ export const REVIEW_CONFIRM_DAYS = 7; // confirm window counts 7 days from the l
 export const LIST_OPEN_MAX = 20;
 export const LIST_DECIDED_MAX = 10;
 export const REVIEWS_READ_MAX = 50;
-export const OUTLETS_READ_MAX = 50;
+export const OUTLETS_READ_MAX = 500; // R-12: demo sandboxes are outlets too (up to ~300 a day, cleaned after 26 h); they are skipped, but they still occupy the read
 export const SESSIONS_IN_CHUNK = 30; // Firestore "in" limit
