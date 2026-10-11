@@ -46,6 +46,11 @@ export async function requireClaims(req: NextRequest): Promise<CustomClaims> {
   if (!parsed.success) {
     throw new UnauthorizedError("Token is missing outlet/role claims");
   }
+  // R-12: a demo sandbox token carries its own expiry (Firebase ID tokens refresh forever).
+  // Real principals never carry the claim, so this branch is inert for them.
+  if (parsed.data.demo_exp_ms !== undefined && Date.now() >= parsed.data.demo_exp_ms) {
+    throw new UnauthorizedError("Demo session expired", "demo_session_expired");
+  }
   return parsed.data;
 }
 

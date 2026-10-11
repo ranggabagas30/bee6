@@ -99,6 +99,56 @@ describe("requireClaims (end-to-end through the guard, not just the pure fns)", 
   });
 });
 
+describe("requireClaims demo session expiry (R-12)", () => {
+  const verified = (claims: Record<string, unknown>) => ({
+    uid: "demo-owner-sbx-1",
+    email: undefined,
+    email_verified: false,
+    claims,
+  });
+
+  it("2.T1 a token with a past demo_exp_ms is 401 demo_session_expired", async () => {
+    const { requireClaims } = await import("@/lib/http/guard");
+    const { UnauthorizedError } = await import("@/lib/http/errors");
+    verifyIdToken.mockResolvedValueOnce(
+      verified({ outlet_id: "sbx-1", role: "owner", demo_exp_ms: Date.now() - 1 }),
+    );
+    const err = await requireClaims(fakeRequest("Bearer demo.token")).catch((e) => e);
+    expect(err).toBeInstanceOf(UnauthorizedError);
+    expect(err.statusCode).toBe(401);
+    expect(err.code).toBe("demo_session_expired");
+  });
+
+  it("2.T1b a token expiring exactly now is expired (>=)", async () => {
+    const { requireClaims } = await import("@/lib/http/guard");
+    const now = 1_800_000_000_000;
+    const spy = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      verifyIdToken.mockResolvedValueOnce(verified({ outlet_id: "sbx-1", role: "owner", demo_exp_ms: now }));
+      await expect(requireClaims(fakeRequest("Bearer demo.token"))).rejects.toMatchObject({ code: "demo_session_expired" });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("2.T2 a token with a future demo_exp_ms passes and keeps the claim", async () => {
+    const { requireClaims } = await import("@/lib/http/guard");
+    const exp = Date.now() + 60_000;
+    verifyIdToken.mockResolvedValueOnce(verified({ outlet_id: "sbx-1", role: "supervisor", demo_exp_ms: exp }));
+    expect(await requireClaims(fakeRequest("Bearer demo.token"))).toEqual({
+      outlet_id: "sbx-1",
+      role: "supervisor",
+      demo_exp_ms: exp,
+    });
+  });
+
+  it("2.T5 a real token without the claim is unchanged", async () => {
+    const { requireClaims } = await import("@/lib/http/guard");
+    verifyIdToken.mockResolvedValueOnce(verified({ outlet_id: "proofed", role: "owner" }));
+    expect(await requireClaims(fakeRequest("Bearer real.token"))).toEqual({ outlet_id: "proofed", role: "owner" });
+  });
+});
+
 describe("requirePermission (the guard a resource route would call)", () => {
   it("passes when the token's outlet matches the requested resource's outlet", async () => {
     const { requirePermission } = await import("@/lib/http/guard");

@@ -39,6 +39,8 @@ export interface DeviceRecord {
   revoked: boolean;
   pairing_code: string | null;
   pairing_code_expires_at: string | null;
+  /** R-12: judge devices only; absent = never expires. */
+  expires_at_ms?: number;
 }
 
 export interface StaffRecord {
@@ -134,6 +136,7 @@ export async function pairDevice(
 // ── authenticateDeviceToken ──────────────────────────────────────────────────
 export interface DeviceAuthDeps {
   devices: DeviceStore;
+  now?: Clock;
 }
 
 /**
@@ -154,6 +157,11 @@ export async function authenticateDeviceToken(
   }
   const ok = await verifyDeviceToken(input.token, device.token_hash);
   if (!ok) throw new UnauthorizedError("Invalid device token");
+  // R-12: an expired judge device gets the SAME 401 as a bad token (no distinguishing message).
+  // Real shop phones carry no `expires_at_ms`, so this is inert for them.
+  if (device.expires_at_ms !== undefined && (deps.now ?? systemClock)().getTime() >= device.expires_at_ms) {
+    throw new UnauthorizedError("Invalid device token");
+  }
   return {
     outlet_id: device.outlet_id,
     role: "device",

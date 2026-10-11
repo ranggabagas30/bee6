@@ -34,8 +34,8 @@ export class BadRequestError extends AppError {
 
 /** 401 — missing or invalid credentials (no/invalid token). */
 export class UnauthorizedError extends AppError {
-  constructor(message = "Authentication required") {
-    super(message, "UNAUTHORIZED", 401);
+  constructor(message = "Authentication required", code = "UNAUTHORIZED") {
+    super(message, code, 401);
   }
 }
 
@@ -74,13 +74,17 @@ export class ValidationError extends AppError {
   }
 }
 
-/** 429 — locked out or rate limited; `retryAfterSeconds` for the client. */
+/**
+ * 429 — locked out or rate limited; `retryAfterSeconds` for the client. `code` defaults to
+ * LOCKED; the public demo (R-12) passes `rate_limited` / `demo_daily_cap` / `demo_generate_cap`.
+ */
 export class LockedError extends AppError {
   constructor(
     public readonly retryAfterSeconds: number,
     message = "Too many attempts",
+    code = "LOCKED",
   ) {
-    super(message, "LOCKED", 429);
+    super(message, code, 429);
   }
 }
 
