@@ -494,6 +494,7 @@ export const ID = {
   "C-script-speaker-customer": "Pelanggan", // PROVISIONAL
   "C-script-speaker-colleague": "Rekan kerja", // PROVISIONAL
   "C-script-speaker-caller": "Penelepon", // PROVISIONAL
+  "C-script-end-b": "Debrief 1 jam dimulai sekarang. Tidak bisa dikembalikan.", // PROVISIONAL
   "C-script-day-ended": "Hari demo selesai. Ganti ke Supervisor untuk melihatnya.", // PROVISIONAL
   "C-script-earlier-day": "Hari sebelumnya · {date}", // PROVISIONAL
   "C-script-check-new": "Cek pertanyaan baru", // PROVISIONAL
@@ -990,6 +991,7 @@ export const EN: Record<DictKey, string> = {
   "C-script-speaker-customer": "Customer", // PROVISIONAL
   "C-script-speaker-colleague": "Colleague", // PROVISIONAL
   "C-script-speaker-caller": "Caller", // PROVISIONAL
+  "C-script-end-b": "The 1-hour debrief starts now. This cannot be undone.", // PROVISIONAL
   "C-script-day-ended": "Demo day finished. Switch to Supervisor to see it.", // PROVISIONAL
   "C-script-earlier-day": "Earlier day · {date}", // PROVISIONAL
   "C-script-check-new": "Check for new questions", // PROVISIONAL

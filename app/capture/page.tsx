@@ -694,10 +694,13 @@ export default function CapturePage() {
       <div role="group" aria-label={t(lang, "C-c-selesai-h")} style={PANEL_STYLE}>
         <h2 style={{ fontSize: 18, margin: 0 }}>{t(lang, "C-c-selesai-h")}</h2>
         <p>
-          {t(lang, "C-c-selesai-b", {
-            date: dayLabel(localDateOf(nextMulaiMs, tz), lang),
-            time: clockLabel(nextMulaiMs, tz),
-          })}
+          {config.demo_session
+            ? // Sandbox: one demo day, End has no restart, so no "tap Start again <date>".
+              t(lang, "C-script-end-b")
+            : t(lang, "C-c-selesai-b", {
+                date: dayLabel(localDateOf(nextMulaiMs, tz), lang),
+                time: clockLabel(nextMulaiMs, tz),
+              })}
         </p>
         <button type="button" style={PRIMARY_BUTTON_STYLE} onClick={closeSelesaiConfirm} autoFocus>
           {t(lang, "C-b-belum-lanjut")}
@@ -730,7 +733,8 @@ export default function CapturePage() {
     const tz = config.timezone;
     const now = batalkanTickMs;
     const armed = isDiscardArmed(batalkanOpenedAtMs, now);
-    const body = nextMulaiIsNow(session.local_date, now, tz)
+    // Sandbox: Cancel is the retake path and Start is offered again at once, whatever the weekday hours say.
+    const body = config.demo_session || nextMulaiIsNow(session.local_date, now, tz)
       ? t(lang, "C-c-cancel-b-now")
       : t(lang, "C-c-cancel-b", {
           date: dayLabel(nextOpenLocalDate(session.local_date, config.weekly_hours), lang),
