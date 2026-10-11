@@ -51,6 +51,10 @@ const SANDBOX_COLLECTIONS = [
   COLLECTIONS.labelUnits,
   COLLECTIONS.pipelineLocks,
   COLLECTIONS.segments,
+  // Defined collections the pipeline may fill later; empty today, so deleting them is harmless (orphan hygiene).
+  COLLECTIONS.windows,
+  COLLECTIONS.salesEvents,
+  COLLECTIONS.eventCards,
 ] as const;
 
 /**

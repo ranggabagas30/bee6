@@ -524,6 +524,10 @@ describe("5.S5 deleteSandbox", () => {
       [COLLECTIONS.labelUnits]: { lu1: base("lu1") },
       [COLLECTIONS.pipelineLocks]: { pk1: base("pk1") },
       [COLLECTIONS.segments]: { sg1: base("sg1") },
+      // collections the pipeline may fill later; harmless when empty (orphan hygiene)
+      [COLLECTIONS.windows]: { w1: base("w1") },
+      [COLLECTIONS.salesEvents]: { se1: base("se1") },
+      [COLLECTIONS.eventCards]: { ec1: base("ec1") },
     } as Record<string, Record<string, Doc>>;
   };
 
