@@ -232,6 +232,51 @@ describe("DemoBar live session", () => {
   });
 });
 
+describe("DemoBar clears the judge phone's device keys once the demo has ended", () => {
+  const keys = () => [window.localStorage.getItem("bee6.device_token"), window.localStorage.getItem("bee6.device_id")];
+  beforeEach(() => {
+    window.localStorage.setItem("bee6.device_token", "t");
+    window.localStorage.setItem("bee6.device_id", "d");
+  });
+
+  it("keeps them while the sandbox is live", () => {
+    seed("staff", Date.now() + 3_600_000);
+    renderBar();
+    expect(keys()).toEqual(["t", "d"]);
+  });
+
+  it("removes them when the stored sandbox is already past expiry", () => {
+    seed("staff", Date.now() - 1000);
+    renderBar();
+    expect(keys()).toEqual([null, null]);
+  });
+
+  it("removes them when the clock passes the expiry while the bar is open", () => {
+    vi.useFakeTimers({ now: new Date("2026-10-19T08:00:00Z") });
+    seed("staff", Date.now() + 5_000);
+    renderBar();
+    expect(keys()).toEqual(["t", "d"]);
+    act(() => void vi.advanceTimersByTime(5_001));
+    expect(keys()).toEqual([null, null]);
+  });
+
+  it("removes them when a switch learns the sandbox is gone (409 / 404)", async () => {
+    seed("staff", Date.now() + 3_600_000);
+    startDemo.mockResolvedValue({ kind: "sandbox_expired" });
+    renderBar();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Switch to Owner" })));
+    expect(screen.getByText("Your demo session has ended.")).toBeTruthy();
+    expect(keys()).toEqual([null, null]);
+  });
+
+  it("removes them on /sign-in too, where the bar itself is hidden", () => {
+    seed("staff", Date.now() - 1000);
+    pathname = "/sign-in";
+    renderBar();
+    expect(keys()).toEqual([null, null]);
+  });
+});
+
 describe("DemoBar expiry", () => {
   it("shows the ended state with a restart link, and no switch buttons, when the stored sandbox is past expiry", () => {
     seed("owner", Date.now() - 1000);

@@ -7,7 +7,7 @@ import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import type { DemoRole } from "@/lib/demo/contract";
 import { useLang } from "@/lib/i18n/context";
 import { t, type DictKey } from "@/lib/i18n/dict";
-import { demoSnapshot, notifyDemoChange, subscribeDemoState, viewFromSnapshot } from "@/app/demo/demo-client";
+import { demoSnapshot, notifyDemoChange, removeDeviceKeys, subscribeDemoState, viewFromSnapshot } from "@/app/demo/demo-client";
 import { refusalLines } from "@/app/demo/demo-errors";
 import { useDemoStart } from "@/app/demo/useDemoStart";
 
@@ -76,6 +76,13 @@ export function DemoBar({ config }: { config: FirebaseWebConfig | null }) {
   const snapshot = useSyncExternalStore(subscribeDemoState, () => demoSnapshot(), () => "");
   const view = viewFromSnapshot(snapshot);
   const expiresAt = view && !view.expired ? view.state.expires_at_ms : null;
+  const ended = endedHere || view?.expired === true;
+
+  // Once the demo has ended (timer, or a switch that learned the sandbox is gone) the judge phone's device
+  // keys are of no use any more: remove them so /capture does not keep a dead credential.
+  useEffect(() => {
+    if (ended) removeDeviceKeys();
+  }, [ended]);
 
   // Re-read the snapshot at the expiry instant so a bar left open flips to "ended" without a tap.
   useEffect(() => {
@@ -102,7 +109,6 @@ export function DemoBar({ config }: { config: FirebaseWebConfig | null }) {
     if (endedHere) setEndedHere(false);
     return null;
   }
-  const ended = endedHere || view?.expired === true;
   if (!view && !endedHere) return null;
   if (ended && pathname === "/sign-in") return null;
 

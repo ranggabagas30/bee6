@@ -16,7 +16,7 @@ import { signInErrorKey } from "@/lib/auth/client/sign-in-errors";
 import { useLang } from "@/lib/i18n/context";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import { WebTopBar } from "@/app/web/WebTopBar";
-import { demoSnapshot, subscribeDemoState, viewFromSnapshot } from "@/app/demo/demo-client";
+import { demoSnapshot, removeDeviceKeys, subscribeDemoState, viewFromSnapshot } from "@/app/demo/demo-client";
 
 /**
  * /sign-in — owner/supervisor email + password sign-in (R-06 Task 4.6).
@@ -79,6 +79,11 @@ const DEMO_LINK_STYLE: CSSProperties = {
 export function SignInScreen({ config, demo = false }: { config: FirebaseWebConfig | null; demo?: boolean }) {
   const { lang } = useLang();
   const demoView = viewFromSnapshot(useSyncExternalStore(subscribeDemoState, () => (demo ? demoSnapshot() : ""), () => ""));
+  const demoEnded = demo && demoView?.expired === true;
+  // An ended demo leaves no device credential behind on this phone.
+  useEffect(() => {
+    if (demoEnded) removeDeviceKeys();
+  }, [demoEnded]);
   const router = useRouter();
   const auth = config ? getClientAuth(config) : null;
   const authUser = useAuthUser(auth);

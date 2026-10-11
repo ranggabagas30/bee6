@@ -448,6 +448,28 @@ describe("SignInScreen demo link (R-12 Task 8.5)", () => {
     expect(screen.queryByText("Your demo session has ended.")).toBeNull();
   });
 
+  it("in demo mode, an ended demo also removes the judge phone's device keys; a live one and the pilot do not", () => {
+    const seedKeys = () => {
+      window.localStorage.setItem("bee6.device_token", "t");
+      window.localStorage.setItem("bee6.device_id", "d");
+    };
+    const gone = () => window.localStorage.getItem("bee6.device_token") === null && window.localStorage.getItem("bee6.device_id") === null;
+
+    seedKeys();
+    window.localStorage.setItem("bee6.demo", JSON.stringify({ sandbox_key: DEMO_KEY, expires_at_ms: Date.now() + 3_600_000, role: "staff" }));
+    renderDemo(true);
+    expect(gone()).toBe(false);
+    cleanup();
+
+    window.localStorage.setItem("bee6.demo", JSON.stringify({ sandbox_key: DEMO_KEY, expires_at_ms: 1000, role: "staff" }));
+    renderDemo(false); // the pilot never touches demo state
+    expect(gone()).toBe(false);
+    cleanup();
+
+    renderDemo(true);
+    expect(gone()).toBe(true);
+  });
+
   it("keeps the sign-in form usable beside the demo link", () => {
     renderDemo(true);
     expect(screen.getByLabelText("Email")).toBeTruthy();
