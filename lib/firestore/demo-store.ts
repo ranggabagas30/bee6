@@ -55,11 +55,28 @@ const SANDBOX_COLLECTIONS = [
 
 /**
  * The template is static between re-seeds, and the session route is anonymous: without a cache every
- * request would cost about 20 reads before any limit is applied. A successful read is kept per database
- * for this long (never a null or an error, so a fixed template is picked up at once).
+ * request would cost about 20 reads before any limit is applied. Per database:
+ *  - a successful read is kept 60 s;
+ *  - a missing/malformed template (null) or a too-large one is kept 20 s (a short negative cache, so a
+ *    broken template cannot turn every request into 20 reads, yet a fixed one is picked up quickly);
+ *  - any other error (a transient Firestore failure) is never cached;
+ *  - concurrent callers that find nothing cached share ONE in-flight read (single-flight).
  */
 const TEMPLATE_CACHE_MS = 60_000;
-const templateCache = new WeakMap<Firestore, { at: number; tpl: TemplateSet }>();
+const TEMPLATE_NEGATIVE_CACHE_MS = 20_000;
+type TemplateOutcome = { at: number; kind: "ok"; tpl: TemplateSet } | { at: number; kind: "null" } | { at: number; kind: "too_large" };
+const templateCache = new WeakMap<Firestore, TemplateOutcome>();
+const templateInflight = new WeakMap<Firestore, Promise<TemplateSet | null>>();
+
+function fromCache(db: Firestore): TemplateSet | null | undefined {
+  const hit = templateCache.get(db);
+  if (!hit) return undefined;
+  const age = Date.now() - hit.at;
+  if (hit.kind === "ok") return age < TEMPLATE_CACHE_MS ? hit.tpl : undefined;
+  if (age >= TEMPLATE_NEGATIVE_CACHE_MS) return undefined;
+  if (hit.kind === "too_large") throw new TemplateTooLargeError();
+  return null;
+}
 
 /** A safety valve for the delete loops (a sandbox is small; this only stops a runaway). */
 const MAX_DELETE_PASSES = 200;
@@ -144,11 +161,24 @@ export function firestoreDemoStore(db: Firestore = adminDb()): DemoStore {
 
   return {
     async readTemplate(): Promise<TemplateSet | null> {
-      const cached = templateCache.get(db);
-      if (cached && Date.now() - cached.at < TEMPLATE_CACHE_MS) return cached.tpl;
-      const tpl = await readTemplateUncached();
-      if (tpl) templateCache.set(db, { at: Date.now(), tpl });
-      return tpl;
+      const cached = fromCache(db);
+      if (cached !== undefined) return cached;
+      const running = templateInflight.get(db);
+      if (running) return running;
+      const read = (async () => {
+        try {
+          const tpl = await readTemplateUncached();
+          templateCache.set(db, tpl ? { at: Date.now(), kind: "ok", tpl } : { at: Date.now(), kind: "null" });
+          return tpl;
+        } catch (error) {
+          if (error instanceof TemplateTooLargeError) templateCache.set(db, { at: Date.now(), kind: "too_large" });
+          throw error;
+        } finally {
+          templateInflight.delete(db);
+        }
+      })();
+      templateInflight.set(db, read);
+      return read;
     },
 
     async writeSandbox(docs: ClonedDoc[]): Promise<void> {

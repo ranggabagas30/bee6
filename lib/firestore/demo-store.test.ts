@@ -237,22 +237,64 @@ describe("readTemplate cache (an anonymous route must not turn every request int
     expect(queries.length).toBeGreaterThan(queriesAfterFirst);
   });
 
-  it("never caches a null (missing or malformed) template, so a fixed template is picked up at once", async () => {
-    const { db, cols } = fakeDb({});
+  it("M5 a missing or malformed template is cached for 20 s (no read per request), then re-read so a fix is picked up", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.UTC(2026, 9, 28, 10, 0, 0));
+    const { db, cols, queries } = fakeDb({});
     const store = firestoreDemoStore(db);
     expect(await store.readTemplate()).toBeNull();
+    const readsAfterFirst = queries.length;
     for (const [name, docs] of Object.entries(seedTemplate())) cols.set(name, new Map(Object.entries(docs)));
+    vi.setSystemTime(Date.UTC(2026, 9, 28, 10, 0, 19));
+    expect(await store.readTemplate()).toBeNull();
+    expect(queries.length).toBe(readsAfterFirst);
+    vi.setSystemTime(Date.UTC(2026, 9, 28, 10, 0, 21));
     expect(await store.readTemplate()).not.toBeNull();
   });
 
-  it("never caches an error (template too large)", async () => {
+  it("M5 template-too-large is cached for 20 s and rethrown without reading, then re-read", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.UTC(2026, 9, 28, 10, 0, 0));
     const seed = seedTemplate();
     const first = Object.values(seed[COLLECTIONS.threads]!)[0] as Doc;
     for (let i = 0; i < 400; i++) seed[COLLECTIONS.threads]![`x${i}`] = { ...first, thread_id: `x${i}` };
-    const { db, cols } = fakeDb(seed);
+    const { db, cols, queries } = fakeDb(seed);
     const store = firestoreDemoStore(db);
     await expect(store.readTemplate()).rejects.toBeInstanceOf(TemplateTooLargeError);
+    const readsAfterFirst = queries.length;
     for (let i = 0; i < 400; i++) cols.get(COLLECTIONS.threads)!.delete(`x${i}`);
+    vi.setSystemTime(Date.UTC(2026, 9, 28, 10, 0, 19));
+    await expect(store.readTemplate()).rejects.toBeInstanceOf(TemplateTooLargeError);
+    expect(queries.length).toBe(readsAfterFirst);
+    vi.setSystemTime(Date.UTC(2026, 9, 28, 10, 0, 21));
+    expect(await store.readTemplate()).not.toBeNull();
+  });
+
+  it("M5 concurrent requests at expiry share ONE read (single-flight)", async () => {
+    const { db, queries } = fakeDb(seedTemplate());
+    const store = firestoreDemoStore(db);
+    const results = await Promise.all(Array.from({ length: 8 }, () => store.readTemplate()));
+    expect(new Set(results).size).toBe(1);
+    const concurrentReads = queries.length;
+    const solo = fakeDb(seedTemplate());
+    await firestoreDemoStore(solo.db).readTemplate();
+    expect(concurrentReads).toBe(solo.queries.length);
+  });
+
+  it("M5 a transient error is shared by the callers in flight but never cached", async () => {
+    const { db, cols } = fakeDb(seedTemplate());
+    const realGet = (db as unknown as { collection(c: string): { doc(id: string): { get(): Promise<unknown> } } }).collection;
+    let fail = true;
+    (db as unknown as { collection: (c: string) => unknown }).collection = (c: string) => {
+      const api = realGet(c);
+      if (c !== COLLECTIONS.outlets) return api;
+      return { ...api, doc: (id: string) => ({ ...api.doc(id), get: async () => { if (fail) throw new Error("unavailable"); return api.doc(id).get(); } }) };
+    };
+    const store = firestoreDemoStore(db);
+    const settled = await Promise.allSettled([store.readTemplate(), store.readTemplate()]);
+    expect(settled.map((r) => r.status)).toEqual(["rejected", "rejected"]);
+    fail = false;
+    expect(cols.size).toBeGreaterThan(0);
     expect(await store.readTemplate()).not.toBeNull();
   });
 
