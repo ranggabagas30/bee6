@@ -1,13 +1,14 @@
 import { maskDigitRuns } from "@/lib/constraints/normalize";
 import { scrubStaffNames } from "@/lib/pipeline/label/scrub";
-import { ServiceUnavailableError } from "@/lib/http/errors";
+import { LockedError, ServiceUnavailableError } from "@/lib/http/errors";
 
 /**
  * The one pipeline for free text a signed-in user types that we store
  * (constraint text, rejection reasons): digit-run mask → staff-name scrub →
  * Sensitive Data Protection, in that order (hard rule #3). Throws
  * ServiceUnavailableError("Redaction unavailable", "redact") if SDP fails;
- * the caller writes nothing. Never logs the text.
+ * the caller writes nothing. A LockedError (429) from the redaction function is the public demo's spend cap
+ * (R-12), not an SDP failure: it passes through unchanged. Never logs the text.
  */
 export async function redactUserText(
   text: string,
@@ -18,7 +19,8 @@ export async function redactUserText(
   let out: string[];
   try {
     out = await redact([scrubbed]);
-  } catch {
+  } catch (error) {
+    if (error instanceof LockedError) throw error;
     throw new ServiceUnavailableError("Redaction unavailable", "redact");
   }
   return out[0] ?? "";

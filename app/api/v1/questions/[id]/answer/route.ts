@@ -7,8 +7,7 @@ import { submitAnswer } from "@/lib/debrief/service";
 import { firestoreDebriefStore } from "@/lib/firestore/debrief-store";
 import { dlpRedactor } from "@/lib/redact/dlp";
 import { enforceDemoCapsForRoute } from "@/lib/demo/route-caps";
-import { AnswerBodySchema } from "@/lib/debrief/contract";
-import { checkReason } from "@/lib/debrief/reason";
+import { capBeforeRedactor } from "@/lib/demo/redact-cap";
 
 /**
  * POST /api/v1/questions/{id}/answer (device; R-07, web spec §6.2/§6.6.6).
@@ -25,20 +24,6 @@ export const dynamic = "force-dynamic";
 /** A legitimate answer is well under 3 KB (a 500-character reason); the cap only stops a device token buffering megabytes. */
 const BODY_MAX_BYTES = 32 * 1024;
 
-/**
- * Will this request reach Sensitive Data Protection? Only a well-formed body whose question_id equals the
- * path id and whose reason is non-empty and within its bound does; the service refuses anything else
- * (400) before the scrub and SDP, so it must not spend a demo slot.
- */
-function reachesRedaction(text: string, pathId: string): boolean {
-  try {
-    const parsed = AnswerBodySchema.safeParse(JSON.parse(text));
-    return parsed.success && parsed.data.question_id === pathId && checkReason(parsed.data.reason).ok;
-  } catch {
-    return false;
-  }
-}
-
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const claims = await requireDevice(req);
@@ -48,14 +33,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const { id } = await params;
     const text = await readBodyTextCapped(req, BODY_MAX_BYTES);
 
-    // R-12: a sandbox's typed reasons go through Sensitive Data Protection, so they are capped. Only a request
-    // that will reach SDP spends the cap (anything the service refuses first gets its own 400, charged nothing).
-    if (reachesRedaction(text, id)) await enforceDemoCapsForRoute("redact", claims);
+    // R-12: a sandbox's typed reasons go through Sensitive Data Protection, so they are capped. The cap is
+    // charged inside the redactor the service is handed, immediately before SDP: a malformed body, an
+    // answer replay, an unknown question or an answer outside the debrief window is refused by the service
+    // first and spends no slot.
+    const redactor = capBeforeRedactor(dlpRedactor(), () => enforceDemoCapsForRoute("redact", claims));
 
     const result = await submitAnswer(
       {
         store: firestoreDebriefStore(claims.outlet_id),
-        redactor: dlpRedactor(),
+        redactor,
         // Outcome-only (question_id, a code, a length) — never the reason, scrubbed or not.
         log: (entry) => console.log("debrief.answer", entry),
       },

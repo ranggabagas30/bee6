@@ -3,7 +3,7 @@ import type { CustomClaims } from "@/lib/auth/roles";
 import { localDateOf, zonedTimeToEpochMs } from "@/lib/capture/calendar";
 import type { AttributionSession } from "@/lib/day/attribution";
 import type { AuditLog, Outcome, Outlet, Review, SopVersion } from "@/lib/firestore/schema";
-import { ConflictError, ForbiddenError, NotFoundError, ServiceUnavailableError } from "@/lib/http/errors";
+import { ConflictError, ForbiddenError, LockedError, NotFoundError, ServiceUnavailableError } from "@/lib/http/errors";
 import type { ProposalThreadRow } from "@/lib/proposals/candidates";
 import {
   createReview,
@@ -16,6 +16,7 @@ import {
 import { OUTLET, REASON_SENTINEL, reviewDoc, seedV1, shippedVersion, TZ, verdictEntry } from "@/lib/reviews/testing/fixtures";
 import { proposalV1 } from "@/lib/sop/testing/fixtures";
 import { enforceDemoCaps } from "@/lib/demo/caps";
+import { capBeforeRedact } from "@/lib/demo/redact-cap";
 import { fakeStore as fakeDemoStore } from "@/lib/demo/testing/fake-store";
 import { templateSet } from "@/lib/demo/testing/fixtures";
 
@@ -590,5 +591,53 @@ describe("fastForwardReview with the real sandbox cap (QA D1: a refused or lost 
     await expect(skip()).rejects.toMatchObject({ code: "demo_fast_forward_cap", statusCode: 429 });
     expect(f.reviews.size).toBe(3);
     expect(slots()).toBe(3);
+  });
+});
+
+describe("decideVerdict with the demo redact cap charged immediately before SDP (R-12, QA D2)", () => {
+  const run = (f: ReturnType<typeof fakeStore>, redact: (t: readonly string[]) => Promise<string[]>, role: CustomClaims["role"], v: number, b: { verdict: "worked" | "revise" | "revert"; reason?: string }, today = "2026-10-24") =>
+    decideVerdict(f.store, { redact }, { claims: claims(role), version: v, body: b, now_ms: at(today) });
+  function capped(over: { refuse?: boolean } = {}) {
+    const charges: string[] = [];
+    const sdp = vi.fn(async (t: readonly string[]) => t.map((x) => `SDP[${x}]`));
+    const redact = capBeforeRedact(sdp, async () => {
+      if (over.refuse) throw new LockedError(9, "capped", "demo_redact_cap");
+      charges.push("charge");
+    });
+    return { charges, sdp, redact };
+  }
+
+  it("a verdict with a reason on a missing review, a repeated verdict or a refused one charges nothing and never reaches SDP", async () => {
+    const c = capped();
+    const f = fakeStore({ reviews: [reviewDoc()] });
+    await expect(run(f, c.redact, "supervisor", 9, { verdict: "worked", reason: "Went well" })).rejects.toBeInstanceOf(NotFoundError);
+    await expect(run(f, c.redact, "owner", 2, { verdict: "worked", reason: "Went well" })).rejects.toMatchObject({ code: "NOT_YET_REVIEWABLE" });
+    await expect(run(f, c.redact, "supervisor", 2, { verdict: "worked", reason: "Went well" }, "2026-10-31")).rejects.toMatchObject({ code: "EXPIRED" });
+    expect(c.charges).toHaveLength(0);
+    expect(c.sdp).not.toHaveBeenCalled();
+
+    const g = fakeStore({ reviews: [reviewDoc()] });
+    await run(g, capped().redact, "supervisor", 2, { verdict: "revise" });
+    expect(await run(g, c.redact, "supervisor", 2, { verdict: "revise", reason: "same again" })).toMatchObject({ result: "unchanged" });
+    expect(c.charges).toHaveLength(0);
+    expect(c.sdp).not.toHaveBeenCalled();
+  });
+
+  it("a verdict with no reason charges nothing; with a reason it charges once, before SDP", async () => {
+    const c = capped();
+    const f = fakeStore({ reviews: [reviewDoc()] });
+    await run(f, c.redact, "supervisor", 2, { verdict: "revise" });
+    expect(c.charges).toHaveLength(0);
+    await run(f, c.redact, "owner", 2, { verdict: "worked", reason: "Went well" });
+    expect(c.charges).toHaveLength(1);
+    expect(c.sdp).toHaveBeenCalledTimes(1);
+  });
+
+  it("at the cap the verdict is a 429 (not a 503): no SDP, nothing stored", async () => {
+    const c = capped({ refuse: true });
+    const f = fakeStore({ reviews: [reviewDoc()] });
+    await expect(run(f, c.redact, "supervisor", 2, { verdict: "revise", reason: "Because" })).rejects.toMatchObject({ statusCode: 429, code: "demo_redact_cap" });
+    expect(c.sdp).not.toHaveBeenCalled();
+    expect(f.reviews.get(`${OUTLET}:v2`)!.status).toBe("awaiting_supervisor");
   });
 });

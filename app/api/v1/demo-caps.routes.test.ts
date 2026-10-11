@@ -10,8 +10,11 @@ import { POST as verdictPOST } from "./reviews/[version]/verdict/route";
 import { POST as constraintsPOST } from "./constraints/route";
 import { POST as fastForwardPOST } from "./reviews/fast-forward/route";
 import { POST as answerPOST } from "./questions/[id]/answer/route";
-import { ConflictError, UnauthorizedError } from "@/lib/http/errors";
+import { AppError, ConflictError, NotFoundError, UnauthorizedError } from "@/lib/http/errors";
+import { checkReason } from "@/lib/debrief/reason";
 import * as guardModule from "@/lib/http/guard";
+import { assertPermission } from "@/lib/auth/rbac";
+import type { CustomClaims } from "@/lib/auth/roles";
 
 /**
  * R-12 H2: every sandbox route that spends Sensitive Data Protection money (typed text) or writes
@@ -29,15 +32,48 @@ vi.mock("@/lib/firestore/proposal-review-store", () => ({ firestoreProposalRevie
 vi.mock("@/lib/firestore/constraint-store", () => ({ firestoreConstraintStore: () => ({}) }));
 vi.mock("@/lib/firestore/review-store", () => ({ firestoreReviewStore: () => ({}) }));
 vi.mock("@/lib/firestore/debrief-store", () => ({ firestoreDebriefStore: () => ({}) }));
-vi.mock("@/lib/redact/batch", () => ({ redactBatch: () => async (t: readonly string[]) => [...t] }));
-vi.mock("@/lib/redact/dlp", () => ({ dlpRedactor: () => ({ redact: async (t: string) => t }) }));
+// `sdp.calls` counts the Sensitive Data Protection calls that were really made.
+const sdp = vi.hoisted(() => ({ calls: 0 }));
+vi.mock("@/lib/redact/batch", () => ({
+  redactBatch: () => async (t: readonly string[]) => {
+    sdp.calls += 1;
+    return [...t];
+  },
+}));
+vi.mock("@/lib/redact/dlp", () => ({
+  dlpRedactor: () => ({
+    redact: async (t: string) => {
+      sdp.calls += 1;
+      return t;
+    },
+  }),
+}));
+// The services are mocked, so each mock models what the real one does with the redaction function the route
+// hands it: it calls it only when the request survives every refusal that needs no spend (`refusedFirst`
+// models a decided or missing proposal, a missing review, an answer replay or an unknown question). The real
+// services' own guarantees are tested in their service tests.
+const refusedFirst = vi.hoisted(() => ({ value: false }));
 const decideProposal = vi.fn();
-vi.mock("@/lib/proposals/review-service", () => ({ decideProposal: (...a: unknown[]) => decideProposal(...a) }));
+vi.mock("@/lib/proposals/review-service", () => ({
+  decideProposal: async (...a: unknown[]) => {
+    const [, , deps, input] = a as [unknown, unknown, { redact: (t: string[]) => Promise<string[]> }, { claims: CustomClaims; actor: "owner" | "supervisor"; body: { decision: string; reason?: string } }];
+    assertPermission(input.claims, input.actor === "owner" ? "proposals:approve" : "proposals:review"); // the real service checks first
+    if (refusedFirst.value) throw new ConflictError("Already decided", "ALREADY_DECIDED");
+    if (input.body.decision === "reject") await deps.redact([input.body.reason ?? ""]);
+    return decideProposal(...a);
+  },
+}));
 const decideVerdict = vi.fn();
 const ffRefuses = vi.hoisted(() => ({ value: false }));
 const fastForwardReview = vi.fn();
 vi.mock("@/lib/reviews/service", () => ({
-  decideVerdict: (...a: unknown[]) => decideVerdict(...a),
+  decideVerdict: async (...a: unknown[]) => {
+    const [, deps, input] = a as [unknown, { redact: (t: string[]) => Promise<string[]> }, { claims: CustomClaims; body: { reason?: string } }];
+    assertPermission(input.claims, "reviews:verdict"); // the real service checks first
+    if (refusedFirst.value) throw new NotFoundError("review", "review");
+    if (input.body.reason) await deps.redact([input.body.reason]);
+    return decideVerdict(...a);
+  },
   // The real service calls beforeCreate (the cap check) once its own pre-checks pass and afterCreate (the cap
   // charge) once the review was created; ffRefuses models a skip that cannot run.
   fastForwardReview: async (store: unknown, input: { beforeCreate?: () => Promise<void>; afterCreate?: () => Promise<void> }) => {
@@ -51,7 +87,24 @@ vi.mock("@/lib/reviews/service", () => ({
 const createConstraint = vi.fn();
 vi.mock("@/lib/constraints/service", () => ({ createConstraint: (...a: unknown[]) => createConstraint(...a), listConstraintViews: vi.fn() }));
 const submitAnswer = vi.fn();
-vi.mock("@/lib/debrief/service", () => ({ submitAnswer: (...a: unknown[]) => submitAnswer(...a) }));
+vi.mock("@/lib/debrief/service", () => ({
+  submitAnswer: async (...a: unknown[]) => {
+    const [deps, , pathId, text] = a as [{ redactor: { redact: (t: string) => Promise<string> } }, unknown, string, string];
+    if (refusedFirst.value) return pathId === "q_replay" ? { status: "already_answered" } : Promise.reject(new NotFoundError("question", pathId));
+    let reason = "";
+    try {
+      const body = JSON.parse(text) as { question_id?: string; reason?: string };
+      if (body.question_id !== pathId) throw new Error("mismatch");
+      const checked = checkReason(body.reason ?? "");
+      if (!checked.ok) throw new Error("bad reason");
+      reason = checked.trimmed;
+    } catch {
+      throw new AppError("Bad answer", "invalid_body", 400); // the real service refuses these before the scrub and SDP
+    }
+    await deps.redactor.redact(reason);
+    return submitAnswer(...a);
+  },
+}));
 
 const SBX = "sbx-0123456789ab";
 const PROPOSAL = "33333333-3333-4333-8333-333333333333";
@@ -162,6 +215,8 @@ beforeEach(() => {
   vi.mocked(firestoreDemoStore).mockReturnValue(f.store);
   vi.stubEnv("DEMO_MODE", "true");
   ffRefuses.value = false;
+  refusedFirst.value = false;
+  sdp.calls = 0;
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -316,6 +371,59 @@ describe("redact cap: charged only when text that will reach Sensitive Data Prot
 
   it("an answer with text and a matching path id spends a slot", async () => {
     expect((await burn("debrief answer (device)", ANSWER, "q_abc")).bumps).toBeGreaterThan(0);
+  });
+});
+
+describe("redact cap (QA D2): a request the service refuses before SDP burns no slot and makes no SDP call", () => {
+  const ANSWER = { question_id: "q_replay", debrief_business_date: "2026-10-19", answer: "yes", reason: "ok", answered_at_ms: 1 };
+  const cases: [string, string, unknown, string?][] = [
+    ["proposal approve", "reject on a decided or missing proposal", { decision: "reject", reason: "Not now" }],
+    ["proposal review", "reject on a decided or missing proposal", { decision: "reject", reason: "Not feasible" }],
+    ["review verdict", "a verdict with a reason on a missing review", { verdict: "worked", reason: "Worked well" }],
+    ["debrief answer (device)", "an answer replay", ANSWER, "q_replay"],
+    ["debrief answer (device)", "an answer for an unknown question", { ...ANSWER, question_id: "q_none" }, "q_none"],
+  ];
+  for (const [name, what, body, ctxId] of cases) {
+    it(`${name}: ${what}`, async () => {
+      const c = CASES.find((x) => x.name === name)!;
+      vi.stubEnv(c.capEnv, "1"); // a single slot: if it were burned the next real request would be a 429
+      principal(c, SBX);
+      c.service.mockResolvedValue(c.serviceResult);
+      refusedFirst.value = true;
+      for (let i = 0; i < 3; i++) {
+        const res = ctxId ? await answerPOST(mk(headers(), JSON.stringify(body)), ctx({ id: ctxId })) : await c.call(headers(), JSON.stringify(body));
+        expect(res.status).not.toBe(429);
+      }
+      expect(f.bumps).toEqual([]);
+      expect(sdp.calls).toBe(0);
+      refusedFirst.value = false;
+      const real = ctxId ? await answerPOST(mk(headers(), JSON.stringify({ ...(body as object), question_id: ctxId })), ctx({ id: ctxId })) : await c.call(headers(), JSON.stringify(body));
+      expect(real.status).toBeLessThan(400); // the single slot was still there
+      expect(f.bumps.length).toBeGreaterThan(0);
+      expect(sdp.calls).toBe(1);
+    });
+  }
+
+  it("cap before spend: a capped request that reaches the redaction is a 429 with no SDP call", async () => {
+    const c = CASES.find((x) => x.name === "proposal approve")!;
+    vi.stubEnv(c.capEnv, "1");
+    principal(c, SBX);
+    c.service.mockResolvedValue(c.serviceResult);
+    expect((await c.call(headers(), JSON.stringify(c.body))).status).toBe(200);
+    expect(sdp.calls).toBe(1);
+    const capped = await c.call(headers(), JSON.stringify(c.body));
+    expect(capped.status).toBe(429);
+    expect((await capped.json()).error.code).toBe("demo_redact_cap");
+    expect(Number(capped.headers.get("Retry-After"))).toBeGreaterThanOrEqual(1);
+    expect(sdp.calls).toBe(1);
+  });
+
+  it("the constraints route stays charged at the route (it always reaches SDP)", async () => {
+    const c = CASES.find((x) => x.name === "constraint create")!;
+    principal(c, SBX);
+    c.service.mockResolvedValue(c.serviceResult);
+    expect((await c.call(headers(), JSON.stringify(c.body))).status).toBeLessThan(400);
+    expect(f.bumps.length).toBeGreaterThan(0);
   });
 });
 

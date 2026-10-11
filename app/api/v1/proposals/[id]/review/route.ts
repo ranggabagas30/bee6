@@ -4,6 +4,7 @@ import { requireClaims } from "@/lib/http/guard";
 import { BadRequestError, NotFoundError, ValidationError, handleApiError } from "@/lib/http/errors";
 import { jsonOk } from "@/lib/http/respond";
 import { enforceDemoCapsForRoute } from "@/lib/demo/route-caps";
+import { capBeforeRedact } from "@/lib/demo/redact-cap";
 import { firestoreConstraintStore } from "@/lib/firestore/constraint-store";
 import { firestoreProposalReviewStore } from "@/lib/firestore/proposal-review-store";
 import { redactBatch } from "@/lib/redact/batch";
@@ -42,15 +43,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     // R-12: a sandbox's text entry (the rejection reason goes through Sensitive Data Protection) is capped.
-    // Only a rejection carries text; an approval or "feasible" reaches no model and spends no slot.
-    if (body.data.decision === "reject") await enforceDemoCapsForRoute("redact", claims, "proposals:review");
+    // The cap is charged inside the redaction function the service is handed, immediately before SDP, so a
+    // request the service refuses first (a decided or missing proposal) or one with no text spends no slot.
+    const redact = capBeforeRedact(redactBatch(), () => enforceDemoCapsForRoute("redact", claims));
 
     const data = await decideProposal(
       firestoreProposalReviewStore(claims.outlet_id),
       firestoreConstraintStore(claims.outlet_id),
       {
         loadLibrary: () => loadProposalLibrary({ allowDraft: defaultAllowDraft() }),
-        redact: redactBatch(),
+        redact,
         newId: () => crypto.randomUUID(),
       },
       { claims, proposal_id: id, actor: "supervisor", body: body.data, now_ms: Date.now() },
