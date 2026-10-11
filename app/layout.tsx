@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { LangProvider } from "@/lib/i18n/context";
 import { LANG_COOKIE, parseLangCookie } from "@/lib/i18n/lang";
 import { readFirebaseWebConfig } from "@/lib/auth/web-config";
-import { DemoBar } from "@/app/demo/DemoBar";
+import { DemoBarLoader } from "@/app/demo/DemoBarLoader";
 
 export const metadata: Metadata = {
   title: "bee6 — SOP Improvement Agent",
@@ -28,7 +28,7 @@ export default async function RootLayout({
     <html lang={lang}>
       <body>
         <LangProvider initial={lang}>
-          {demo ? <DemoBar config={readFirebaseWebConfig()} /> : null}
+          {demo ? <DemoBarLoader config={readFirebaseWebConfig()} /> : null}
           {children}
         </LangProvider>
       </body>
