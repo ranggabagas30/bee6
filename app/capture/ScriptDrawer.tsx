@@ -196,10 +196,10 @@ export function ScriptDrawer(props: ScriptDrawerProps) {
             </>
           ) : null}
 
-          {/* The general rules and the reload note come last in the scroll area, so the card is what the judge
+          {/* The general rules and the reload note (not once the day has ended) come last in the scroll area, so the card is what the judge
               sees first; they are always one scroll away. */}
           <p style={{ fontSize: 13, margin: "0 0 4px", color: "#444" }}>{t(lang, "C-script-rules")}</p>
-          <p style={{ fontSize: 13, margin: "0 0 4px", color: "#444" }}>{t(lang, "C-script-reload")}</p>
+          {state !== "ended" ? <p style={{ fontSize: 13, margin: "0 0 4px", color: "#444" }}>{t(lang, "C-script-reload")}</p> : null}
           {remaining ? <p style={{ fontSize: 13, margin: 0, color: "#444" }}>{t(lang, "C-script-countdown", { time: remaining })}</p> : null}
         </div>
 

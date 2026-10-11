@@ -213,6 +213,17 @@ describe("ScriptDrawer (R-18)", () => {
     expect(within(screen.getByRole("region", { name: "Skrip demo" })).getByText("Jika halaman ini dimuat ulang, ketuk Mulai lagi.")).toBeTruthy();
   });
 
+  it("item 2: the reload line is shown before and while running, and hidden once the day has ended", () => {
+    const { rerender } = render(<ScriptDrawer {...props({ state: "before", startedAtMs: null, nowMs: null })} />);
+    expect(screen.queryByText("If this page reloads, tap Start again.")).toBeTruthy();
+    rerender(<ScriptDrawer {...props()} />);
+    expect(screen.queryByText("If this page reloads, tap Start again.")).toBeTruthy();
+    rerender(<ScriptDrawer {...props({ state: "ended" })} />);
+    expect(screen.queryByText("If this page reloads, tap Start again.")).toBeNull();
+    rerender(<ScriptDrawer {...props({ state: "ended", lang: "id" })} />);
+    expect(screen.queryByText("Jika halaman ini dimuat ulang, ketuk Mulai lagi.")).toBeNull();
+  });
+
   it("an unknown script id renders nothing (no empty drawer)", () => {
     const { container } = render(<ScriptDrawer {...props({ scriptId: "nope" })} />);
     expect(container.textContent).toBe("");
