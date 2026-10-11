@@ -7,6 +7,7 @@ import { authedPostJson } from "@/lib/auth/client/api";
 import type { Lang } from "@/lib/i18n/lang";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import { CONSTRAINT_INPUT_MAX, CONSTRAINT_INPUT_MIN } from "@/lib/constraints/contract";
+import { noticeDomId } from "@/app/proposals/ProposalCard";
 import { DecisionResponseSchema, type ProposalListItem } from "@/lib/proposals/review-contract";
 
 /**
@@ -117,6 +118,10 @@ export function ProposalDecisionPanel({
   const trimmed = reason.trim();
   const canContinue = trimmed.length >= CONSTRAINT_INPUT_MIN;
   const positiveBlocked = notices.evidence_stale || notices.sop_changed;
+  const blockedBy = [
+    ...(notices.evidence_stale ? [noticeDomId(proposal.proposal_id, "stale")] : []),
+    ...(notices.sop_changed ? [noticeDomId(proposal.proposal_id, "sop")] : []),
+  ];
   const lateIds = notices.late_constraints.map((c) => c.constraint_id);
   const needsAck = lateIds.length > 0;
   const positiveKey: DictKey = role === "supervisor" ? "C-prop-act-feasible" : "C-prop-act-approve";
@@ -211,6 +216,7 @@ export function ProposalDecisionPanel({
             ref={positiveRef}
             type="button"
             disabled={positiveBlocked || busy}
+            aria-describedby={blockedBy.length > 0 ? blockedBy.join(" ") : undefined}
             onClick={() => {
               setMessage(null);
               setStep("confirm-positive");

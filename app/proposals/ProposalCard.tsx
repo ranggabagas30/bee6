@@ -171,12 +171,25 @@ function ReviewLines({ review, lang }: { review: ReviewView; lang: Lang }) {
   );
 }
 
-function NoticeLines({ notices, lang }: { notices: Notices; lang: Lang }) {
+/** DOM id of a notice that disables the decision panel's positive button, so the button can name it via aria-describedby. */
+export function noticeDomId(proposalId: string, kind: "stale" | "sop"): string {
+  return `prop-${proposalId}-notice-${kind}`;
+}
+
+function NoticeLines({ proposalId, notices, lang }: { proposalId: string; notices: Notices; lang: Lang }) {
   return (
     <>
       {notices.superseded && <p style={LINE_STYLE}>{t(lang, "C-prop-notice-superseded")}</p>}
-      {notices.evidence_stale && <p style={LINE_STYLE}>{t(lang, "C-prop-notice-stale")}</p>}
-      {notices.sop_changed && <p style={LINE_STYLE}>{t(lang, "C-prop-notice-sop")}</p>}
+      {notices.evidence_stale && (
+        <p id={noticeDomId(proposalId, "stale")} style={LINE_STYLE}>
+          {t(lang, "C-prop-notice-stale")}
+        </p>
+      )}
+      {notices.sop_changed && (
+        <p id={noticeDomId(proposalId, "sop")} style={LINE_STYLE}>
+          {t(lang, "C-prop-notice-sop")}
+        </p>
+      )}
       {notices.late_constraints.length > 0 && (
         <>
           <p style={LINE_STYLE}>{t(lang, "C-prop-notice-late")}</p>
@@ -229,7 +242,7 @@ export function ProposalCard({
       )}
 
       {review && <ReviewLines review={review} lang={lang} />}
-      {notices && <NoticeLines notices={notices} lang={lang} />}
+      {notices && <NoticeLines proposalId={proposal.proposal_id} notices={notices} lang={lang} />}
       {children}
     </article>
   );

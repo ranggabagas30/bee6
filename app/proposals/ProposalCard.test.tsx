@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import type { ProposalView } from "@/lib/proposals/contract";
-import { ProposalCard } from "@/app/proposals/ProposalCard";
+import { ProposalCard, noticeDomId } from "@/app/proposals/ProposalCard";
 
 afterEach(() => {
   cleanup();
@@ -362,5 +362,22 @@ describe("ProposalCard — notices (R-09 7.T3)", () => {
     );
     const article = container.querySelector("article") as HTMLElement;
     expect(article.lastElementChild?.textContent).toBe("child-slot");
+  });
+});
+
+describe("ProposalCard — notice ids for aria-describedby", () => {
+  it("the stale and SOP-changed notices carry the ids the decision panel points at", () => {
+    const proposal = awaitingProposal();
+    render(
+      <ProposalCard
+        lang="en"
+        proposal={proposal}
+        notices={{ late_constraints: [], evidence_stale: true, sop_changed: true, superseded: false }}
+      />,
+    );
+    const stale = screen.getByText("Some of the evidence no longer holds. Generate again for these dates.");
+    const sop = screen.getByText("The SOP has changed since this proposal was made. Generate again.");
+    expect(stale.id).toBe(noticeDomId(proposal.proposal_id, "stale"));
+    expect(sop.id).toBe(noticeDomId(proposal.proposal_id, "sop"));
   });
 });

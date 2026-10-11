@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ProposalDecisionPanel } from "@/app/proposals/ProposalDecisionPanel";
+import { noticeDomId } from "@/app/proposals/ProposalCard";
 import type { ProposalListItem } from "@/lib/proposals/review-contract";
 
 const replace = vi.fn();
@@ -115,6 +116,15 @@ describe("ProposalDecisionPanel — stale and superseded (7.T5, 7.T6)", () => {
     renderPanel("owner", makeItem("awaiting_owner", { sop_changed: true }));
     expect((screen.getByRole("button", { name: "Approve" }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "Reject" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("a blocked Feasible/Approve button points at the notice that explains why", () => {
+    renderPanel("supervisor", makeItem("awaiting_supervisor", { evidence_stale: true, sop_changed: true }));
+    const described = screen.getByRole("button", { name: "Feasible" }).getAttribute("aria-describedby");
+    expect(described).toBe(`${noticeDomId(PROPOSAL_ID, "stale")} ${noticeDomId(PROPOSAL_ID, "sop")}`);
+    cleanup();
+    renderPanel("supervisor", makeItem("awaiting_supervisor"));
+    expect(screen.getByRole("button", { name: "Feasible" }).getAttribute("aria-describedby")).toBeNull();
   });
 
   it("superseded renders nothing for either role", () => {
