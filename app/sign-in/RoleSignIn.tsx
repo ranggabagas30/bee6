@@ -91,7 +91,11 @@ export function RoleSignIn({ config, demo, initialRole, headingLevel = 1, redire
   // email and password go straight into the email form's values.
   const [codeFill, setCodeFill] = useState<{ nonce: number; code: string }>({ nonce: 0, code: "" });
   const panelRef = useRef<HTMLDivElement>(null);
-  // Set by a tap on a role radio only, so first render and URL-driven renders never steal focus.
+  // Armed by a pointer press (tap or click) on a role radio only. A native radio group also fires change on arrow keys, and
+  // moving focus into the panel then would trap a keyboard or screen-reader user before they reach Owner (WCAG 3.2.2), so
+  // keyboard changes, first render and URL-driven renders never steal focus. Not onClick: browsers fire a synthetic click
+  // on arrow-key radio changes too.
+  const pointerChange = useRef(false);
   const focusPanel = useRef(false);
 
   const auth = config ? getClientAuth(config) : null;
@@ -116,8 +120,10 @@ export function RoleSignIn({ config, demo, initialRole, headingLevel = 1, redire
   }, [role]);
 
   function chooseRole(next: SignInRole) {
+    const byPointer = pointerChange.current;
+    pointerChange.current = false;
     if (next === role) return;
-    focusPanel.current = true;
+    focusPanel.current = byPointer;
     setRole(next);
     router.replace(`?as=${next}`, { scroll: false });
   }
@@ -200,8 +206,16 @@ export function RoleSignIn({ config, demo, initialRole, headingLevel = 1, redire
         <legend style={LEGEND_STYLE}>{t(lang, "C-signin-as")}</legend>
         <div style={RADIOS_STYLE}>
           {SIGN_IN_ROLES.map((r) => (
-            <label key={r} style={radioLabelStyle(role === r)}>
-              <input type="radio" name="signin-role" value={r} checked={role === r} onChange={() => chooseRole(r)} />
+            <label key={r} style={radioLabelStyle(role === r)} onPointerDown={() => (pointerChange.current = true)}>
+              <input
+                type="radio"
+                name="signin-role"
+                value={r}
+                checked={role === r}
+                onChange={() => chooseRole(r)}
+                // A key press ends any pointer press that changed nothing (the already-selected radio), so it cannot leak.
+                onKeyDown={() => (pointerChange.current = false)}
+              />
               <span>{t(lang, ROLE_KEY[r])}</span>
             </label>
           ))}

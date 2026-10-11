@@ -145,13 +145,46 @@ describe("RoleSignIn on the pilot (demo=false)", () => {
     expect(push).not.toHaveBeenCalled();
   });
 
-  it("moves focus to the panel's first input after a role change, and not on first render", () => {
+  // A tap or click: the pointer goes down on the label, then the browser fires the click that checks the radio.
+  const pointerChoose = (name: string) => {
+    fireEvent.pointerDown(screen.getByText(name));
+    fireEvent.click(radio(name));
+  };
+  // What a browser does on an arrow key inside a native radio group: keydown, focus moves to the next radio, which is
+  // checked by a synthetic click (and so a change event) with NO pointer event before it.
+  const arrowTo = (from: string, to: string) => {
+    fireEvent.keyDown(radio(from), { key: "ArrowRight" });
+    radio(to).focus();
+    fireEvent.click(radio(to));
+  };
+
+  it("moves focus to the panel's first input after a pointer role change, and not on first render", () => {
     renderSignIn({ initialRole: "supervisor" });
     expect(document.activeElement).not.toBe(screen.getByLabelText("Email"));
-    fireEvent.click(radio("Staff"));
+    pointerChoose("Staff");
     expect(document.activeElement).toBe(codeInput());
-    fireEvent.click(radio("Owner"));
+    pointerChoose("Owner");
     expect(document.activeElement).toBe(screen.getByLabelText("Email"));
+  });
+
+  it("13.T8: arrow keys walk Staff -> Supervisor -> Owner with focus staying on the radios", () => {
+    renderSignIn({ initialRole: "staff" });
+    radio("Staff").focus();
+    arrowTo("Staff", "Supervisor");
+    expect(radio("Supervisor").checked).toBe(true);
+    expect(document.activeElement).toBe(radio("Supervisor"));
+    arrowTo("Supervisor", "Owner");
+    expect(radio("Owner").checked).toBe(true);
+    expect(document.activeElement).toBe(radio("Owner"));
+    expect(screen.getByLabelText("Email")).toBeTruthy(); // the panel still follows the choice
+  });
+
+  it("a pointer press that changes nothing does not make a later arrow key steal focus", () => {
+    renderSignIn({ initialRole: "staff" });
+    fireEvent.pointerDown(screen.getByText("Staff")); // already selected: no change event follows
+    radio("Staff").focus();
+    arrowTo("Staff", "Supervisor");
+    expect(document.activeElement).toBe(radio("Supervisor"));
   });
 
   it("E1/13.T4: the staff panel posts any code, 000000 included, to the real pair route; no demo request exists", async () => {
