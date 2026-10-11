@@ -6,7 +6,7 @@ import { signOut, type Auth } from "@/lib/auth/client/firebase-client";
 import { authedPostJson } from "@/lib/auth/client/api";
 import type { Lang } from "@/lib/i18n/lang";
 import { t, type DictKey } from "@/lib/i18n/dict";
-import { REVIEW_VERDICTS, type ReviewVerdict } from "@/lib/firestore/schema";
+import type { ReviewVerdict } from "@/lib/firestore/schema";
 import {
   VerdictResponseSchema,
   type ReviewConflictCode,
@@ -35,6 +35,9 @@ import { VERDICT_KEY, suggestionDomId } from "@/app/reviews/ReviewCard";
  */
 
 type Step = "idle" | "confirm" | "settled";
+
+// Display order. A literal list (not the schema enum) keeps the browser bundle free of the schema module.
+const VERDICTS: readonly ReviewVerdict[] = ["worked", "revise", "revert"];
 
 const REASON_MIN = 3;
 const REASON_MAX = 300;
@@ -179,7 +182,7 @@ export function VerdictPanel({
     <div style={WRAPPER_STYLE}>
       {step === "idle" && (
         <>
-          {REVIEW_VERDICTS.map((v) => (
+          {VERDICTS.map((v) => (
             <div key={v} style={{ marginBottom: 8 }}>
               <button
                 ref={(el) => {
