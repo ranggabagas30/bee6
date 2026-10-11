@@ -403,3 +403,53 @@ describe("SignInScreen", () => {
     expect(document.body.textContent).toContain("Isi email dan kata sandi.");
   });
 });
+
+describe("SignInScreen demo link (R-12 Task 8.5)", () => {
+  const DEMO_KEY = "A".repeat(43);
+
+  function renderDemo(demo: boolean | undefined) {
+    return render(
+      <LangProvider initial="en">
+        <SignInScreen config={CONFIG} demo={demo} />
+      </LangProvider>,
+    );
+  }
+
+  beforeEach(() => window.sessionStorage.clear());
+  afterEach(() => window.sessionStorage.clear());
+
+  it("shows no demo text or link on the pilot (no demo prop)", () => {
+    renderDemo(undefined);
+    expect(screen.queryByRole("link", { name: "Start a new demo" })).toBeNull();
+    expect(screen.queryByText("Your demo session has ended.")).toBeNull();
+    renderDemo(false);
+    expect(screen.queryByRole("link", { name: "Start a new demo" })).toBeNull();
+  });
+
+  it("in demo mode, offers a link back to the landing page, at least 48 px tall", () => {
+    renderDemo(true);
+    const link = screen.getByRole("link", { name: "Start a new demo" });
+    expect(link.getAttribute("href")).toBe("/");
+    expect(parseInt(link.style.minHeight, 10)).toBeGreaterThanOrEqual(48);
+    expect(screen.queryByText("Your demo session has ended.")).toBeNull(); // a fresh visitor has not had a session end
+  });
+
+  it("says the session ended when this tab's demo sandbox is past its expiry", () => {
+    window.sessionStorage.setItem("bee6.demo", JSON.stringify({ sandbox_key: DEMO_KEY, expires_at_ms: 1000, role: "owner" }));
+    renderDemo(true);
+    expect(screen.getByText("Your demo session has ended.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Start a new demo" })).toBeTruthy();
+  });
+
+  it("does not claim the session ended while the sandbox is still live", () => {
+    window.sessionStorage.setItem("bee6.demo", JSON.stringify({ sandbox_key: DEMO_KEY, expires_at_ms: Date.now() + 3_600_000, role: "owner" }));
+    renderDemo(true);
+    expect(screen.queryByText("Your demo session has ended.")).toBeNull();
+  });
+
+  it("keeps the sign-in form usable beside the demo link", () => {
+    renderDemo(true);
+    expect(screen.getByLabelText("Email")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeTruthy();
+  });
+});
