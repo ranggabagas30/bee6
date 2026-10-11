@@ -475,6 +475,20 @@ describe("SignInScreen shell and the demo deployment (R-12 Task 8.5, R-18 P1)", 
     expect(gone()).toBe(true);
   });
 
+  it("an ended demo's device keys vanish after mount: the Staff panel drops the connected line and shows the ended line", async () => {
+    window.localStorage.setItem("bee6.device_token", "t");
+    window.localStorage.setItem("bee6.device_id", "d");
+    window.localStorage.setItem("bee6.demo", JSON.stringify({ sandbox_key: DEMO_KEY, expires_at_ms: 1000, role: "staff" }));
+    render(
+      <LangProvider initial="en">
+        <SignInScreen config={CONFIG} demo initialRole="staff" />
+      </LangProvider>,
+    );
+    expect(await screen.findByText("Your demo session has ended.")).toBeTruthy();
+    expect(screen.queryByText(/already connected/)).toBeNull();
+    expect(screen.queryByRole("link", { name: /Open capture|listening/i })).toBeNull();
+  });
+
   it("keeps the sign-in form usable beside the demo box", async () => {
     renderDemo(true);
     await screen.findByText("Demo access");

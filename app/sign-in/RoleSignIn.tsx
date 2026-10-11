@@ -79,9 +79,15 @@ export interface RoleSignInProps {
   /** 2 when another heading (the demo home page's title) is the page's h1. */
   headingLevel?: 1 | 2;
   redirectSignedIn?: boolean;
+  /**
+   * This browser's demo has ended (the shell then removes the judge phone's device keys after mount). The Staff panel must not
+   * keep saying the phone is connected on the strength of keys read before that removal. Passed down because this module
+   * may not import the demo state module itself (pilot isolation).
+   */
+  demoEnded?: boolean;
 }
 
-export function RoleSignIn({ config, demo, initialRole, headingLevel = 1, redirectSignedIn = true }: RoleSignInProps) {
+export function RoleSignIn({ config, demo, initialRole, headingLevel = 1, redirectSignedIn = true, demoEnded = false }: RoleSignInProps) {
   const { lang } = useLang();
   const router = useRouter();
   const [role, setRole] = useState<SignInRole | null>(initialRole);
@@ -103,7 +109,7 @@ export function RoleSignIn({ config, demo, initialRole, headingLevel = 1, redire
   const [busy, setBusy] = useState(false);
   // See EmailSignInForm: stops the redirect effect below from acting on the "signed_in" a form submit itself causes.
   const signingInRef = useRef(false);
-  const phonePaired = useSyncExternalStore(noopSubscribe, hasDeviceToken, () => false);
+  const phonePaired = useSyncExternalStore(noopSubscribe, hasDeviceToken, () => false) && !demoEnded;
 
   // An already signed-in Firebase user (e.g. a previous visit) skips the form and goes straight to its role's start page —
   // no POST, since the session was already linked.

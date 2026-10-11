@@ -42,7 +42,7 @@ export function SignInScreen({ config, demo = false, initialRole = null, variant
     <main style={home ? HOME_STYLE : PAGE_STYLE}>
       <WebTopBar auth={null} showSignOut={false} />
       {children}
-      <RoleSignIn config={config} demo={demo} initialRole={initialRole} headingLevel={home ? 2 : 1} redirectSignedIn={!home} />
+      <RoleSignIn config={config} demo={demo} initialRole={initialRole} headingLevel={home ? 2 : 1} redirectSignedIn={!home} demoEnded={demoEnded} />
     </main>
   );
 }
