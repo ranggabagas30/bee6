@@ -82,7 +82,7 @@ describe("RootLayout demo bar (R-12 Task 8.4)", () => {
   it("mounts the bar above the page content, so it is the first thing in the tab order", async () => {
     vi.stubEnv("DEMO_MODE", "true");
     const tree = await RootLayout({ children: <main id="page" /> });
-    const body = (findHtml(tree) as ReactElement<{ children: ReactElement<{ children: ReactElement<{ children: unknown[] }> }> }>).props.children;
+    const body = (findHtml(tree) as unknown as ReactElement<{ children: ReactElement<{ children: ReactElement<{ children: unknown[] }> }> }>).props.children;
     const provider = body.props.children;
     const kids = provider.props.children as ReactElement[];
     expect(kids[0]!.type).toBe(DemoBar);

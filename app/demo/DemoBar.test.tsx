@@ -176,6 +176,34 @@ describe("DemoBar live session", () => {
     expect(startDemo).toHaveBeenCalledTimes(1);
   });
 
+  it("forgets a locally noticed end once the visitor is back at the landing page, so the next sandbox is not greeted as ended", async () => {
+    seed("staff", Date.now() + 3_600_000);
+    startDemo.mockImplementation(async () => {
+      window.sessionStorage.removeItem(DEMO_STATE_KEY);
+      return { kind: "sandbox_expired" };
+    });
+    const view = renderBar();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Switch to Owner" })));
+    expect(screen.getByText("Your demo session has ended.")).toBeTruthy();
+
+    pathname = "/"; // soft navigation via the restart link
+    view.rerender(
+      <LangProvider initial="en">
+        <DemoBar config={CONFIG} />
+      </LangProvider>,
+    );
+    seed("owner", Date.now() + 3_600_000); // a new visit started
+    pathname = "/home";
+    act(() => window.dispatchEvent(new Event("bee6:demo-change")));
+    view.rerender(
+      <LangProvider initial="en">
+        <DemoBar config={CONFIG} />
+      </LangProvider>,
+    );
+    expect(screen.queryByText("Your demo session has ended.")).toBeNull();
+    expect(screen.getByRole("button", { name: "Switch to Staff" })).toBeTruthy();
+  });
+
   it("never logs", async () => {
     seed("staff", Date.now() + 3_600_000);
     startDemo.mockResolvedValue({ kind: "error" });

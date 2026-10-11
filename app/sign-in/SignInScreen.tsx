@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import {
@@ -195,9 +196,9 @@ export function SignInScreen({ config, demo = false }: { config: FirebaseWebConf
         <div>
           {demoView?.expired && <p role="status">{t(lang, "C-demo-expired")}</p>}
           <p>
-            <a href="/" style={DEMO_LINK_STYLE}>
+            <Link href="/" style={DEMO_LINK_STYLE}>
               {t(lang, "C-demo-restart")}
-            </a>
+            </Link>
           </p>
         </div>
       )}

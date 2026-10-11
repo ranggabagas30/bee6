@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import type { DemoRole } from "@/lib/demo/contract";
@@ -95,7 +96,12 @@ export function DemoBar({ config }: { config: FirebaseWebConfig | null }) {
     }
   }
 
-  if (pathname === "/") return null;
+  if (pathname === "/") {
+    // Back at the landing page the visitor is starting over: forget a stale "ended here" (the bar lives
+    // across soft navigations, so it would otherwise greet the next sandbox as ended).
+    if (endedHere) setEndedHere(false);
+    return null;
+  }
   const ended = endedHere || view?.expired === true;
   if (!view && !endedHere) return null;
   if (ended && pathname === "/sign-in") return null;
@@ -106,9 +112,9 @@ export function DemoBar({ config }: { config: FirebaseWebConfig | null }) {
         <p id="demo-bar-line" style={{ ...LINE_STYLE, margin: 0 }}>
           {t(lang, "C-demo-expired")}
         </p>
-        <a href="/" style={LINK_STYLE}>
+        <Link href="/" style={LINK_STYLE}>
           {t(lang, "C-demo-restart")}
-        </a>
+        </Link>
       </aside>
     );
   }
@@ -120,7 +126,8 @@ export function DemoBar({ config }: { config: FirebaseWebConfig | null }) {
   let statusText = "";
   if (busy) {
     statusText = t(lang, "C-demo-busy");
-  } else if (refusal) {
+  } else if (refusal && refusal.kind !== "sandbox_expired") {
+    // "Sandbox gone" is shown by the ended state above, not as a leftover line under a later live session.
     const lines = refusalLines(refusal);
     statusText = [t(lang, lines.message), lines.hint ? t(lang, lines.hint.key, lines.hint.vars) : ""].filter(Boolean).join(" ");
   }
