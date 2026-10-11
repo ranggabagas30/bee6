@@ -219,6 +219,9 @@ describe("VerdictPanel: answers", () => {
     ["EXPIRED", "C-rev-err-expired"],
     ["NOTHING_TO_REVIEW", "C-srv-generic"],
     ["SOMETHING_NEW", "C-srv-generic"],
+    ["constructor", "C-srv-generic"], // prototype keys must not resolve through the lookup table
+    ["__proto__", "C-srv-generic"],
+    ["toString", "C-srv-generic"],
   ])("conflict %s -> %s", async (code, key) => {
     authedPostJson.mockResolvedValue({ kind: "conflict", code });
     renderPanel("supervisor", reviewView());
