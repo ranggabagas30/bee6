@@ -13,7 +13,7 @@ import {
   runDueReviews,
   type ReviewStore,
 } from "@/lib/reviews/service";
-import { OUTLET, outcomeDoc, REASON_SENTINEL, reviewDoc, seedV1, shippedVersion, TZ, verdictEntry } from "@/lib/reviews/testing/fixtures";
+import { OUTLET, REASON_SENTINEL, reviewDoc, seedV1, shippedVersion, TZ, verdictEntry } from "@/lib/reviews/testing/fixtures";
 import { proposalV1 } from "@/lib/sop/testing/fixtures";
 
 const DEVICE = "dev-DEVSENTINEL-77";
