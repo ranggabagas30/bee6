@@ -108,6 +108,25 @@ describe("issueDemoSession: gates", () => {
     expect(f.calls.length).toBeGreaterThan(0);
   });
 
+  it("a whitespace-only or space-padded DEMO_IP_SALT does not count towards the 16 characters", async () => {
+    const f = fakeStore();
+    for (const salt of [" ".repeat(16), "\n".repeat(20), "x".repeat(15) + "\n", " " + "x".repeat(14) + " "]) {
+      await expectCode(issueDemoSession(f.store, deps().d, input({ role: "owner" }, { salt })), AppError, "demo_not_ready");
+      await expectCode(
+        issueDemoSession(f.store, deps().d, input({ role: "owner", sandbox_key: "A".repeat(43) }, { salt })),
+        AppError,
+        "demo_not_ready",
+      );
+    }
+    expect(f.calls).toEqual([]);
+  });
+
+  it("a 16-character salt with a trailing newline passes and the IP is hashed with the trimmed value", async () => {
+    const f = fakeStore();
+    await issueDemoSession(f.store, deps().d, input({ role: "owner" }, { salt: "x".repeat(16) + "\n" }));
+    expect(f.counters.get(ipBucketKey(IP, utcDay(NOW), "x".repeat(16)))).toBe(1);
+  });
+
   it("D1 an empty DEMO_IP_SALT also stops a role switch (key given) before any store call", async () => {
     const f = fakeStore();
     const err = await expectCode(

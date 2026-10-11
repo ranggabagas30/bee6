@@ -53,9 +53,11 @@ const notReady = () => new AppError("The demo is not ready", "demo_not_ready", 5
 const LANDING: Record<"owner" | "supervisor", string> = { owner: "/home", supervisor: "/day" };
 
 /** Starts a visit (no key: a fresh sandbox) or switches role inside one (key given). */
-export async function issueDemoSession(store: DemoStore, deps: DemoDeps, input: IssueInput): Promise<DemoSessionResponse> {
+export async function issueDemoSession(store: DemoStore, deps: DemoDeps, raw: IssueInput): Promise<DemoSessionResponse> {
   const log = deps.log ?? defaultLog;
-  if (!input.demoMode) throw new NotFoundError("route", "route"); // before any read, never logged
+  if (!raw.demoMode) throw new NotFoundError("route", "route"); // before any read, never logged
+  // The salt is trimmed once, here: a secret often ends in a newline, and whitespace must not count towards the minimum length.
+  const input: IssueInput = { ...raw, salt: raw.salt.trim() };
   if (input.salt.length < IP_SALT_MIN_LENGTH) throw notReady(); // both paths hash the IP: never unsalted or weakly salted, never a store call
   try {
     return input.body.sandbox_key !== undefined
