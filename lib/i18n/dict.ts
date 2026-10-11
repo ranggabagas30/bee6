@@ -335,6 +335,26 @@ export const ID = {
   "C-con-err-length": "Tulis 3 sampai 300 karakter.", // PROVISIONAL
   "C-con-err-limit": "Batas jumlah batasan (200) sudah tercapai.", // PROVISIONAL
   "C-con-count": "{n}/300", // PROVISIONAL
+  // R-10 SOP versions and the plain before/after list
+  "C-sop-title": "SOP", // PROVISIONAL
+  "C-sop-link": "SOP dan perubahan", // PROVISIONAL
+  "C-sop-version-seed": "Versi {version}", // PROVISIONAL
+  "C-sop-version-in-force": "Versi {version}, berlaku sejak {date}", // PROVISIONAL
+  "C-sop-version-pending": "Versi {version} berlaku mulai {date}. Sampai saat itu, versi {current} yang berlaku.", // PROVISIONAL
+  "C-sop-empty": "SOP untuk outlet ini belum disiapkan.", // PROVISIONAL
+  "C-sop-changes": "Perubahan", // PROVISIONAL
+  "C-sop-changes-empty": "Belum ada perubahan. SOP hanya berubah lewat usulan yang disetujui.", // PROVISIONAL
+  "C-sop-change-head": "Versi {version}, mulai {date}", // PROVISIONAL
+  "C-sop-before": "Sebelum (versi {version})", // PROVISIONAL
+  "C-sop-after": "Sesudah (versi {version})", // PROVISIONAL
+  "C-sop-new-step": "Langkah baru. Tidak ada di versi {version}.", // PROVISIONAL
+  "C-sop-step-role": "Dikerjakan oleh: {role}", // PROVISIONAL
+  "C-sop-role-staff": "Staf", // PROVISIONAL
+  "C-sop-role-supervisor": "Supervisor", // PROVISIONAL
+  "C-sop-role-owner": "Pemilik", // PROVISIONAL
+  "C-sop-approved-on": "Disetujui pada {date}", // PROVISIONAL
+  "C-sop-steps": "Langkah di versi {version}", // PROVISIONAL
+  "C-sop-err-forbidden": "Hanya pemilik atau supervisor yang bisa melihat perubahan SOP.", // PROVISIONAL
 } as const;
 
 export type DictKey = keyof typeof ID;
@@ -642,6 +662,26 @@ export const EN: Record<DictKey, string> = {
   "C-con-err-length": "Write between 3 and 300 characters.", // PROVISIONAL
   "C-con-err-limit": "The constraint limit (200) is reached.", // PROVISIONAL
   "C-con-count": "{n}/300", // PROVISIONAL
+  // R-10 SOP versions and the plain before/after list
+  "C-sop-title": "SOP", // PROVISIONAL
+  "C-sop-link": "SOP and changes", // PROVISIONAL
+  "C-sop-version-seed": "Version {version}", // PROVISIONAL
+  "C-sop-version-in-force": "Version {version}, in force since {date}", // PROVISIONAL
+  "C-sop-version-pending": "Version {version} starts on {date}. Until then, version {current} applies.", // PROVISIONAL
+  "C-sop-empty": "No SOP is set up for this outlet yet.", // PROVISIONAL
+  "C-sop-changes": "Changes", // PROVISIONAL
+  "C-sop-changes-empty": "No changes yet. The SOP changes only through approved proposals.", // PROVISIONAL
+  "C-sop-change-head": "Version {version}, from {date}", // PROVISIONAL
+  "C-sop-before": "Before (version {version})", // PROVISIONAL
+  "C-sop-after": "After (version {version})", // PROVISIONAL
+  "C-sop-new-step": "New step. Not in version {version}.", // PROVISIONAL
+  "C-sop-step-role": "Done by: {role}", // PROVISIONAL
+  "C-sop-role-staff": "Staff", // PROVISIONAL
+  "C-sop-role-supervisor": "Supervisor", // PROVISIONAL
+  "C-sop-role-owner": "Owner", // PROVISIONAL
+  "C-sop-approved-on": "Approved on {date}", // PROVISIONAL
+  "C-sop-steps": "Steps in version {version}", // PROVISIONAL
+  "C-sop-err-forbidden": "Only the owner or a supervisor can see the SOP changes.", // PROVISIONAL
 };
 
 export const DICT: Record<Lang, Record<DictKey, string>> = { id: ID, en: EN };
