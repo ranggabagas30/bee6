@@ -20,6 +20,7 @@ import {
   requestDemoSession,
   subscribeDemoState,
   startDemo,
+  startOrSwitch,
   writeDemoState,
 } from "@/app/demo/demo-client";
 import { DEVICE_ID_KEY, DEVICE_TOKEN_KEY } from "@/lib/capture/browser/client";
@@ -609,5 +610,48 @@ describe("startDemo", () => {
     const f = vi.fn().mockResolvedValue(ok(WEB_OK));
     await startDemo("supervisor", { auth: AUTH, navigate, fetchImpl: f as never, now: () => NOW, onExpired: "restart" });
     for (const s of spies) expect(s).not.toHaveBeenCalled();
+  });
+});
+
+describe("startOrSwitch (R-18 P1 13.T7)", () => {
+  const navigate = vi.fn();
+  beforeEach(() => navigate.mockReset());
+
+  it("with a live sandbox in this browser it switches role inside it: the request carries the stored key", async () => {
+    writeDemoState({ sandbox_key: KEY, expires_at_ms: EXPIRES, role: "staff" });
+    const f = vi.fn().mockResolvedValue(ok({ ...WEB_OK, sandbox_key: KEY }));
+    const result = await startOrSwitch("supervisor", { auth: AUTH, navigate, fetchImpl: f as never, now: () => NOW });
+    expect(result).toEqual({ kind: "started" });
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(f.mock.calls[0]![1].body)).toEqual({ role: "supervisor", sandbox_key: KEY });
+    expect(navigate).toHaveBeenCalledWith("/day");
+  });
+
+  it("with no record, or an expired one, it creates a fresh sandbox: the request carries no key", async () => {
+    const f = vi.fn().mockResolvedValue(ok({ ...WEB_OK, sandbox_key: KEY2 }));
+    await startOrSwitch("owner", { auth: AUTH, navigate, fetchImpl: f as never, now: () => NOW });
+    expect(JSON.parse(f.mock.calls[0]![1].body)).toEqual({ role: "owner" });
+
+    writeDemoState({ sandbox_key: KEY, expires_at_ms: EXPIRES, role: "staff" });
+    const g = vi.fn().mockResolvedValue(ok({ ...WEB_OK, sandbox_key: KEY2 }));
+    await startOrSwitch("owner", { auth: AUTH, navigate, fetchImpl: g as never, now: () => EXPIRES });
+    expect(JSON.parse(g.mock.calls[0]![1].body)).toEqual({ role: "owner" });
+  });
+
+  it("when the server says the stored sandbox is gone it restarts once with a new one, never reporting the end", async () => {
+    writeDemoState({ sandbox_key: KEY, expires_at_ms: EXPIRES, role: "staff" });
+    const f = vi.fn().mockResolvedValueOnce(err(409, "SANDBOX_EXPIRED")).mockResolvedValueOnce(ok({ ...WEB_OK, sandbox_key: KEY2 }));
+    const result = await startOrSwitch("owner", { auth: AUTH, navigate, fetchImpl: f as never, now: () => NOW });
+    expect(result).toEqual({ kind: "started" });
+    expect(f).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(f.mock.calls[1]![1].body)).toEqual({ role: "owner" });
+  });
+
+  it("passes a refusal through unchanged and never throws", async () => {
+    const f = vi.fn().mockResolvedValue(err(429, "demo_daily_cap", { "Retry-After": "7200" }));
+    await expect(startOrSwitch("staff", { auth: null, navigate, fetchImpl: f as never, now: () => NOW })).resolves.toEqual({
+      kind: "daily_cap",
+      retryAfterSeconds: 7200,
+    });
   });
 });

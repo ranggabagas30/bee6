@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import { getClientAuth, type Auth } from "@/lib/auth/client/firebase-client";
 import type { DemoRole } from "@/lib/demo/contract";
-import { startDemo, type DemoRefusal, type StartDemoResult } from "@/app/demo/demo-client";
+import { startDemo, startOrSwitch, type DemoRefusal, type StartDemoResult } from "@/app/demo/demo-client";
 
 /** The browser Firebase Auth for this config, or null when there is none or it cannot be built. Never throws. */
 export function authOrNull(config: FirebaseWebConfig | null): Auth | null {
@@ -16,7 +16,7 @@ export function authOrNull(config: FirebaseWebConfig | null): Auth | null {
 }
 
 /**
- * Shared by the landing and the demo bar (R-12 Task 8): one in-flight request at a time (a ref, so a
+ * Shared by the demo sign-in box and the demo bar (R-12 Task 8, R-18 P1): one in-flight request at a time (a ref, so a
  * second tap in the same tick cannot slip past the disabled attribute), the last refusal, and the busy flag.
  * The refusal is cleared when the next attempt starts, never before.
  */
@@ -33,7 +33,8 @@ export function useDemoStart(config: FirebaseWebConfig | null, onExpired: "resta
     let result: StartDemoResult;
     try {
       // startDemo never throws; building the auth client can (a bad Firebase config).
-      result = await startDemo(role, { auth: config ? getClientAuth(config) : null, onExpired });
+      const auth = config ? getClientAuth(config) : null;
+      result = onExpired === "restart" ? await startOrSwitch(role, { auth }) : await startDemo(role, { auth, onExpired });
     } catch {
       result = { kind: "error" };
     } finally {
