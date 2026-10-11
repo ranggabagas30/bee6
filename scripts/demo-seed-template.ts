@@ -8,10 +8,12 @@
  *
  * Runbook (Rangga, demo project bee6-playground only):
  *   1. `npm run seed -- --project demo --template` (needs DEMO_MODE=true) -> note the pairing code.
- *   2. Put Tiffany's fictional clips and `plan.json` under `private/demo-clips/` (gitignored).
+ *   2. Put Tiffany's fictional clips and `plan.json` in a directory that git ignores (the runbook names it).
  *   3. Within 10 minutes of step 1:
- *        npm run demo:seed-template -- --base-url <demo service URL> --code <pairing code>
- *      (`--plan <file>` and `--clips-dir <dir>` default to `private/demo-clips/`).
+ *        npm run demo:seed-template -- --base-url <demo service URL> --code <pairing code> \
+ *          --clips-dir <that directory>
+ *      `--clips-dir` is mandatory (there is no default directory); `--plan <file>` defaults to
+ *      `plan.json` inside it.
  *   4. Wait for "done": the template is ready. Re-run the whole thing only if the clips change
  *      (delete the `demo-tpl-outlet` data first via dev-ops).
  *
@@ -25,7 +27,9 @@
  * echoed (#2); the device token is held in memory only (never written, never logged); logs print
  * counts and routes, never text.
  */
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import os from "node:os";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -34,6 +38,9 @@ import { addDays, localDateOf, zonedTimeToEpochMs } from "@/lib/capture/calendar
 import { MAX_SEGMENT_BYTES, SEGMENT_CONTENT_TYPE } from "@/lib/capture/contract";
 import { deviceAuthHeaders, type DeviceAuth } from "@/lib/capture/browser/client";
 import { TEMPLATE_DEVICE_ID, TEMPLATE_OUTLET_ID } from "@/lib/demo/constants";
+
+/** The pilot GCP project (real shop data). This script is for the demo project only and refuses to run against it. */
+export const PILOT_PROJECT_ID = "project-a10437b4-b198-402e-97e";
 
 const TZ = "Asia/Jakarta";
 /** Same rate the browser engine uploads at. */
@@ -263,6 +270,67 @@ function argValue(argv: string[], flag: string): string | undefined {
   return i === -1 ? undefined : argv[i + 1];
 }
 
+export interface CliArgs {
+  baseUrl: string;
+  code: string;
+  clipsDir: string;
+  planPath: string;
+}
+
+/** Parses and validates the command line. `--clips-dir` is mandatory: the script never guesses where audio lives. */
+export function parseCliArgs(argv: string[]): CliArgs {
+  const usage =
+    "Usage: npm run demo:seed-template -- --base-url <demo service URL> --code <6-digit pairing code> --clips-dir <directory> [--plan <file>]";
+  const baseUrl = argValue(argv, "--base-url")?.replace(/\/+$/, "");
+  const code = argValue(argv, "--code");
+  const clipsDirArg = argValue(argv, "--clips-dir");
+  if (!baseUrl || !code || !/^\d{6}$/.test(code)) throw new TemplateSeedError(usage);
+  if (!clipsDirArg || clipsDirArg.startsWith("--")) {
+    throw new TemplateSeedError(`--clips-dir is required (there is no default directory). ${usage}`);
+  }
+  const url = new URL(baseUrl);
+  if (url.protocol !== "https:" && url.hostname !== "localhost") {
+    throw new TemplateSeedError("--base-url must be https (or localhost for a dev server).");
+  }
+  const clipsDir = path.resolve(clipsDirArg);
+  const planArg = argValue(argv, "--plan");
+  return { baseUrl, code, clipsDir, planPath: planArg ? path.resolve(planArg) : path.join(clipsDir, "plan.json") };
+}
+
+/** Parsed JSON of a credentials file, or null when it is missing or unreadable. */
+type ReadJson = (file: string) => Record<string, unknown> | null;
+const readJsonFile: ReadJson = (file) => {
+  try {
+    return JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Refuses to run when the environment or the Application Default Credentials point at the pilot
+ * project: this script seeds fictional demo data and must never touch real shop data. Checks the
+ * project env vars and the project / quota project named inside the credentials file (the env path,
+ * and gcloud's default one). Names only the project kind in the message, never a path or a value.
+ */
+export function assertNotPilotProject(env: Record<string, string | undefined>, readJson: ReadJson = readJsonFile): void {
+  const seen: unknown[] = [env.GOOGLE_CLOUD_PROJECT, env.GCLOUD_PROJECT, env.GOOGLE_CLOUD_QUOTA_PROJECT];
+  const files = [
+    env.GOOGLE_APPLICATION_CREDENTIALS,
+    path.join(env.HOME ?? os.homedir(), ".config", "gcloud", "application_default_credentials.json"),
+  ];
+  for (const file of files) {
+    if (!file) continue;
+    const creds = readJson(file);
+    if (creds) seen.push(creds.project_id, creds.quota_project_id);
+  }
+  if (seen.includes(PILOT_PROJECT_ID)) {
+    throw new TemplateSeedError(
+      "Refusing to run: the Google Cloud project (or its credentials) is the PILOT project. This script seeds fictional demo data on the demo project only.",
+    );
+  }
+}
+
 /** Read-only counts for the progress report (Admin SDK `.get()` only; never prints text). */
 async function readProgressFromFirestore(tz: string): Promise<ProgressSnapshot> {
   const { adminDb } = await import("@/lib/firebase/admin");
@@ -289,18 +357,8 @@ async function readProgressFromFirestore(tz: string): Promise<ProgressSnapshot> 
 }
 
 async function main(): Promise<void> {
-  const argv = process.argv.slice(2);
-  const baseUrl = argValue(argv, "--base-url")?.replace(/\/+$/, "");
-  const code = argValue(argv, "--code");
-  if (!baseUrl || !code || !/^\d{6}$/.test(code)) {
-    throw new TemplateSeedError("Usage: npm run demo:seed-template -- --base-url <demo service URL> --code <6-digit pairing code>");
-  }
-  const url = new URL(baseUrl);
-  if (url.protocol !== "https:" && url.hostname !== "localhost") {
-    throw new TemplateSeedError("--base-url must be https (or localhost for a dev server).");
-  }
-  const clipsDir = path.resolve(argValue(argv, "--clips-dir") ?? path.join(process.cwd(), "private", "demo-clips"));
-  const planPath = path.resolve(argValue(argv, "--plan") ?? path.join(clipsDir, "plan.json"));
+  assertNotPilotProject(process.env);
+  const { baseUrl, code, clipsDir, planPath } = parseCliArgs(process.argv.slice(2));
   const plan = PlanSchema.parse(JSON.parse(await readFile(planPath, "utf8")));
 
   await runTemplateSeed({

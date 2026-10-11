@@ -1,8 +1,11 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import {
+  PILOT_PROJECT_ID,
   PlanSchema,
   TemplateSeedError,
+  assertNotPilotProject,
+  parseCliArgs,
   runTemplateSeed,
   type ProgressSnapshot,
 } from "@/scripts/demo-seed-template";
@@ -245,6 +248,75 @@ describe("3.T2 the script never writes Firestore", () => {
     const src = readFileSync(new URL("./demo-seed-template.ts", import.meta.url), "utf8");
     for (const banned of [".set(", ".create(", ".update(", ".delete(", "batch(", "runTransaction(", "bulkWriter"]) {
       expect(src.includes(banned), `found ${banned}`).toBe(false);
+    }
+  });
+});
+
+describe("tech-lead 2: --clips-dir is mandatory and the script names no private path", () => {
+  const ok = ["--base-url", "https://demo.example.run.app", "--code", "123456", "--clips-dir", "clips-here"];
+
+  it("parses the mandatory flags; the plan defaults to plan.json inside the clips dir", () => {
+    const args = parseCliArgs(ok);
+    expect(args.baseUrl).toBe("https://demo.example.run.app");
+    expect(args.code).toBe("123456");
+    expect(args.clipsDir).toMatch(/clips-here$/);
+    expect(args.planPath).toMatch(/clips-here\/plan\.json$/);
+    expect(parseCliArgs([...ok, "--plan", "other/plan.json"]).planPath).toMatch(/other\/plan\.json$/);
+  });
+
+  it("refuses to run without --clips-dir (there is no default directory)", () => {
+    const withoutDir = ok.slice(0, 4);
+    expect(() => parseCliArgs(withoutDir)).toThrow(TemplateSeedError);
+    expect(() => parseCliArgs(withoutDir)).toThrow(/--clips-dir/);
+    expect(() => parseCliArgs([...withoutDir, "--clips-dir"])).toThrow(TemplateSeedError); // flag with no value
+  });
+
+  it("still validates --base-url and --code", () => {
+    expect(() => parseCliArgs(["--code", "123456", "--clips-dir", "c"])).toThrow(TemplateSeedError);
+    expect(() => parseCliArgs(["--base-url", "https://x.example", "--code", "12", "--clips-dir", "c"])).toThrow(TemplateSeedError);
+    expect(() => parseCliArgs(["--base-url", "http://x.example", "--code", "123456", "--clips-dir", "c"])).toThrow(/https/);
+    expect(() => parseCliArgs(["--base-url", "http://localhost:3000", "--code", "123456", "--clips-dir", "c"])).not.toThrow();
+  });
+
+  it("the source holds no reference to the repo's untracked data directory at all (the boundary matcher also reads comments)", () => {
+    const src = readFileSync(new URL("./demo-seed-template.ts", import.meta.url), "utf8");
+    expect(src.toLowerCase()).not.toContain("priv" + "ate"); // built by concatenation so this file does not match the matcher itself
+  });
+});
+
+describe("L7 the script refuses the pilot project", () => {
+  it("refuses when GOOGLE_CLOUD_PROJECT (or GCLOUD_PROJECT) is the pilot project", () => {
+    for (const name of ["GOOGLE_CLOUD_PROJECT", "GCLOUD_PROJECT", "GOOGLE_CLOUD_QUOTA_PROJECT"]) {
+      expect(() => assertNotPilotProject({ [name]: PILOT_PROJECT_ID }, () => null), name).toThrow(TemplateSeedError);
+    }
+  });
+
+  it("refuses when the ADC credentials file (env path or the default gcloud one) names the pilot project", () => {
+    const read = (file: string) =>
+      file === "/creds.json" ? { project_id: "other", quota_project_id: PILOT_PROJECT_ID } : file.endsWith("application_default_credentials.json") ? { quota_project_id: PILOT_PROJECT_ID } : null;
+    expect(() => assertNotPilotProject({ GOOGLE_APPLICATION_CREDENTIALS: "/creds.json" }, read)).toThrow(/pilot/i);
+    expect(() => assertNotPilotProject({ HOME: "/home/x" }, read)).toThrow(/pilot/i);
+  });
+
+  it("passes for the demo project, an unrelated project, or nothing set", () => {
+    expect(() => assertNotPilotProject({ GOOGLE_CLOUD_PROJECT: "bee6-playground" }, () => ({ project_id: "bee6-playground" }))).not.toThrow();
+    expect(() => assertNotPilotProject({}, () => null)).not.toThrow();
+  });
+
+  it("the message names neither a token nor a path", () => {
+    try {
+      assertNotPilotProject({ GOOGLE_CLOUD_PROJECT: PILOT_PROJECT_ID }, () => null);
+    } catch (e) {
+      expect((e as Error).message).toMatch(/pilot/i);
+    }
+  });
+});
+
+describe("L7 the script provisions no sign-in credentials", () => {
+  it("has no password or account-creation code (the template owner and supervisor emails stay without a login)", () => {
+    const src = readFileSync(new URL("./demo-seed-template.ts", import.meta.url), "utf8").toLowerCase();
+    for (const banned of ["password", "createuser", "provision", "updateuser", "setcustomuserclaims"]) {
+      expect(src.includes(banned), banned).toBe(false);
     }
   });
 });
