@@ -13,8 +13,9 @@ export function fakeStore(over: Partial<{ template: TemplateSet | null; expired:
   const counters = new Map<string, number>();
   const bumps: { id: string; kind: string; limit: number }[] = [];
   const deleted: string[] = [];
+  const deferred: { id: string; now_ms: number }[] = [];
   const rotations: { outletId: string; deviceId: string; hash: string; exp: number }[] = [];
-  const state = { template: "template" in over ? over.template : templateSet(), expired: over.expired ?? [], failDelete: false, failWrite: false, tooLarge: false };
+  const state = { template: "template" in over ? over.template : templateSet(), expired: over.expired ?? [], failDelete: false, failDeleteIds: new Set<string>(), failDefer: false, failList: false, failWrite: false, tooLarge: false };
 
   const store: DemoStore = {
     async readTemplate() {
@@ -51,18 +52,24 @@ export function fakeStore(over: Partial<{ template: TemplateSet | null; expired:
     },
     async listExpiredSandboxes(_now, limit) {
       calls.push("listExpiredSandboxes");
+      if (state.failList) throw new Error("list failed");
       return state.expired.slice(0, limit);
     },
     async deleteSandbox(id) {
       calls.push("deleteSandbox");
-      if (state.failDelete) throw new Error("delete failed");
+      if (state.failDelete || state.failDeleteIds.has(id)) throw new Error("delete failed");
       deleted.push(id);
+    },
+    async deferSandboxCleanup(id, nowMs) {
+      calls.push("deferSandboxCleanup");
+      if (state.failDefer) throw new Error("defer failed");
+      deferred.push({ id, now_ms: nowMs });
     },
     async getOutlet(id) {
       calls.push("getOutlet");
       return sandboxes.get(id) ?? null;
     },
   };
-  return { store, calls, written, sandboxes, counters, bumps, deleted, rotations, state };
+  return { store, calls, written, sandboxes, counters, bumps, deleted, deferred, rotations, state };
 }
 

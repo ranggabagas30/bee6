@@ -27,7 +27,7 @@ function fakeDb(seed: Record<string, Record<string, Doc>> = {}) {
     return c;
   };
   const writes: { col: string; op: "set" | "create" | "update" | "delete"; id: string }[] = [];
-  const queries: { col: string; filters: [string, string, unknown][]; limit?: number }[] = [];
+  const queries: { col: string; filters: [string, string, unknown][]; limit?: number; orderBy?: string }[] = [];
   const batchSizes: number[] = [];
   const txWrites: string[] = [];
 
@@ -60,12 +60,13 @@ function fakeDb(seed: Record<string, Record<string, Doc>> = {}) {
       return collectionApi(`${c}/${id}/${sub}`);
     },
   });
-  function query(c: string, filters: [string, string, unknown][], lim?: number) {
+  function query(c: string, filters: [string, string, unknown][], lim?: number, orderField?: string) {
     const q = {
-      where: (f: string, o: string, v: unknown) => query(c, [...filters, [f, o, v]], lim),
-      limit: (n: number) => query(c, filters, n),
+      where: (f: string, o: string, v: unknown) => query(c, [...filters, [f, o, v]], lim, orderField),
+      limit: (n: number) => query(c, filters, n, orderField),
+      orderBy: (f: string) => query(c, filters, lim, f),
       async get() {
-        queries.push({ col: c, filters, limit: lim });
+        queries.push({ col: c, filters, limit: lim, orderBy: orderField });
         let entries = [...col(c).entries()].filter(([, d]) =>
           filters.every(([f, o, v]) => {
             const x = getPath(d, f);
@@ -74,6 +75,9 @@ function fakeDb(seed: Record<string, Record<string, Doc>> = {}) {
             throw new Error(`unsupported op ${o}`);
           }),
         );
+        if (orderField !== undefined) {
+          entries.sort(([, a], [, b]) => (getPath(a, orderField) as number) - (getPath(b, orderField) as number));
+        }
         if (lim !== undefined) entries = entries.slice(0, lim);
         return {
           docs: entries.map(([id, d]) => ({ id, exists: true, data: () => d, ref: ref(c, id) })),
@@ -384,6 +388,44 @@ describe("listExpiredSandboxes", () => {
     expect(await firestoreDemoStore(db).listExpiredSandboxes(now, 2)).toEqual(["sbx-old"]);
     expect(queries[0]!.filters).toEqual([["sandbox.expires_at_ms", "<", now - CLEANUP_GRACE_MS]]);
     expect(queries[0]!.limit).toBe(2);
+  });
+});
+
+describe("M4 deferSandboxCleanup (poison-pill quarantine)", () => {
+  const NOW = Date.UTC(2026, 9, 28);
+  const sbx = (id: string, exp: number) => ({
+    ...(templateSet().outlet as unknown as Doc),
+    outlet_id: id,
+    sandbox: { template_outlet_id: TEMPLATE_OUTLET_ID, created_at_ms: 1, expires_at_ms: exp, key_sha256: "a".repeat(64) },
+  });
+
+  it("moves the sandbox's expiry to the newest still-deletable instant, so it sorts behind every older one and stays expired", async () => {
+    const { db, cols, queries } = fakeDb({
+      [COLLECTIONS.outlets]: { "sbx-poison": sbx("sbx-poison", NOW - 5 * CLEANUP_GRACE_MS), "sbx-next": sbx("sbx-next", NOW - 3 * CLEANUP_GRACE_MS) },
+    });
+    const store = firestoreDemoStore(db);
+    expect(await store.listExpiredSandboxes(NOW, 1)).toEqual(["sbx-poison"]); // the poison pill is the head
+    await store.deferSandboxCleanup("sbx-poison", NOW);
+    const moved = (cols.get(COLLECTIONS.outlets)!.get("sbx-poison") as { sandbox: { expires_at_ms: number } }).sandbox.expires_at_ms;
+    expect(moved).toBe(NOW - CLEANUP_GRACE_MS);
+    expect(moved).toBeLessThan(NOW - CLEANUP_GRACE_MS + 1); // still listed as expired
+    expect(await store.listExpiredSandboxes(NOW, 1)).toEqual(["sbx-next"]); // the head moved on
+    expect(queries.at(-1)!.orderBy).toBe("sandbox.expires_at_ms");
+  });
+
+  it("changes nothing but sandbox.expires_at_ms and never extends a live session", async () => {
+    const { db, cols } = fakeDb({ [COLLECTIONS.outlets]: { "sbx-live": sbx("sbx-live", NOW + 1000) } });
+    await firestoreDemoStore(db).deferSandboxCleanup("sbx-live", NOW);
+    expect((cols.get(COLLECTIONS.outlets)!.get("sbx-live") as Doc).sandbox).toEqual(sbx("sbx-live", NOW + 1000).sandbox);
+  });
+
+  it("refuses a non-sandbox outlet, a non-sbx id and a missing outlet (writes nothing)", async () => {
+    const seed = seedTemplate();
+    seed[COLLECTIONS.outlets]!["weird-1"] = sbx("weird-1", 1);
+    const { db, writes } = fakeDb(seed);
+    const store = firestoreDemoStore(db);
+    for (const id of [TEMPLATE_OUTLET_ID, "weird-1", "sbx-missing"]) await expect(store.deferSandboxCleanup(id, NOW), id).rejects.toThrow();
+    expect(writes).toEqual([]);
   });
 });
 

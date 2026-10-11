@@ -28,6 +28,13 @@ export interface DemoStore {
   readCounter(counterId: string): Promise<number>;
   /** Sandbox outlet ids whose expiry passed more than CLEANUP_GRACE_MS ago. */
   listExpiredSandboxes(nowMs: number, limit: number): Promise<string[]>;
+  /**
+   * Poison-pill quarantine for cleanup: sets the sandbox's `expires_at_ms` to the newest instant that
+   * is still cleanup-eligible (`nowMs - CLEANUP_GRACE_MS`) so a sandbox that cannot be deleted sorts
+   * behind every older one and the head of `listExpiredSandboxes` moves on. Never extends a live session
+   * (it only ever lowers a value that is already past). Refuses anything that is not a sandbox outlet.
+   */
+  deferSandboxCleanup(outletId: string, nowMs: number): Promise<void>;
   /** Deletes every doc of one sandbox outlet; throws unless the outlet doc has a sandbox object and an sbx- id. */
   deleteSandbox(outletId: string): Promise<void>;
   /** Plain outlet read (used by the generate cap). */

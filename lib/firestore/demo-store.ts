@@ -219,11 +219,22 @@ export function firestoreDemoStore(db: Firestore = adminDb()): DemoStore {
     },
 
     async listExpiredSandboxes(nowMs, limit): Promise<string[]> {
+      // Oldest expiry first (Firestore orders by the inequality field anyway; explicit here because deferSandboxCleanup relies on it).
       const snap = await outletsCol()
         .where("sandbox.expires_at_ms", "<", nowMs - CLEANUP_GRACE_MS)
+        .orderBy("sandbox.expires_at_ms")
         .limit(limit)
         .get();
       return snap.docs.map((d) => d.id).filter((id) => id.startsWith(SANDBOX_OUTLET_PREFIX));
+    },
+
+    async deferSandboxCleanup(outletId, nowMs): Promise<void> {
+      if (!outletId.startsWith(SANDBOX_OUTLET_PREFIX)) throw new Error("demo-store: refusing to defer a non-sandbox outlet");
+      const outlet = await readSandboxOutlet(outletId);
+      if (!outlet?.sandbox) throw new Error("demo-store: refusing to defer a non-sandbox outlet");
+      const target = nowMs - CLEANUP_GRACE_MS;
+      if (outlet.sandbox.expires_at_ms >= target) return; // already at or past the quarantine slot, or still live: touch nothing
+      await outletsCol().doc(outletId).update({ sandbox: { ...outlet.sandbox, expires_at_ms: target } });
     },
 
     async deleteSandbox(outletId): Promise<void> {

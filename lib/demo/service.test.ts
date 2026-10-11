@@ -242,6 +242,44 @@ describe("issueDemoSession: new sandbox", () => {
     expect(logs.some((l) => l.event === "cleanup_failed")).toBe(true);
   });
 
+  it("M4 a sandbox that cannot be deleted is deferred (quarantined) and the rest of the batch still runs", async () => {
+    const f = fakeStore({ expired: ["sbx-poison", "sbx-ok"] });
+    f.state.failDeleteIds.add("sbx-poison");
+    const { d, logs } = deps();
+    await expect(issueDemoSession(f.store, d, input({ role: "owner" }))).resolves.toBeDefined();
+    expect(f.deleted).toEqual(["sbx-ok"]);
+    expect(f.deferred).toEqual([{ id: "sbx-poison", now_ms: NOW }]);
+    expect(logs.filter((l) => l.event === "cleanup_failed")).toEqual([
+      { event: "cleanup_failed", fields: { sandbox: "sbx-poison", error_class: "Error" } },
+    ]);
+  });
+
+  it("M4 a failing quarantine is logged by id and never fails the request or the batch", async () => {
+    const f = fakeStore({ expired: ["sbx-poison", "sbx-ok"] });
+    f.state.failDeleteIds.add("sbx-poison");
+    f.state.failDefer = true;
+    const { d, logs } = deps();
+    await expect(issueDemoSession(f.store, d, input({ role: "owner" }))).resolves.toBeDefined();
+    expect(f.deleted).toEqual(["sbx-ok"]);
+    expect(logs.some((l) => l.event === "cleanup_defer_failed" && l.fields.sandbox === "sbx-poison")).toBe(true);
+  });
+
+  it("M4 a failing list query is logged and does not fail the request", async () => {
+    const f = fakeStore({ expired: ["sbx-old1"] });
+    f.state.failList = true;
+    const { d, logs } = deps();
+    await expect(issueDemoSession(f.store, d, input({ role: "owner" }))).resolves.toBeDefined();
+    expect(logs.some((l) => l.event === "cleanup_failed")).toBe(true);
+  });
+
+  it("M4 error messages never reach the log (only the id and the error class)", async () => {
+    const f = fakeStore({ expired: ["sbx-poison"] });
+    f.state.failDeleteIds.add("sbx-poison");
+    const { d, logs } = deps();
+    await issueDemoSession(f.store, d, input({ role: "owner" }));
+    expect(JSON.stringify(logs)).not.toContain("delete failed");
+  });
+
   it("cleanup runs only when a sandbox is created, not on a role switch", async () => {
     const f = fakeStore({ expired: ["sbx-old1"] });
     const first = await issueDemoSession(f.store, deps().d, input({ role: "owner" }));

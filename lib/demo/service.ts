@@ -105,12 +105,7 @@ async function createSandbox(store: DemoStore, deps: DemoDeps, input: IssueInput
   }
   if (!(await store.bumpCounter(dayCounterId, "sandbox_day", day, dayCap, counterExpiry))) throw dayRefused();
 
-  // Lazy cleanup of old sandboxes: best effort, never fails the request.
-  try {
-    for (const id of await store.listExpiredSandboxes(now_ms, CLEANUP_PER_CREATE)) await store.deleteSandbox(id);
-  } catch {
-    log("cleanup_failed", {});
-  }
+  await cleanupExpired(store, deps, now_ms);
 
   const random = deps.randomBytes ?? nodeRandomBytes;
   const key = random(32).toString("base64url");
@@ -145,6 +140,37 @@ async function createSandbox(store: DemoStore, deps: DemoDeps, input: IssueInput
     device: { token: deviceToken },
   });
 }
+
+/**
+ * Lazy cleanup of old sandboxes: best effort, never fails the request. Each sandbox is deleted in its
+ * own try/catch; one that fails is quarantined (moved behind the rest of the list) so a single broken
+ * sandbox cannot block the head of the list forever. Logs only the sandbox id and the error class.
+ * Follow-up (not now): move cleanup to a Cloud Tasks job so it does not ride on a judge's request.
+ */
+async function cleanupExpired(store: DemoStore, deps: DemoDeps, now_ms: number): Promise<void> {
+  const log = deps.log ?? defaultLog;
+  let ids: string[];
+  try {
+    ids = await store.listExpiredSandboxes(now_ms, CLEANUP_PER_CREATE);
+  } catch (error) {
+    log("cleanup_failed", { error_class: errorClass(error) });
+    return;
+  }
+  for (const id of ids) {
+    try {
+      await store.deleteSandbox(id);
+    } catch (error) {
+      log("cleanup_failed", { sandbox: id, error_class: errorClass(error) });
+      try {
+        await store.deferSandboxCleanup(id, now_ms);
+      } catch (deferError) {
+        log("cleanup_defer_failed", { sandbox: id, error_class: errorClass(deferError) });
+      }
+    }
+  }
+}
+
+const errorClass = (error: unknown): string => (error instanceof Error ? error.name : "unknown");
 
 async function switchRole(
   store: DemoStore,
