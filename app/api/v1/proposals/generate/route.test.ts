@@ -22,6 +22,7 @@ vi.mock("@/lib/firebase/admin", () => ({
 }));
 
 vi.mock("@/lib/firestore/proposal-store");
+vi.mock("@/lib/firestore/demo-store");
 
 const modelFn = vi.fn();
 vi.mock("@/lib/agents/proposal-agent", () => ({
@@ -54,6 +55,8 @@ vi.mock("@/config/proposal-library", async (importOriginal) => {
 });
 
 import { firestoreProposalStore } from "@/lib/firestore/proposal-store";
+import { firestoreDemoStore } from "@/lib/firestore/demo-store";
+import { fakeStore } from "@/lib/demo/testing/fake-store";
 
 afterEach(() => {
   verifyIdToken.mockReset();
@@ -266,3 +269,76 @@ describe("POST /api/v1/proposals/generate", () => {
     expect(text).not.toContain(DEVICE_ID);
   });
 });
+
+describe("R-12 Task 7: sandbox generate cap", () => {
+  const sandboxOutlet = (id = OUTLET_ID): Outlet =>
+    outlet({
+      outlet_id: id,
+      sandbox: { template_outlet_id: "demo-tpl-outlet", created_at_ms: Date.now(), expires_at_ms: Date.now() + 3_600_000, key_sha256: "a".repeat(64) },
+    });
+
+  function demoStoreWith(o: Outlet | null) {
+    const f = fakeStore();
+    if (o) f.sandboxes.set(o.outlet_id, o);
+    vi.mocked(firestoreDemoStore).mockReturnValue(f.store);
+    return f;
+  }
+
+  it("non-demo: no demo store is built, no extra read, behaviour unchanged", async () => {
+    verifyIdToken.mockResolvedValueOnce(claimsFor("1", "supervisor"));
+    vi.mocked(firestoreProposalStore).mockReturnValueOnce(oneFactStore());
+    const res = await POST(postRequest(VALID_BODY, "Bearer t"));
+    expect(res.status).toBe(201);
+    expect(firestoreDemoStore).not.toHaveBeenCalled();
+  });
+
+  it("DEMO_MODE on + a sandbox outlet: the sixth generation is 429 demo_generate_cap and generateProposal is not reached", async () => {
+    vi.stubEnv("DEMO_MODE", "true");
+    const f = demoStoreWith(sandboxOutlet());
+    for (let i = 0; i < 5; i++) {
+      verifyIdToken.mockResolvedValueOnce(claimsFor("1", "supervisor"));
+      vi.mocked(firestoreProposalStore).mockReturnValueOnce(oneFactStore());
+      expect((await POST(postRequest(VALID_BODY, "Bearer t"))).status).toBe(201);
+    }
+    verifyIdToken.mockResolvedValueOnce(claimsFor("1", "supervisor"));
+    vi.mocked(firestoreProposalStore).mockClear();
+    const res = await POST(postRequest(VALID_BODY, "Bearer t"));
+    expect(res.status).toBe(429);
+    expect((await res.json()).error.code).toBe("demo_generate_cap");
+    expect(Number(res.headers.get("Retry-After"))).toBeGreaterThanOrEqual(1);
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(firestoreProposalStore).not.toHaveBeenCalled();
+    expect(f.bumps.filter((b) => b.id === `generate_sandbox:${OUTLET_ID}`)).toHaveLength(6);
+  });
+
+  it("DEMO_MODE on + a plain outlet (the shared demo outlet): no counter is touched", async () => {
+    vi.stubEnv("DEMO_MODE", "true");
+    const f = demoStoreWith(outlet());
+    f.sandboxes.set(OUTLET_ID, outlet());
+    verifyIdToken.mockResolvedValueOnce(claimsFor("1", "supervisor"));
+    vi.mocked(firestoreProposalStore).mockReturnValueOnce(oneFactStore());
+    expect((await POST(postRequest(VALID_BODY, "Bearer t"))).status).toBe(201);
+    expect(f.bumps).toEqual([]);
+  });
+
+  it("a staff token is 403 and burns no cap; a bad body is 422 and burns no cap", async () => {
+    vi.stubEnv("DEMO_MODE", "true");
+    const f = demoStoreWith(sandboxOutlet());
+    verifyIdToken.mockResolvedValueOnce(claimsFor("1", "staff"));
+    expect((await POST(postRequest(VALID_BODY, "Bearer t"))).status).toBe(403);
+    verifyIdToken.mockResolvedValueOnce(claimsFor("1", "supervisor"));
+    expect((await POST(postRequest({ ...VALID_BODY, extra: 1 }, "Bearer t"))).status).toBe(422);
+    expect(f.bumps).toEqual([]);
+  });
+
+  it("an outlet that cannot be read in demo mode is not capped (fails open to the existing behaviour, 404 from the service)", async () => {
+    vi.stubEnv("DEMO_MODE", "true");
+    const f = demoStoreWith(null);
+    verifyIdToken.mockResolvedValueOnce(claimsFor("1", "supervisor"));
+    vi.mocked(firestoreProposalStore).mockReturnValueOnce({ ...oneFactStore(), getOutlet: async () => null });
+    const res = await POST(postRequest(VALID_BODY, "Bearer t"));
+    expect(res.status).toBe(404);
+    expect(f.bumps).toEqual([]);
+  });
+});
+
