@@ -1,13 +1,16 @@
 /**
  * Label eval report (R-13, docs/specs/pipeline-and-agents.md T-804).
  *
- *   npm run eval -- --gold <gold CSV file>
+ *   npm run eval -- --gold <gold CSV file> --source <internal|pilot>
  *
  * Reads ONE local CSV (the gold-set sheet downloaded by hand: that file is the pinned snapshot, named
  * in the report with its SHA-256) and prints a markdown report to stdout: confusion matrix,
  * per-category precision / recall / F1, macro-F1, accuracy, the rush-hour subset and reviewer
  * agreement. No network, no Firestore, no model call: the prediction is the model's stored
  * category, exported earlier by `npm run eval:export`.
+ *
+ * `--source` is mandatory too (no default) and is printed in the report: `internal` = fictional speech
+ * by the team (internal testing / demo outlet), `pilot` = shop episodes labelled by the team.
  *
  * `--gold` is mandatory and has no default path: the data files live outside the repo's tracked tree
  * and this script never guesses where they are. Hard rules: nothing is stored or sent anywhere; the
@@ -28,6 +31,14 @@ import {
   perCategory,
   type LabelRow,
 } from "@/lib/eval/metrics";
+
+export type EvalSource = "internal" | "pilot";
+export const EVAL_SOURCES: readonly EvalSource[] = ["internal", "pilot"];
+
+const SOURCE_LINE: Record<EvalSource, string> = {
+  internal: "- Source: internal (internal-testing and demo-outlet episodes: fictional speech by the team, not shop data)",
+  pilot: "- Source: pilot (shop episodes labelled by the team)",
+};
 
 const fmt = (value: number | null): string => (value === null ? "n/a" : value.toFixed(3));
 
@@ -76,7 +87,7 @@ export interface ReportResult {
 }
 
 /** Builds the markdown report from the snapshot bytes. Deterministic except for the run date line. */
-export function buildReport(snapshot: Buffer, fileName: string, runDate: string): ReportResult {
+export function buildReport(snapshot: Buffer, fileName: string, runDate: string, source: EvalSource): ReportResult {
   const { rows, skipped, errors } = parseGoldCsv(snapshot.toString("utf8"));
   if (errors.length > 0) return { markdown: "", errors };
   if (rows.length === 0) return { markdown: "", errors: ["No labelled rows: every gold cell is empty or SKIP"] };
@@ -94,7 +105,7 @@ export function buildReport(snapshot: Buffer, fileName: string, runDate: string)
     `- SHA-256: ${sha}`,
     `- Run date: ${runDate}`,
     `- Episodes used: n = ${rows.length}; skipped (no gold): ${skipped}`,
-    "- Source: internal-testing and demo-outlet episodes (fictional speech by the team), not shop data.",
+    SOURCE_LINE[source],
     "",
     `## All episodes (n = ${rows.length})`,
     "",
@@ -120,21 +131,31 @@ export function buildReport(snapshot: Buffer, fileName: string, runDate: string)
 
 export interface CliArgs {
   goldPath: string;
+  source: EvalSource;
 }
 
 export function parseCliArgs(argv: string[]): CliArgs {
-  const usage = "Usage: npm run eval -- --gold <gold CSV file>";
-  const i = argv.indexOf("--gold");
-  const value = i === -1 ? undefined : argv[i + 1];
-  if (!value || value.startsWith("--")) throw new Error(`--gold is required (there is no default file). ${usage}`);
-  return { goldPath: path.resolve(value) };
+  const usage = "Usage: npm run eval -- --gold <gold CSV file> --source <internal|pilot>";
+  const valueOf = (flag: string): string | undefined => {
+    const i = argv.indexOf(flag);
+    const value = i === -1 ? undefined : argv[i + 1];
+    return !value || value.startsWith("--") ? undefined : value;
+  };
+  const gold = valueOf("--gold");
+  if (!gold) throw new Error(`--gold is required (there is no default file). ${usage}`);
+  const source = valueOf("--source");
+  if (!source) throw new Error(`--source is required: internal or pilot (there is no default). ${usage}`);
+  if (!(EVAL_SOURCES as readonly string[]).includes(source)) {
+    throw new Error(`--source must be internal or pilot, got "${source}". ${usage}`);
+  }
+  return { goldPath: path.resolve(gold), source: source as EvalSource };
 }
 
 function main(): void {
-  const { goldPath } = parseCliArgs(process.argv.slice(2));
+  const { goldPath, source } = parseCliArgs(process.argv.slice(2));
   const snapshot = readFileSync(goldPath);
   const runDate = new Date().toISOString().slice(0, 10);
-  const { markdown, errors } = buildReport(snapshot, path.basename(goldPath), runDate);
+  const { markdown, errors } = buildReport(snapshot, path.basename(goldPath), runDate, source);
   if (errors.length > 0) {
     for (const error of errors) console.error(`[eval] ${error}`);
     process.exitCode = 1;

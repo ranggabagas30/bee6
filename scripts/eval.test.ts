@@ -9,7 +9,7 @@ const bytes = readFileSync(FIXTURE);
 const sha = createHash("sha256").update(bytes).digest("hex");
 
 describe("buildReport on the fictional fixture", () => {
-  const result = buildReport(bytes, "gold-fictional.csv", "2026-10-11");
+  const result = buildReport(bytes, "gold-fictional.csv", "2026-10-11", "internal");
 
   it("succeeds with no CSV errors", () => {
     expect(result.errors).toEqual([]);
@@ -21,6 +21,13 @@ describe("buildReport on the fictional fixture", () => {
     expect(result.markdown).toMatch(/Episodes used: n = 11/);
     expect(result.markdown).toMatch(/skipped \(no gold\): 2/);
     expect(result.markdown).toMatch(/internal-testing and demo-outlet episodes/i);
+  });
+
+  it("states the chosen source: internal wording for internal, neutral wording for pilot", () => {
+    expect(result.markdown).toMatch(/- Source: internal \(/);
+    const pilot = buildReport(bytes, "gold-fictional.csv", "2026-10-11", "pilot");
+    expect(pilot.markdown).toMatch(/- Source: pilot \(shop episodes labelled by the team\)/);
+    expect(pilot.markdown).not.toMatch(/internal-testing|not shop data|fictional speech/i);
   });
 
   it("prints the hand-computed headline numbers", () => {
@@ -59,7 +66,7 @@ describe("buildReport on the fictional fixture", () => {
   });
 
   it("is byte-identical across runs except the run date line", () => {
-    const again = buildReport(bytes, "gold-fictional.csv", "2030-01-01");
+    const again = buildReport(bytes, "gold-fictional.csv", "2030-01-01", "internal");
     const strip = (s: string) => s.replace(/^- Run date:.*$/m, "");
     expect(strip(again.markdown)).toBe(strip(result.markdown));
     expect(again.markdown).not.toBe(result.markdown);
@@ -70,18 +77,18 @@ describe("buildReport edge cases", () => {
   const header = "episode,local_date,start_hm,lines,model_category,gold,gold_2,notes\n";
 
   it("returns errors (and no report) on an unknown gold category", () => {
-    const r = buildReport(Buffer.from(header + "E0007,d,09:00,x,TRAINING,COMPLAIN,,\n"), "x.csv", "2026-10-11");
+    const r = buildReport(Buffer.from(header + "E0007,d,09:00,x,TRAINING,COMPLAIN,,\n"), "x.csv", "2026-10-11", "internal");
     expect(r.errors[0]).toContain("E0007");
     expect(r.markdown).toBe("");
   });
 
   it("returns an error when no labelled rows remain", () => {
-    const r = buildReport(Buffer.from(header + "E0001,d,09:00,x,TRAINING,,,\n"), "x.csv", "2026-10-11");
+    const r = buildReport(Buffer.from(header + "E0001,d,09:00,x,TRAINING,,,\n"), "x.csv", "2026-10-11", "internal");
     expect(r.errors.join(" ")).toMatch(/no labelled/i);
   });
 
   it("says agreement is not measured when no gold_2 rows exist", () => {
-    const r = buildReport(Buffer.from(header + "E0001,d,09:00,x,TRAINING,TRAINING,,\n"), "x.csv", "2026-10-11");
+    const r = buildReport(Buffer.from(header + "E0001,d,09:00,x,TRAINING,TRAINING,,\n"), "x.csv", "2026-10-11", "internal");
     expect(r.errors).toEqual([]);
     expect(r.markdown).toMatch(/not measured \(n = 0\)/);
     expect(r.markdown).toMatch(/Rush-hour subset \(n = 0\)/);
@@ -92,6 +99,7 @@ describe("buildReport edge cases", () => {
       Buffer.from(header + "E0001,d,09:00,x,ROUTINE_OPS,ROUTINE_OPS,,\nE0002,d,09:00,x,ROUTINE_OPS,TRAINING,,\n"),
       "x.csv",
       "2026-10-11",
+      "internal",
     );
     expect(r.markdown).toMatch(/\| TRAINING \| 1 \| n\/a \| 0\.000 \| 0\.000 \|/);
   });
@@ -99,10 +107,22 @@ describe("buildReport edge cases", () => {
 
 describe("parseCliArgs", () => {
   it("requires --gold", () => {
-    expect(() => parseCliArgs([])).toThrow(/--gold/);
-    expect(() => parseCliArgs(["--gold"])).toThrow(/--gold/);
+    expect(() => parseCliArgs(["--source", "internal"])).toThrow(/--gold/);
+    expect(() => parseCliArgs(["--gold", "--source", "internal"])).toThrow(/--gold/);
   });
   it("resolves the gold path", () => {
-    expect(parseCliArgs(["--gold", "a/b.csv"]).goldPath).toBe(path.resolve("a/b.csv"));
+    expect(parseCliArgs(["--gold", "a/b.csv", "--source", "internal"]).goldPath).toBe(path.resolve("a/b.csv"));
+  });
+  it("requires --source, with no default", () => {
+    expect(() => parseCliArgs(["--gold", "a.csv"])).toThrow(/--source is required.*internal.*pilot/s);
+    expect(() => parseCliArgs(["--gold", "a.csv", "--source"])).toThrow(/--source is required/);
+  });
+  it("accepts internal and pilot, rejects anything else", () => {
+    expect(parseCliArgs(["--gold", "a.csv", "--source", "pilot"]).source).toBe("pilot");
+    expect(parseCliArgs(["--source", "internal", "--gold", "a.csv"]).source).toBe("internal");
+    expect(() => parseCliArgs(["--gold", "a.csv", "--source", "shop"])).toThrow(/--source must be internal or pilot/);
+  });
+  it("mentions --source in the usage text", () => {
+    expect(() => parseCliArgs([])).toThrow(/--source <internal\|pilot>/);
   });
 });
