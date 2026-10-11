@@ -39,6 +39,12 @@ export const DebriefQuestionViewSchema = z
     category: WorkCategorySchema.nullable(),
     start_hm: z.string().regex(/^\d{2}:\d{2}$/),
     end_hm: z.string().regex(/^\d{2}:\d{2}$/),
+    /**
+     * R-18: the question window's business date, present ONLY when it differs from the debrief's own business
+     * date (a question carried over from an earlier day in a demo sandbox). Absent on every pilot question, so
+     * a pilot response is unchanged.
+     */
+    business_date: dateString.optional(),
   })
   .strict();
 export type DebriefQuestionView = z.infer<typeof DebriefQuestionViewSchema>;

@@ -15,7 +15,7 @@ import {
   type AnswerTxSnapshot,
   type AnswerWritePlan,
 } from "@/lib/debrief/answer-plan";
-import { localHmOf, DEBRIEF_DURATION_MS } from "@/lib/capture/calendar";
+import { businessDateOf, localHmOf, DEBRIEF_DURATION_MS } from "@/lib/capture/calendar";
 import { AppError, DemoCapError, LockedError, NotFoundError, ServiceUnavailableError } from "@/lib/http/errors";
 import type { LastEnded, Question } from "@/lib/firestore/schema";
 import type { WorkCategory } from "@/lib/pipeline/categories";
@@ -60,6 +60,12 @@ function isDebriefActive(last: LastEnded | null, now_ms: number): last is LastEn
   );
 }
 
+/** R-18: the window's business date, only when it is not the debrief's own (see DebriefQuestionViewSchema). */
+function earlierDay(q: Question, debriefDate: string, tz: string): { business_date?: string } {
+  const date = businessDateOf(q.window_start_ms, tz);
+  return date === debriefDate ? {} : { business_date: date };
+}
+
 /** `GET /api/v1/questions` (device). */
 export async function listDebriefQuestions(
   store: DebriefStore,
@@ -86,6 +92,7 @@ export async function listDebriefQuestions(
         : null,
     start_hm: localHmOf(q.window_start_ms, calendar.tz),
     end_hm: localHmOf(q.window_end_ms, calendar.tz),
+    ...earlierDay(q, last.business_date, calendar.tz),
   }));
 
   return DebriefListResponseSchema.parse({

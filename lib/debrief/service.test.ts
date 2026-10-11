@@ -151,6 +151,23 @@ describe("listDebriefQuestions", () => {
     ]);
   });
 
+  it("R-18: a question from an earlier business day carries business_date (the 'Earlier day' chip); same-day ones carry none", async () => {
+    const store = new FakeDebriefStore();
+    setUpActiveDebrief(store); // debrief business date 2026-10-07
+    store.questions.set(
+      "q_today",
+      makeQuestion({ question_id: "q_today", window_start_ms: Date.UTC(2026, 9, 7, 3, 0), window_end_ms: Date.UTC(2026, 9, 7, 3, 5) }),
+    );
+    store.questions.set(
+      "q_old",
+      makeQuestion({ question_id: "q_old", window_start_ms: Date.UTC(2026, 9, 5, 3, 0), window_end_ms: Date.UTC(2026, 9, 5, 3, 5) }),
+    );
+    const result = await listDebriefQuestions(store, CLAIMS, ENDS_MS - 10_000);
+    const byId = new Map(result.questions.map((x) => [x.question_id, x]));
+    expect(byId.get("q_old")).toMatchObject({ business_date: "2026-10-05" });
+    expect(byId.get("q_today")).not.toHaveProperty("business_date");
+  });
+
   it("never shows another device's question", async () => {
     const store = new FakeDebriefStore();
     setUpActiveDebrief(store);
