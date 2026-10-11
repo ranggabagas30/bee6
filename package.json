@@ -23,6 +23,8 @@
     "eval": "tsx scripts/eval.ts",
     "eval:redaction": "tsx scripts/eval-redaction.ts",
     "eval:label": "tsx scripts/eval-label.ts",
+    "eval:export": "tsx scripts/eval-export.ts",
+    "eval:transcribe": "tsx scripts/eval-transcribe.ts",
     "probe:label-schema": "tsx scripts/probe-label-schema.ts"
   },
   "dependencies": {
