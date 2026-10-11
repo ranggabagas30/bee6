@@ -36,7 +36,7 @@ import { VERDICT_KEY, suggestionDomId } from "@/app/reviews/ReviewCard";
 
 type Step = "idle" | "confirm" | "settled";
 
-// Display order. A literal list (not the schema enum) keeps the browser bundle free of the schema module.
+// Button display order, fixed here on purpose: it is a UI choice (worked, revise, revert) and must not shift if the schema enum is ever reordered.
 const VERDICTS: readonly ReviewVerdict[] = ["worked", "revise", "revert"];
 
 const REASON_MIN = 3;
