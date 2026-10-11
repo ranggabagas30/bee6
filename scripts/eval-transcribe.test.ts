@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { PILOT_PROJECT_ID } from "@/scripts/demo-seed-template";
-import { assertDemoProject, parseCliArgs } from "@/scripts/eval-transcribe";
+import { DEMO_PROJECT_ID, assertDemoProject, parseCliArgs } from "@/scripts/eval-transcribe";
 
 describe("parseCliArgs", () => {
   it("requires --clips and --refs, with no default paths", () => {
@@ -15,7 +15,13 @@ describe("parseCliArgs", () => {
     expect(parseCliArgs(["--clips", "a/clips", "--refs", "a/refs.csv"])).toEqual({
       clipsDir: path.resolve("a/clips"),
       refsPath: path.resolve("a/refs.csv"),
+      allowProject: null,
     });
+  });
+
+  it("parses the explicit --allow-project override", () => {
+    expect(parseCliArgs(["--clips", "c", "--refs", "r", "--allow-project", "bee6-other"]).allowProject).toBe("bee6-other");
+    expect(() => parseCliArgs(["--clips", "c", "--refs", "r", "--allow-project"])).toThrow(/--allow-project/);
   });
 });
 
@@ -42,7 +48,26 @@ describe("assertDemoProject", () => {
   });
 
   it("accepts the demo project", () => {
+    expect(DEMO_PROJECT_ID).toBe("bee6-playground");
     expect(() => assertDemoProject({ GOOGLE_CLOUD_PROJECT: "bee6-playground" }, noCreds)).not.toThrow();
+  });
+
+  it("allows ONLY bee6-playground: any other project is refused with a hint about --allow-project", () => {
+    expect(() => assertDemoProject({ GOOGLE_CLOUD_PROJECT: "some-other-project" }, noCreds)).toThrow(
+      /bee6-playground.*--allow-project/s,
+    );
+  });
+
+  it("accepts another project only when it is named by --allow-project and equals GOOGLE_CLOUD_PROJECT", () => {
+    const env = { GOOGLE_CLOUD_PROJECT: "bee6-staging" };
+    expect(() => assertDemoProject(env, noCreds, "bee6-staging")).not.toThrow();
+    expect(() => assertDemoProject(env, noCreds, "bee6-other")).toThrow(/--allow-project/);
+  });
+
+  it("the override never unlocks the pilot project", () => {
+    const env = { GOOGLE_CLOUD_PROJECT: PILOT_PROJECT_ID };
+    expect(() => assertDemoProject(env, noCreds, PILOT_PROJECT_ID)).toThrow(/pilot/i);
+    expect(() => assertDemoProject({ GOOGLE_CLOUD_PROJECT: "bee6-staging", GCLOUD_PROJECT: PILOT_PROJECT_ID }, noCreds, "bee6-staging")).toThrow(/pilot/i);
   });
 });
 

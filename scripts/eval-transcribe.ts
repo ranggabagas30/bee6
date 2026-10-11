@@ -14,7 +14,8 @@
  * location from config/regions.yaml) once per clip and times the call. Hard rules: audio is read from
  * local disk and goes only into the in-memory model request (#2); the hypothesis text is compared and
  * dropped and is never written or printed; the model call uses the paid demo project's service
- * account (#4) and the script refuses the pilot project.
+ * account (#4); the script refuses the pilot project and allows only GOOGLE_CLOUD_PROJECT=bee6-playground
+ * unless `--allow-project <id>` names another (non-pilot) project.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -23,9 +24,14 @@ import { pathToFileURL } from "node:url";
 import { evaluateClips, parseRefsCsv, renderTranscribeReport } from "@/lib/eval/transcribe-eval";
 import { assertNotPilotProject } from "@/scripts/demo-seed-template";
 
+/** The only project this script runs against by default (the paid demo project). */
+export const DEMO_PROJECT_ID = "bee6-playground";
+
 export interface CliArgs {
   clipsDir: string;
   refsPath: string;
+  /** Explicit override: one extra non-pilot project the operator names on the command line. */
+  allowProject: string | null;
 }
 
 function argValue(argv: string[], flag: string): string | undefined {
@@ -35,18 +41,26 @@ function argValue(argv: string[], flag: string): string | undefined {
 }
 
 export function parseCliArgs(argv: string[]): CliArgs {
-  const usage = "Usage: npm run eval:transcribe -- --clips <clips directory> --refs <refs CSV>";
+  const usage = "Usage: npm run eval:transcribe -- --clips <clips directory> --refs <refs CSV> [--allow-project <project id>]";
   const clips = argValue(argv, "--clips");
   if (!clips) throw new Error(`--clips is required (there is no default directory). ${usage}`);
   const refs = argValue(argv, "--refs");
   if (!refs) throw new Error(`--refs is required (there is no default file). ${usage}`);
-  return { clipsDir: path.resolve(clips), refsPath: path.resolve(refs) };
+  const allowProject = argValue(argv, "--allow-project") ?? null;
+  if (argv.includes("--allow-project") && allowProject === null) {
+    throw new Error(`--allow-project needs a project id. ${usage}`);
+  }
+  return { clipsDir: path.resolve(clips), refsPath: path.resolve(refs), allowProject };
 }
 
-/** Requires a project to be set and refuses the pilot project (env and credentials). */
+/**
+ * Requires a project to be set, refuses the pilot project (env and credentials, always, even with the
+ * override), then allows only `bee6-playground` unless `--allow-project <id>` names the same project.
+ */
 export function assertDemoProject(
   env: Record<string, string | undefined>,
   readJson?: (file: string) => Record<string, unknown> | null,
+  allowProject: string | null = null,
 ): void {
   if (!env.GOOGLE_CLOUD_PROJECT) {
     throw new Error("GOOGLE_CLOUD_PROJECT is not set. Run against the demo project (for example bee6-playground).");
@@ -55,6 +69,12 @@ export function assertDemoProject(
     assertNotPilotProject(env, readJson);
   } catch {
     throw new Error("Refusing to run: the Google Cloud project (or its credentials) is the PILOT project. Use the demo project.");
+  }
+  const project = env.GOOGLE_CLOUD_PROJECT;
+  if (project !== DEMO_PROJECT_ID && project !== allowProject) {
+    throw new Error(
+      `Refusing to run against "${project}": only ${DEMO_PROJECT_ID} is allowed by default. To use another non-pilot project, pass --allow-project ${project}.`,
+    );
   }
 }
 
@@ -73,9 +93,9 @@ function loadEnvLocal(): void {
 }
 
 async function main(): Promise<void> {
-  const { clipsDir, refsPath } = parseCliArgs(process.argv.slice(2));
+  const { clipsDir, refsPath, allowProject } = parseCliArgs(process.argv.slice(2));
   loadEnvLocal();
-  assertDemoProject(process.env);
+  assertDemoProject(process.env, undefined, allowProject);
 
   const { refs, errors } = parseRefsCsv(await readFile(refsPath, "utf8"));
   if (errors.length > 0) {
