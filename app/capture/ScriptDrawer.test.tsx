@@ -224,6 +224,15 @@ describe("ScriptDrawer (R-18)", () => {
     expect(screen.queryByText("Jika halaman ini dimuat ulang, ketuk Mulai lagi.")).toBeNull();
   });
 
+  it("item 4 (axe scrollable-region-focusable): the scrolling card area is a focusable, named region, in both languages", () => {
+    const { rerender } = render(<ScriptDrawer {...props()} />);
+    const scroll = within(region()).getByRole("region", { name: "Script cards" });
+    expect(scroll).toBe(screen.getByTestId("script-scroll"));
+    expect(scroll.tabIndex).toBe(0);
+    rerender(<ScriptDrawer {...props({ lang: "id" })} />);
+    expect(within(screen.getByRole("region", { name: "Skrip demo" })).getByRole("region", { name: "Kartu skrip" }).tabIndex).toBe(0);
+  });
+
   it("an unknown script id renders nothing (no empty drawer)", () => {
     const { container } = render(<ScriptDrawer {...props({ scriptId: "nope" })} />);
     expect(container.textContent).toBe("");

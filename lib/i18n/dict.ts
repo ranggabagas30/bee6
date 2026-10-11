@@ -483,6 +483,7 @@ export const ID = {
   "C-script-countdown": "Demo berakhir otomatis dalam {time}", // PROVISIONAL
   "C-script-countdown-short": "Berakhir {time}", // PROVISIONAL
   "C-script-reload": "Jika halaman ini dimuat ulang, ketuk Mulai lagi.", // PROVISIONAL
+  "C-script-cards-label": "Kartu skrip", // PROVISIONAL
   "C-script-collapse": "Sembunyikan skrip", // PROVISIONAL
   "C-script-expand": "Tampilkan skrip", // PROVISIONAL
   "C-script-say": "Ucapkan", // PROVISIONAL
@@ -980,6 +981,7 @@ export const EN: Record<DictKey, string> = {
   "C-script-countdown": "Demo ends automatically in {time}", // PROVISIONAL
   "C-script-countdown-short": "Ends in {time}", // PROVISIONAL
   "C-script-reload": "If this page reloads, tap Start again.", // PROVISIONAL
+  "C-script-cards-label": "Script cards", // PROVISIONAL
   "C-script-collapse": "Hide script", // PROVISIONAL
   "C-script-expand": "Show script", // PROVISIONAL
   "C-script-say": "Say", // PROVISIONAL

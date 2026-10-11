@@ -164,6 +164,12 @@ export function ScriptDrawer(props: ScriptDrawerProps) {
       >
         <div
           data-testid="script-scroll"
+          // The card area scrolls at phone size, so a keyboard user must be able to focus it (axe
+          // scrollable-region-focusable) and a screen reader needs a name for it. The browser's default focus ring
+          // applies (nothing in the app removes outlines).
+          tabIndex={0}
+          role="region"
+          aria-label={t(lang, "C-script-cards-label")}
           style={{ overflowY: "auto", flex: "1 1 auto", minHeight: 0, padding: "0 12px 8px" }}
         >
           {state === "before" && rules ? (
