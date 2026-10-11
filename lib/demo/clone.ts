@@ -54,6 +54,16 @@ export function sandboxIds(hex12a: string, hex12b: string): { outlet_id: string;
 }
 
 /**
+ * The judge device of a sandbox. A sandbox is created with the same hex for its outlet and its
+ * device, so a later role switch can find the device from the outlet id alone (no extra field on
+ * the outlet doc).
+ */
+export function judgeDeviceIdOf(outletId: string): string {
+  if (!outletId.startsWith(SANDBOX_OUTLET_PREFIX)) throw new Error("judgeDeviceIdOf: not a sandbox outlet id");
+  return `${JUDGE_DEVICE_PREFIX}${outletId.slice(SANDBOX_OUTLET_PREFIX.length)}`;
+}
+
+/**
  * Copies `value`, replacing the template device token and then the template outlet token in every
  * string at any depth (object values and array items; never mutates the input). Object keys are not
  * rewritten: a template key holding a token would be caught by the cloned-doc leak test.

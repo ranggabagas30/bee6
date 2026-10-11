@@ -9,7 +9,7 @@ import {
   StaffSchema,
   ThreadSchema,
 } from "@/lib/firestore/schema";
-import { cloneTemplate, rewriteDeep, sandboxIds, type ClonedDoc, type TemplateSet } from "@/lib/demo/clone";
+import { cloneTemplate, judgeDeviceIdOf, rewriteDeep, sandboxIds, type ClonedDoc, type TemplateSet } from "@/lib/demo/clone";
 import { SANDBOX_TTL_MS, TEMPLATE_DEVICE_ID, TEMPLATE_OUTLET_ID } from "@/lib/demo/constants";
 import {
   DAYS,
@@ -41,6 +41,19 @@ function deepFreeze<T>(value: T): T {
 describe("sandboxIds", () => {
   it("builds sbx-/jdg- ids from the two hex strings", () => {
     expect(sandboxIds("aaaaaaaaaaaa", "bbbbbbbbbbbb")).toEqual(IDS);
+  });
+});
+
+describe("judgeDeviceIdOf", () => {
+  it("derives the judge device id from the sandbox outlet id when both use the same hex", () => {
+    const ids = sandboxIds("0123456789ab", "0123456789ab");
+    expect(judgeDeviceIdOf(ids.outlet_id)).toBe(ids.device_id);
+    expect(judgeDeviceIdOf("sbx-ffffffffffff")).toBe("jdg-ffffffffffff");
+  });
+
+  it("refuses a non-sandbox outlet id", () => {
+    expect(() => judgeDeviceIdOf("demo-outlet")).toThrow();
+    expect(() => judgeDeviceIdOf("demo-tpl-outlet")).toThrow();
   });
 });
 
