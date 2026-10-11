@@ -1001,7 +1001,7 @@ export const ReviewSchema = z
     failure_condition: z.string().min(1).max(480),
     effective_from_date: dateString,
     review_date: dateString,
-    confirm_by_date: dateString, // review_date + REVIEW_CONFIRM_DAYS
+    confirm_by_date: dateString, // review_date + REVIEW_CONFIRM_DAYS; confirm window is 7 days from the later of review_date and outlet-local run day
     before: ReviewWindowSchema,
     after: ReviewWindowSchema,
     suggestion: z
