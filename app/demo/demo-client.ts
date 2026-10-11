@@ -395,14 +395,20 @@ export async function startDemo(role: DemoRole, options: StartDemoOptions): Prom
   if (onExpired === "stop" && key === undefined) return endedBySwitch(stored, auth, now);
 
   let outcome = await requestDemoSession(role, key, fetchImpl, now);
+  let restarted = false;
   if (outcome.kind === "sandbox_expired") {
     if (onExpired === "stop") return endedBySwitch(stored, auth, now);
     clearDemoState();
+    restarted = true;
     outcome = await requestDemoSession(role, undefined, fetchImpl, now);
     // A retry that works replaces the user in one step; one that does not leaves nobody signed in to a dead sandbox.
     if (outcome.kind !== "ok") await signOutQuietly(auth);
   }
   if (outcome.kind !== "ok") return outcome;
 
-  return (await applyCredentials(outcome.data, auth, navigate)) ? { kind: "started" } : { kind: "error" };
+  if (await applyCredentials(outcome.data, auth, navigate)) return { kind: "started" };
+  // The old sandbox was forgotten above, so a credential that could not be swapped (sign-in threw, storage
+  // blocked) must not leave the previous web user signed in to it.
+  if (restarted) await signOutQuietly(auth);
+  return { kind: "error" };
 }

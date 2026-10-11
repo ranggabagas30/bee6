@@ -419,6 +419,39 @@ describe("startDemo", () => {
     expect(signOut).toHaveBeenCalledWith(AUTH);
   });
 
+  it("onExpired restart: when the retry is accepted but the sign-in then fails, the previous web user is signed out", async () => {
+    writeDemoState({ sandbox_key: KEY, expires_at_ms: EXPIRES, role: "owner" });
+    signInWithCustomToken.mockRejectedValue(new Error("auth/network-request-failed"));
+    const f = vi.fn().mockResolvedValueOnce(err(409, "SANDBOX_EXPIRED")).mockResolvedValueOnce(ok({ ...WEB_OK, sandbox_key: KEY2 }));
+    const result = await startDemo("supervisor", { auth: AUTH, navigate, fetchImpl: f as never, now: () => NOW, onExpired: "restart" });
+    expect(result).toEqual({ kind: "error" });
+    expect(signOut).toHaveBeenCalledWith(AUTH); // no credential for the dead sandbox remains
+    expect(readDemoState()).toBeNull();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("onExpired restart: when the retry is accepted but the device keys cannot be stored, the previous web user is signed out", async () => {
+    writeDemoState({ sandbox_key: KEY, expires_at_ms: EXPIRES, role: "owner" });
+    const f = vi.fn().mockResolvedValueOnce(err(409, "SANDBOX_EXPIRED")).mockResolvedValueOnce(ok(DEVICE_OK));
+    const realSet = fakeLocal.setItem;
+    vi.spyOn(fakeLocal, "setItem").mockImplementation((k: string, v: string) => {
+      if (k === DEVICE_TOKEN_KEY) throw new Error("quota");
+      realSet(k, v);
+    });
+    const result = await startDemo("staff", { auth: AUTH, navigate, fetchImpl: f as never, now: () => NOW, onExpired: "restart" });
+    expect(result).toEqual({ kind: "error" });
+    expect(signOut).toHaveBeenCalledWith(AUTH);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("a failed sign-in with no expiry in play still keeps the previous user (only the restart path forgot its sandbox)", async () => {
+    writeDemoState({ sandbox_key: KEY, expires_at_ms: EXPIRES, role: "owner" });
+    signInWithCustomToken.mockRejectedValue(new Error("auth/network-request-failed"));
+    const f = vi.fn().mockResolvedValue(ok(WEB_OK));
+    await startDemo("supervisor", { auth: AUTH, navigate, fetchImpl: f as never, now: () => NOW, onExpired: "restart" });
+    expect(signOut).not.toHaveBeenCalled();
+  });
+
   it("onExpired restart: when the retry works, there is no extra signed-out moment for web roles", async () => {
     writeDemoState({ sandbox_key: KEY, expires_at_ms: EXPIRES, role: "owner" });
     const f = vi.fn().mockResolvedValueOnce(err(409, "SANDBOX_EXPIRED")).mockResolvedValueOnce(ok({ ...WEB_OK, sandbox_key: KEY2 }));
