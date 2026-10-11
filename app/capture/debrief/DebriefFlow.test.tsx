@@ -577,6 +577,7 @@ describe("DebriefFlow: R-18 refresh (sandbox only)", () => {
     fireEvent.click(screen.getByRole("button", CHECK));
     await waitFor(() => expect(screen.getByRole("button", CHECK)).toBeTruthy());
     expect(screen.getByText("Debrief complete. Thank you.")).toBeTruthy(); // nothing new: stays done
+    vi.setSystemTime(Date.now() + 6_000); // the minimum interval between two manual checks
     state.questions = [q("q1"), q("q2")];
     fireEvent.click(screen.getByRole("button", CHECK));
     await waitFor(() => expect(screen.getByText("Question 1 of 1")).toBeTruthy());
@@ -610,6 +611,48 @@ describe("DebriefFlow: R-18 refresh (sandbox only)", () => {
     await waitFor(() => expect(screen.getByRole("button", CHECK)).toBeTruthy());
     expect(screen.getByText("Question 1 of 1")).toBeTruthy();
     expect(screen.queryByText("Questions could not load yet.")).toBeNull();
+  });
+
+  it("11c: Check taps closer than 5 s to the last check are ignored, so the questions route is not hammered", async () => {
+    pollClock();
+    const { fn, calls } = growing([q("q1")]);
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} refresh />);
+    await openCard();
+    expect(gets(calls)).toBe(1);
+    fireEvent.click(screen.getByRole("button", CHECK));
+    await waitFor(() => expect(gets(calls)).toBe(2));
+    await screen.findByRole("button", CHECK); // back from "Checking…"
+    fireEvent.click(screen.getByRole("button", CHECK));
+    fireEvent.click(screen.getByRole("button", CHECK));
+    await vi.advanceTimersByTimeAsync(4_000);
+    fireEvent.click(screen.getByRole("button", CHECK));
+    expect(gets(calls)).toBe(2);
+    await vi.advanceTimersByTimeAsync(1_500);
+    fireEvent.click(screen.getByRole("button", CHECK));
+    await waitFor(() => expect(gets(calls)).toBe(3));
+  });
+
+  it("11c: a 429 or 503 from the questions route keeps the screen and is never retried in a tight loop", async () => {
+    pollClock();
+    let status = 200;
+    const calls: string[] = [];
+    const fn = vi.fn(async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return {
+        ok: status === 200,
+        status,
+        json: async () => listResponse([q("q1")]),
+      } as Response;
+    }) as unknown as typeof fetch;
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} refresh />);
+    await openCard();
+    status = 429;
+    fireEvent.click(screen.getByRole("button", CHECK));
+    await waitFor(() => expect(calls).toHaveLength(2));
+    status = 503;
+    await vi.advanceTimersByTimeAsync(15_000); // under the 20 s poll: nothing retries on its own
+    expect(calls).toHaveLength(2);
+    expect(screen.getByText("Question 1 of 1")).toBeTruthy();
   });
 
   it("polls every 20 s while the list is on screen and appends what arrived", async () => {

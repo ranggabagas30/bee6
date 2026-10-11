@@ -5,7 +5,13 @@ import { canCommit, reduceDebrief, type DebriefState } from "@/lib/debrief/flow"
 import { DebriefListResponseSchema } from "@/lib/debrief/contract";
 import { appendAnswer, CacheWriteError, cachedIds, pendingSummary, purgeNow, readCache } from "@/lib/debrief/answer-cache";
 import { createAnswerUploader, type AnswerUploader, type Disposition } from "@/lib/debrief/answer-uploader";
-import { ANSWER_PURGE_INTERVAL_MS, ANSWER_RETRY_MS, REFRESH_POLL_MAX_MS, REFRESH_POLL_MS } from "@/lib/debrief/constants";
+import {
+  ANSWER_PURGE_INTERVAL_MS,
+  ANSWER_RETRY_MS,
+  REFRESH_MIN_INTERVAL_MS,
+  REFRESH_POLL_MAX_MS,
+  REFRESH_POLL_MS,
+} from "@/lib/debrief/constants";
 import { deviceAuthHeaders, type DeviceAuth } from "@/lib/capture/browser/client";
 import { t } from "@/lib/i18n/dict";
 import { useLang } from "@/lib/i18n/context";
@@ -161,8 +167,16 @@ export function DebriefFlow({
   const refreshInFlightRef = useRef(false);
   const [checking, setChecking] = useState(false);
 
+  // The questions route is shared by every sandbox device, so a manual tap closer than REFRESH_MIN_INTERVAL_MS
+  // to the last check does nothing (the answer on screen is at most 5 s old). A failed check (429, 503, any
+  // non-2xx, a network error) just leaves the screen as it is: nothing here retries, the next poll tick or tap
+  // is the only retry.
+  const lastCheckAtRef = useRef(0);
   async function refreshQuestions(manual: boolean) {
     if (refreshInFlightRef.current) return;
+    const started = Date.now();
+    if (manual && started - lastCheckAtRef.current < REFRESH_MIN_INTERVAL_MS) return;
+    lastCheckAtRef.current = started;
     refreshInFlightRef.current = true;
     if (manual) setChecking(true);
     try {
