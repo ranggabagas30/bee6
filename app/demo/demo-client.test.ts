@@ -335,14 +335,15 @@ describe("startDemo", () => {
     expect(f).toHaveBeenCalledTimes(2);
   });
 
-  it("onExpired stop (the bar): a 409 clears the sandbox and does not silently create a new one", async () => {
+  it("onExpired stop (the bar): a 409 marks the stored sandbox as ended and does not silently create a new one", async () => {
     writeDemoState({ sandbox_key: KEY, expires_at_ms: EXPIRES, role: "staff" });
     fakeLocal.setItem(DEVICE_TOKEN_KEY, "old");
     const f = vi.fn().mockImplementation(async () => err(409, "SANDBOX_EXPIRED"));
     const result = await startDemo("owner", { auth: AUTH, navigate, fetchImpl: f as never, now: () => NOW, onExpired: "stop" });
     expect(result).toEqual({ kind: "sandbox_expired" });
     expect(f).toHaveBeenCalledTimes(1);
-    expect(readDemoState()).toBeNull();
+    expect(readDemoState()).toEqual({ sandbox_key: KEY, expires_at_ms: NOW, role: "staff" }); // kept, as ended
+    expect(demoSnapshot(NOW).endsWith("|expired")).toBe(true);
     expect(fakeLocal.getItem(DEVICE_TOKEN_KEY)).toBeNull();
     expect(navigate).not.toHaveBeenCalled();
     expect(signOut).toHaveBeenCalledWith(AUTH); // no signed-in web user is left behind a forgotten sandbox

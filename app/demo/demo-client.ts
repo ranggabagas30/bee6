@@ -338,11 +338,17 @@ export async function startDemo(role: DemoRole, options: StartDemoOptions): Prom
 
   let outcome = await requestDemoSession(role, key, fetchImpl, now);
   if (outcome.kind === "sandbox_expired") {
-    clearDemoState();
     if (onExpired === "stop") {
+      // Keep the record, marked as ended now, so the bar and /sign-in both still say "Your demo session has
+      // ended." when the signed-out web page bounces the visitor there. A cleared state would leave /sign-in
+      // with nothing to explain.
+      if (stored) writeDemoState({ ...stored, expires_at_ms: now() });
+      else notifyChange();
+      removeDeviceKeys();
       await signOutQuietly(auth); // do not leave a web user signed in behind a forgotten sandbox
       return { kind: "sandbox_expired" };
     }
+    clearDemoState();
     outcome = await requestDemoSession(role, undefined, fetchImpl, now);
     // A retry that works replaces the user in one step; one that does not leaves nobody signed in to a dead sandbox.
     if (outcome.kind !== "ok") await signOutQuietly(auth);

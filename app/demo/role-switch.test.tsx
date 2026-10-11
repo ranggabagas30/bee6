@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { LangProvider } from "@/lib/i18n/context";
@@ -23,6 +23,8 @@ const ROLES: DemoRole[] = ["staff", "supervisor", "owner"];
 
 const h = vi.hoisted(() => {
   const state = { uid: null as string | null, timing: "microtask" as "sync" | "microtask" | "macrotask", pathname: "/" };
+  // Set by the harness page so router.replace can move the (mocked) current route and re-render it.
+  const route = { setPath: null as null | ((path: string) => void) };
   const listeners = new Set<(uid: string | null) => void>();
   const nav: Array<{ via: string; path: string }> = [];
   function emit() {
@@ -33,7 +35,7 @@ const h = vi.hoisted(() => {
       else setTimeout(() => l(uid), 0);
     }
   }
-  return { state, listeners, nav, emit };
+  return { state, route, listeners, nav, emit };
 });
 
 vi.mock("next/navigation", () => ({
@@ -42,12 +44,22 @@ vi.mock("next/navigation", () => ({
 }));
 const ROUTER = {
   push: (path: string) => void h.nav.push({ via: "router.push", path }),
-  replace: (path: string) => void h.nav.push({ via: "router.replace", path }),
+  replace: (path: string) => {
+    h.nav.push({ via: "router.replace", path });
+    h.state.pathname = path;
+    h.route.setPath?.(path);
+  },
 };
+
+vi.mock("@/lib/auth/client/use-auth-user", () => ({
+  useAuthUser: () => ({ status: "signed_out" }),
+}));
+vi.mock("@/lib/auth/client/api", () => ({ postAuthSession: async () => ({ kind: "error" }) }));
 
 const AUTH = { kind: "fake-auth" };
 vi.mock("@/lib/auth/client/firebase-client", () => ({
   getClientAuth: () => AUTH,
+  signInWithEmailAndPassword: async () => {},
   signOut: async () => {
     h.state.uid = null;
     h.emit();
@@ -60,6 +72,7 @@ vi.mock("@/lib/auth/client/firebase-client", () => ({
 
 import { DemoBar } from "@/app/demo/DemoBar";
 import { Landing } from "@/app/demo/Landing";
+import { SignInScreen } from "@/app/sign-in/SignInScreen";
 import { DEMO_STATE_KEY } from "@/app/demo/demo-client";
 
 /** What HomeApp / DayRecordApp / ... do while mounted: bounce to /sign-in on signed_out, re-sync the URL on a new user. */
@@ -172,4 +185,69 @@ describe("Landing Try-as buttons end on the role's landing page", () => {
       expectEndedOn(LANDING[role], { noRouterMovesAtAll: true });
     });
   }
+});
+
+/** The layout's bar plus the route's page: router.replace("/sign-in") swaps the page for the real sign-in screen. */
+function Harness({ startAt }: { startAt: string }) {
+  const [path, setPath] = useState(startAt);
+  useEffect(() => {
+    h.route.setPath = setPath;
+    return () => void (h.route.setPath = null);
+  }, []);
+  return (
+    <LangProvider initial="en">
+      <MountedWebPage />
+      <DemoBar config={CONFIG} />
+      {path === "/sign-in" && <SignInScreen config={CONFIG} demo />}
+    </LangProvider>
+  );
+}
+
+describe("a bar switch that finds the sandbox gone ends visibly, even when the mounted page bounces to /sign-in", () => {
+  const GONE: Array<[string, () => Response]> = [
+    ["409 SANDBOX_EXPIRED", () => new Response(JSON.stringify({ error: { code: "SANDBOX_EXPIRED" } }), { status: 409 })],
+    ["404 with a key", () => new Response(JSON.stringify({ error: { code: "not_found" } }), { status: 404 })],
+  ];
+  const FROM_WEB: Array<[DemoRole, DemoRole]> = [
+    ["owner", "supervisor"],
+    ["owner", "staff"],
+    ["supervisor", "owner"],
+    ["supervisor", "staff"],
+  ];
+  for (const [label, response] of GONE) {
+    it.each(FROM_WEB)(`${label}: %s -> %s ends on /sign-in with the ended line, signed out, keys gone`, async (from, to) => {
+      h.state.timing = "microtask";
+      h.state.pathname = PATH_OF[from];
+      h.state.uid = `uid-${from}`;
+      window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: Date.now() + 3_600_000, role: from }));
+      window.localStorage.setItem(DEVICE_TOKEN_KEY, "old-token");
+      window.localStorage.setItem(DEVICE_ID_KEY, "old-id");
+      vi.stubGlobal("fetch", vi.fn(async () => response()));
+      render(<Harness startAt={PATH_OF[from]} />);
+      fireEvent.click(screen.getByRole("button", { name: `Switch to ${LABEL[to]}` }));
+      await waitFor(() => expect(h.nav.some((n) => n.via === "router.replace" && n.path === "/sign-in")).toBe(true));
+      await settle();
+      expect(h.state.pathname).toBe("/sign-in");
+      expect(screen.getByText("Your demo session has ended.")).toBeTruthy();
+      expect(screen.getByRole("link", { name: "Start a new demo" }).getAttribute("href")).toBe("/");
+      expect(h.state.uid).toBeNull(); // the Firebase web user is signed out
+      expect(window.localStorage.getItem(DEVICE_TOKEN_KEY)).toBeNull();
+      expect(window.localStorage.getItem(DEVICE_ID_KEY)).toBeNull();
+      expect(assign).not.toHaveBeenCalled();
+    });
+  }
+
+  it.each(GONE)("%s from staff: the bar shows the ended line, keys gone, nothing to sign out", async (_label, response) => {
+    h.state.pathname = "/capture";
+    window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: Date.now() + 3_600_000, role: "staff" }));
+    window.localStorage.setItem(DEVICE_TOKEN_KEY, "old-token");
+    window.localStorage.setItem(DEVICE_ID_KEY, "old-id");
+    vi.stubGlobal("fetch", vi.fn(async () => response()));
+    render(<Harness startAt="/capture" />);
+    fireEvent.click(screen.getByRole("button", { name: "Switch to Owner" }));
+    expect(await screen.findByText("Your demo session has ended.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Start a new demo" })).toBeTruthy();
+    expect(window.localStorage.getItem(DEVICE_TOKEN_KEY)).toBeNull();
+    expect(window.localStorage.getItem(DEVICE_ID_KEY)).toBeNull();
+  });
 });
