@@ -6,7 +6,8 @@ import { jsonOk } from "@/lib/http/respond";
 import { firestoreDemoStore } from "@/lib/firestore/demo-store";
 import { DemoSessionBodySchema } from "@/lib/demo/contract";
 import { clientIp, resolveXffFromEnd } from "@/lib/demo/limits";
-import { capFromEnv, issueDemoSession } from "@/lib/demo/service";
+import { capFromEnv } from "@/lib/demo/caps";
+import { issueDemoSession } from "@/lib/demo/service";
 import { SANDBOX_DAILY, SWITCH_IP_DAILY } from "@/lib/demo/constants";
 
 /**

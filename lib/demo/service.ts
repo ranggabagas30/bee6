@@ -1,14 +1,11 @@
 import { createHash, randomBytes as nodeRandomBytes } from "node:crypto";
 import { generateDeviceToken, hashDeviceToken } from "@/lib/auth/pairing";
 import type { CustomClaims } from "@/lib/auth/roles";
-import type { Outlet } from "@/lib/firestore/schema";
 import { AppError, ConflictError, LockedError, NotFoundError } from "@/lib/http/errors";
 import { cloneTemplate, judgeDeviceIdOf, sandboxIds } from "@/lib/demo/clone";
 import {
   CLEANUP_PER_CREATE,
   COUNTER_TTL_MS,
-  GENERATE_DAILY,
-  GENERATE_PER_SANDBOX,
   SANDBOX_DAILY,
   SANDBOX_IP_DAILY,
   SANDBOX_TTL_MS,
@@ -34,8 +31,8 @@ export interface DemoDeps {
   randomBytes?: (n: number) => Buffer;
   generateToken?: () => string;
   hashToken?: (token: string) => Promise<string>;
-  /** Overrides for the daily caps (env DEMO_SANDBOX_DAILY_CAP / DEMO_GENERATE_DAILY_CAP). */
-  caps?: { sandboxDaily?: number; generateDaily?: number; switchIpDaily?: number };
+  /** Overrides for the daily caps (env DEMO_SANDBOX_DAILY_CAP / DEMO_SWITCH_IP_CAP). */
+  caps?: { sandboxDaily?: number; switchIpDaily?: number };
   log?: (event: string, fields: Record<string, unknown>) => void;
 }
 
@@ -46,13 +43,6 @@ export interface IssueInput {
   demoMode: boolean;
   /** DEMO_IP_SALT. Empty means the demo is not ready (never an unsalted hash). */
   salt: string;
-}
-
-/** A positive-integer env override, else the default. */
-export function capFromEnv(value: string | undefined, fallback: number): number {
-  if (value === undefined || !/^\d+$/.test(value)) return fallback;
-  const n = Number(value);
-  return Number.isSafeInteger(n) && n > 0 ? n : fallback;
 }
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -251,29 +241,4 @@ async function credentials(
     expires_at_ms: c.expires_at_ms,
     landing_path: LANDING[c.role],
   });
-}
-
-/**
- * Caps proposal generations inside a demo sandbox (Task 7). A no-op unless the outlet has a
- * `sandbox` object, so the pilot and the shared demo outlet are untouched. The per-sandbox cap is
- * checked first so a refused sandbox does not burn the day's cap.
- */
-export async function checkGenerateCap(
-  store: DemoStore,
-  input: { outlet: Outlet; now_ms: number; caps?: { generateDaily?: number } },
-): Promise<void> {
-  const { outlet, now_ms } = input;
-  if (!outlet.sandbox) return;
-  const day = utcDay(now_ms);
-  const expiry = new Date(now_ms + COUNTER_TTL_MS).toISOString();
-  if (!(await store.bumpCounter(`generate_sandbox:${outlet.outlet_id}`, "generate_sandbox", day, GENERATE_PER_SANDBOX, expiry))) {
-    throw new LockedError(
-      Math.max(1, Math.ceil((outlet.sandbox.expires_at_ms - now_ms) / 1000)),
-      "This demo shop has reached its proposal limit",
-      "demo_generate_cap",
-    );
-  }
-  if (!(await store.bumpCounter(`generate_day:${day}`, "generate_day", day, input.caps?.generateDaily ?? GENERATE_DAILY, expiry))) {
-    throw new LockedError(secondsToUtcMidnight(now_ms), "The demo has reached today's limit", "demo_daily_cap");
-  }
 }

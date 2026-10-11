@@ -30,6 +30,19 @@ export const SWITCHES_PER_SANDBOX = 30;
 export const SWITCH_IP_DAILY = 60;
 export const GENERATE_PER_SANDBOX = 5;
 export const GENERATE_DAILY = 300;
+/** Segment uploads (Gemini transcription + Sensitive Data Protection) per judge sandbox, and per day across all of them. */
+export const SEGMENT_PER_SANDBOX = 40;
+export const SEGMENT_DAILY = 3000;
+/** Simulated review fast-forwards per sandbox (writes only, no model call). */
+export const FAST_FORWARD_PER_SANDBOX = 3;
+/** Sensitive Data Protection calls on typed text (answers, rejection reasons, verdicts, constraints) per sandbox. */
+export const REDACT_PER_SANDBOX = 60;
+/**
+ * INTERIM form of the CLAUDE.md section 7 DAILY_TOKEN_CEILING, demo project only: a per-day COUNT of
+ * model-calling requests (Gemini or Sensitive Data Protection) across every sandbox. Not a token or
+ * per-outlet ceiling; the real one is a separate task.
+ */
+export const MODEL_DAILY = 5000;
 
 /** Lazy cleanup: at most this many expired sandboxes are deleted per new-sandbox request. */
 export const CLEANUP_PER_CREATE = 2;

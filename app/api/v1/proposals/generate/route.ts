@@ -3,10 +3,7 @@ import { getModelLocation } from "@/config/regions";
 import { defaultAllowDraft, loadProposalLibrary } from "@/config/proposal-library";
 import { adkProposalModel, PROPOSAL_GENERATOR_KIND } from "@/lib/agents/proposal-agent";
 import { requireClaims } from "@/lib/http/guard";
-import { assertPermission } from "@/lib/auth/rbac";
-import { firestoreDemoStore } from "@/lib/firestore/demo-store";
-import { checkGenerateCap, capFromEnv } from "@/lib/demo/service";
-import { GENERATE_DAILY } from "@/lib/demo/constants";
+import { enforceDemoCapsForRoute } from "@/lib/demo/route-caps";
 import { BadRequestError, ValidationError, handleApiError } from "@/lib/http/errors";
 import { jsonOk } from "@/lib/http/respond";
 import { firestoreProposalStore } from "@/lib/firestore/proposal-store";
@@ -22,8 +19,9 @@ import { generateProposal } from "@/lib/proposals/service";
  * no-store`.
  *
  * R-12: on the demo project only (DEMO_MODE exactly "true"), a generation inside a per-judge
- * sandbox outlet is capped (5 per sandbox, 300 per day) before the model is reached. Off-demo this
- * branch does nothing and makes no extra read.
+ * sandbox outlet is capped (5 per sandbox, 300 per day, plus the shared model-call ceiling) before the
+ * model is reached. Off-demo, and for any outlet that is not an sbx- sandbox, this does nothing and
+ * makes no extra read.
  */
 
 export const runtime = "nodejs";
@@ -47,20 +45,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (process.env.DEMO_MODE === "true") {
-      // Only an authorised caller may spend the cap, so the permission check runs first
-      // (generateProposal repeats it); an unreadable outlet falls through to the service's own 404.
-      assertPermission(claims, "proposals:generate");
-      const demoStore = firestoreDemoStore();
-      const outlet = await demoStore.getOutlet(claims.outlet_id);
-      if (outlet) {
-        await checkGenerateCap(demoStore, {
-          outlet,
-          now_ms: Date.now(),
-          caps: { generateDaily: capFromEnv(process.env.DEMO_GENERATE_DAILY_CAP, GENERATE_DAILY) },
-        });
-      }
-    }
+    // R-12: inside a demo sandbox only (inert, zero reads, anywhere else), cap generations before the model is reached.
+    await enforceDemoCapsForRoute("generate", claims, "proposals:generate");
 
     const data = await generateProposal(
       firestoreProposalStore(claims.outlet_id),

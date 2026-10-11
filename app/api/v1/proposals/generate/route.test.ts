@@ -270,12 +270,20 @@ describe("POST /api/v1/proposals/generate", () => {
   });
 });
 
-describe("R-12 Task 7: sandbox generate cap", () => {
-  const sandboxOutlet = (id = OUTLET_ID): Outlet =>
+describe("R-12 H2: sandbox generate cap", () => {
+  const SBX = "sbx-0123456789ab";
+  const sandboxOutlet = (id = SBX): Outlet =>
     outlet({
       outlet_id: id,
       sandbox: { template_outlet_id: "demo-tpl-outlet", created_at_ms: Date.now(), expires_at_ms: Date.now() + 3_600_000, key_sha256: "a".repeat(64) },
     });
+  /** A sandbox principal: sbx- outlet plus the demo_exp_ms claim requireClaims now demands. */
+  const sbxClaims = (role: string, outlet_id = SBX) => ({
+    uid: `u-${role}`,
+    email: undefined,
+    email_verified: false,
+    claims: { outlet_id, role, demo_exp_ms: Date.now() + 3_600_000 },
+  });
 
   function demoStoreWith(o: Outlet | null) {
     const f = fakeStore();
@@ -296,11 +304,11 @@ describe("R-12 Task 7: sandbox generate cap", () => {
     vi.stubEnv("DEMO_MODE", "true");
     const f = demoStoreWith(sandboxOutlet());
     for (let i = 0; i < 5; i++) {
-      verifyIdToken.mockResolvedValueOnce(claimsFor("1", "supervisor"));
-      vi.mocked(firestoreProposalStore).mockReturnValueOnce(oneFactStore());
+      verifyIdToken.mockResolvedValueOnce(sbxClaims("supervisor"));
+      vi.mocked(firestoreProposalStore).mockReturnValueOnce({ ...oneFactStore(), getOutlet: async () => sandboxOutlet() });
       expect((await POST(postRequest(VALID_BODY, "Bearer t"))).status).toBe(201);
     }
-    verifyIdToken.mockResolvedValueOnce(claimsFor("1", "supervisor"));
+    verifyIdToken.mockResolvedValueOnce(sbxClaims("supervisor"));
     vi.mocked(firestoreProposalStore).mockClear();
     const res = await POST(postRequest(VALID_BODY, "Bearer t"));
     expect(res.status).toBe(429);
@@ -308,37 +316,42 @@ describe("R-12 Task 7: sandbox generate cap", () => {
     expect(Number(res.headers.get("Retry-After"))).toBeGreaterThanOrEqual(1);
     expect(res.headers.get("Cache-Control")).toBe("private, no-store");
     expect(firestoreProposalStore).not.toHaveBeenCalled();
-    expect(f.bumps.filter((b) => b.id === `generate_sandbox:${OUTLET_ID}`)).toHaveLength(6);
+    expect(f.bumps.filter((b) => b.id === `generate_sandbox:${SBX}`)).toHaveLength(6);
   });
 
-  it("DEMO_MODE on + a plain outlet (the shared demo outlet): no counter is touched", async () => {
+  it("DEMO_MODE on + the daily generate cap and the model ceiling are enforced across sandboxes", async () => {
+    vi.stubEnv("DEMO_MODE", "true");
+    vi.stubEnv("DEMO_GENERATE_DAILY_CAP", "1");
+    demoStoreWith(sandboxOutlet());
+    verifyIdToken.mockResolvedValueOnce(sbxClaims("owner"));
+    vi.mocked(firestoreProposalStore).mockReturnValueOnce({ ...oneFactStore(), getOutlet: async () => sandboxOutlet() });
+    expect((await POST(postRequest(VALID_BODY, "Bearer t"))).status).toBe(201);
+    verifyIdToken.mockResolvedValueOnce(sbxClaims("owner"));
+    const res = await POST(postRequest(VALID_BODY, "Bearer t"));
+    expect(res.status).toBe(429);
+    expect((await res.json()).error.code).toBe("demo_daily_cap");
+  });
+
+  it("DEMO_MODE on + a plain outlet (the shared demo outlet): no demo store, no read, no counter", async () => {
     vi.stubEnv("DEMO_MODE", "true");
     const f = demoStoreWith(outlet());
-    f.sandboxes.set(OUTLET_ID, outlet());
     verifyIdToken.mockResolvedValueOnce(claimsFor("1", "supervisor"));
     vi.mocked(firestoreProposalStore).mockReturnValueOnce(oneFactStore());
     expect((await POST(postRequest(VALID_BODY, "Bearer t"))).status).toBe(201);
-    expect(f.bumps).toEqual([]);
+    expect(firestoreDemoStore).not.toHaveBeenCalled();
+    expect(f.calls).toEqual([]);
   });
 
-  it("a staff token is 403 and burns no cap; a bad body is 422 and burns no cap", async () => {
+  it("a staff token is 403 and burns no cap; a bad body is 422 and burns no cap; an expired demo token is 401 and burns no cap", async () => {
     vi.stubEnv("DEMO_MODE", "true");
     const f = demoStoreWith(sandboxOutlet());
-    verifyIdToken.mockResolvedValueOnce(claimsFor("1", "staff"));
+    verifyIdToken.mockResolvedValueOnce(sbxClaims("staff"));
     expect((await POST(postRequest(VALID_BODY, "Bearer t"))).status).toBe(403);
-    verifyIdToken.mockResolvedValueOnce(claimsFor("1", "supervisor"));
+    verifyIdToken.mockResolvedValueOnce(sbxClaims("supervisor"));
     expect((await POST(postRequest({ ...VALID_BODY, extra: 1 }, "Bearer t"))).status).toBe(422);
+    verifyIdToken.mockResolvedValueOnce({ ...sbxClaims("supervisor"), claims: { outlet_id: SBX, role: "supervisor", demo_exp_ms: Date.now() - 1 } });
+    expect((await POST(postRequest(VALID_BODY, "Bearer t"))).status).toBe(401);
     expect(f.bumps).toEqual([]);
-  });
-
-  it("an outlet that cannot be read in demo mode is not capped (fails open to the existing behaviour, 404 from the service)", async () => {
-    vi.stubEnv("DEMO_MODE", "true");
-    const f = demoStoreWith(null);
-    verifyIdToken.mockResolvedValueOnce(claimsFor("1", "supervisor"));
-    vi.mocked(firestoreProposalStore).mockReturnValueOnce({ ...oneFactStore(), getOutlet: async () => null });
-    const res = await POST(postRequest(VALID_BODY, "Bearer t"));
-    expect(res.status).toBe(404);
-    expect(f.bumps).toEqual([]);
+    expect(f.calls).toEqual([]);
   });
 });
-

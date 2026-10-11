@@ -297,6 +297,11 @@ export const DEMO_COUNTER_KINDS = [
   "switch_ip",
   "generate_sandbox",
   "generate_day",
+  "segment_sandbox",
+  "segment_day",
+  "fast_forward_sandbox",
+  "redact_sandbox",
+  "model_day",
 ] as const;
 export type DemoCounterKind = (typeof DEMO_COUNTER_KINDS)[number];
 export const DemoCounterSchema = z

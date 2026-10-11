@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import { COLLECTIONS } from "@/lib/firestore/collections";
 import { AppError, ConflictError, LockedError, NotFoundError } from "@/lib/http/errors";
 import type { CustomClaims } from "@/lib/auth/roles";
-import { checkGenerateCap, capFromEnv, issueDemoSession, type DemoDeps } from "@/lib/demo/service";
+import { issueDemoSession, type DemoDeps } from "@/lib/demo/service";
 import { DemoSessionResponseSchema, type DemoSessionBody } from "@/lib/demo/contract";
 import { ipBucketKey, secondsToUtcMidnight, utcDay } from "@/lib/demo/limits";
 import { SANDBOX_TTL_MS, TEMPLATE_OUTLET_ID } from "@/lib/demo/constants";
@@ -48,18 +48,6 @@ const expectCode = async (p: Promise<unknown>, cls: new (...a: never[]) => Error
   expect((err as AppError).code).toBe(code);
   return err as AppError;
 };
-
-describe("capFromEnv", () => {
-  it("uses a positive integer override, otherwise the default", () => {
-    expect(capFromEnv("50", 300)).toBe(50);
-    expect(capFromEnv(undefined, 300)).toBe(300);
-    expect(capFromEnv("", 300)).toBe(300);
-    expect(capFromEnv("abc", 300)).toBe(300);
-    expect(capFromEnv("-4", 300)).toBe(300);
-    expect(capFromEnv("0", 300)).toBe(300);
-    expect(capFromEnv("1.5", 300)).toBe(300);
-  });
-});
 
 describe("issueDemoSession: gates", () => {
   it("6.T1 DEMO_MODE unset -> 404 with zero store calls", async () => {
@@ -434,46 +422,5 @@ describe("issueDemoSession: secrets and privacy", () => {
     expect(text).toContain("[demo]");
     expect(text).not.toContain(res.sandbox_key);
     expect(text).not.toContain(IP);
-  });
-});
-
-describe("checkGenerateCap", () => {
-  const sandboxOutlet = async () => {
-    const f = fakeStore();
-    await issueDemoSession(f.store, deps().d, input({ role: "owner" }));
-    f.bumps.length = 0;
-    f.calls.length = 0;
-    return { f, outlet: [...f.sandboxes.values()][0]! };
-  };
-
-  it("is a no-op (zero store calls) for an outlet without a sandbox", async () => {
-    const f = fakeStore();
-    const outlet = templateSet().outlet;
-    await checkGenerateCap(f.store, { outlet, now_ms: NOW });
-    expect(f.calls).toEqual([]);
-  });
-
-  it("6.T-gen: five generations per sandbox pass, the sixth is 429 demo_generate_cap", async () => {
-    const { f, outlet } = await sandboxOutlet();
-    for (let i = 0; i < 5; i++) await checkGenerateCap(f.store, { outlet, now_ms: NOW });
-    const err = (await expectCode(checkGenerateCap(f.store, { outlet, now_ms: NOW }), LockedError, "demo_generate_cap")) as LockedError;
-    expect(err.statusCode).toBe(429);
-    expect(err.retryAfterSeconds).toBeGreaterThanOrEqual(1);
-    expect(f.bumps[0]).toMatchObject({ id: `generate_sandbox:${outlet.outlet_id}`, limit: 5 });
-  });
-
-  it("the daily cap across sandboxes is 429 demo_daily_cap and is overridable", async () => {
-    const { f, outlet } = await sandboxOutlet();
-    await checkGenerateCap(f.store, { outlet, now_ms: NOW, caps: { generateDaily: 1 } });
-    await expectCode(checkGenerateCap(f.store, { outlet, now_ms: NOW, caps: { generateDaily: 1 } }), LockedError, "demo_daily_cap");
-    expect(f.bumps.some((b) => b.id === `generate_day:${utcDay(NOW)}`)).toBe(true);
-  });
-
-  it("when the sandbox cap refuses, the daily counter is not consumed", async () => {
-    const { f, outlet } = await sandboxOutlet();
-    for (let i = 0; i < 5; i++) await checkGenerateCap(f.store, { outlet, now_ms: NOW });
-    const day = f.counters.get(`generate_day:${utcDay(NOW)}`);
-    await checkGenerateCap(f.store, { outlet, now_ms: NOW }).catch(() => {});
-    expect(f.counters.get(`generate_day:${utcDay(NOW)}`)).toBe(day);
   });
 });
