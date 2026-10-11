@@ -1,5 +1,6 @@
 import { addDays, localDateOf } from "@/lib/capture/calendar";
 import { SopVersionSchema, type Proposal, type SopStep, type SopVersion } from "@/lib/firestore/schema";
+import { WIRE_MAX } from "@/lib/proposals/wire-schema";
 
 /**
  * Pure SOP ship planner (R-10 Task 3). Applies an approved proposal to the
@@ -10,6 +11,21 @@ import { SopVersionSchema, type Proposal, type SopStep, type SopVersion } from "
 
 export const SOP_MAX_STEPS = 200; // = SopVersionSchema steps.max
 export const NEW_STEP_ROLE = "staff" as const; // R-10 §11 Q-2
+
+/**
+ * The longest step text the ProposalAgent can write back (its wire cap for
+ * change_text). A change_text REPLACES the step text, so an existing step
+ * longer than this cannot be rewritten without losing text: refused, never
+ * truncated.
+ */
+export const SOP_STEP_TEXT_MODEL_CAP = WIRE_MAX.change_text;
+
+/**
+ * Agent versions whose change_text may be a description of the change rather
+ * than the full new step text (the "11." prompt rule shipped with proposal-v2).
+ * Such proposals must be regenerated, never shipped.
+ */
+export const LEGACY_AGENT_VERSIONS: readonly string[] = ["proposal-v1"];
 
 /** "p-" + proposalId with "-" removed, lower-cased (34 chars for a UUID). */
 export function newStepId(proposalId: string): string {
@@ -26,7 +42,7 @@ export function shipReviewDate(effectiveFrom: string, reviewAfterDays: number): 
   return addDays(effectiveFrom, reviewAfterDays);
 }
 
-export type ShipConflictCode = "SOP_CHANGED" | "SOP_STEP_LIMIT";
+export type ShipConflictCode = "SOP_CHANGED" | "SOP_STEP_LIMIT" | "LEGACY_PROPOSAL" | "STEP_TEXT_TOO_LONG";
 export type ShipPlan =
   | { kind: "conflict"; code: ShipConflictCode }
   | { kind: "ship"; sop_version: SopVersion; effective_from_date: string; review_date: string };
@@ -41,6 +57,9 @@ export function planShip(input: {
   if (proposal.status !== "awaiting_owner" || proposal.content === null) {
     throw new Error("planShip: proposal not shippable");
   }
+  if (LEGACY_AGENT_VERSIONS.includes(proposal.generator.agent_version)) {
+    return { kind: "conflict", code: "LEGACY_PROPOSAL" };
+  }
   if (current === null || current.sop_version_id !== proposal.generator.sop_version_id) {
     return { kind: "conflict", code: "SOP_CHANGED" };
   }
@@ -54,6 +73,7 @@ export function planShip(input: {
     const idx = current.steps.findIndex((s) => s.step_id === c.target_step_id);
     const target = idx === -1 ? undefined : current.steps[idx];
     if (target === undefined) return { kind: "conflict", code: "SOP_CHANGED" };
+    if (target.text.length > SOP_STEP_TEXT_MODEL_CAP) return { kind: "conflict", code: "STEP_TEXT_TOO_LONG" };
     before = target;
     after = { step_id: target.step_id, title: target.title, text: c.change_text, role: target.role };
     steps = current.steps.map((s, i) => (i === idx ? after : { ...s }));
