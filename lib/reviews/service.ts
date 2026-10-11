@@ -137,6 +137,7 @@ export async function createReview(
     threads_truncated: before.truncated || after.truncated,
     simulated,
     now_ms,
+    today: localDateOf(now_ms, outlet.timezone),
   });
   const audit: AuditLog = {
     outlet_id: review.outlet_id,

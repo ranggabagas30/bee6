@@ -61,8 +61,9 @@ export function buildReview(input: {
   threads_truncated: boolean;
   simulated: boolean;
   now_ms: number;
+  today: string; // outlet-local date of this run; the confirm window never starts before it
 }): Review {
-  const { sop, versions, before, after, now_ms } = input;
+  const { sop, versions, before, after, now_ms, today } = input;
   const c = sop.change;
   if (!c || sop.source !== "proposal" || sop.source_proposal_id == null || sop.effective_from_date == null) {
     throw new Error("buildReview: not a shipped change");
@@ -99,7 +100,9 @@ export function buildReview(input: {
     failure_condition: c.failure_condition,
     effective_from_date: sop.effective_from_date,
     review_date: c.review_date,
-    confirm_by_date: addDays(c.review_date, REVIEW_CONFIRM_DAYS),
+    // Catch-up runs late: count the confirm days from the later of review_date and today, so a
+    // review created N days after its review_date is not born already expired. Always > review_date.
+    confirm_by_date: addDays(c.review_date > today ? c.review_date : today, REVIEW_CONFIRM_DAYS),
     before: { ...before },
     after: { ...after },
     suggestion,

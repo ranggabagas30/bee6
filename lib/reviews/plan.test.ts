@@ -55,7 +55,7 @@ describe("buildReview", () => {
   const before = windowDoc();
   const after = windowDoc({ from_date: "2026-10-16", to_date: "2026-10-22", count: 2 });
   const build = (versions: SopVersion[], over: Record<string, unknown> = {}) =>
-    buildReview({ sop: v2, versions, before, after, threads_truncated: false, simulated: false, now_ms: NOW, ...over });
+    buildReview({ sop: v2, versions, before, after, threads_truncated: false, simulated: false, now_ms: NOW, today: "2026-10-23", ...over });
 
   it("2.T8 is schema-valid with confirm_by_date review_date + 7 and the worked suggestion", () => {
     const r = build([v1, v2]);
@@ -67,6 +67,14 @@ describe("buildReview", () => {
     expect(hasUndefined(r)).toBe(false);
   });
 
+  it("2.T8 catch-up: today = review_date + 10 -> confirm_by_date = today + 7; today before review_date keeps review_date + 7", () => {
+    const r = build([v1, v2], { today: "2026-11-02" });
+    expect(r.confirm_by_date).toBe("2026-11-09");
+    expect(r.confirm_by_date > r.review_date).toBe(true);
+    expect(build([v1, v2], { today: "2026-10-20" }).confirm_by_date).toBe("2026-10-30");
+    expect(build([v1, v2], { today: "2026-10-23" }).confirm_by_date).toBe("2026-10-30");
+  });
+
   it("2.T8 overlapping_change true when v3 is effective 2026-10-20, false when effective 2026-10-23", () => {
     expect(build([v1, v2, shippedVersion(3, "2026-10-20", "2026-10-27")]).notices.overlapping_change).toBe(true);
     expect(build([v1, v2, shippedVersion(3, "2026-10-23", "2026-10-30")]).notices.overlapping_change).toBe(false);
@@ -76,14 +84,14 @@ describe("buildReview", () => {
     const sameDay = shippedVersion(3, "2026-10-16", "2026-10-23");
     expect(build([v1, v2, sameDay]).notices.overlapping_change).toBe(true);
     // the earlier shipped change effective the same day also lies inside the later version's span
-    expect(buildReview({ sop: sameDay, versions: [v1, v2, sameDay], before, after, threads_truncated: false, simulated: false, now_ms: NOW }).notices.overlapping_change).toBe(true);
+    expect(buildReview({ sop: sameDay, versions: [v1, v2, sameDay], before, after, threads_truncated: false, simulated: false, now_ms: NOW, today: "2026-10-23" }).notices.overlapping_change).toBe(true);
   });
 
   it("2.T8 an earlier shipped change effective inside the measured span is an overlap; on/before before.from_date is not", () => {
     const v3 = shippedVersion(3, "2026-10-20", "2026-10-27");
     const v3After = windowDoc({ from_date: "2026-10-20", to_date: "2026-10-26", count: 2 });
     const buildV3 = (versions: SopVersion[]) =>
-      buildReview({ sop: v3, versions, before, after: v3After, threads_truncated: false, simulated: false, now_ms: NOW });
+      buildReview({ sop: v3, versions, before, after: v3After, threads_truncated: false, simulated: false, now_ms: NOW, today: "2026-10-27" });
     // v2 effective 2026-10-10 lies strictly inside v3's before window 2026-10-06..2026-10-12
     expect(buildV3([v1, shippedVersion(2, "2026-10-10", "2026-10-17"), v3]).notices.overlapping_change).toBe(true);
     // v2 effective exactly on before.from_date: already in force for the whole span

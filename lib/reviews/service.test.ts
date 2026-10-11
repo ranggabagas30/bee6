@@ -127,6 +127,18 @@ describe("runDueReviews", () => {
     expect(f.reviews.size).toBe(1);
   });
 
+  it("4.T2 catch-up 10 days late: confirm window starts at the run day, next day's run keeps it, a supervisor verdict is accepted", async () => {
+    const f = fakeStore(windowData());
+    const lateRun = (day: string) => runDueReviews({ outlets: [outlet()], storeFor: () => f.store, now_ms: at(day) });
+    expect((await lateRun("2026-11-02")).created).toBe(1); // review_date 2026-10-23 + 10
+    const r = f.reviews.get(`${OUTLET}:v2`)!;
+    expect(r.confirm_by_date).toBe("2026-11-09");
+    expect(await lateRun("2026-11-03")).toMatchObject({ created: 0, expired: 0, errors: 0 });
+    expect(f.reviews.get(`${OUTLET}:v2`)!.status).toBe("awaiting_supervisor");
+    const out = await decideVerdict(f.store, deps, { claims: claims("supervisor"), version: 2, body: { verdict: "revise" }, now_ms: at("2026-11-03") });
+    expect(out).toEqual({ result: "recorded", status: "awaiting_owner" });
+  });
+
   it("4.T3 a fast-forward review already exists -> the daily run skips it", async () => {
     const existing = reviewDoc({ simulated: true });
     const f = fakeStore({ ...windowData(), reviews: [existing] });
