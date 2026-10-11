@@ -121,6 +121,13 @@ export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
     bannerRef.current?.focus();
   }
 
+  /** "Try again" after a failed list load: back to loading, then the effect re-fetches (and drops any older response). */
+  function retry() {
+    if (view.kind !== "error") return; // double-tap guard: only the first tap leaves the error state
+    setView({ kind: "loading" });
+    setListKey((k) => k + 1);
+  }
+
   async function fastForward() {
     if (!auth || ffInFlight.current) return; // double-tap guard
     ffInFlight.current = true;
@@ -181,19 +188,11 @@ export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
     );
   }
 
-  if (view.kind === "loading" || view.kind === "error") {
-    return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
-        <h1>{t(lang, "C-rev-title")}</h1>
-        <p role="status" aria-live="polite">
-          {view.kind === "loading" ? t(lang, "C-day-loading") : t(lang, "C-srv-generic")}
-        </p>
-      </main>
-    );
-  }
-
-  const { open, decided, fast_forward_available } = view.data;
+  // One tree for loading, error and ok: the banner stays the same DOM node, so
+  // its focus and live region survive a failed reload, and the body swaps.
+  const open = view.kind === "ok" ? view.data.open : [];
+  const decided = view.kind === "ok" ? view.data.decided : [];
+  const fastForwardAvailable = view.kind === "ok" && view.data.fast_forward_available;
 
   return (
     <main style={PAGE_STYLE}>
@@ -210,7 +209,24 @@ export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
         {banner ? t(lang, banner) : ""}
       </p>
 
-      {fast_forward_available && (
+      {view.kind === "loading" && (
+        <p role="status" aria-live="polite">
+          {t(lang, "C-day-loading")}
+        </p>
+      )}
+
+      {view.kind === "error" && (
+        <div>
+          <p role="status" aria-live="polite" style={LINE_STYLE}>
+            {t(lang, "C-srv-generic")}
+          </p>
+          <button type="button" onClick={retry} style={BUTTON_STYLE}>
+            {t(lang, "C-rev-retry")}
+          </button>
+        </div>
+      )}
+
+      {fastForwardAvailable && (
         <div>
           <button type="button" disabled={ffBusy} onClick={() => void fastForward()} style={BUTTON_STYLE}>
             {t(lang, "C-rev-ff")}
@@ -219,7 +235,7 @@ export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
         </div>
       )}
 
-      {open.length === 0 && decided.length === 0 && <p style={{ ...LINE_STYLE, marginTop: 16 }}>{t(lang, "C-rev-empty")}</p>}
+      {view.kind === "ok" && open.length === 0 && decided.length === 0 && <p style={{ ...LINE_STYLE, marginTop: 16 }}>{t(lang, "C-rev-empty")}</p>}
 
       {open.length > 0 && (
         <section style={SECTION_STYLE} aria-labelledby="rev-list-open">

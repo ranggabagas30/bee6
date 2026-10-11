@@ -53,6 +53,7 @@ const REVIEW_KEYS = [
   "C-rev-ff-done",
   "C-rev-ff-none",
   "C-rev-err-forbidden",
+  "C-rev-retry",
   "C-sop-outcome",
   "C-sop-outcome-unknown",
 ] as const;

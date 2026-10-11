@@ -448,6 +448,7 @@ export const ID = {
   "C-rev-ff-done": "Tinjauan simulasi dibuat.", // PROVISIONAL
   "C-rev-ff-none": "Tidak ada perubahan SOP yang tersisa untuk ditinjau.", // PROVISIONAL
   "C-rev-err-forbidden": "Hanya pemilik atau supervisor yang bisa melihat tinjauan.", // PROVISIONAL
+  "C-rev-retry": "Coba lagi", // PROVISIONAL
   "C-sop-outcome": "Hasil: {verdict}", // PROVISIONAL
   "C-sop-outcome-unknown": "Hasil: tidak diketahui (tidak dikonfirmasi, tidak diingat)", // PROVISIONAL
 } as const;
@@ -870,6 +871,7 @@ export const EN: Record<DictKey, string> = {
   "C-rev-ff-done": "Simulated review created.", // PROVISIONAL
   "C-rev-ff-none": "No SOP change left to review.", // PROVISIONAL
   "C-rev-err-forbidden": "Only the owner or a supervisor can see reviews.", // PROVISIONAL
+  "C-rev-retry": "Try again", // PROVISIONAL
   "C-sop-outcome": "Outcome: {verdict}", // PROVISIONAL
   "C-sop-outcome-unknown": "Outcome: unknown (not confirmed, not remembered)", // PROVISIONAL
 };

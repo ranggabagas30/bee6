@@ -282,6 +282,94 @@ describe("ReviewsApp: fast-forward (demo only)", () => {
   });
 });
 
+describe("ReviewsApp: a failed list reload", () => {
+  const settleVerdict = async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Revise" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes" }));
+  };
+
+  it("keeps the success banner, focuses it, and offers a 48px retry when the reload after a verdict fails", async () => {
+    authedGetJson.mockResolvedValueOnce(ok(list({ open: [reviewView()] }))).mockResolvedValueOnce({ kind: "error" });
+    authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "recorded", status: "awaiting_owner" } });
+    renderApp();
+    await settleVerdict();
+    const banner = await screen.findByText("Verdict saved.");
+    await screen.findByText("Something went wrong. Try again.");
+    expect(screen.getByText("Verdict saved.")).toBe(banner); // same node: focus and live region survive
+    expect(banner.getAttribute("role")).toBe("status");
+    expect(banner.getAttribute("tabindex")).toBe("-1");
+    expect(document.activeElement).toBe(banner);
+    const retry = screen.getByRole("button", { name: "Try again" });
+    expect(retry.style.minHeight).toBe("48px");
+  });
+
+  it("keeps the fast-forward banner too when its reload fails", async () => {
+    authedGetJson
+      .mockResolvedValueOnce(ok(list({ fast_forward_available: true })))
+      .mockResolvedValueOnce({ kind: "error" });
+    authedPostJson.mockResolvedValue({ kind: "ok", data: { version: 2 } });
+    renderApp();
+    fireEvent.click(await screen.findByRole("button", { name: /Fast-forward/ }));
+    await screen.findByText("Simulated review created.");
+    await screen.findByRole("button", { name: "Try again" });
+    screen.getByText("Simulated review created.");
+  });
+
+  it("retry re-fetches the list and restores it, keeping the banner", async () => {
+    authedGetJson
+      .mockResolvedValueOnce(ok(list({ open: [reviewView()] })))
+      .mockResolvedValueOnce({ kind: "error" })
+      .mockResolvedValueOnce(ok(list({ open: [reviewView({ change_title: "After retry" })] })));
+    authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "recorded", status: "awaiting_owner" } });
+    renderApp();
+    await settleVerdict();
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    await screen.findByText("After retry");
+    expect(authedGetJson).toHaveBeenCalledTimes(3);
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    screen.getByText("Verdict saved.");
+  });
+
+  it("a failed first load also offers retry, and a double tap fetches once", async () => {
+    authedGetJson.mockResolvedValueOnce({ kind: "error" });
+    let resolve!: (v: unknown) => void;
+    authedGetJson.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+    renderApp();
+    const retry = await screen.findByRole("button", { name: "Try again" });
+    fireEvent.click(retry);
+    fireEvent.click(retry);
+    expect(authedGetJson).toHaveBeenCalledTimes(2);
+    await act(async () => resolve(ok(list({ open: [reviewView({ change_title: "Back" })] }))));
+    await screen.findByText("Back");
+  });
+
+  it("a retry that fails again shows the retry again", async () => {
+    authedGetJson.mockResolvedValue({ kind: "error" });
+    renderApp();
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(authedGetJson).toHaveBeenCalledTimes(2));
+    await screen.findByRole("button", { name: "Try again" });
+  });
+
+  it("a forbidden reload shows the forbidden text with no retry", async () => {
+    authedGetJson.mockResolvedValueOnce(ok(list({ open: [reviewView()] }))).mockResolvedValueOnce({ kind: "forbidden" });
+    authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "recorded", status: "awaiting_owner" } });
+    renderApp();
+    await settleVerdict();
+    await screen.findByText(FORBIDDEN);
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  it("a signed_out reload still signs out and redirects", async () => {
+    authedGetJson.mockResolvedValueOnce(ok(list({ open: [reviewView()] }))).mockResolvedValueOnce({ kind: "signed_out" });
+    authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "recorded", status: "awaiting_owner" } });
+    renderApp();
+    await settleVerdict();
+    await waitFor(() => expect(signOut).toHaveBeenCalledWith(FAKE_AUTH));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/sign-in"));
+  });
+});
+
 describe("ReviewsApp: deciding", () => {
   it("a verdict shows the banner, reloads the list, focuses the banner, and the settled panel recovers on a still-open review", async () => {
     authedGetJson.mockImplementation(async () => ok(list({ open: [reviewView()] })));
