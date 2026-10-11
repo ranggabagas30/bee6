@@ -25,7 +25,7 @@ export async function POST(
     const claims = await requireDevice(req);
     const { session_id } = await params;
     const result = await discardCaptureSession(
-      { sessions: firestoreCaptureSessionStore(claims.outlet_id), outlets: firestoreCaptureStore() },
+      { sessions: firestoreCaptureSessionStore(claims.outlet_id), outlets: firestoreCaptureStore(), demoMode: process.env.DEMO_MODE === "true" },
       claims,
       session_id,
       await readJsonBody(req),

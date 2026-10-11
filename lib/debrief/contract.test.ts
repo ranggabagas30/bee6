@@ -177,3 +177,16 @@ describe("AnswerResponseSchema", () => {
     expect(AnswerResponseSchema.safeParse({ status: "pending" }).success).toBe(false);
   });
 });
+
+describe("DebriefQuestionViewSchema: R-18 optional business_date (earlier-day chip)", () => {
+  const base = { question_id: "q1", kind: "gate", category: "ROUTINE_OPS", start_hm: "10:00", end_hm: "10:05" };
+  it("accepts a view without it (every pilot response) and with a YYYY-MM-DD date", () => {
+    expect(DebriefQuestionViewSchema.safeParse(base).success).toBe(true);
+    expect(DebriefQuestionViewSchema.safeParse({ ...base, business_date: "2026-10-12" }).success).toBe(true);
+  });
+  it("rejects a malformed date and any other extra key", () => {
+    expect(DebriefQuestionViewSchema.safeParse({ ...base, business_date: "12 Oct" }).success).toBe(false);
+    expect(DebriefQuestionViewSchema.safeParse({ ...base, staff_id: "x" }).success).toBe(false);
+  });
+});
+

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { DebriefFlow } from "@/app/capture/debrief/DebriefFlow";
 import { LangProvider, useLang } from "@/lib/i18n/context";
-import { ANSWER_CACHE_KEY } from "@/lib/debrief/answer-cache";
+import { ANSWER_CACHE_KEY, readCache } from "@/lib/debrief/answer-cache";
 
 /**
  * DebriefFlow container (R-07 Task 7.5): owns the reducer, the GET-on-OPEN
@@ -106,8 +106,10 @@ function Harness({
   nowMs,
   headline,
   primary,
+  refresh,
 }: {
-  fetchFn: typeof fetch;
+  refresh?: boolean;
+  fetchFn?: typeof fetch;
   storage: Storage;
   endsAtMs?: number;
   nowMs?: number;
@@ -136,6 +138,7 @@ function Harness({
         storage={storage}
         headline={headline}
         primary={primary}
+        refresh={refresh}
       />
     </LangProvider>
   );
@@ -221,6 +224,37 @@ describe("DebriefFlow: Lewati never writes or sends", () => {
     await waitFor(() => expect(screen.getByText("Question 2 of 2")).toBeTruthy());
     expect(storage.calls.filter((c) => c.op === "setItem")).toHaveLength(0);
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
+  });
+});
+
+describe("DebriefFlow: the global fetch (no test seam)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("a real browser fetch (strict `this`) reaches the network: the answer is POSTed and the cache entry cleared", async () => {
+    const posted: string[] = [];
+    // Behaves like window.fetch: "Illegal invocation" unless called with undefined/globalThis as `this`.
+    const strict = function (this: unknown, input: RequestInfo | URL, init?: RequestInit) {
+      if (this !== undefined && this !== globalThis) throw new TypeError("Illegal invocation");
+      const url = String(input);
+      if (init?.method === "POST") {
+        posted.push(url);
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({}) } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => listResponse([q("q1")]),
+      } as Response);
+    };
+    vi.stubGlobal("fetch", strict);
+    const storage = new FakeStorage();
+    render(<Harness storage={storage} />);
+    await openCard();
+    fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "sudah" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(posted).toEqual(["/api/v1/questions/q1/answer"]));
+    await waitFor(() => expect(readCache(storage)).toEqual([]));
   });
 });
 
@@ -477,3 +511,195 @@ describe("DebriefFlow: language toggle mid-question", () => {
     expect(document.activeElement).toBe(switchBtn);
   });
 });
+
+describe("DebriefFlow: R-18 refresh (sandbox only)", () => {
+  const CHECK = { name: "Check for new questions" };
+  const gets = (calls: Array<{ url: string; method: string }>) => calls.filter((c) => c.method === "GET").length;
+  /** A list that the test mutates between fetches. */
+  function growing(initial: unknown[]) {
+    const state = { questions: initial };
+    const f = makeFetch({ list: () => ({ status: 200, body: listResponse(state.questions) }), answer: () => ({ status: 200 }) });
+    return { ...f, state };
+  }
+  function pollClock() {
+    vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date("2026-10-07T00:00:00Z"));
+  }
+
+  it("pilot (no flag): no Check button on the question, empty or done screens", async () => {
+    const { fn } = growing([q("q1")]);
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} />);
+    await openCard();
+    expect(screen.queryByRole("button", CHECK)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    await waitFor(() => expect(screen.getByText("Debrief complete. Thank you.")).toBeTruthy());
+    expect(screen.queryByRole("button", CHECK)).toBeNull();
+  });
+
+  it("pilot (no flag): the list is fetched once and never again, however long the screen stays open", async () => {
+    pollClock();
+    const { fn, calls } = growing([q("q1")]);
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} />);
+    await openCard();
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(gets(calls)).toBe(1);
+  });
+
+  it("empty -> the Check button finds a new question and shows it", async () => {
+    const { fn, state } = growing([]);
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} refresh />);
+    await openCard();
+    expect(screen.getByText("There are no questions today.")).toBeTruthy();
+    state.questions = [q("q9")];
+    fireEvent.click(screen.getByRole("button", CHECK));
+    await waitFor(() => expect(screen.getByText("Question 1 of 1")).toBeTruthy());
+  });
+
+  it("question -> Check appends new ids after the current ones and keeps what was typed", async () => {
+    const { fn, state } = growing([q("q1")]);
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} refresh />);
+    await openCard();
+    fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "sudah dicek" } });
+    state.questions = [q("q1"), q("q2")];
+    fireEvent.click(screen.getByRole("button", CHECK));
+    await waitFor(() => expect(screen.getByText("Question 1 of 2")).toBeTruthy());
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("sudah dicek");
+  });
+
+  it("done -> Check shows only the new question; a skipped one is not offered again", async () => {
+    const { fn, state } = growing([q("q1")]);
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} refresh />);
+    await openCard();
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    await waitFor(() => expect(screen.getByText("Debrief complete. Thank you.")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", CHECK));
+    await waitFor(() => expect(screen.getByRole("button", CHECK)).toBeTruthy());
+    expect(screen.getByText("Debrief complete. Thank you.")).toBeTruthy(); // nothing new: stays done
+    vi.setSystemTime(Date.now() + 6_000); // the minimum interval between two manual checks
+    state.questions = [q("q1"), q("q2")];
+    fireEvent.click(screen.getByRole("button", CHECK));
+    await waitFor(() => expect(screen.getByText("Question 1 of 1")).toBeTruthy());
+  });
+
+  it("an answered question already in the phone cache is never offered again", async () => {
+    const { fn, state } = growing([q("q1")]);
+    const storage = new FakeStorage();
+    render(<Harness fetchFn={fn} storage={storage} refresh />);
+    await openCard();
+    fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "sudah" } });
+    storage.setItemShouldThrow = false;
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(screen.getByText("Debrief complete. Thank you.")).toBeTruthy());
+    state.questions = [q("q1")]; // the server still lists it until the upload lands
+    fireEvent.click(screen.getByRole("button", CHECK));
+    await waitFor(() => expect(screen.getByRole("button", CHECK)).toBeTruthy());
+    expect(screen.getByText("Debrief complete. Thank you.")).toBeTruthy();
+  });
+
+  it("a failed check keeps the current screen (no load_error replaces a question being answered)", async () => {
+    let fail = false;
+    const { fn } = makeFetch({
+      list: () => (fail ? { status: 500 } : { status: 200, body: listResponse([q("q1")]) }),
+    });
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} refresh />);
+    await openCard();
+    fail = true;
+    fireEvent.click(screen.getByRole("button", CHECK));
+    await waitFor(() => expect(screen.getByRole("button", CHECK)).toBeTruthy());
+    expect(screen.getByText("Question 1 of 1")).toBeTruthy();
+    expect(screen.queryByText("Questions could not load yet.")).toBeNull();
+  });
+
+  it("11c: Check taps closer than 5 s to the last check are ignored, so the questions route is not hammered", async () => {
+    pollClock();
+    const { fn, calls } = growing([q("q1")]);
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} refresh />);
+    await openCard();
+    expect(gets(calls)).toBe(1);
+    fireEvent.click(screen.getByRole("button", CHECK));
+    await waitFor(() => expect(gets(calls)).toBe(2));
+    await screen.findByRole("button", CHECK); // back from "Checking…"
+    fireEvent.click(screen.getByRole("button", CHECK));
+    fireEvent.click(screen.getByRole("button", CHECK));
+    await vi.advanceTimersByTimeAsync(4_000);
+    fireEvent.click(screen.getByRole("button", CHECK));
+    expect(gets(calls)).toBe(2);
+    await vi.advanceTimersByTimeAsync(1_500);
+    fireEvent.click(screen.getByRole("button", CHECK));
+    await waitFor(() => expect(gets(calls)).toBe(3));
+  });
+
+  it("11c: a 429 or 503 from the questions route keeps the screen and is never retried in a tight loop", async () => {
+    pollClock();
+    let status = 200;
+    const calls: string[] = [];
+    const fn = vi.fn(async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return {
+        ok: status === 200,
+        status,
+        json: async () => listResponse([q("q1")]),
+      } as Response;
+    }) as unknown as typeof fetch;
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} refresh />);
+    await openCard();
+    status = 429;
+    fireEvent.click(screen.getByRole("button", CHECK));
+    await waitFor(() => expect(calls).toHaveLength(2));
+    status = 503;
+    await vi.advanceTimersByTimeAsync(15_000); // under the 20 s poll: nothing retries on its own
+    expect(calls).toHaveLength(2);
+    expect(screen.getByText("Question 1 of 1")).toBeTruthy();
+  });
+
+  it("polls every 20 s while the list is on screen and appends what arrived", async () => {
+    pollClock();
+    const { fn, calls, state } = growing([q("q1")]);
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} refresh />);
+    await openCard();
+    expect(gets(calls)).toBe(1);
+    await vi.advanceTimersByTimeAsync(19_000);
+    expect(gets(calls)).toBe(1);
+    state.questions = [q("q1"), q("q2")];
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(gets(calls)).toBe(2);
+    await waitFor(() => expect(screen.getByText("Question 1 of 2")).toBeTruthy());
+  });
+
+  it("does not poll before the judge has opened the debrief", async () => {
+    pollClock();
+    const { fn, calls } = growing([q("q1")]);
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} refresh />);
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    expect(gets(calls)).toBe(0);
+  });
+
+  it("stops polling at the debrief's end", async () => {
+    pollClock();
+    const endsAtMs = Date.now() + 50_000;
+    const { fn, calls } = growing([q("q1")]);
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} endsAtMs={endsAtMs} refresh />);
+    await openCard();
+    await vi.advanceTimersByTimeAsync(41_000);
+    const during = gets(calls);
+    expect(during).toBe(3); // open + 20 s + 40 s
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(gets(calls)).toBe(during);
+  });
+
+  it("stops polling 10 minutes after it began", async () => {
+    pollClock();
+    const { fn, calls } = growing([q("q1")]);
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} refresh />);
+    await openCard();
+    await vi.advanceTimersByTimeAsync(10 * 60_000 + 1_000);
+    const at = gets(calls);
+    expect(at).toBeLessThanOrEqual(31);
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
+    expect(gets(calls)).toBe(at);
+  });
+});
+

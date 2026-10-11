@@ -23,6 +23,8 @@ import { ConflictError, ValidationError } from "@/lib/http/errors";
 
 const START_FUTURE_TOLERANCE_MS = 5 * 60_000;
 const START_MAX_AGE_MS = 7 * 86_400_000;
+/** R-18: a sandbox session's start is clamped to the server clock +/- this, so a client cannot shift its 5 min stop. */
+const DEMO_START_CLAMP_MS = 10_000;
 const DISCARD_MAX_AGE_MS = 8 * 86_400_000;
 
 // ── boundary schemas (zod on every input) ─────────────────────────────────────
@@ -116,11 +118,14 @@ interface Common {
   session_id: string;
   cal: CalendarCtx;
   now_ms: number;
+  /** R-18: set only for a sandbox device on a demo deployment; the session then hard-stops at started + this. */
+  demo_max_ms?: number;
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-function autoStopFor(localDate: string, startedAt: number, cal: CalendarCtx): number {
+function autoStopFor(localDate: string, startedAt: number, cal: CalendarCtx, demoMaxMs?: number): number {
+  if (demoMaxMs !== undefined) return startedAt + demoMaxMs;
   const auto = autoStopAtMs(localDate, cal.weekly, cal.tz);
   return auto !== null && auto > startedAt ? auto : startedAt + AUTO_STOP_AFTER_CLOSE_MS;
 }
@@ -137,7 +142,7 @@ function newSession(c: Common, startedAt: number): CaptureSession {
     ended_at_ms: null,
     end_reason: null,
     local_date: localDate,
-    auto_stop_at_ms: autoStopFor(localDate, startedAt, c.cal),
+    auto_stop_at_ms: autoStopFor(localDate, startedAt, c.cal, c.demo_max_ms),
     debrief_ends_at_ms: null,
     received_start_at: isoOf(c.now_ms),
     received_end_at: null,
@@ -203,7 +208,12 @@ export async function startSession(
     if (state.session) {
       return { result: { created: false, session: state.session } };
     }
-    const session = newSession(input, body.started_at_ms);
+    // Sandbox only: the server's clock decides, a client cannot move the start (and with it the hard stop).
+    const startedAt =
+      input.demo_max_ms === undefined
+        ? body.started_at_ms
+        : Math.min(Math.max(body.started_at_ms, input.now_ms - DEMO_START_CLAMP_MS), input.now_ms + DEMO_START_CLAMP_MS);
+    const session = newSession(input, startedAt);
     return {
       write: { session },
       audits: [
@@ -237,11 +247,14 @@ export async function endSession(
       return { result: undefined };
     }
     const endReason: SessionEndReason = body.end_reason;
-    const debriefStart = endReason === "lost" ? base.auto_stop_at_ms : body.ended_at_ms;
+    // Never before the stored start: a sandbox start is clamped to the server clock, so a phone whose clock
+    // runs behind can send an end time earlier than it (the schema forbids that). No-op on the pilot.
+    const endedAt = Math.max(body.ended_at_ms, base.started_at_ms);
+    const debriefStart = endReason === "lost" ? base.auto_stop_at_ms : endedAt;
     const debriefEnds = debriefStart + DEBRIEF_DURATION_MS;
     const session: CaptureSession = {
       ...base,
-      ended_at_ms: body.ended_at_ms,
+      ended_at_ms: endedAt,
       end_reason: endReason,
       debrief_ends_at_ms: debriefEnds,
       received_end_at: isoOf(input.now_ms),
@@ -249,7 +262,7 @@ export async function endSession(
     const last = lastEndedFor(state.last_ended, {
       business_date: session.local_date,
       end_reason: endReason,
-      ended_at_ms: body.ended_at_ms,
+      ended_at_ms: endedAt,
       debrief_ends_at_ms: debriefEnds,
     });
     return {
@@ -298,9 +311,11 @@ export async function discardSession(
     if (base.end_reason !== null) {
       throw new ConflictError("session_ended", "session_ended");
     }
+    // Never before the stored start (see endSession): the clamped sandbox start can be later than the phone's clock.
+    const discardedAt = Math.max(body.discarded_at_ms, base.started_at_ms);
     const session: CaptureSession = {
       ...base,
-      ended_at_ms: body.discarded_at_ms,
+      ended_at_ms: discardedAt,
       end_reason: "discarded",
       debrief_ends_at_ms: null,
       received_end_at: isoOf(input.now_ms),
@@ -309,7 +324,7 @@ export async function discardSession(
     const last = lastEndedFor(state.last_ended, {
       business_date: session.local_date,
       end_reason: "discarded",
-      ended_at_ms: body.discarded_at_ms,
+      ended_at_ms: discardedAt,
       debrief_ends_at_ms: null,
     });
     return {

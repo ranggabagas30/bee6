@@ -50,3 +50,12 @@ describe("selesaiViewFor: the Selesai button appears at start + 4h (technical sp
     });
   });
 });
+
+describe("selesaiViewFor with the R-18 demo profile", () => {
+  it("is ready at the first second of the session (the pilot waits 4 h)", () => {
+    expect(selesaiViewFor({ nowMs: STARTED, session, weekly, tz, lang: "en", demo: true })).toEqual({ ready: true, note: null });
+    expect(selesaiViewFor({ nowMs: STARTED, session, weekly, tz, lang: "en" }).ready).toBe(false);
+    expect(selesaiViewFor({ nowMs: STARTED, session, weekly, tz, lang: "en", demo: false }).ready).toBe(false);
+  });
+});
+

@@ -34,6 +34,7 @@ const postSessionDiscard = vi.fn<
 
 vi.mock("@/lib/capture/browser/client", () => ({
   readDeviceAuth: () => readDeviceAuth(),
+  deviceAuthHeaders: () => ({}),
   fetchCaptureConfig: (auth: unknown) => fetchCaptureConfig(auth),
   postSessionStart: (auth: unknown, body: unknown) => postSessionStart(auth, body),
   postSessionEnd: (auth: unknown, id: string, body: unknown) => postSessionEnd(auth, id, body),
@@ -423,6 +424,356 @@ describe("CapturePage: auto-stop enforcement (technical spec §8.7)", () => {
     await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
     expect(postSessionEnd).not.toHaveBeenCalled();
     expect(screen.getByText("Listening")).toBeTruthy();
+  });
+});
+
+describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
+  const MON_2230_WIB = "2026-10-12T15:30:00Z"; // past the pilot's 18:00 Mulai cut-off
+  const demoConfig = (extra: Record<string, unknown> = {}) => ({
+    ...config({ sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } }),
+    capture_mode: "room",
+    demo_session: { max_ms: 300_000, script_id: "bakery-v1" },
+    ...extra,
+  });
+  async function renderDemoRunning(iso = MON_2230_WIB) {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date(iso));
+    fetchCaptureConfig.mockResolvedValue(demoConfig());
+    await renderReady();
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+  }
+
+  it("Mulai is offered at 22:30 WIB, where the same config without the profile says the cut-off passed", async () => {
+    pinClock(MON_2230_WIB);
+    fetchCaptureConfig.mockResolvedValue(demoConfig());
+    await renderReady();
+    const btn = await screen.findByRole("button", { name: "Start" });
+    expect(btn.getAttribute("aria-disabled")).not.toBe("true");
+  });
+
+  it("Selesai (End) is on screen at once, not after 4 hours", async () => {
+    await renderDemoRunning("2026-10-12T03:00:00Z"); // 10:00 WIB: the pilot would say "from 14:00"
+    expect(screen.getByRole("button", { name: "End" })).toBeTruthy();
+    expect(screen.queryByText(/You can tap End from/)).toBeNull();
+  });
+
+  it("hard-stops at start + 5:00 with end_reason auto_stop and no confirm dialog (not at the 30 s tick)", async () => {
+    await renderDemoRunning();
+    await vi.advanceTimersByTimeAsync(4 * 60_000 + 58_000);
+    expect(postSessionEnd).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(3_000);
+    await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+    expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "auto_stop" });
+    await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("End today's operations?")).toBeNull();
+    await waitFor(() => expect(screen.queryByText("Listening")).toBeNull());
+  });
+
+  it("a start after close + 1 h (23:10 WIB, close 22:00) is not stopped at once: nothing before 4:58, exactly one auto_stop at 5:00", async () => {
+    await renderDemoRunning("2026-10-12T16:10:00Z"); // Mon 23:10 WIB
+    await vi.advanceTimersByTimeAsync(4 * 60_000 + 58_000);
+    expect(postSessionEnd).not.toHaveBeenCalled();
+    expect(screen.getByText("Listening")).toBeTruthy();
+    await vi.advanceTimersByTimeAsync(3_000);
+    await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+    expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "auto_stop" });
+  });
+
+  it("a finished demo day offers no second Mulai and says to switch to Supervisor", async () => {
+    await renderDemoRunning();
+    fireEvent.click(screen.getByRole("button", { name: "End" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
+    await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.getAllByText("Demo day finished. Switch to Supervisor to see it.").length).toBeGreaterThan(0),
+    );
+  });
+
+  it("item 8: after Finish the sandbox says the demo day is finished and never offers a 'tap Start again <date>' line", async () => {
+    await renderDemoRunning();
+    fireEvent.click(screen.getByRole("button", { name: "End" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
+    await waitFor(() =>
+      expect(screen.getAllByText("Demo day finished. Switch to Supervisor to see it.").length).toBeGreaterThan(0),
+    );
+    expect(screen.queryByText(/You can tap Start again/)).toBeNull();
+  });
+
+  it("pilot: the same config without demo_session at 22:30 keeps Mulai disabled and shows no demo UI", async () => {
+    pinClock(MON_2230_WIB);
+    const { demo_session: _drop, ...pilot } = demoConfig();
+    fetchCaptureConfig.mockResolvedValue(pilot);
+    await renderReady();
+    const btn = await screen.findByRole("button", { name: "Start" });
+    expect(btn.getAttribute("aria-disabled")).toBe("true");
+    expect(screen.queryByRole("region", { name: "Demo script" })).toBeNull();
+    expect(screen.queryByText(/Demo ends automatically/)).toBeNull();
+  });
+
+  it("pilot: a running session does not tick every second and does not auto-stop at 5 minutes", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date("2026-10-12T01:00:00Z"));
+    fetchCaptureConfig.mockResolvedValue(
+      config({ sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } }),
+    );
+    await renderReady();
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    await vi.advanceTimersByTimeAsync(6 * 60_000);
+    expect(postSessionEnd).not.toHaveBeenCalled();
+    expect(screen.getByText("Listening")).toBeTruthy();
+  });
+});
+
+describe("CapturePage script drawer (R-18, sandbox only)", () => {
+  const MON_1000_WIB = "2026-10-12T03:00:00Z";
+  const demoConfig = () => ({
+    ...config({ sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } }),
+    capture_mode: "room",
+    demo_session: { max_ms: 300_000, script_id: "bakery-v1" },
+  });
+  async function renderDemoIdle() {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date(MON_1000_WIB));
+    fetchCaptureConfig.mockResolvedValue(demoConfig());
+    await renderReady();
+    const start = await screen.findByRole("button", { name: "Start" });
+    await screen.findByRole("region", { name: "Demo script" }); // the drawer is a lazy chunk
+    return start;
+  }
+  async function renderDemoRunning() {
+    fireEvent.click(await renderDemoIdle());
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+  }
+  const goToLastCard = () => {
+    for (let i = 0; i < 9; i += 1) fireEvent.click(screen.getByRole("button", { name: "Next" }));
+  };
+
+  it("9.T1 renders only with demo_session: the rules card and the Tap Start line before Mulai", async () => {
+    await renderDemoIdle();
+    const drawer = screen.getByRole("region", { name: "Demo script" });
+    expect(within(drawer).getByText("Tap Start to begin. Nothing is recorded until you do.")).toBeTruthy();
+  });
+
+  it("the cards appear once Mulai is tapped, and Listening, End and Cancel session stay on the page", async () => {
+    await renderDemoRunning();
+    const drawer = screen.getByRole("region", { name: "Demo script" });
+    expect(within(drawer).getByText("Card 1 of 10")).toBeTruthy();
+    expect(screen.getByText("Listening")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "End" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel session" })).toBeTruthy();
+    // the drawer is a sibling of the page content, not a wrapper: nothing is hidden or inert
+    expect(drawer.contains(screen.getByRole("button", { name: "End" }))).toBe(false);
+    expect(document.querySelector("[inert], [aria-hidden='true'] button")).toBeNull();
+  });
+
+  it("Finish on the last card runs the existing Selesai path: selesai, no confirm dialog, engine stopped", async () => {
+    await renderDemoRunning();
+    goToLastCard();
+    fireEvent.click(screen.getByRole("button", { name: "Finish and end the day" }));
+    await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+    expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "selesai" });
+    expect(screen.queryByText("End today's operations?")).toBeNull();
+    await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.getByText("Done. Answer the debrief questions, then switch to Supervisor.")).toBeTruthy(),
+    );
+  });
+
+  it("9.T5 a double tap on Finish makes one end request", async () => {
+    await renderDemoRunning();
+    goToLastCard();
+    const finish = screen.getByRole("button", { name: "Finish and end the day" });
+    fireEvent.click(finish);
+    fireEvent.click(finish);
+    await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(postSessionEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("9.T6 the 5:00 auto-stop while on card 5 ends the drawer without a second end request", async () => {
+    await renderDemoRunning();
+    for (let i = 0; i < 4; i += 1) fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("Card 5 of 10")).toBeTruthy();
+    await vi.advanceTimersByTimeAsync(5 * 60_000 + 1_000);
+    await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+    expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "auto_stop" });
+    await waitFor(() =>
+      expect(screen.getByText("Done. Answer the debrief questions, then switch to Supervisor.")).toBeTruthy(),
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(postSessionEnd).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Finish and end the day" })).toBeNull();
+  });
+
+  it("Finish at 4:59.5 with the end request still pending, then the 5:00 stop fires: exactly one end call", async () => {
+    await renderDemoRunning();
+    await vi.advanceTimersByTimeAsync(4 * 60_000 + 59_000 - 1_000); // 4:58, the page clock ticks each second
+    goToLastCard();
+    await vi.advanceTimersByTimeAsync(1_500); // 4:59.5
+    let release: (r: { ok: boolean }) => void = () => {};
+    postSessionEnd.mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
+    fireEvent.click(screen.getByRole("button", { name: "Finish and end the day" }));
+    await vi.advanceTimersByTimeAsync(2_000); // past the 5:00 stop while Finish is in flight
+    expect(postSessionEnd).toHaveBeenCalledTimes(1);
+    expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "selesai" });
+    release({ ok: true });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(postSessionEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("the End dialog's 'Yes, end' while the 5:00 stop is in flight makes no second end call", async () => {
+    await renderDemoRunning();
+    fireEvent.click(screen.getByRole("button", { name: "End" }));
+    let release: (r: { ok: boolean }) => void = () => {};
+    postSessionEnd.mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
+    await vi.advanceTimersByTimeAsync(5 * 60_000 + 1_000);
+    expect(postSessionEnd).toHaveBeenCalledTimes(1);
+    expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "auto_stop" });
+    release({ ok: true });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(postSessionEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("End dialog opened at 4:58, auto-stop fires at 5:00, 'Yes, end' tapped during the round trip: ONE end call, headline stays 'Ended automatically'", async () => {
+    await renderDemoRunning();
+    await vi.advanceTimersByTimeAsync(4 * 60_000 + 58_000);
+    fireEvent.click(screen.getByRole("button", { name: "End" }));
+    expect(screen.getByText("End today's operations?")).toBeTruthy();
+    let release: (r: { ok: boolean }) => void = () => {};
+    postSessionEnd.mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
+    await vi.advanceTimersByTimeAsync(2_500); // 5:00 passes: the auto-stop request is now in flight
+    expect(postSessionEnd).toHaveBeenCalledTimes(1);
+    expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "auto_stop" });
+    const yes = screen.getByRole("button", { name: "Yes, end" }) as HTMLButtonElement;
+    await waitFor(() => expect(yes.disabled).toBe(true));
+    fireEvent.click(yes);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(postSessionEnd).toHaveBeenCalledTimes(1);
+    release({ ok: true });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(postSessionEnd).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("End today's operations?")).toBeNull();
+    expect(screen.getByText(/^Ended automatically at \d/)).toBeTruthy();
+  });
+
+  it("the countdown follows the page clock, in text", async () => {
+    await renderDemoRunning();
+    expect(screen.getByText("Demo ends automatically in 5:00")).toBeTruthy();
+    await vi.advanceTimersByTimeAsync(61_000);
+    expect(screen.getByText("Demo ends automatically in 3:59")).toBeTruthy();
+  });
+
+  it("item 4: collapsed by default before Start, open as soon as Start is tapped, collapsed again after Cancel session", async () => {
+    await renderDemoIdle();
+    expect(screen.getByRole("button", { name: "Show script" }).getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    expect(screen.getByRole("button", { name: "Hide script" }).getAttribute("aria-expanded")).toBe("true");
+    await vi.advanceTimersByTimeAsync(1_000);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
+    await vi.advanceTimersByTimeAsync(1_000);
+    fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
+    await waitFor(() => expect(postSessionDiscard).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Show script" })).toBeTruthy());
+  });
+
+  it("item 4: the drawer sits in the page flow AFTER the Listening banner, End and Cancel (never over them), and nothing above it is fixed", async () => {
+    await renderDemoRunning();
+    const drawer = screen.getByRole("region", { name: "Demo script" });
+    const follows = (el: Element) => Boolean(el.compareDocumentPosition(drawer) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(screen.getByText("Listening"))).toBe(true);
+    expect(follows(screen.getByRole("button", { name: "End" }))).toBe(true);
+    expect(follows(screen.getByRole("button", { name: "Cancel session" }))).toBe(true);
+    for (let el: HTMLElement | null = screen.getByRole("button", { name: "End" }); el; el = el.parentElement) {
+      expect(el.style.position).not.toBe("fixed");
+    }
+    expect(drawer.style.position).not.toBe("fixed");
+  });
+
+  it("item 7: right after Start the countdown reads 5:00, not 5:25, even when the page clock was 25 s stale", async () => {
+    const start = await renderDemoIdle();
+    vi.setSystemTime(new Date(Date.parse(MON_1000_WIB) + 25_000)); // 25 s pass; the 30 s tick has not fired
+    fireEvent.click(start);
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    expect(screen.getByText("Demo ends automatically in 5:00")).toBeTruthy();
+    expect(screen.queryByText(/Demo ends automatically in 5:[1-5]/)).toBeNull();
+  });
+
+  it("Cancel session returns the drawer to the rules card and offers Mulai again", async () => {
+    await renderDemoRunning();
+    await vi.advanceTimersByTimeAsync(1_000);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
+    await vi.advanceTimersByTimeAsync(1_000);
+    fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
+    await waitFor(() => expect(postSessionDiscard).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.getByText("Tap Start to begin. Nothing is recorded until you do.")).toBeTruthy(),
+    );
+    const start = await screen.findByRole("button", { name: "Start" });
+    expect(start.getAttribute("aria-disabled")).not.toBe("true");
+  });
+
+  it("collapsing the drawer does not end or pause anything", async () => {
+    await renderDemoRunning();
+    fireEvent.click(screen.getByRole("button", { name: "Hide script" }));
+    expect(screen.getByRole("button", { name: "Show script" }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByText("Listening")).toBeTruthy();
+    expect(postSessionEnd).not.toHaveBeenCalled();
+  });
+
+  it("pilot: no script drawer, and the page container style is the unchanged pilot style", async () => {
+    pinClock(MON_1000_WIB);
+    fetchCaptureConfig.mockResolvedValue(
+      config({ sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } }),
+    );
+    const { container } = await renderReady();
+    await screen.findByRole("button", { name: "Start" });
+    expect(screen.queryByRole("region", { name: "Demo script" })).toBeNull();
+    const main = container.querySelector("main")!;
+    expect(main.getAttribute("style")).toBe(
+      "max-width: 360px; margin: 0px auto; padding: 24px; font-family: system-ui, sans-serif;",
+    );
+  });
+});
+
+describe("CapturePage debrief refresh wiring (R-18)", () => {
+  const listBody = {
+    data: {
+      debrief: { business_date: "2026-10-12", ends_at_ms: Date.parse("2026-10-12T04:00:00Z") },
+      questions: [{ question_id: "q1", kind: "gate", category: "ROUTINE_OPS", start_hm: "09:00", end_hm: "09:05" }],
+    },
+  };
+  async function openDebrief(demo: boolean) {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date("2026-10-12T03:30:00Z")); // 10:30 WIB
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => listBody }) as Response),
+    );
+    fetchCaptureConfig.mockResolvedValue({
+      ...config(
+        { sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } },
+        { business_date: "2026-10-12", end_reason: "selesai", debrief_ends_at_ms: Date.parse("2026-10-12T04:00:00Z") },
+      ),
+      capture_mode: "room",
+      ...(demo ? { demo_session: { max_ms: 300_000, script_id: "bakery-v1" } } : {}),
+    });
+    await renderReady();
+    fireEvent.click(await screen.findByRole("button", { name: "Answer questions" }));
+    await waitFor(() => expect(screen.getByText("Question 1 of 1")).toBeTruthy());
+  }
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("a sandbox device's debrief offers 'Check for new questions'", async () => {
+    await openDebrief(true);
+    expect(screen.getByRole("button", { name: "Check for new questions" })).toBeTruthy();
+  });
+
+  it("pilot: the same debrief has no such button", async () => {
+    await openDebrief(false);
+    expect(screen.queryByRole("button", { name: "Check for new questions" })).toBeNull();
   });
 });
 

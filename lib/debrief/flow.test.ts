@@ -22,7 +22,7 @@ function q(id: string, overrides: Partial<DebriefQuestionView> = {}): DebriefQue
   };
 }
 
-const CLOSED: DebriefState = { view: { kind: "closed" }, ends_at_ms: 10_000, business_date: null };
+const CLOSED: DebriefState = { view: { kind: "closed" }, ends_at_ms: 10_000, business_date: null, seen: new Set() };
 
 describe("reduceDebrief: OPEN / RETRY", () => {
   it("OPEN from closed goes to loading", () => {
@@ -34,6 +34,105 @@ describe("reduceDebrief: OPEN / RETRY", () => {
     const s: DebriefState = { ...CLOSED, view: { kind: "load_error" } };
     const next = reduceDebrief(s, { type: "RETRY" });
     expect(next.view).toEqual({ kind: "loading" });
+  });
+});
+
+describe("reduceDebrief: REFRESHED (R-18 check for new questions)", () => {
+  const ev = (questions: DebriefQuestionView[], cached: string[] = []) =>
+    ({ type: "REFRESHED", questions, cached: new Set(cached) }) as const;
+  const onQuestion = (ids: string[], index = 0): DebriefState => ({
+    ...CLOSED,
+    business_date: "2026-10-07",
+    seen: new Set(ids),
+    view: {
+      kind: "question",
+      list: ids.map((id) => q(id)),
+      index,
+      choice: "yes",
+      reason: "typing",
+      save_error: false,
+      answered: 1,
+      skipped: 0,
+    },
+  });
+
+  it("empty -> question when new questions arrived (cached and seen ids are not new)", () => {
+    const s: DebriefState = { ...CLOSED, view: { kind: "empty" }, seen: new Set(["b"]) };
+    const next = reduceDebrief(s, ev([q("a"), q("b"), q("c")], ["a"]));
+    const view = next.view as Extract<DebriefView, { kind: "question" }>;
+    expect(view.kind).toBe("question");
+    expect(view.list.map((x) => x.question_id)).toEqual(["c"]);
+    expect(view.index).toBe(0);
+  });
+
+  it("empty stays empty (same object) when nothing is new", () => {
+    const s: DebriefState = { ...CLOSED, view: { kind: "empty" } };
+    expect(reduceDebrief(s, ev([q("a")], ["a"]))).toBe(s);
+  });
+
+  it("question: new ids are appended; the current index, choice and typed reason are untouched", () => {
+    const s = onQuestion(["a", "b"], 1);
+    const next = reduceDebrief(s, ev([q("a"), q("b"), q("c")]));
+    const view = next.view as Extract<DebriefView, { kind: "question" }>;
+    expect(view.list.map((x) => x.question_id)).toEqual(["a", "b", "c"]);
+    expect(view.index).toBe(1);
+    expect(view.choice).toBe("yes");
+    expect(view.reason).toBe("typing");
+    expect(view.answered).toBe(1);
+  });
+
+  it("question: never re-adds an id already in the list, and never grows past DEBRIEF_SHOW_MAX", () => {
+    const s = onQuestion(["a", "b", "c", "d"]);
+    const more = [q("a"), q("e"), q("f"), q("g")];
+    const view = reduceDebrief(s, ev(more)).view as Extract<DebriefView, { kind: "question" }>;
+    expect(view.list.map((x) => x.question_id)).toEqual(["a", "b", "c", "d", "e"]);
+    expect(view.list).toHaveLength(DEBRIEF_SHOW_MAX);
+  });
+
+  it("question: nothing new returns the same state object", () => {
+    const s = onQuestion(["a"]);
+    expect(reduceDebrief(s, ev([q("a")]))).toBe(s);
+  });
+
+  it("done -> question for the new ones, keeping the answered and skipped counts; a skipped id is not new", () => {
+    const s: DebriefState = { ...CLOSED, view: { kind: "done", answered: 2, skipped: 1 }, seen: new Set(["skipped"]) };
+    const next = reduceDebrief(s, ev([q("skipped"), q("fresh")]));
+    const view = next.view as Extract<DebriefView, { kind: "question" }>;
+    expect(view.kind).toBe("question");
+    expect(view.list.map((x) => x.question_id)).toEqual(["fresh"]);
+    expect(view.answered).toBe(2);
+    expect(view.skipped).toBe(1);
+  });
+
+  it("done stays done when only seen ids come back", () => {
+    const s: DebriefState = { ...CLOSED, view: { kind: "done", answered: 2, skipped: 1 }, seen: new Set(["skipped"]) };
+    expect(reduceDebrief(s, ev([q("skipped")]))).toBe(s);
+  });
+
+  it("only the ids actually offered become seen: the list shows 2, a refresh returns 5 new, 3 are added and the other 2 are offered on a later refresh", () => {
+    const s = onQuestion(["a", "b"]);
+    const five = [q("c"), q("d"), q("e"), q("f"), q("g")];
+    const afterFirst = reduceDebrief(s, ev(five));
+    const firstView = afterFirst.view as Extract<DebriefView, { kind: "question" }>;
+    expect(firstView.list.map((x) => x.question_id)).toEqual(["a", "b", "c", "d", "e"]);
+    expect([...afterFirst.seen].sort()).toEqual(["a", "b", "c", "d", "e"]);
+    // the judge answers everything shown: done, then the next refresh offers f and g
+    const done: DebriefState = { ...afterFirst, view: { kind: "done", answered: 5, skipped: 0 } };
+    const later = reduceDebrief(done, ev(five)).view as Extract<DebriefView, { kind: "question" }>;
+    expect(later.kind).toBe("question");
+    expect(later.list.map((x) => x.question_id)).toEqual(["f", "g"]);
+  });
+
+  it("ignored in closed, loading, load_error and timed_out (a late response never replaces the screen)", () => {
+    for (const view of [
+      { kind: "closed" },
+      { kind: "loading" },
+      { kind: "load_error" },
+      { kind: "timed_out", ended_at_ms: 1 },
+    ] as const) {
+      const s: DebriefState = { ...CLOSED, view };
+      expect(reduceDebrief(s, ev([q("x")]))).toBe(s);
+    }
   });
 });
 
@@ -57,6 +156,8 @@ describe("reduceDebrief: LOADED", () => {
     expect(view.reason).toBe("");
     expect(view.save_error).toBe(false);
     expect(next.business_date).toBe("2026-10-07");
+    // only the 5 offered ids are seen: q5..q7 beyond the cap may still be offered by a later refresh
+    expect([...next.seen]).toEqual(["q2", "q3", "q4", "q5", "q6"]);
   });
 
   it("an empty filtered list goes to empty, not question", () => {

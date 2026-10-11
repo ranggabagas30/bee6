@@ -36,3 +36,9 @@ export const INCIDENT_FIRST: ReadonlySet<WorkCategory> = new Set([
   "SECURITY_INCIDENT",
   "DISRUPTION",
 ]);
+/** R-18 (sandbox only): the debrief list is re-fetched this often while it is on screen. */
+export const REFRESH_POLL_MS = 20_000;
+/** R-18 (sandbox only): the poll gives up this long after it began (the debrief end stops it earlier). */
+export const REFRESH_POLL_MAX_MS = 10 * 60_000;
+/** R-18 (sandbox only): a manual "Check for new questions" tap closer than this to the last check does nothing. */
+export const REFRESH_MIN_INTERVAL_MS = 5_000;

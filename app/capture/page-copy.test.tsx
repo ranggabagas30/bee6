@@ -213,3 +213,62 @@ describe("capture page: no Bahasa text on an EN screen, no English on an ID scre
     expect(body).not.toMatch(EN_WORDS);
   });
 });
+
+// R-18: on a sandbox device (capture config carries demo_session) the pilot "tap Start again <date>" copy is
+// never true: Cancel is the retake path (Start is offered again at once) and End has no restart at all.
+describe("capture page: the End and Cancel panels in the sandbox (R-18)", () => {
+  const SANDBOX = { ...CONFIG, capture_mode: "room", demo_session: { max_ms: 300_000, script_id: "bakery-v1" } };
+  const MON_1000_WIB = "2026-10-12T03:00:00Z";
+
+  async function openRunning(lang: Lang, config: unknown, startName: string) {
+    pinClock(MON_1000_WIB);
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    fetchCaptureConfig.mockResolvedValue(config);
+    const { container } = await renderPage(lang);
+    fireEvent.click(await screen.findByRole("button", { name: startName }));
+    await waitFor(() => expect(container.querySelector("[role='status']")).toBeTruthy());
+    await waitFor(() => expect(screen.queryByRole("button", { name: startName })).toBeNull());
+    return container;
+  }
+  const panelText = () =>
+    screen.getByRole("heading", { level: 2, name: /^(End today|Akhiri operasional|Cancel the session|Batalkan sesi yang)/ })
+      .parentElement?.textContent ?? "";
+
+  it("EN sandbox, End: 'The 1-hour debrief starts now. This cannot be undone.' and no restart date", async () => {
+    await openRunning("en", SANDBOX, "Start");
+    fireEvent.click(screen.getByRole("button", { name: "End" }));
+    expect(panelText()).toContain("The 1-hour debrief starts now. This cannot be undone.");
+    expect(panelText()).not.toMatch(/tap Start again|Mon 12 Oct|01:00/);
+  });
+
+  it("ID sandbox, End: Bahasa body and no restart date", async () => {
+    await openRunning("id", SANDBOX, "Mulai");
+    fireEvent.click(screen.getByRole("button", { name: "Selesai" }));
+    expect(panelText()).toContain("Debrief 1 jam dimulai sekarang. Tidak bisa dikembalikan.");
+    expect(panelText()).not.toMatch(/ditekan lagi|12 Okt|01:00/);
+  });
+
+  it("EN sandbox, Cancel: Start can be tapped again now, no date", async () => {
+    await openRunning("en", SANDBOX, "Start");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
+    expect(panelText()).toContain("You can tap Start again straight away.");
+    expect(panelText()).not.toMatch(/Mon 12 Oct|Tue 13 Oct|01:00/);
+  });
+
+  it("ID sandbox, Cancel: Mulai bisa ditekan segera, no date", async () => {
+    await openRunning("id", SANDBOX, "Mulai");
+    fireEvent.click(screen.getByRole("button", { name: "Batalkan sesi" }));
+    expect(panelText()).toContain("Mulai baru bisa ditekan segera.");
+    expect(panelText()).not.toMatch(/ditekan lagi|12 Okt|13 Okt|01:00/);
+  });
+
+  it("pilot Cancel panel is unchanged: it still names the next Start day and 01:00 (the pilot End panel is covered in page.test.tsx)", async () => {
+    const pilot = {
+      ...CONFIG,
+      weekly_hours: { ...CONFIG.weekly_hours, mon: { open: "08:00", close: "22:00" } },
+    };
+    await openRunning("en", pilot, "Start");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
+    expect(panelText()).toMatch(/You can tap Start again (straight away|\w{3} \d+ \w{3} at 01:00)\./);
+  });
+});

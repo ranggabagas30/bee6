@@ -11,7 +11,7 @@ import {
   type CaptureSessionStore,
   type SessionTxState,
 } from "@/lib/capture/session-service";
-import type { CaptureSession, LastEnded } from "@/lib/firestore/schema";
+import { CaptureSessionSchema, type CaptureSession, type LastEnded } from "@/lib/firestore/schema";
 import { ConflictError, ValidationError } from "@/lib/http/errors";
 
 const JKT = "Asia/Jakarta";
@@ -136,6 +136,35 @@ describe("startSession (PROD-01 4.2)", () => {
     expect(f.audits.map((a) => a.action)).toEqual(["capture.session_start"]);
     expect(f.session?.received_start_at).toBe(new Date(NOW).toISOString());
     expect(f.session?.received_end_at).toBeNull();
+  });
+
+  it("R-18: a sandbox session (demo_max_ms) auto-stops at start + 5 min; without it the auto-stop stays close + 1 h", async () => {
+    const started = NOW - 4_000; // inside the +/- 10 s clamp: kept as sent
+    const demo = fakeStore();
+    await startSession(demo.store, { ...base, started_at_ms: started, demo_max_ms: 300_000 });
+    expect(demo.session?.started_at_ms).toBe(started);
+    expect(demo.session?.auto_stop_at_ms).toBe(started + 300_000);
+    const pilot = fakeStore();
+    await startSession(pilot.store, { ...base, started_at_ms: wib("2026-10-14T11:59:00") });
+    expect(pilot.session?.auto_stop_at_ms).toBe(wib("2026-10-15T02:00:00"));
+  });
+
+  it("R-18 (security): a sandbox start time is clamped to now +/- 10 s so the 5-minute stop cannot be shifted", async () => {
+    const early = fakeStore();
+    await startSession(early.store, { ...base, started_at_ms: NOW - 120_000, demo_max_ms: 300_000 });
+    expect(early.session?.started_at_ms).toBe(NOW - 10_000);
+    expect(early.session?.auto_stop_at_ms).toBe(NOW - 10_000 + 300_000);
+    const late = fakeStore();
+    await startSession(late.store, { ...base, started_at_ms: NOW + 240_000, demo_max_ms: 300_000 });
+    expect(late.session?.started_at_ms).toBe(NOW + 10_000);
+    expect(late.session?.auto_stop_at_ms).toBe(NOW + 10_000 + 300_000);
+  });
+
+  it("the pilot start time is never clamped (a start up to 7 days old stays as sent)", async () => {
+    const pilot = fakeStore();
+    const old = NOW - 3 * 86_400_000;
+    await startSession(pilot.store, { ...base, started_at_ms: old });
+    expect(pilot.session?.started_at_ms).toBe(old);
   });
 
   it("is idempotent: a retry returns the stored doc and writes nothing", async () => {
@@ -528,5 +557,55 @@ describe("discard timestamp bounds (PROD-01 4.12 step 4, ruling D4)", () => {
     ).rejects.toBeInstanceOf(ValidationError);
     expect(f.session).toBeNull();
     expect(f.deleteCalls).toBe(0);
+  });
+});
+
+// R-18: a sandbox start is clamped to the server clock (now +/- 10 s). A phone whose clock runs far behind
+// then ends or discards with a client time BEFORE that clamped start; the stored doc must still satisfy the
+// schema's "ended_at_ms >= started_at_ms" rule (the real store parses it, so it would otherwise 5xx).
+describe("R-18: a clamped sandbox start never ends up after the end or discard time", () => {
+  const phoneStart = NOW - 120_000; // the phone clock is 2 min behind: the server clamps this to NOW - 10 s
+  const clampedStart = NOW - 10_000;
+  const phoneEnd = NOW - 60_000; // after the phone's own start, before the clamped start
+
+  it("end: ended_at_ms is raised to the clamped start, the doc parses, and the debrief runs from there", async () => {
+    const f = fakeStore();
+    await startSession(f.store, { ...base, started_at_ms: phoneStart, demo_max_ms: 300_000 });
+    expect(f.session?.started_at_ms).toBe(clampedStart);
+    await endSession(f.store, { ...base, started_at_ms: phoneStart, ended_at_ms: phoneEnd, end_reason: "selesai", demo_max_ms: 300_000 });
+    expect(f.session?.ended_at_ms).toBe(clampedStart);
+    expect(() => CaptureSessionSchema.parse(f.session)).not.toThrow();
+    expect(f.session?.debrief_ends_at_ms).toBe(clampedStart + 3_600_000);
+    expect(f.lastEnded?.ended_at_ms).toBe(clampedStart);
+  });
+
+  it("discard: discarded_at_ms is raised to the clamped start and the tombstone parses", async () => {
+    const f = fakeStore();
+    await startSession(f.store, { ...base, started_at_ms: phoneStart, demo_max_ms: 300_000 });
+    await discardSession(f.store, { ...base, started_at_ms: phoneStart, discarded_at_ms: phoneEnd, demo_max_ms: 300_000 });
+    expect(f.session?.end_reason).toBe("discarded");
+    expect(f.session?.ended_at_ms).toBe(clampedStart);
+    expect(() => CaptureSessionSchema.parse(f.session)).not.toThrow();
+    expect(f.lastEnded?.ended_at_ms).toBe(clampedStart);
+  });
+
+  it("an end after the clamped start is kept exactly as sent", async () => {
+    const f = fakeStore();
+    await startSession(f.store, { ...base, started_at_ms: phoneStart, demo_max_ms: 300_000 });
+    const later = NOW + 5_000;
+    await endSession(f.store, { ...base, started_at_ms: phoneStart, ended_at_ms: later, end_reason: "selesai", demo_max_ms: 300_000 });
+    expect(f.session?.ended_at_ms).toBe(later);
+  });
+
+  it("pilot unchanged: end and discard times are stored exactly as sent", async () => {
+    const started = wib("2026-10-14T10:00:00");
+    const e = fakeStore();
+    await startSession(e.store, { ...base, started_at_ms: started });
+    await endSession(e.store, { ...base, started_at_ms: started, ended_at_ms: started + 1, end_reason: "selesai" });
+    expect(e.session?.ended_at_ms).toBe(started + 1);
+    const d = fakeStore();
+    await startSession(d.store, { ...base, started_at_ms: started });
+    await discardSession(d.store, { ...base, started_at_ms: started, discarded_at_ms: started + 1 });
+    expect(d.session?.ended_at_ms).toBe(started + 1);
   });
 });

@@ -1,11 +1,13 @@
 import {
   autoStopAtMs,
   businessDateOf,
+  DEBRIEF_DURATION_MS,
   localDateOf,
   mulaiAvailability,
   mulaiWindowFor,
 } from "@/lib/capture/calendar";
 import type { CaptureConfigResponse } from "@/lib/capture/contract";
+import { demoMulaiAvailability } from "@/lib/capture/demo-session";
 import { t } from "@/lib/i18n/dict";
 import { clockLabel, dayLabel } from "@/lib/i18n/format";
 import type { Lang } from "@/lib/i18n/lang";
@@ -43,7 +45,33 @@ function endedHeadlineFor(endReason: "selesai" | "auto_stop" | "lost" | "discard
   return "ended";
 }
 
+/**
+ * R-18: the idle view of a sandbox judge device (server field `demo_session`). Mulai is offered at any time;
+ * a finished day says "Switch to Supervisor". Only reachable with the profile, so the pilot view is untouched.
+ */
+function demoIdleViewFor(input: IdleViewInput): IdleView {
+  const { config, nowMs, lang } = input;
+  const tz = config.timezone;
+  const last = config.last_ended;
+  const availability = demoMulaiAvailability({ now_ms: nowMs, tz, session_open: false, last_ended: last });
+  const headline = last ? endedHeadlineFor(last.end_reason) : "idle";
+  if (availability.offered) {
+    return { headline: headline === "discarded" ? "discarded" : "idle", offered: true, note: null, endedAt: null };
+  }
+  const endedAt =
+    headline === "ended_auto"
+      ? clockLabel(last?.debrief_ends_at_ms != null ? last.debrief_ends_at_ms - DEBRIEF_DURATION_MS : nowMs, tz)
+      : null;
+  return {
+    headline,
+    offered: false,
+    note: availability.reason === "day_ended" ? t(lang, "C-script-day-ended") : null,
+    endedAt,
+  };
+}
+
 export function idleViewFor(input: IdleViewInput): IdleView {
+  if (input.config.demo_session) return demoIdleViewFor(input);
   const { config, nowMs, lang } = input;
   const tz = config.timezone;
   const weekly = config.weekly_hours;

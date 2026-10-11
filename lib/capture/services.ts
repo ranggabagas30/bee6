@@ -40,14 +40,14 @@ export interface HeartbeatWriter {
  */
 export async function getCaptureConfig(
   store: OutletReader & DeviceReader & DeviceCounter,
-  params: { outlet_id: string; device_id: string },
+  params: { outlet_id: string; device_id: string; /** The route's `DEMO_MODE === "true"` (R-18). */ demo_mode?: boolean },
 ): Promise<CaptureConfigResponse> {
   const outlet = await store.getOutlet(params.outlet_id);
   if (!outlet) throw new NotFoundError("Outlet", params.outlet_id);
   const device = await store.getDevice(params.outlet_id, params.device_id);
   if (!device) throw new NotFoundError("Device", params.device_id);
   const pairedDeviceCount = await store.countPairedDevices(params.outlet_id);
-  return toCaptureConfig(outlet, device.last_ended ?? null, pairedDeviceCount);
+  return toCaptureConfig(outlet, device.last_ended ?? null, pairedDeviceCount, params.demo_mode === true, device);
 }
 
 /**

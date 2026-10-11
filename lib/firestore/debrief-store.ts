@@ -71,7 +71,11 @@ export function firestoreDebriefStore(outletId: string, db: Firestore = adminDb(
         throw new Error(`debrief-store: outlet not found: ${outletId}`);
       }
       const outlet = parseOutletDoc(doc.data());
-      return { tz: outlet.timezone, retention_days: outlet.retention_days ?? 14 };
+      return {
+        tz: outlet.timezone,
+        retention_days: outlet.retention_days ?? 14,
+        ...(outlet.sandbox ? { sandbox: true as const } : {}),
+      };
     },
 
     async listOpenQuestions(deviceId: string): Promise<Question[]> {

@@ -15,7 +15,7 @@ import {
   type AnswerTxSnapshot,
   type AnswerWritePlan,
 } from "@/lib/debrief/answer-plan";
-import { localHmOf, DEBRIEF_DURATION_MS } from "@/lib/capture/calendar";
+import { businessDateOf, localHmOf, DEBRIEF_DURATION_MS } from "@/lib/capture/calendar";
 import { AppError, DemoCapError, LockedError, NotFoundError, ServiceUnavailableError } from "@/lib/http/errors";
 import type { LastEnded, Question } from "@/lib/firestore/schema";
 import type { WorkCategory } from "@/lib/pipeline/categories";
@@ -36,7 +36,8 @@ export interface EndedDebrief {
 export interface DebriefStore {
   /** This device's own latest ended business day (`devices/{id}.last_ended`). */
   getLastEnded(device_id: string): Promise<LastEnded | null>;
-  getOutletCalendar(): Promise<{ tz: string; retention_days: number }>;
+  /** `sandbox: true` only for a demo sandbox outlet (R-18); the key is absent on every pilot outlet. */
+  getOutletCalendar(): Promise<{ tz: string; retention_days: number; sandbox?: boolean }>;
   /** `outlet_id ==`, `device_id ==`, `status == "open"` — the store scopes by device, the service re-checks outlet too. */
   listOpenQuestions(device_id: string): Promise<Question[]>;
   /** Any outlet/device — the caller (`submitAnswer`) checks scope itself (same 404 for "wrong scope" and "missing"). */
@@ -58,6 +59,16 @@ function isDebriefActive(last: LastEnded | null, now_ms: number): last is LastEn
     last.debrief_ends_at_ms !== null &&
     now_ms < last.debrief_ends_at_ms
   );
+}
+
+/**
+ * R-18: the window's business date, only when it is strictly BEFORE the debrief's own (see
+ * DebriefQuestionViewSchema). A later date (a question at 01:15 next day, a session started 00:56) is not an
+ * "earlier day". YYYY-MM-DD strings compare in date order.
+ */
+function earlierDay(q: Question, debriefDate: string, tz: string): { business_date?: string } {
+  const date = businessDateOf(q.window_start_ms, tz);
+  return date < debriefDate ? { business_date: date } : {};
 }
 
 /** `GET /api/v1/questions` (device). */
@@ -86,6 +97,8 @@ export async function listDebriefQuestions(
         : null,
     start_hm: localHmOf(q.window_start_ms, calendar.tz),
     end_hm: localHmOf(q.window_end_ms, calendar.tz),
+    // R-18 sandbox only: a pilot response never carries business_date.
+    ...(calendar.sandbox === true ? earlierDay(q, last.business_date, calendar.tz) : {}),
   }));
 
   return DebriefListResponseSchema.parse({

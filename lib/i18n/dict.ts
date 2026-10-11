@@ -469,6 +469,37 @@ export const ID = {
   "C-rev-retry": "Coba lagi", // PROVISIONAL
   "C-sop-outcome": "Hasil: {verdict}", // PROVISIONAL
   "C-sop-outcome-unknown": "Hasil: tidak diketahui (tidak dikonfirmasi, tidak diingat)", // PROVISIONAL
+  // R-18 P2: demo script drawer, carried-question chip, debrief refresh. All PROVISIONAL; the ID column is a draft for Tiffany.
+  "C-script-title": "Skrip demo", // PROVISIONAL
+  "C-script-rules": "Biarkan tab ini terbuka dan layar menyala. Izinkan mikrofon. Colokkan charger jika baterai menipis.", // PROVISIONAL
+  "C-script-before": "Ketuk Mulai untuk memulai. Tidak ada yang direkam sebelum Anda menekannya.", // PROVISIONAL
+  "C-script-card": "Kartu {n} dari {total}", // PROVISIONAL
+  "C-script-card-short": "{n}/{total}", // PROVISIONAL
+  "C-script-back": "Kembali", // PROVISIONAL
+  "C-script-next": "Berikutnya", // PROVISIONAL
+  "C-script-finish": "Selesai dan akhiri hari", // PROVISIONAL
+  "C-script-finishing": "Mengakhiri…", // PROVISIONAL
+  "C-script-ended": "Selesai. Jawab pertanyaan debrief, lalu ganti ke Supervisor.", // PROVISIONAL
+  "C-script-countdown": "Demo berakhir otomatis dalam {time}", // PROVISIONAL
+  "C-script-countdown-short": "Berakhir {time}", // PROVISIONAL
+  "C-script-reload": "Jika halaman ini dimuat ulang, ketuk Mulai lagi.", // PROVISIONAL
+  "C-script-cards-label": "Kartu skrip", // PROVISIONAL
+  "C-script-collapse": "Sembunyikan skrip", // PROVISIONAL
+  "C-script-expand": "Tampilkan skrip", // PROVISIONAL
+  "C-script-say": "Ucapkan", // PROVISIONAL
+  "C-script-own-words": "Dengan kata-kata Anda sendiri", // PROVISIONAL
+  "C-script-example": "Contoh", // PROVISIONAL
+  "C-script-intent": "Yang seharusnya dicatat aplikasi", // PROVISIONAL
+  "C-script-seconds": "Sekitar {n} dtk", // PROVISIONAL
+  "C-script-speaker-you": "Anda", // PROVISIONAL
+  "C-script-speaker-customer": "Pelanggan", // PROVISIONAL
+  "C-script-speaker-colleague": "Rekan kerja", // PROVISIONAL
+  "C-script-speaker-caller": "Penelepon", // PROVISIONAL
+  "C-script-end-b": "Debrief 1 jam dimulai sekarang. Tidak bisa dikembalikan.", // PROVISIONAL
+  "C-script-day-ended": "Hari demo selesai. Ganti ke Supervisor untuk melihatnya.", // PROVISIONAL
+  "C-script-earlier-day": "Hari sebelumnya · {date}", // PROVISIONAL
+  "C-script-check-new": "Cek pertanyaan baru", // PROVISIONAL
+  "C-script-checking": "Memeriksa…", // PROVISIONAL
   // R-12 PR-B: demo landing, demo bar, sign-in link. All PROVISIONAL (plan copy; UX-03 did not design these screens).
   "C-demo-title": "bee6: Agen Perbaikan SOP", // PROVISIONAL
   "C-demo-intro": "bee6 mendengarkan hari kerja toko kecil lewat ponsel yang dipasangkan, mengubah ucapan menjadi catatan kerja singkat (audio tidak pernah disimpan), menanyakan momen yang kurang jelas kepada staf, dan mengusulkan perubahan SOP yang dicek supervisor dan disetujui pemilik. Toko demo ini fiktif. Kunjungan Anda mendapat salinan sendiri selama 2 jam.", // PROVISIONAL
@@ -936,6 +967,37 @@ export const EN: Record<DictKey, string> = {
   "C-rev-retry": "Try again", // PROVISIONAL
   "C-sop-outcome": "Outcome: {verdict}", // PROVISIONAL
   "C-sop-outcome-unknown": "Outcome: unknown (not confirmed, not remembered)", // PROVISIONAL
+  // R-18 P2: demo script drawer, carried-question chip, debrief refresh. All PROVISIONAL; the ID column is a draft for Tiffany.
+  "C-script-title": "Demo script", // PROVISIONAL
+  "C-script-rules": "Keep this tab open and the screen on. Allow the microphone. Plug in if the battery is low.", // PROVISIONAL
+  "C-script-before": "Tap Start to begin. Nothing is recorded until you do.", // PROVISIONAL
+  "C-script-card": "Card {n} of {total}", // PROVISIONAL
+  "C-script-card-short": "{n}/{total}", // PROVISIONAL
+  "C-script-back": "Back", // PROVISIONAL
+  "C-script-next": "Next", // PROVISIONAL
+  "C-script-finish": "Finish and end the day", // PROVISIONAL
+  "C-script-finishing": "Finishing…", // PROVISIONAL
+  "C-script-ended": "Done. Answer the debrief questions, then switch to Supervisor.", // PROVISIONAL
+  "C-script-countdown": "Demo ends automatically in {time}", // PROVISIONAL
+  "C-script-countdown-short": "Ends in {time}", // PROVISIONAL
+  "C-script-reload": "If this page reloads, tap Start again.", // PROVISIONAL
+  "C-script-cards-label": "Script cards", // PROVISIONAL
+  "C-script-collapse": "Hide script", // PROVISIONAL
+  "C-script-expand": "Show script", // PROVISIONAL
+  "C-script-say": "Say", // PROVISIONAL
+  "C-script-own-words": "In your own words", // PROVISIONAL
+  "C-script-example": "Example", // PROVISIONAL
+  "C-script-intent": "What the app should notice", // PROVISIONAL
+  "C-script-seconds": "About {n} s", // PROVISIONAL
+  "C-script-speaker-you": "You", // PROVISIONAL
+  "C-script-speaker-customer": "Customer", // PROVISIONAL
+  "C-script-speaker-colleague": "Colleague", // PROVISIONAL
+  "C-script-speaker-caller": "Caller", // PROVISIONAL
+  "C-script-end-b": "The 1-hour debrief starts now. This cannot be undone.", // PROVISIONAL
+  "C-script-day-ended": "Demo day finished. Switch to Supervisor to see it.", // PROVISIONAL
+  "C-script-earlier-day": "Earlier day · {date}", // PROVISIONAL
+  "C-script-check-new": "Check for new questions", // PROVISIONAL
+  "C-script-checking": "Checking…", // PROVISIONAL
   // R-12 PR-B: demo landing, demo bar, sign-in link. All PROVISIONAL (plan copy; UX-03 did not design these screens).
   "C-demo-title": "bee6: the SOP Improvement Agent", // PROVISIONAL
   "C-demo-intro": "bee6 listens to a small shop's working day through a paired phone, turns speech into short work notes (audio is never stored), asks staff about unclear moments, and proposes SOP changes that a supervisor checks and the owner approves. This demo shop is fictional. Your visit gets its own copy for 2 hours.", // PROVISIONAL

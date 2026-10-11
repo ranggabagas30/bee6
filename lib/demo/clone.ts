@@ -1,4 +1,5 @@
-import { addDays, DEBRIEF_DURATION_MS, localHmOf } from "@/lib/capture/calendar";
+import { addDays, localHmOf } from "@/lib/capture/calendar";
+import { rankQuestions } from "@/lib/debrief/rank";
 import { COLLECTIONS, type CollectionName } from "@/lib/firestore/collections";
 import {
   CaptureSessionSchema,
@@ -18,6 +19,7 @@ import {
 } from "@/lib/firestore/schema";
 import { captureSessionDocId, deviceDocId } from "@/lib/firestore/stores";
 import {
+  CARRY_OVER_MAX,
   JUDGE_DEVICE_PREFIX,
   SANDBOX_OUTLET_PREFIX,
   SANDBOX_TTL_MS,
@@ -28,8 +30,10 @@ import {
 /**
  * Pure template clone (R-12 Task 4). A judge's sandbox is a copy of the template outlet's pipeline
  * output (made by the real segment route, tick, gate and question writer) under fresh ids. The
- * only state the clone changes is (1) the last debrief: it ends "now" so the judge can answer for an
- * hour (the state the template's own debrief end moved to `unverified` is restored exactly), and
+ * only state the clone changes is (1) R-18 P2 carry-over: the template's last debrief stays ended (so Mulai
+ * is not blocked at sign-in) and at most `CARRY_OVER_MAX` of the questions that debrief end expired are
+ * reopened with `created_at_ms = now`, so they belong to the judge's OWN next debrief (the tick never
+ * re-expires them; the judge's debrief end expires them normally), and
  * (2) R-18 P0: the template's days move by a WHOLE number of days so its last day is the sandbox's
  * "yesterday" (business date), so the days never age out of the default Generate range or the
  * retention window. That is a timing change only: no label, summary, line text, category,
@@ -174,7 +178,6 @@ export function cloneTemplate(input: {
   const k = daysBetween(D, addDays(anchor_business_date, -1));
   if (k < 0) throw new Error("cloneTemplate: negative shift (the template's last day is after the sandbox's yesterday)");
   const deltaMs = k * DAY_MS;
-  const shiftedD = addDays(D, k);
   const tz = tpl.outlet.timezone;
   if (k > 0) {
     // DST guard: a moved instant must keep its local wall-clock time (Asia/Jakarta never differs).
@@ -190,7 +193,6 @@ export function cloneTemplate(input: {
   const shift = <T extends object>(doc: T): T => capAtNow(shiftDeep(doc, deltaMs, k), now_ms);
   const map = { device: ids.device_id, outlet: ids.outlet_id };
   const expiresAt = now_ms + SANDBOX_TTL_MS;
-  const newDebriefEnd = now_ms + DEBRIEF_DURATION_MS;
 
   for (const t of tpl.threads) assertNoTokenInText(t);
 
@@ -213,23 +215,21 @@ export function cloneTemplate(input: {
   }
   const originalEnd = dSession.debrief_ends_at_ms;
 
-  // Questions the template's last debrief end closed, restored to open (plus any still open).
-  const rearmed = new Set(
-    tpl.questions
-      .filter(
-        (q) =>
-          q.device_id === tpl.device.device_id &&
-          q.status === "unverified" &&
-          originalEnd !== null &&
-          q.expired_by_debrief_end_ms === originalEnd,
-      )
-      .map((q) => q.question_id),
+  // Questions the template's last debrief end closed. At most CARRY_OVER_MAX (the debrief order: incident first,
+  // then oldest) are carried into the judge's own debrief; the rest stay `unverified`.
+  const expiredByLastDebrief = tpl.questions.filter(
+    (q) =>
+      q.device_id === tpl.device.device_id &&
+      q.status === "unverified" &&
+      originalEnd !== null &&
+      q.expired_by_debrief_end_ms === originalEnd,
   );
+  const carried = new Set(rankQuestions(expiredByLastDebrief).slice(0, CARRY_OVER_MAX).map((q) => q.question_id));
   // The expiry (tick-store expireOpenQuestions) also moved the gate question's thread open -> unverified
-  // (never the gate decision, never an excluded thread). Revert exactly that.
-  const rearmedThreads = new Set(
+  // (never the gate decision, never an excluded thread). Revert exactly that for the carried gate questions.
+  const carriedThreads = new Set(
     tpl.questions
-      .filter((q) => rearmed.has(q.question_id) && q.kind === "gate" && q.thread_id !== null)
+      .filter((q) => carried.has(q.question_id) && q.kind === "gate" && q.thread_id !== null)
       .map((q) => q.thread_id as string),
   );
 
@@ -270,17 +270,12 @@ export function cloneTemplate(input: {
       pairing_code_expires_at: null,
       created_at: isoOf(now_ms),
       expires_at_ms: expiresAt,
-      last_ended: { business_date: shiftedD, end_reason: "selesai", ended_at_ms: now_ms, debrief_ends_at_ms: newDebriefEnd },
     }),
   );
 
   // capture sessions
   for (const s of tpl.sessions) {
-    const isD = s.session_id === dSession.session_id && s.device_id === dSession.device_id;
-    const data = CaptureSessionSchema.parse({
-      ...shift(rewriteDeep(s, map)),
-      ...(isD ? { ended_at_ms: now_ms, end_reason: "selesai", debrief_ends_at_ms: newDebriefEnd } : {}),
-    });
+    const data = CaptureSessionSchema.parse(shift(rewriteDeep(s, map)));
     push(COLLECTIONS.captureSessions, captureSessionDocId({ device_id: data.device_id, session_id: data.session_id }), data);
   }
 
@@ -288,7 +283,7 @@ export function cloneTemplate(input: {
   for (const t of tpl.threads) {
     const data = ThreadSchema.parse({
       ...shift(rewriteDeep(t, map)),
-      ...(rearmedThreads.has(t.thread_id) && t.status === "unverified" && t.excluded_from_evidence !== true
+      ...(carriedThreads.has(t.thread_id) && t.status === "unverified" && t.excluded_from_evidence !== true
         ? { status: "open" }
         : {}),
     });
@@ -298,9 +293,9 @@ export function cloneTemplate(input: {
   // questions
   for (const q of tpl.questions) {
     const rewritten = shift(rewriteDeep(q, map));
-    if (rearmed.has(q.question_id)) {
+    if (carried.has(q.question_id)) {
       const { answer: _answer, answered_at_ms: _answeredAt, ...rest } = rewritten;
-      const data = QuestionSchema.parse({ ...rest, status: "open", expired_by_debrief_end_ms: null });
+      const data = QuestionSchema.parse({ ...rest, status: "open", expired_by_debrief_end_ms: null, created_at_ms: now_ms });
       push(COLLECTIONS.questions, data.question_id, data);
     } else {
       const data = QuestionSchema.parse(rewritten);

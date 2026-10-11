@@ -25,6 +25,7 @@ export async function GET(req: NextRequest) {
     const config = await getCaptureConfig(firestoreCaptureStore(), {
       outlet_id: device.outlet_id,
       device_id: device.device_id,
+      demo_mode: process.env.DEMO_MODE === "true",
     });
     return jsonOk(config);
   } catch (error) {
