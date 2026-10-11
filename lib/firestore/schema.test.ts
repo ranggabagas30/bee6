@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
   AuditLogSchema,
   ConstraintSchema,
@@ -9,10 +10,13 @@ import {
   OwnerDecisionSchema,
   PipelineLockSchema,
   parseOutletDoc,
+  ProposalContentSchema,
   ProposalSchema,
   QuestionDocSchema,
   QuestionSchema,
   SegmentSchema,
+  SopChangeMetricSchema,
+  SopStepSchema,
   SopVersionSchema,
   StaffSchema,
   SupervisorReviewSchema,
@@ -816,5 +820,122 @@ describe("R-08 schemas", () => {
         }).success,
       ).toBe(true);
     });
+  });
+});
+
+describe("SopVersionSchema (R-10)", () => {
+  const step = (id: string, text = "Do the thing.") => ({
+    step_id: id,
+    title: `Title ${id}`,
+    text,
+    role: "staff" as const,
+  });
+  const v1 = {
+    outlet_id: "o1",
+    sop_version_id: "o1:v1",
+    version: 1,
+    steps: [step("stock-01", "Check the display every hour."), step("open-01")],
+    source: "seed" as const,
+    source_proposal_id: null,
+    created_at_ms: 1_700_000_000_000,
+  };
+  const metric = {
+    category: "COMPLAINT" as const,
+    direction: "decrease" as const,
+    description: "Fewer stock-outs at peak.",
+    baseline_count: 4,
+    baseline_days: 7,
+  };
+  const afterStep = { ...step("stock-01", "Check the display every 30 minutes."), title: "Title stock-01" };
+  const modifyV2 = {
+    outlet_id: "o1",
+    sop_version_id: "o1:v2",
+    version: 2,
+    steps: [afterStep, v1.steps[1]],
+    source: "proposal" as const,
+    source_proposal_id: "11111111-1111-4111-8111-111111111111",
+    created_at_ms: 1_700_000_100_000,
+    previous_version_id: "o1:v1",
+    effective_from_date: "2026-10-16",
+    change: {
+      kind: "modify" as const,
+      step_id: "stock-01",
+      before: v1.steps[0],
+      after: afterStep,
+      change_title: "Check the display more often",
+      intervention_id: "change_quantity_time",
+      metric,
+      failure_condition: "Stock-outs do not fall.",
+      review_after_days: 7,
+      review_date: "2026-10-23",
+      approved_at_ms: 1_700_000_100_000,
+    },
+  };
+  const newStep = step("p-aaaaaaaaaaaa4aaa8aaaaaaaaaaaaaaa", "A whole new step.");
+  const addV2 = {
+    ...modifyV2,
+    steps: [...v1.steps, newStep],
+    change: { ...modifyV2.change, kind: "add" as const, step_id: newStep.step_id, before: null, after: newStep },
+  };
+  const withChange = (patch: Record<string, unknown>) => ({
+    ...modifyV2,
+    change: { ...modifyV2.change, ...patch },
+  });
+  const ok = (v: unknown) => SopVersionSchema.safeParse(v).success;
+
+  it("1.T1 parses an R-08-era seed doc without the new keys, with nulls, and rejects a seed with a date", () => {
+    expect(ok(v1)).toBe(true);
+    expect(ok({ ...v1, previous_version_id: null, effective_from_date: null, change: null })).toBe(true);
+    expect(ok({ ...v1, effective_from_date: "2026-10-16" })).toBe(false);
+    expect(ok({ ...v1, previous_version_id: "o1:v0" })).toBe(false);
+    expect(ok({ ...v1, change: modifyV2.change })).toBe(false);
+  });
+
+  it("1.T2 step caps are 160 / 800", () => {
+    const good = step("a-01");
+    expect(SopStepSchema.safeParse({ ...good, title: "t".repeat(160) }).success).toBe(true);
+    expect(SopStepSchema.safeParse({ ...good, title: "t".repeat(161) }).success).toBe(false);
+    expect(SopStepSchema.safeParse({ ...good, text: "x".repeat(800) }).success).toBe(true);
+    expect(SopStepSchema.safeParse({ ...good, text: "x".repeat(801) }).success).toBe(false);
+  });
+
+  it("1.T3 accepts a valid modify v2", () => {
+    expect(ok(modifyV2)).toBe(true);
+  });
+
+  it("1.T4 accepts a valid add v2", () => {
+    expect(ok(addV2)).toBe(true);
+  });
+
+  describe("1.T5 proposal-source failures", () => {
+    const { effective_from_date: _e, ...noEff } = modifyV2;
+    const { previous_version_id: _p, ...noPrev } = modifyV2;
+    const { change: _c, ...noChange } = modifyV2;
+    const cases: Array<[string, unknown]> = [
+      ["version 1", { ...modifyV2, version: 1, sop_version_id: "o1:v1", previous_version_id: "o1:v0" }],
+      ["source_proposal_id null", { ...modifyV2, source_proposal_id: null }],
+      ["effective_from_date absent", noEff],
+      ["effective_from_date null", { ...modifyV2, effective_from_date: null }],
+      ["previous_version_id o1:v0", { ...modifyV2, previous_version_id: "o1:v0" }],
+      ["previous_version_id absent", noPrev],
+      ["change absent", noChange],
+      ["add with a before", withChange({ kind: "add" })],
+      ["modify with before null", withChange({ before: null })],
+      ["after.step_id differs", withChange({ after: { ...afterStep, step_id: "other-01" } })],
+      ["after.text differs from steps", withChange({ after: { ...afterStep, text: "Different." } })],
+      ["changed step missing from steps", { ...modifyV2, steps: [v1.steps[1]] }],
+      ["review_date equals effective_from_date", withChange({ review_date: "2026-10-16" })],
+      ["review_after_days 6", withChange({ review_after_days: 6 })],
+      ["extra key in change", withChange({ extra: 1 })],
+    ];
+    it.each(cases)("rejects %s", (_name, doc) => {
+      expect(ok(doc)).toBe(false);
+    });
+  });
+
+  it("1.T6 SopChangeMetricSchema matches the proposal metric shape", () => {
+    expect(z.toJSONSchema(SopChangeMetricSchema)).toEqual(
+      z.toJSONSchema(ProposalContentSchema.shape.metric),
+    );
   });
 });
