@@ -57,7 +57,7 @@ const refusedFirst = vi.hoisted(() => ({ value: false }));
 const decideProposal = vi.fn();
 vi.mock("@/lib/proposals/review-service", () => ({
   decideProposal: async (...a: unknown[]) => {
-    const [, , deps, input] = a as [unknown, unknown, { redact: (t: string[]) => Promise<string[]> }, { claims: CustomClaims; actor: "owner" | "supervisor"; body: { decision: string; reason?: string } }];
+    const [, , deps, input] = a as [unknown, unknown, { redact: (t: readonly string[]) => Promise<string[]> }, { claims: CustomClaims; actor: "owner" | "supervisor"; body: { decision: string; reason?: string } }];
     assertPermission(input.claims, input.actor === "owner" ? "proposals:approve" : "proposals:review"); // the real service checks first
     if (refusedFirst.value) throw new ConflictError("Already decided", "ALREADY_DECIDED");
     if (input.body.decision === "reject") await redactUserText(input.body.reason ?? "", [], deps.redact); // as the real service does
@@ -69,7 +69,7 @@ const ffRefuses = vi.hoisted(() => ({ value: false }));
 const fastForwardReview = vi.fn();
 vi.mock("@/lib/reviews/service", () => ({
   decideVerdict: async (...a: unknown[]) => {
-    const [, deps, input] = a as [unknown, { redact: (t: string[]) => Promise<string[]> }, { claims: CustomClaims; body: { reason?: string } }];
+    const [, deps, input] = a as [unknown, { redact: (t: readonly string[]) => Promise<string[]> }, { claims: CustomClaims; body: { reason?: string } }];
     assertPermission(input.claims, "reviews:verdict"); // the real service checks first
     if (refusedFirst.value) throw new NotFoundError("review", "review");
     if (input.body.reason) await redactUserText(input.body.reason, [], deps.redact); // as the real service does
