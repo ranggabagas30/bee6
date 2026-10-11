@@ -139,13 +139,32 @@ describe("startSession (PROD-01 4.2)", () => {
   });
 
   it("R-18: a sandbox session (demo_max_ms) auto-stops at start + 5 min; without it the auto-stop stays close + 1 h", async () => {
-    const started = wib("2026-10-14T11:59:00");
+    const started = NOW - 4_000; // inside the +/- 10 s clamp: kept as sent
     const demo = fakeStore();
     await startSession(demo.store, { ...base, started_at_ms: started, demo_max_ms: 300_000 });
+    expect(demo.session?.started_at_ms).toBe(started);
     expect(demo.session?.auto_stop_at_ms).toBe(started + 300_000);
     const pilot = fakeStore();
-    await startSession(pilot.store, { ...base, started_at_ms: started });
+    await startSession(pilot.store, { ...base, started_at_ms: wib("2026-10-14T11:59:00") });
     expect(pilot.session?.auto_stop_at_ms).toBe(wib("2026-10-15T02:00:00"));
+  });
+
+  it("R-18 (security): a sandbox start time is clamped to now +/- 10 s so the 5-minute stop cannot be shifted", async () => {
+    const early = fakeStore();
+    await startSession(early.store, { ...base, started_at_ms: NOW - 120_000, demo_max_ms: 300_000 });
+    expect(early.session?.started_at_ms).toBe(NOW - 10_000);
+    expect(early.session?.auto_stop_at_ms).toBe(NOW - 10_000 + 300_000);
+    const late = fakeStore();
+    await startSession(late.store, { ...base, started_at_ms: NOW + 240_000, demo_max_ms: 300_000 });
+    expect(late.session?.started_at_ms).toBe(NOW + 10_000);
+    expect(late.session?.auto_stop_at_ms).toBe(NOW + 10_000 + 300_000);
+  });
+
+  it("the pilot start time is never clamped (a start up to 7 days old stays as sent)", async () => {
+    const pilot = fakeStore();
+    const old = NOW - 3 * 86_400_000;
+    await startSession(pilot.store, { ...base, started_at_ms: old });
+    expect(pilot.session?.started_at_ms).toBe(old);
   });
 
   it("is idempotent: a retry returns the stored doc and writes nothing", async () => {

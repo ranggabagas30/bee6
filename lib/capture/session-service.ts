@@ -23,6 +23,8 @@ import { ConflictError, ValidationError } from "@/lib/http/errors";
 
 const START_FUTURE_TOLERANCE_MS = 5 * 60_000;
 const START_MAX_AGE_MS = 7 * 86_400_000;
+/** R-18: a sandbox session's start is clamped to the server clock +/- this, so a client cannot shift its 5 min stop. */
+const DEMO_START_CLAMP_MS = 10_000;
 const DISCARD_MAX_AGE_MS = 8 * 86_400_000;
 
 // ── boundary schemas (zod on every input) ─────────────────────────────────────
@@ -206,7 +208,12 @@ export async function startSession(
     if (state.session) {
       return { result: { created: false, session: state.session } };
     }
-    const session = newSession(input, body.started_at_ms);
+    // Sandbox only: the server's clock decides, a client cannot move the start (and with it the hard stop).
+    const startedAt =
+      input.demo_max_ms === undefined
+        ? body.started_at_ms
+        : Math.min(Math.max(body.started_at_ms, input.now_ms - DEMO_START_CLAMP_MS), input.now_ms + DEMO_START_CLAMP_MS);
+    const session = newSession(input, startedAt);
     return {
       write: { session },
       audits: [
