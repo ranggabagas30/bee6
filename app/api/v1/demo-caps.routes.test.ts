@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { firestoreDemoStore } from "@/lib/firestore/demo-store";
@@ -499,5 +500,44 @@ describe("R-12 QA D3: a cap-function failure on a text path is typed and fails c
     expect(res.status).toBe(503);
     expect((await res.json()).error.message).toBe("Redaction unavailable");
     expect(c.service).not.toHaveBeenCalled();
+  });
+});
+
+describe.each(CASES)("R-12 QA: an untyped cap-check failure on $name is one fail-closed contract", (c) => {
+  const SENTINEL = "sentinel-raw-firestore-message-7f3a";
+  const spies = () => (["error", "warn", "info", "log", "debug"] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}));
+  // Fast-forward only CHECKS (reads a counter) before the review is written; every other path bumps one.
+  const counterMethod = c.name === "review fast-forward" ? "readCounter" : "bumpCounter";
+
+  for (const [where, inject] of [
+    ["the counter transaction", (st: ReturnType<typeof fakeStore>) => vi.spyOn(st.store, counterMethod).mockRejectedValue(new Error(SENTINEL))],
+    ["the outlet read", (st: ReturnType<typeof fakeStore>) => vi.spyOn(st.store, "getOutlet").mockRejectedValue(new Error(SENTINEL))],
+  ] as const) {
+    it(`${where}: 503 demo_cap_unavailable, no SDP, no service call, no write, no slot, no raw message anywhere`, async () => {
+      const out = spies();
+      principal(c, SBX);
+      c.service.mockResolvedValue(c.serviceResult);
+      inject(f);
+      const res = await c.call(headers(), JSON.stringify(c.body));
+      expect(res.status).toBe(503);
+      const text = JSON.stringify(await res.json());
+      expect(JSON.parse(text).error).toMatchObject({ code: "demo_cap_unavailable", message: "The demo is temporarily unavailable" });
+      expect(text).not.toContain(SENTINEL);
+      expect(res.headers.get("Retry-After")).toBeNull();
+      expect(c.service).not.toHaveBeenCalled();
+      expect(sdp.calls).toBe(0);
+      expect(f.bumps).toEqual([]);
+      expect(f.written).toEqual([]);
+      expect(inspect(out.flatMap((s) => s.mock.calls), { depth: 6 })).not.toContain(SENTINEL);
+      expect(out[0]).toHaveBeenCalledWith("[demo] cap check failed", { error_class: "Error" });
+    });
+  }
+
+  it("a plain outlet with a broken demo store is unaffected (zero extra reads)", async () => {
+    principal(c, "demo-outlet");
+    c.service.mockResolvedValue(c.serviceResult);
+    vi.spyOn(f.store, "getOutlet").mockRejectedValue(new Error(SENTINEL));
+    expect((await c.call(headers(), JSON.stringify(c.body))).status).toBeLessThan(400);
+    expect(f.calls).toEqual([]);
   });
 });

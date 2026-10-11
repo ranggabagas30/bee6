@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { POST } from "./route";
@@ -353,5 +354,32 @@ describe("R-12 H2: sandbox generate cap", () => {
     expect((await POST(postRequest(VALID_BODY, "Bearer t"))).status).toBe(401);
     expect(f.bumps).toEqual([]);
     expect(f.calls).toEqual([]);
+  });
+
+  describe("an untyped cap-check failure fails closed (QA)", () => {
+    const SENTINEL = "sentinel-raw-firestore-message-7f3a";
+    for (const [where, inject] of [
+      ["the counter transaction", (f: ReturnType<typeof fakeStore>) => vi.spyOn(f.store, "bumpCounter").mockRejectedValue(new Error(SENTINEL))],
+      ["the outlet read", (f: ReturnType<typeof fakeStore>) => vi.spyOn(f.store, "getOutlet").mockRejectedValue(new Error(SENTINEL))],
+    ] as const) {
+      it(`${where}: 503 demo_cap_unavailable, no model call, no store, no raw message in the response or any console output`, async () => {
+        const out = (["error", "warn", "info", "log", "debug"] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}));
+        vi.stubEnv("DEMO_MODE", "true");
+        const f = demoStoreWith(sandboxOutlet());
+        inject(f);
+        verifyIdToken.mockResolvedValueOnce(sbxClaims("supervisor"));
+        const res = await POST(postRequest(VALID_BODY, "Bearer t"));
+        expect(res.status).toBe(503);
+        const text = JSON.stringify(await res.json());
+        expect(JSON.parse(text).error).toMatchObject({ code: "demo_cap_unavailable", message: "The demo is temporarily unavailable" });
+        expect(res.headers.get("Cache-Control")).toBe("private, no-store");
+        expect(text).not.toContain(SENTINEL);
+        expect(modelFn).not.toHaveBeenCalled();
+        expect(firestoreProposalStore).not.toHaveBeenCalled();
+        expect(f.bumps).toEqual([]);
+        expect(inspect(out.flatMap((s) => s.mock.calls), { depth: 6 })).not.toContain(SENTINEL);
+        expect(out[0]).toHaveBeenCalledWith("[demo] cap check failed", { error_class: "Error" });
+      });
+    }
   });
 });

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AppError, LockedError } from "@/lib/http/errors";
-import { capBeforeRedact, capBeforeRedactor } from "@/lib/demo/redact-cap";
+import { AppError, ForbiddenError, LockedError } from "@/lib/http/errors";
+import { capBeforeRedact, capBeforeRedactor, runCheck } from "@/lib/demo/redact-cap";
 
 describe("capBeforeRedact: the demo cap check runs immediately before the redaction call", () => {
   it("runs the check once per call, before the redaction, and passes the texts through", async () => {
@@ -99,5 +99,32 @@ describe("capBeforeRedact: a failing cap check is a typed, fail-closed demo erro
       throw sdpDown;
     }, async () => {});
     await expect(wrapped(["x"])).rejects.toBe(sdpDown);
+  });
+});
+
+describe("runCheck: the one fail-closed wrapper for a cap check", () => {
+  beforeEach(() => void vi.spyOn(console, "error").mockImplementation(() => {}));
+  afterEach(() => vi.restoreAllMocks());
+
+  it("a client-facing 4xx AppError (e.g. a 403 from the permission check) passes through unchanged, not a 503", async () => {
+    const forbidden = new ForbiddenError("nope");
+    await expect(runCheck(async () => { throw forbidden; })).rejects.toBe(forbidden);
+    const bad = new AppError("bad", "BAD_REQUEST", 400);
+    await expect(runCheck(async () => { throw bad; })).rejects.toBe(bad);
+  });
+
+  it("any other AppError of 5xx fails closed as demo_cap_unavailable (only demo_not_ready keeps its code)", async () => {
+    const err = await runCheck(async () => {
+      throw new AppError("raw-5xx-sentinel", "SOMETHING", 500);
+    }).catch((e) => e);
+    expect(err).toMatchObject({ name: "DemoCapError", statusCode: 503, code: "demo_cap_unavailable", message: "The demo is temporarily unavailable" });
+  });
+
+  it("logs only the error class", async () => {
+    await runCheck(async () => {
+      throw new TypeError("raw-message-sentinel");
+    }).catch(() => {});
+    expect(console.error).toHaveBeenCalledWith("[demo] cap check failed", { error_class: "TypeError" });
+    expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain("raw-message-sentinel");
   });
 });

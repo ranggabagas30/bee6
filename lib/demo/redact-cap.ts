@@ -1,4 +1,4 @@
-import { AppError, DemoCapError, LockedError } from "@/lib/http/errors";
+import { AppError, DemoCapError } from "@/lib/http/errors";
 import type { Redactor } from "@/lib/redact/types";
 
 /**
@@ -12,17 +12,24 @@ import type { Redactor } from "@/lib/redact/types";
  *
  * A check that cannot answer fails closed with a typed DemoCapError (503), never a bare error that a caller
  * might mistake for an SDP outage: `demo_not_ready` for an unready sandbox outlet, `demo_cap_unavailable` for
- * anything untyped (counter transaction, outlet read). A LockedError (the cap itself) passes through unchanged.
+ * anything untyped (counter transaction, outlet read). A LockedError (the cap itself) and any other client-facing
+ * 4xx AppError (e.g. a 403 from the permission check) pass through unchanged.
+ *
+ * Exported: `enforceDemoCapsForRoute` wraps the same check, so every caller (text routes, segments, generate,
+ * fast-forward) gets one contract.
  */
-async function runCheck(before: () => Promise<void>): Promise<void> {
+export async function runCheck(before: () => Promise<void>): Promise<void> {
   try {
     await before();
   } catch (error) {
-    if (error instanceof LockedError || error instanceof DemoCapError) throw error;
-    if (error instanceof AppError && error.code === "demo_not_ready") {
-      throw new DemoCapError("The demo is not ready", "demo_not_ready");
+    if (error instanceof DemoCapError) throw error;
+    if (error instanceof AppError) {
+      // The cap itself (429 + Retry-After) and client-facing refusals (a 403 from the permission check, ...)
+      // keep their own status; they say nothing about the demo being down.
+      if (error.statusCode < 500) throw error;
+      if (error.code === "demo_not_ready") throw new DemoCapError("The demo is not ready", "demo_not_ready");
     }
-    // Untyped (or any other AppError): fail closed. Only the class name is logged, never the message.
+    // Untyped (or a 5xx AppError of any other kind): fail closed. Only the class name is logged, never the message.
     console.error("[demo] cap check failed", { error_class: error instanceof Error ? error.name : "unknown" });
     throw new DemoCapError("The demo is temporarily unavailable", "demo_cap_unavailable");
   }
