@@ -68,6 +68,12 @@ export function HomeView({ data }: { data: HomeResponse }) {
           {t(lang, "C-home-to-day")}
         </Link>
       </p>
+
+      <p>
+        <Link href="/proposals" style={LINK_STYLE}>
+          {t(lang, "C-prop-title")}
+        </Link>
+      </p>
     </div>
   );
 }

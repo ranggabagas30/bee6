@@ -61,6 +61,18 @@ describe("HomeView", () => {
     expect(screen.queryByText(/more in the day record/)).toBeNull();
   });
 
+  it("always shows a link to /proposals, at least 48px tall (R-09 8.5)", () => {
+    renderView(baseData());
+    const link = screen.getByRole("link", { name: "Proposals" }) as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("/proposals");
+    expect(link.style.minHeight).toBe("48px");
+  });
+
+  it("the proposals link reads in Bahasa when the language is Bahasa", () => {
+    renderView(baseData(), "id");
+    expect(screen.getByRole("link", { name: "Usulan" }).getAttribute("href")).toBe("/proposals");
+  });
+
   it("always shows a link to the day record", () => {
     renderView(baseData());
     const link = screen.getByRole("link", { name: "Open the day record" });
