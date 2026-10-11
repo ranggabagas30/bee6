@@ -93,6 +93,22 @@ describe("demo state (shared across tabs via localStorage)", () => {
     expect(parseDemoState(JSON.stringify({ sandbox_key: KEY, expires_at_ms: 1, role: "owner", extra: 1 }))).toBeNull();
   });
 
+  it.each([9007199254740991, 8.64e15 + 1, 8.64e15, Date.UTC(2100, 0, 1) + 1])(
+    "refuses an expiry that is not a real, sane date (%d), so the record reads as absent",
+    (expires_at_ms) => {
+      expect(parseDemoState(JSON.stringify({ sandbox_key: KEY, expires_at_ms, role: "owner" }))).toBeNull();
+      expect(parseDemoState(JSON.stringify({ expires_at_ms, role: "owner" }))).toBeNull();
+      fakeLocal.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms, role: "owner" }));
+      expect(readDemoState()).toBeNull();
+      expect(demoSnapshot(NOW)).toBe("");
+    },
+  );
+
+  it("still accepts an expiry on the last day of 2099", () => {
+    const expires_at_ms = Date.UTC(2099, 11, 31);
+    expect(parseDemoState(JSON.stringify({ expires_at_ms, role: "owner" }))).toEqual({ expires_at_ms, role: "owner" });
+  });
+
   it("does not throw when storage is blocked (private mode)", () => {
     for (const method of ["setItem", "getItem", "removeItem"] as const) {
       vi.spyOn(fakeLocal, method).mockImplementation(() => {

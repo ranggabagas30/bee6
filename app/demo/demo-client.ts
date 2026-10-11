@@ -22,13 +22,23 @@ const SESSION_PATH = "/api/v1/demo/session";
 /** The uid prefix of every judge web user (`demo-<role>-<sandbox>`). */
 const DEMO_UID_PREFIX = "demo-";
 
+/** A sandbox lasts 2 h; an expiry past the year 2100 is not a clock reading anyone wrote. */
+const MAX_EXPIRY_MS = Date.UTC(2100, 0, 1);
+
 // `sandbox_key` is present while the demo is live and dropped once it has ended: an ended record only needs
 // to say "this browser's demo is over" (the bar and /sign-in read that), and a dead sandbox's key has no
 // reason to stay in storage.
 const DemoStateSchema = z
   .object({
     sandbox_key: z.string().regex(/^[A-Za-z0-9_-]{43}$/).optional(),
-    expires_at_ms: z.number().int().positive(),
+    // A real date, and nothing absurd: a safe integer past the JS Date range (8.64e15) would make every
+    // time formatter print NaN, so such a record is treated as tampered, like any other bad shape.
+    expires_at_ms: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_EXPIRY_MS)
+      .refine((ms) => Number.isFinite(new Date(ms).getTime())),
     role: DemoRoleSchema,
   })
   .strict();

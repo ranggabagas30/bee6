@@ -60,8 +60,10 @@ const ROLE_KEY: Record<DemoRole, DictKey> = {
 const ALL_ROLES: readonly DemoRole[] = ["staff", "supervisor", "owner"];
 const MAX_TIMEOUT_MS = 2_147_483_647;
 
-function hhmm(ms: number): string {
+/** Device-local HH:MM; an em-dash, never the text "NaN", when the instant is not a valid date. */
+export function hhmm(ms: number): string {
   const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return "—";
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 

@@ -31,7 +31,7 @@ vi.mock("@/app/demo/demo-client", async (importOriginal) => ({
   startDemo: (role: string, options: Record<string, unknown>) => startDemo(role, options),
 }));
 
-import { DemoBar } from "@/app/demo/DemoBar";
+import { DemoBar, hhmm as barHhmm } from "@/app/demo/DemoBar";
 import { DEMO_STATE_KEY } from "@/app/demo/demo-client";
 
 // A judge's custom-token uid is demo-<role>-<sandbox>; Rangga's own email/password accounts are not.
@@ -94,6 +94,19 @@ describe("DemoBar visibility", () => {
     window.localStorage.setItem(DEMO_STATE_KEY, "{oops");
     const { container } = renderBar();
     expect(container.innerHTML).toBe("");
+  });
+
+  it.each([9007199254740991, 8.64e15 + 1])("a stored expiry beyond the Date range (%d) is treated as tampered: no bar, and never the text NaN", (ms) => {
+    seed("owner", ms);
+    const { container } = renderBar();
+    expect(container.innerHTML).toBe("");
+    expect(document.body.textContent).not.toContain("NaN");
+  });
+
+  it("the time helper never returns NaN text for an unrepresentable date", () => {
+    expect(barHhmm(9007199254740991)).toBe("—");
+    expect(barHhmm(Number.NaN)).toBe("—");
+    expect(barHhmm(Date.UTC(2030, 5, 1, 12, 34))).toMatch(/^\d\d:\d\d$/);
   });
 
   it("a second tab of the same browser shows the bar for the same sandbox, and follows a change made in the other tab", () => {
