@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import { getClientAuth, signOut, type Auth } from "@/lib/auth/client/firebase-client";
@@ -13,6 +13,7 @@ import { GenerateResponseSchema, type GenerateResponse } from "@/lib/proposals/c
 import { WebTopBar } from "@/app/web/WebTopBar";
 import { ProposalCard } from "@/app/proposals/ProposalCard";
 import { ConstraintsPanel } from "@/app/proposals/ConstraintsPanel";
+import { ProposalList } from "@/app/proposals/ProposalList";
 
 /**
  * /proposals (R-08 Task 7.3). Owner AND supervisor land on the same page,
@@ -35,6 +36,8 @@ type GenerateOutcome =
   | { kind: "forbidden" }
   | { kind: "error" };
 
+type Banner = { key: DictKey; range?: { from_date: string; to_date: string } };
+
 const CONFLICT_KEY: Record<string, DictKey> = {
   GENERATION_IN_PROGRESS: "C-prop-err-progress",
   LIBRARY_NOT_READY: "C-prop-err-library",
@@ -48,6 +51,8 @@ const DATE_FIELD_STYLE: CSSProperties = { minWidth: 0 };
 const INPUT_STYLE: CSSProperties = { minHeight: 48, fontSize: 16, padding: 8, boxSizing: "border-box", width: "100%", maxWidth: 220 };
 const BUTTON_STYLE: CSSProperties = { minHeight: 48, width: "100%", fontSize: 16, padding: "0 16px", boxSizing: "border-box" };
 const STATUS_STYLE: CSSProperties = { margin: "0 0 16px 0", overflowWrap: "anywhere" };
+const BANNER_STYLE: CSSProperties = { margin: "16px 0 8px 0", overflowWrap: "anywhere" };
+const BANNER_EMPTY_STYLE: CSSProperties = { margin: 0 };
 
 /** The browser's own local date, "YYYY-MM-DD" — a form default only; the
  * server is the sole authority on "today" and on the accepted range. */
@@ -68,6 +73,10 @@ export function ProposalsApp({ config }: { config: FirebaseWebConfig | null }) {
   const [outcome, setOutcome] = useState<GenerateOutcome>({ kind: "idle" });
   const [toDate, setToDate] = useState<string>(() => todayLocalDate());
   const [fromDate, setFromDate] = useState<string>(() => addDays(todayLocalDate(), -6));
+  const [listKey, setListKey] = useState(0);
+  const [constraintsKey, setConstraintsKey] = useState(0);
+  const [banner, setBanner] = useState<Banner | null>(null);
+  const generateButtonRef = useRef<HTMLButtonElement>(null);
 
   const uid = authUser.status === "signed_in" ? authUser.user.uid : null;
 
@@ -109,6 +118,7 @@ export function ProposalsApp({ config }: { config: FirebaseWebConfig | null }) {
 
     if (result.kind === "ok") {
       setOutcome({ kind: "ok", data: result.data });
+      setListKey((k) => k + 1);
       return;
     }
     if (result.kind === "signed_out") {
@@ -129,6 +139,22 @@ export function ProposalsApp({ config }: { config: FirebaseWebConfig | null }) {
       return;
     }
     setOutcome({ kind: "error" });
+  }
+
+  /** A decision on a listed proposal got an answer: show it, reload the list, and after a rejection the constraints too. */
+  function handleSettled(settled: { messageKey: DictKey; range?: { from_date: string; to_date: string } }) {
+    setBanner({ key: settled.messageKey, range: settled.range });
+    setListKey((k) => k + 1);
+    if (settled.messageKey === "C-prop-done-rejected-sup" || settled.messageKey === "C-prop-done-rejected-owner") {
+      setConstraintsKey((k) => k + 1);
+    }
+  }
+
+  /** Fills the date inputs only. It never calls Generate: a paid model call needs an explicit tap. */
+  function applyBannerDates(range: { from_date: string; to_date: string }) {
+    setFromDate(range.from_date);
+    setToDate(range.to_date);
+    generateButtonRef.current?.focus();
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -184,6 +210,7 @@ export function ProposalsApp({ config }: { config: FirebaseWebConfig | null }) {
   }
 
   const busy = outcome.kind === "busy";
+  const bannerRange = banner?.range;
   const statusMessage: string | null =
     outcome.kind === "busy"
       ? t(lang, "C-prop-busy")
@@ -233,7 +260,7 @@ export function ProposalsApp({ config }: { config: FirebaseWebConfig | null }) {
             />
           </div>
         </div>
-        <button type="submit" disabled={busy} style={BUTTON_STYLE}>
+        <button ref={generateButtonRef} type="submit" disabled={busy} style={BUTTON_STYLE}>
           {t(lang, "C-prop-generate")}
         </button>
       </form>
@@ -249,7 +276,18 @@ export function ProposalsApp({ config }: { config: FirebaseWebConfig | null }) {
         </>
       )}
 
-      <ConstraintsPanel auth={auth} role={role} lang={lang} />
+      <p role="status" aria-live="polite" style={banner ? BANNER_STYLE : BANNER_EMPTY_STYLE}>
+        {banner ? t(lang, banner.key) : ""}
+      </p>
+      {bannerRange && (
+        <button type="button" onClick={() => applyBannerDates(bannerRange)} style={BUTTON_STYLE}>
+          {t(lang, "C-prop-use-dates")}
+        </button>
+      )}
+
+      <ProposalList auth={auth} role={role} lang={lang} reloadKey={listKey} onSettled={handleSettled} />
+
+      <ConstraintsPanel auth={auth} role={role} lang={lang} reloadKey={constraintsKey} />
     </main>
   );
 }

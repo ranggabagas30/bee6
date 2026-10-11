@@ -33,11 +33,15 @@ vi.mock("@/lib/auth/client/use-auth-user", () => ({
 }));
 
 const authedPostJson = vi.fn();
-// `ConstraintsPanel` (mounted below the Generate panel, R-08 Task 8.7) calls
-// `authedGetJson` on mount; default it to "error" so the panel renders its
-// generic-error line and stays out of the way of every pre-existing test
-// below, which exercises the Generate panel only.
-const authedGetJson = vi.fn(async (..._args: unknown[]) => ({ kind: "error" as const }));
+// Two panels read on mount and are routed here by path. `ConstraintsPanel`
+// (R-08 Task 8.7) defaults to "error" so it renders its generic-error line and
+// stays out of the way of the Generate-panel tests; `ProposalList` (R-09 Task
+// 8.1) defaults to an empty list.
+let constraintsResult: unknown = { kind: "error" };
+let proposalsResult: unknown = { kind: "ok", data: { open: [], decided: [] } };
+const authedGetJson = vi.fn(async (_auth: unknown, path: unknown) =>
+  path === "/api/v1/proposals" ? proposalsResult : constraintsResult,
+);
 vi.mock("@/lib/auth/client/api", () => ({
   authedPostJson: (...args: unknown[]) => authedPostJson(...args),
   authedGetJson: (...args: unknown[]) => authedGetJson(...args),
@@ -90,6 +94,8 @@ function makeResponse(overrides: Partial<GenerateResponse> = {}): GenerateRespon
 }
 
 beforeEach(() => {
+  constraintsResult = { kind: "error" };
+  proposalsResult = { kind: "ok", data: { open: [], decided: [] } };
   authUserState = { status: "signed_in", user: FAKE_USER } as unknown as AuthUserState;
   getClientAuth.mockReturnValue(FAKE_AUTH);
   getIdTokenResult.mockResolvedValue({ claims: { role: "supervisor" } });
@@ -276,5 +282,115 @@ describe("ProposalsApp — generate submit", () => {
     fireEvent.click(screen.getByRole("button", { name: "Generate proposal" }));
     await waitFor(() => expect(signOut).toHaveBeenCalledWith(FAKE_AUTH));
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/sign-in"));
+  });
+});
+
+function listItem(status: "awaiting_supervisor" | "awaiting_owner") {
+  const response = makeResponse();
+  return {
+    proposal: { ...response.proposal, status },
+    review: { supervisor: null, owner: null },
+    notices: { late_constraints: [], evidence_stale: false, sop_changed: false, superseded: false },
+  };
+}
+
+function getsTo(path: string): number {
+  return authedGetJson.mock.calls.filter((call) => call[1] === path).length;
+}
+
+describe("ProposalsApp — proposals list and decisions (R-09 8.2)", () => {
+  it("mounts the list between the generate result and the constraints panel", async () => {
+    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [] } };
+    constraintsResult = { kind: "ok", data: { constraints: [] } };
+    await renderReady();
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Open proposals" })).not.toBeNull());
+    const open = screen.getByRole("heading", { name: "Open proposals" });
+    const constraints = await screen.findByRole("heading", { name: "Constraints" });
+    expect(open.compareDocumentPosition(constraints) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(getsTo("/api/v1/proposals")).toBe(1);
+  });
+
+  it("a successful generate reloads the list", async () => {
+    authedPostJson.mockResolvedValue({ kind: "ok", data: makeResponse() });
+    await renderReady();
+    await waitFor(() => expect(getsTo("/api/v1/proposals")).toBe(1));
+    fireEvent.click(screen.getByRole("button", { name: "Generate proposal" }));
+    await waitFor(() => expect(getsTo("/api/v1/proposals")).toBe(2));
+  });
+
+  it("a failed generate does not reload the list", async () => {
+    authedPostJson.mockResolvedValue({ kind: "error" });
+    await renderReady();
+    await waitFor(() => expect(getsTo("/api/v1/proposals")).toBe(1));
+    fireEvent.click(screen.getByRole("button", { name: "Generate proposal" }));
+    await waitFor(() => expect(screen.getByText("Something went wrong. Try again.")).not.toBeNull());
+    expect(getsTo("/api/v1/proposals")).toBe(1);
+  });
+
+  async function rejectFirstOpen() {
+    await waitFor(() => expect(screen.getByRole("button", { name: "Reject" })).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+    fireEvent.change(screen.getByLabelText("Reason (required)"), { target: { value: "The oven only holds 2.5 kg" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes" }));
+  }
+
+  it.each([
+    ["supervisor", "awaiting_supervisor"],
+    ["owner", "awaiting_owner"],
+  ] as const)(
+    "a %s rejection reloads the list and the constraints, shows the banner, and Use these dates fills the range without generating",
+    async (role, status) => {
+      getIdTokenResult.mockResolvedValue({ claims: { role } });
+      proposalsResult = { kind: "ok", data: { open: [listItem(status)], decided: [] } };
+      constraintsResult = { kind: "ok", data: { constraints: [] } };
+      authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "rejected", status: "rejected" } });
+      await renderReady();
+      await waitFor(() => expect(getsTo("/api/v1/constraints")).toBe(1));
+
+      await rejectFirstOpen();
+
+      expect(
+        await screen.findByText(
+          "Rejected. The reason is now a constraint. Generate again for the same dates to get a revised proposal.",
+        ),
+      ).not.toBeNull();
+      await waitFor(() => expect(getsTo("/api/v1/proposals")).toBe(2));
+      await waitFor(() => expect(getsTo("/api/v1/constraints")).toBe(2));
+
+      fireEvent.click(screen.getByRole("button", { name: "Use these dates" }));
+      expect((screen.getByLabelText("From") as HTMLInputElement).value).toBe("2026-10-01");
+      expect((screen.getByLabelText("To") as HTMLInputElement).value).toBe("2026-10-07");
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Generate proposal" }));
+
+      const generateCalls = authedPostJson.mock.calls.filter((call) => call[1] === "/api/v1/proposals/generate");
+      expect(generateCalls).toHaveLength(0);
+    },
+  );
+
+  it("a feasible decision reloads the list only (no constraints reload, no Use these dates)", async () => {
+    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [] } };
+    constraintsResult = { kind: "ok", data: { constraints: [] } };
+    authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "feasible", status: "awaiting_owner" } });
+    await renderReady();
+    await waitFor(() => expect(getsTo("/api/v1/constraints")).toBe(1));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Feasible" })).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Feasible" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes" }));
+    expect(await screen.findByText("Marked feasible. Sent to the owner.")).not.toBeNull();
+    await waitFor(() => expect(getsTo("/api/v1/proposals")).toBe(2));
+    expect(getsTo("/api/v1/constraints")).toBe(1);
+    expect(screen.queryByRole("button", { name: "Use these dates" })).toBeNull();
+  });
+
+  it("a conflict answer shows its message in the banner and reloads the list", async () => {
+    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [] } };
+    authedPostJson.mockResolvedValue({ kind: "conflict", code: "ALREADY_DECIDED" });
+    await renderReady();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Feasible" })).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Feasible" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes" }));
+    expect(await screen.findByText("This proposal was already decided. The list is updated.")).not.toBeNull();
+    await waitFor(() => expect(getsTo("/api/v1/proposals")).toBe(2));
   });
 });
