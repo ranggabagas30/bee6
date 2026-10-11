@@ -47,8 +47,10 @@ export function demoMulaiAvailability(input: {
 
 /**
  * The instant the page stops a running session by itself. Pilot (no `maxMs`): close(D) + 1 h, or null on a
- * closed weekday, exactly as before. Demo: `min(close + 1 h, started + maxMs)`, so a sandbox session always
- * ends after at most `maxMs`.
+ * closed weekday, exactly as before. Demo: `started + maxMs` ONLY, the same rule the server applies to a
+ * sandbox session. It must not be `min` with close + 1 h: a start after close + 1 h (late evening, or
+ * 00:00-01:00 while `local_date` is still yesterday) would give a deadline already in the past and the page
+ * would end the one demo day the instant it started.
  */
 export function autoStopDeadline(input: {
   localDate: string;
@@ -57,10 +59,8 @@ export function autoStopDeadline(input: {
   tz: string;
   maxMs?: number;
 }): number | null {
-  const close = autoStopAtMs(input.localDate, input.weekly, input.tz);
-  if (input.maxMs === undefined) return close;
-  const hard = input.startedAtMs + input.maxMs;
-  return close === null ? hard : Math.min(close, hard);
+  if (input.maxMs !== undefined) return input.startedAtMs + input.maxMs;
+  return autoStopAtMs(input.localDate, input.weekly, input.tz);
 }
 
 /** Selesai is on screen from the first second of a demo session; the pilot waits for min(start + 4 h, close). */

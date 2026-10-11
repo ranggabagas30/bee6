@@ -470,6 +470,16 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
     await waitFor(() => expect(screen.queryByText("Listening")).toBeNull());
   });
 
+  it("a start after close + 1 h (23:10 WIB, close 22:00) is not stopped at once: nothing before 4:58, exactly one auto_stop at 5:00", async () => {
+    await renderDemoRunning("2026-10-12T16:10:00Z"); // Mon 23:10 WIB
+    await vi.advanceTimersByTimeAsync(4 * 60_000 + 58_000);
+    expect(postSessionEnd).not.toHaveBeenCalled();
+    expect(screen.getByText("Listening")).toBeTruthy();
+    await vi.advanceTimersByTimeAsync(3_000);
+    await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+    expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "auto_stop" });
+  });
+
   it("a finished demo day offers no second Mulai and says to switch to Supervisor", async () => {
     await renderDemoRunning();
     fireEvent.click(screen.getByRole("button", { name: "End" }));

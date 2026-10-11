@@ -77,11 +77,17 @@ describe("autoStopDeadline", () => {
   it("profile: start + max_ms when that is earlier than close + 1 h", () => {
     expect(autoStopDeadline({ localDate: "2026-10-14", startedAtMs: NOON, weekly, tz: TZ, maxMs: 300_000 })).toBe(NOON + 300_000);
   });
-  it("profile: close + 1 h when that comes first (a start just before the auto-stop)", () => {
+  it("profile: start + max_ms even when close + 1 h comes first (the server uses start + max_ms only)", () => {
     const late = wib("2026-10-14T22:44:00");
     expect(autoStopDeadline({ localDate: "2026-10-14", startedAtMs: late, weekly, tz: TZ, maxMs: 300_000 })).toBe(
-      wib("2026-10-14T22:45:00"),
+      late + 300_000,
     );
+  });
+  it("profile: a start after close + 1 h (23:10, or 00:30 while local_date is still yesterday) is never already past", () => {
+    const after = wib("2026-10-14T23:10:00");
+    const deadline = autoStopDeadline({ localDate: "2026-10-14", startedAtMs: after, weekly, tz: TZ, maxMs: 300_000 });
+    expect(deadline).toBe(after + 300_000);
+    expect(deadline!).toBeGreaterThan(after);
   });
   it("profile on a closed weekday: start + max_ms", () => {
     const closed: WeeklyHours = { ...weekly, wed: null };
