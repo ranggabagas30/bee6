@@ -30,7 +30,13 @@ const refusal = async (p: Promise<unknown>) => {
 describe("capFromEnv", () => {
   it("uses a positive integer override, otherwise the default", () => {
     expect(capFromEnv("50", 300)).toBe(50);
-    for (const bad of [undefined, "", "abc", "-4", "0", "1.5", " 7"]) expect(capFromEnv(bad, 300)).toBe(300);
+    for (const bad of [undefined, "", "abc", "-4", "0", "1.5", "7 7"]) expect(capFromEnv(bad, 300)).toBe(300);
+  });
+
+  it("trims surrounding whitespace and newlines first (a Secret Manager value often ends in \\n)", () => {
+    expect(capFromEnv("50\n", 300)).toBe(50);
+    expect(capFromEnv(" 7 ", 300)).toBe(7);
+    expect(capFromEnv("\n", 300)).toBe(300);
   });
 });
 
@@ -38,7 +44,15 @@ describe("killableCapFromEnv: 0 is an explicit kill switch, garbage still falls 
   it('exactly "0" is 0; a positive integer is itself; anything else is the default', () => {
     expect(killableCapFromEnv("0", 300)).toBe(0);
     expect(killableCapFromEnv("50", 300)).toBe(50);
-    for (const bad of [undefined, "", "abc", "-4", "00", "1.5", " 0", "0 ", "0x0", "9".repeat(30)]) expect(killableCapFromEnv(bad, 300)).toBe(300);
+    for (const bad of [undefined, "", "abc", "-4", "00", "1.5", "0x0", "0 0", "9".repeat(30)]) expect(killableCapFromEnv(bad, 300)).toBe(300);
+  });
+
+  it('a trailing newline or surrounding spaces still mean the kill switch ("0\\n" from Secret Manager)', () => {
+    expect(killableCapFromEnv("0\n", 300)).toBe(0);
+    expect(killableCapFromEnv(" 0 ", 300)).toBe(0);
+    expect(killableCapFromEnv("50\n", 300)).toBe(50);
+    expect(killableCapFromEnv("00\n", 300)).toBe(300);
+    expect(modelDailyLimit({ DEMO_MODEL_DAILY_CAP: "0\n" })).toBe(0);
   });
 
   it("capFromEnv itself keeps rejecting 0 (the other caps are not killable)", () => {

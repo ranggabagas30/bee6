@@ -49,20 +49,30 @@ export interface DemoCapSpec {
 
 export type CapEnv = Record<string, string | undefined>;
 
-/** A positive-integer env override, else the default ("0" is NOT accepted here; see killableCapFromEnv). */
+/**
+ * A positive-integer env override, else the default ("0" is NOT accepted here; see killableCapFromEnv).
+ * The value is trimmed first: a Secret Manager secret often carries a trailing newline.
+ */
 export function capFromEnv(value: string | undefined, fallback: number): number {
-  if (value === undefined || !/^\d+$/.test(value)) return fallback;
-  const n = Number(value);
+  const v = value?.trim();
+  if (v === undefined || !/^\d+$/.test(v)) return fallback;
+  const n = Number(v);
   return Number.isSafeInteger(n) && n > 0 ? n : fallback;
 }
 
 /**
- * Like capFromEnv, but exactly "0" is an explicit kill switch (refuse everything). Used only for the model
- * ceiling and the segment, generate and redact caps. Garbage (including "00", " 0", "-1") is NOT a kill
- * switch: it falls back to the default like any other bad value.
+ * Like capFromEnv, but "0" (after trimming, so "0\n" from Secret Manager works) is an explicit kill switch
+ * (refuse everything). Garbage (including "00", "0x0", "-1") is NOT a kill switch: it falls back to the
+ * default like any other bad value.
+ *
+ * Killable (a value of 0 refuses): DEMO_MODEL_DAILY_CAP, DEMO_SEGMENT_SANDBOX_CAP, DEMO_SEGMENT_DAILY_CAP,
+ * DEMO_GENERATE_SANDBOX_CAP, DEMO_GENERATE_DAILY_CAP, DEMO_REDACT_SANDBOX_CAP.
+ * NOT killable (0 falls back to the default, they use capFromEnv): DEMO_FAST_FORWARD_SANDBOX_CAP (no model
+ * spend), DEMO_SANDBOX_DAILY_CAP (sandbox creation, bounded by the outlet-read rule below) and
+ * DEMO_SWITCH_IP_CAP (the per-IP switch limit). To stop the demo, turn DEMO_MODE off instead.
  */
 export function killableCapFromEnv(value: string | undefined, fallback: number): number {
-  return value === "0" ? 0 : capFromEnv(value, fallback);
+  return value?.trim() === "0" ? 0 : capFromEnv(value, fallback);
 }
 
 export function capSpec(key: DemoCapKey, env: CapEnv = process.env): DemoCapSpec {
