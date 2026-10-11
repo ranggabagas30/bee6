@@ -6,6 +6,7 @@ import { verifyIdToken } from "@/lib/firebase/admin";
 import { authenticateDeviceToken } from "@/lib/auth/services";
 import { DUMMY_DEVICE_TOKEN_HASH, verifyDeviceToken } from "@/lib/auth/pairing";
 import { firestoreDeviceStore } from "@/lib/firestore/stores";
+import { SANDBOX_OUTLET_PREFIX } from "@/lib/demo/constants";
 
 /**
  * Request guards used by every API route. They turn an incoming credential into
@@ -47,7 +48,12 @@ export async function requireClaims(req: NextRequest): Promise<CustomClaims> {
     throw new UnauthorizedError("Token is missing outlet/role claims");
   }
   // R-12: a demo sandbox token carries its own expiry (Firebase ID tokens refresh forever).
-  // Real principals never carry the claim, so this branch is inert for them.
+  // Fail closed both ways: a sandbox outlet without the claim, or the claim on any other outlet, is a
+  // malformed principal. Real principals never carry the claim and never sit in an sbx- outlet.
+  const isSandbox = parsed.data.outlet_id.startsWith(SANDBOX_OUTLET_PREFIX);
+  if (isSandbox !== (parsed.data.demo_exp_ms !== undefined)) {
+    throw new UnauthorizedError("Token is missing outlet/role claims");
+  }
   if (parsed.data.demo_exp_ms !== undefined && Date.now() >= parsed.data.demo_exp_ms) {
     throw new UnauthorizedError("Demo session expired", "demo_session_expired");
   }

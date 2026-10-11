@@ -149,6 +149,36 @@ describe("requireClaims demo session expiry (R-12)", () => {
   });
 });
 
+describe("requireClaims demo claim consistency (R-12 L1, fail closed)", () => {
+  const verified = (claims: Record<string, unknown>) => ({ uid: "u", email: undefined, email_verified: false, claims });
+
+  it("L1 an sbx- outlet token WITHOUT demo_exp_ms is 401 (a sandbox principal always expires)", async () => {
+    const { requireClaims } = await import("@/lib/http/guard");
+    const { UnauthorizedError } = await import("@/lib/http/errors");
+    verifyIdToken.mockResolvedValueOnce(verified({ outlet_id: "sbx-0123456789ab", role: "owner" }));
+    const err = await requireClaims(fakeRequest("Bearer t")).catch((e) => e);
+    expect(err).toBeInstanceOf(UnauthorizedError);
+    expect(err.statusCode).toBe(401);
+  });
+
+  it("L1 a demo_exp_ms on an outlet that is not sbx- is 401, even a future one (a sandbox claim never belongs to a real shop)", async () => {
+    const { requireClaims } = await import("@/lib/http/guard");
+    const { UnauthorizedError } = await import("@/lib/http/errors");
+    for (const outlet_id of ["proofed", "demo-outlet", "demo-tpl-outlet", "xsbx-1"]) {
+      verifyIdToken.mockResolvedValueOnce(verified({ outlet_id, role: "owner", demo_exp_ms: Date.now() + 60_000 }));
+      const err = await requireClaims(fakeRequest("Bearer t")).catch((e) => e);
+      expect(err, outlet_id).toBeInstanceOf(UnauthorizedError);
+    }
+  });
+
+  it("L1 a well-formed sandbox token (sbx- outlet + future demo_exp_ms) still passes", async () => {
+    const { requireClaims } = await import("@/lib/http/guard");
+    const exp = Date.now() + 60_000;
+    verifyIdToken.mockResolvedValueOnce(verified({ outlet_id: "sbx-0123456789ab", role: "owner", demo_exp_ms: exp }));
+    expect(await requireClaims(fakeRequest("Bearer t"))).toEqual({ outlet_id: "sbx-0123456789ab", role: "owner", demo_exp_ms: exp });
+  });
+});
+
 describe("requirePermission (the guard a resource route would call)", () => {
   it("passes when the token's outlet matches the requested resource's outlet", async () => {
     const { requirePermission } = await import("@/lib/http/guard");
