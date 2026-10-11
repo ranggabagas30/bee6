@@ -45,6 +45,14 @@ describe("review contract", () => {
     for (const bad of ["1", "x", "2.5", "", "-3"]) expect(VersionParamSchema.safeParse(bad).success).toBe(false);
   });
 
+  it("L4 VersionParamSchema accepts decimal digits only: no exponent, hex, whitespace, sign or 7+ digits", () => {
+    for (const bad of ["1e2", "0x10", " 5 ", "5 ", "+5", "２", "1234567", "0", "00"]) {
+      expect(VersionParamSchema.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
+    }
+    expect(VersionParamSchema.parse("05")).toBe(5); // digits only; a leading zero is the same version, not a different review
+    expect(VersionParamSchema.parse("999999")).toBe(999999);
+  });
+
   it("FastForwardBodySchema is an empty strict object", () => {
     expect(FastForwardBodySchema.safeParse({}).success).toBe(true);
     expect(FastForwardBodySchema.safeParse({ a: 1 }).success).toBe(false);

@@ -19,7 +19,11 @@ export const VerdictBodySchema = z.object({ verdict: z.enum(REVIEW_VERDICTS), re
 export type VerdictBody = z.infer<typeof VerdictBodySchema>;
 
 /** A review is addressed by version number; the id is built from the caller's outlet, never from the URL. */
-export const VersionParamSchema = z.coerce.number().int().min(2).max(100000);
+export const VersionParamSchema = z
+  .string()
+  .regex(/^\d{1,6}$/)
+  .transform(Number)
+  .pipe(z.number().int().min(2));
 export const FastForwardBodySchema = z.object({}).strict();
 
 export const REVIEW_CONFLICT_CODES = ["ALREADY_DECIDED", "NOT_YET_REVIEWABLE", "EXPIRED", "NOTHING_TO_REVIEW"] as const;
