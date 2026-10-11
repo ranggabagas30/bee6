@@ -132,6 +132,16 @@ export const OutletSchema = z
      * absent (`lib/firestore/debrief-store.ts`'s `getOutletCalendar`).
      */
     retention_days: z.number().int().min(1).max(90).optional(),
+    /** R-12: present only on a per-judge demo sandbox outlet (demo project only). */
+    sandbox: z
+      .object({
+        template_outlet_id: z.string().min(1),
+        created_at_ms: z.number().int().min(0),
+        expires_at_ms: z.number().int().min(0),
+        key_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+      })
+      .strict()
+      .optional(),
     created_at: isoDateTime,
   })
   .strict();
@@ -267,10 +277,37 @@ export const DeviceSchema = z
     /** 6-digit pairing code (plaintext, single-use); null when not pairing. */
     pairing_code: z.string().regex(/^\d{6}$/).nullable(),
     pairing_code_expires_at: isoDateTime.nullable(),
+    /** R-12: judge devices only; absent = never expires. */
+    expires_at_ms: z.number().int().min(0).optional(),
     created_at: isoDateTime,
   })
   .strict();
 export type Device = z.infer<typeof DeviceSchema>;
+
+// ── demo_counters (R-12; demo project only) ──────────────────────────────────
+/**
+ * Rate-limit and cap counters for the public demo. `counter_id` is the doc id; for per-IP
+ * counters it is a salted daily hash, never the IP itself. `expires_at` is stored as a native
+ * Timestamp (Firestore TTL), same conversion as segments.
+ */
+export const DEMO_COUNTER_KINDS = [
+  "sandbox_ip",
+  "sandbox_day",
+  "switch_sandbox",
+  "generate_sandbox",
+  "generate_day",
+] as const;
+export type DemoCounterKind = (typeof DEMO_COUNTER_KINDS)[number];
+export const DemoCounterSchema = z
+  .object({
+    counter_id: z.string().min(1),
+    kind: z.enum(DEMO_COUNTER_KINDS),
+    day: dateString,
+    count: z.number().int().min(0),
+    expires_at: isoDateTime,
+  })
+  .strict();
+export type DemoCounter = z.infer<typeof DemoCounterSchema>;
 
 // ── heartbeats (subcollection of devices) ────────────────────────────────────
 export const HeartbeatSchema = z

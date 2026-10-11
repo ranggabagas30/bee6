@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
   AuditLogSchema,
+  DemoCounterSchema,
   ConstraintSchema,
   DeviceSchema,
   HeartbeatSchema,
@@ -990,5 +991,70 @@ describe("Review / Outcome (R-11)", () => {
     expect(ov({ verdict: "unknown", in_memory: false, supervisor_verdict: null }).success).toBe(true);
     expect(ov({ outcome_id: "o1:v3" }).success).toBe(false);
     expect(ov({ reason: "text" }).success).toBe(false);
+  });
+});
+
+// ── R-12 Task 1: demo sandbox fields ─────────────────────────────────────────
+describe("R-12 demo sandbox schema additions", () => {
+  const outletBase = {
+    outlet_id: "sbx-aaaaaaaaaaaa",
+    name: "Demo Bakehouse",
+    project_kind: "demo",
+    timezone: "Asia/Jakarta",
+    opening_time: "07:00",
+    closing_time: "21:45",
+    created_at: NOW,
+  };
+  const sandbox = {
+    template_outlet_id: "demo-tpl-outlet",
+    created_at_ms: 1_000,
+    expires_at_ms: 2_000,
+    key_sha256: "a".repeat(64),
+  };
+
+  it("a plain outlet without sandbox still parses (existing fixtures unchanged)", () => {
+    expect(OutletSchema.safeParse(outletBase).success).toBe(true);
+  });
+
+  it("a sandbox outlet parses and keeps the sandbox object", () => {
+    const parsed = OutletSchema.parse({ ...outletBase, sandbox });
+    expect(parsed.sandbox).toEqual(sandbox);
+  });
+
+  it("rejects a malformed key_sha256, an unknown sandbox key, and a missing sandbox field", () => {
+    expect(OutletSchema.safeParse({ ...outletBase, sandbox: { ...sandbox, key_sha256: "xyz" } }).success).toBe(false);
+    expect(OutletSchema.safeParse({ ...outletBase, sandbox: { ...sandbox, key_sha256: "A".repeat(64) } }).success).toBe(false);
+    expect(OutletSchema.safeParse({ ...outletBase, sandbox: { ...sandbox, extra: 1 } }).success).toBe(false);
+    const { expires_at_ms: _drop, ...partial } = sandbox;
+    expect(OutletSchema.safeParse({ ...outletBase, sandbox: partial }).success).toBe(false);
+  });
+
+  const deviceBase = {
+    outlet_id: "sbx-aaaaaaaaaaaa",
+    device_id: "jdg-bbbbbbbbbbbb",
+    label: "Demo shop phone",
+    token_hash: "$2a$10$hashhashhashhashhashha",
+    paired_at: NOW,
+    revoked: false,
+    pairing_code: null,
+    pairing_code_expires_at: null,
+    created_at: NOW,
+  };
+
+  it("a device accepts an optional expires_at_ms and parses without it", () => {
+    expect(DeviceSchema.safeParse(deviceBase).success).toBe(true);
+    expect(DeviceSchema.safeParse({ ...deviceBase, expires_at_ms: 5_000 }).success).toBe(true);
+    expect(DeviceSchema.safeParse({ ...deviceBase, expires_at_ms: -1 }).success).toBe(false);
+    expect(DeviceSchema.safeParse({ ...deviceBase, expires_at_ms: 1.5 }).success).toBe(false);
+  });
+
+  it("DemoCounterSchema accepts each kind and rejects an unknown kind, a negative count and an extra key", () => {
+    const good = { counter_id: "switch:sbx-1", kind: "switch_sandbox", day: "2026-10-20", count: 3, expires_at: NOW };
+    for (const kind of ["sandbox_ip", "sandbox_day", "switch_sandbox", "generate_sandbox", "generate_day"]) {
+      expect(DemoCounterSchema.safeParse({ ...good, kind }).success).toBe(true);
+    }
+    expect(DemoCounterSchema.safeParse({ ...good, kind: "other" }).success).toBe(false);
+    expect(DemoCounterSchema.safeParse({ ...good, count: -1 }).success).toBe(false);
+    expect(DemoCounterSchema.safeParse({ ...good, ip: "1.2.3.4" }).success).toBe(false);
   });
 });
