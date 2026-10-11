@@ -66,7 +66,14 @@ export const SeedConfigSchema = z
       )
       .min(1),
     device: z
-      .object({ device_id: z.string().min(1), label: z.string().min(1) })
+      .object({
+        device_id: z.string().min(1),
+        /**
+         * Placement label only (e.g. "Register 1", "Kitchen phone"), never a
+         * person's name (hard rule #7).
+         */
+        label: z.string().min(1),
+      })
       .strict(),
     /**
      * R-08 Task 2.3: optional SOP v1 steps. Optional so Rangga's current
