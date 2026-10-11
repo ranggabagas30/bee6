@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { LangProvider } from "@/lib/i18n/context";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import type { StartDemoResult } from "@/app/demo/demo-client";
@@ -15,9 +15,10 @@ const ROUTER = { push, replace };
 vi.mock("next/navigation", () => ({ useRouter: () => ROUTER }));
 
 const getClientAuth = vi.fn();
+const signOut = vi.fn();
 vi.mock("@/lib/auth/client/firebase-client", () => ({
   getClientAuth: (...a: unknown[]) => getClientAuth(...a),
-  signOut: vi.fn(),
+  signOut: (...a: unknown[]) => signOut(...a),
   signInWithCustomToken: vi.fn(),
 }));
 
@@ -52,6 +53,7 @@ let consoleSpies: ReturnType<typeof vi.spyOn>[] = [];
 beforeEach(() => {
   vi.stubGlobal("localStorage", createMemoryStorage());
   getClientAuth.mockReturnValue(FAKE_AUTH);
+  signOut.mockReset().mockResolvedValue(undefined);
   consoleSpies = ["log", "info", "warn", "error"].map((m) => vi.spyOn(console, m as "log").mockImplementation(() => {}));
 });
 afterEach(() => {
@@ -144,6 +146,20 @@ describe("Landing taps", () => {
     expect((button(/Try as Owner/) as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it("a thrown auth start-up error becomes a friendly refusal and does not wedge the buttons (second tap works)", async () => {
+    getClientAuth.mockImplementationOnce(() => {
+      throw new Error("auth init failed");
+    });
+    startDemo.mockResolvedValue({ kind: "started" });
+    renderLanding();
+    await act(async () => fireEvent.click(button(/Try as Owner/)));
+    expect(status().textContent).toContain("Something went wrong. Try again.");
+    expect(startDemo).not.toHaveBeenCalled();
+    expect((button(/Try as Owner/) as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => fireEvent.click(button(/Try as Owner/)));
+    expect(startDemo).toHaveBeenCalledTimes(1); // the in-flight guard was released
+  });
+
   it("clears an old refusal when the next tap starts", async () => {
     startDemo.mockResolvedValueOnce({ kind: "not_ready" });
     renderLanding();
@@ -210,6 +226,31 @@ describe("Landing with an earlier visit in this tab", () => {
     expect(status().textContent).toContain("Demo cleared. Pick a role to begin again.");
     expect(document.activeElement).toBe(status());
     expect(screen.queryByRole("button", { name: "Start a new demo" })).toBeNull();
+  });
+
+  it("Yes, start over also signs the Firebase web user out and removes the device keys", async () => {
+    const stored = { sandbox_key: KEY, expires_at_ms: Date.now() + 3_600_000, role: "owner" };
+    window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify(stored));
+    window.localStorage.setItem("bee6.device_token", "t");
+    window.localStorage.setItem("bee6.device_id", "d");
+    renderLanding();
+    fireEvent.click(button(/Start a new demo/));
+    fireEvent.click(button(/Yes, start over/));
+    await waitFor(() => expect(signOut).toHaveBeenCalledWith(FAKE_AUTH));
+    expect(window.localStorage.getItem("bee6.device_token")).toBeNull();
+    expect(window.localStorage.getItem("bee6.device_id")).toBeNull();
+  });
+
+  it("Yes, start over still works when there is no Firebase config or the auth client cannot start", async () => {
+    window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: Date.now() + 3_600_000, role: "staff" }));
+    getClientAuth.mockImplementation(() => {
+      throw new Error("no auth");
+    });
+    renderLanding();
+    fireEvent.click(button(/Start a new demo/));
+    fireEvent.click(button(/Yes, start over/));
+    expect(readDemoState()).toBeNull();
+    expect(status().textContent).toContain("Demo cleared.");
   });
 
   it("moves focus to the confirm question, and back to the button when the visitor stays", () => {

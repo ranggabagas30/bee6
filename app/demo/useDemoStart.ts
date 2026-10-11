@@ -21,12 +21,16 @@ export function useDemoStart(config: FirebaseWebConfig | null, onExpired: "resta
     inFlight.current = true;
     setBusy(true);
     setRefusal(null);
-    const result = await startDemo(role, {
-      auth: config ? getClientAuth(config) : null,
-      onExpired,
-    });
-    inFlight.current = false;
-    setBusy(false);
+    let result: StartDemoResult;
+    try {
+      // startDemo never throws; building the auth client can (a bad Firebase config).
+      result = await startDemo(role, { auth: config ? getClientAuth(config) : null, onExpired });
+    } catch {
+      result = { kind: "error" };
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
     if (result.kind !== "started") setRefusal(result);
     return result;
   }

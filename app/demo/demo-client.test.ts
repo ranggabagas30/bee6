@@ -11,6 +11,7 @@ vi.mock("@/lib/auth/client/firebase-client", () => ({
 import {
   DEMO_STATE_KEY,
   clearDemoState,
+  endDemo,
   demoSnapshot,
   isDemoExpired,
   parseDemoState,
@@ -292,6 +293,38 @@ describe("startDemo", () => {
     expect(readDemoState()).toBeNull();
     expect(fakeLocal.getItem(DEVICE_TOKEN_KEY)).toBeNull();
     expect(navigate).not.toHaveBeenCalled();
+    expect(signOut).toHaveBeenCalledWith(AUTH); // no signed-in web user is left behind a forgotten sandbox
+  });
+
+  it("onExpired restart: when the retry is refused too, the web user is signed out (the sandbox is forgotten)", async () => {
+    writeDemoState({ sandbox_key: KEY, expires_at_ms: EXPIRES, role: "owner" });
+    const f = vi
+      .fn()
+      .mockResolvedValueOnce(err(409, "SANDBOX_EXPIRED"))
+      .mockResolvedValueOnce(err(429, "rate_limited"));
+    const result = await startDemo("owner", { auth: AUTH, navigate, fetchImpl: f as never, now: () => NOW, onExpired: "restart" });
+    expect(result).toEqual({ kind: "rate_limited", retryAfterSeconds: null });
+    expect(readDemoState()).toBeNull();
+    expect(signOut).toHaveBeenCalledWith(AUTH);
+  });
+
+  it("onExpired restart: when the retry works, there is no extra signed-out moment for web roles", async () => {
+    writeDemoState({ sandbox_key: KEY, expires_at_ms: EXPIRES, role: "owner" });
+    const f = vi.fn().mockResolvedValueOnce(err(409, "SANDBOX_EXPIRED")).mockResolvedValueOnce(ok({ ...WEB_OK, sandbox_key: KEY2 }));
+    await startDemo("supervisor", { auth: AUTH, navigate, fetchImpl: f as never, now: () => NOW, onExpired: "restart" });
+    expect(signOut).not.toHaveBeenCalled();
+  });
+
+  it("endDemo forgets the sandbox, the device keys and the Firebase web user", async () => {
+    writeDemoState({ sandbox_key: KEY, expires_at_ms: EXPIRES, role: "owner" });
+    fakeLocal.setItem(DEVICE_TOKEN_KEY, "t");
+    await endDemo(AUTH);
+    expect(readDemoState()).toBeNull();
+    expect(fakeLocal.getItem(DEVICE_TOKEN_KEY)).toBeNull();
+    expect(signOut).toHaveBeenCalledWith(AUTH);
+    signOut.mockRejectedValue(new Error("offline"));
+    await expect(endDemo(AUTH)).resolves.toBeUndefined();
+    await expect(endDemo(null)).resolves.toBeUndefined();
   });
 
   it("returns the refusal untouched and changes nothing on 429 / 503 / 404", async () => {
@@ -316,6 +349,17 @@ describe("startDemo", () => {
     const result = await startDemo("owner", { auth: null, navigate, fetchImpl: f as never, now: () => NOW, onExpired: "restart" });
     expect(result).toEqual({ kind: "error" });
     expect(f).not.toHaveBeenCalled();
+  });
+
+  it("a failed custom-token sign-in keeps the previous state and user: the bar never names a role nobody is signed in as", async () => {
+    writeDemoState({ sandbox_key: KEY, expires_at_ms: EXPIRES, role: "owner" });
+    signInWithCustomToken.mockRejectedValue(new Error("auth/network-request-failed"));
+    const f = vi.fn().mockResolvedValue(ok(WEB_OK));
+    const result = await startDemo("supervisor", { auth: AUTH, navigate, fetchImpl: f as never, now: () => NOW, onExpired: "stop" });
+    expect(result).toEqual({ kind: "error" });
+    expect(signOut).not.toHaveBeenCalled(); // the old user is still signed in...
+    expect(readDemoState()?.role).toBe("owner"); // ...and the stored state still says so
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it("a failed custom-token sign-in is an error and stores no state", async () => {

@@ -6,8 +6,9 @@ import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import type { DemoRole } from "@/lib/demo/contract";
 import { useLang } from "@/lib/i18n/context";
 import { t, type DictKey } from "@/lib/i18n/dict";
+import { getClientAuth, type Auth } from "@/lib/auth/client/firebase-client";
 import { WebTopBar } from "@/app/web/WebTopBar";
-import { clearDemoState, demoSnapshot, subscribeDemoState, viewFromSnapshot } from "@/app/demo/demo-client";
+import { endDemo, demoSnapshot, subscribeDemoState, viewFromSnapshot } from "@/app/demo/demo-client";
 import { refusalLines } from "@/app/demo/demo-errors";
 import { useDemoStart } from "@/app/demo/useDemoStart";
 
@@ -74,7 +75,14 @@ export function Landing({ config }: { config: FirebaseWebConfig | null }) {
   }
 
   function onRestartYes() {
-    clearDemoState();
+    // Forgets the sandbox and device keys now; the Firebase web user is signed out in the background.
+    let auth: Auth | null = null;
+    try {
+      auth = config ? getClientAuth(config) : null;
+    } catch {
+      // No usable auth client: nothing to sign out of.
+    }
+    void endDemo(auth);
     clearRefusal();
     setConfirming(false);
     setRestarted(true);

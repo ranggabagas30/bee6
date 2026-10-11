@@ -72,7 +72,8 @@ export function writeDemoState(state: DemoState): void {
   notifyChange();
 }
 
-function removeDeviceKeys(): void {
+/** Removes the judge phone's device keys (the pair `/capture` reads). Best effort. */
+export function removeDeviceKeys(): void {
   try {
     window.localStorage.removeItem(DEVICE_TOKEN_KEY);
     window.localStorage.removeItem(DEVICE_ID_KEY);
@@ -255,6 +256,12 @@ function nextMacrotask(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/** Forgets the sandbox, the device keys and the Firebase web user (the visitor chose to start over). Never throws. */
+export async function endDemo(auth: Auth | null): Promise<void> {
+  clearDemoState();
+  await signOutQuietly(auth);
+}
+
 async function signOutQuietly(auth: Auth | null): Promise<void> {
   if (!auth) return;
   try {
@@ -308,8 +315,13 @@ export async function startDemo(role: DemoRole, options: StartDemoOptions): Prom
   let outcome = await requestDemoSession(role, key, fetchImpl);
   if (outcome.kind === "sandbox_expired") {
     clearDemoState();
-    if (onExpired === "stop") return { kind: "sandbox_expired" };
+    if (onExpired === "stop") {
+      await signOutQuietly(auth); // do not leave a web user signed in behind a forgotten sandbox
+      return { kind: "sandbox_expired" };
+    }
     outcome = await requestDemoSession(role, undefined, fetchImpl);
+    // A retry that works replaces the user in one step; one that does not leaves nobody signed in to a dead sandbox.
+    if (outcome.kind !== "ok") await signOutQuietly(auth);
   }
   if (outcome.kind !== "ok") return outcome;
 
