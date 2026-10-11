@@ -567,16 +567,56 @@ export const CorrectionSchema = z
   .strict();
 export type Correction = z.infer<typeof CorrectionSchema>;
 
-// ── sop_versions (R-08 defines; R-10 writes v2+) ─────────────────────────────
+// ── sop_versions (R-08 defines; R-10 writes v2+ inside the owner's approval transaction only) ──
 export const SopStepSchema = z
   .object({
     step_id: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,39}$/),
-    title: z.string().min(1).max(80),
-    text: z.string().min(1).max(600),
+    title: z.string().min(1).max(160), // R-10: was 80; a new step's title is the proposal's stored change_title (≤ 160)
+    text: z.string().min(1).max(800), // R-10: was 600; a changed step's text is the proposal's stored change_text (≤ 800)
     role: UserRoleSchema, // who performs it; a role, never a name (hard rule #7)
   })
   .strict();
 export type SopStep = z.infer<typeof SopStepSchema>;
+
+/**
+ * Same shape as ProposalContentSchema.shape.metric (declared later in this
+ * file, so it cannot be referenced here). schema.test.ts pins the two as
+ * identical; change both together or neither.
+ */
+export const SopChangeMetricSchema = z
+  .object({
+    category: WorkCategorySchema,
+    direction: z.enum(["decrease", "increase"]),
+    description: z.string().min(1).max(320),
+    baseline_count: z.number().int().min(0),
+    baseline_days: z.number().int().min(1),
+  })
+  .strict();
+
+export const SOP_CHANGE_KINDS = ["modify", "add"] as const;
+
+/**
+ * The one approved change that produced a version (R-10). Self-contained so
+ * the before/after list and R-11's review never need the proposal doc. Every
+ * text field is copied from the approved proposal, already redacted (R-08
+ * step 8e); `before` is copied verbatim from the previous version.
+ */
+export const SopChangeSchema = z
+  .object({
+    kind: z.enum(SOP_CHANGE_KINDS),
+    step_id: SopStepSchema.shape.step_id,
+    before: SopStepSchema.nullable(), // null iff kind === "add"
+    after: SopStepSchema,
+    change_title: z.string().min(1).max(160),
+    intervention_id: z.string().min(1),
+    metric: SopChangeMetricSchema,
+    failure_condition: z.string().min(1).max(480),
+    review_after_days: z.number().int().min(7).max(28),
+    review_date: dateString, // = effective_from_date + review_after_days (R-10 §1)
+    approved_at_ms: z.number().int().min(0),
+  })
+  .strict();
+export type SopChange = z.infer<typeof SopChangeSchema>;
 
 export const SopVersionSchema = z
   .object({
@@ -587,6 +627,9 @@ export const SopVersionSchema = z
     source: z.enum(["seed", "proposal"]),
     source_proposal_id: z.string().min(1).nullable(),
     created_at_ms: z.number().int().min(0),
+    previous_version_id: z.string().min(1).nullable().optional(), // R-10; absent/null on seed docs
+    effective_from_date: dateString.nullable().optional(), // R-10: outlet-local date it is in force from; absent/null on seed = from the start
+    change: SopChangeSchema.nullable().optional(), // R-10; absent/null on seed docs
   })
   .strict()
   .superRefine((v, ctx) => {
@@ -614,6 +657,44 @@ export const SopVersionSchema = z
         path: ["source_proposal_id"],
         message: 'source "seed" requires source_proposal_id: null',
       });
+    }
+    const change = v.change ?? null;
+    const eff = v.effective_from_date ?? null;
+    const prev = v.previous_version_id ?? null;
+    if (v.source === "seed") {
+      if (change !== null || eff !== null || prev !== null) {
+        ctx.addIssue({ code: "custom", path: ["change"], message: 'source "seed" requires change, effective_from_date and previous_version_id to be absent or null' });
+      }
+      return;
+    }
+    // source === "proposal"
+    if (v.version < 2) ctx.addIssue({ code: "custom", path: ["version"], message: 'source "proposal" requires version >= 2' });
+    if (v.source_proposal_id === null) ctx.addIssue({ code: "custom", path: ["source_proposal_id"], message: 'source "proposal" requires source_proposal_id' });
+    if (eff === null) ctx.addIssue({ code: "custom", path: ["effective_from_date"], message: 'source "proposal" requires effective_from_date' });
+    if (prev !== `${v.outlet_id}:v${v.version - 1}`) {
+      ctx.addIssue({ code: "custom", path: ["previous_version_id"], message: `previous_version_id must equal "${v.outlet_id}:v${v.version - 1}"` });
+    }
+    if (change === null) {
+      ctx.addIssue({ code: "custom", path: ["change"], message: 'source "proposal" requires change' });
+      return;
+    }
+    if ((change.kind === "add") !== (change.before === null)) {
+      ctx.addIssue({ code: "custom", path: ["change", "before"], message: 'before must be null iff kind is "add"' });
+    }
+    if (change.after.step_id !== change.step_id || (change.before !== null && change.before.step_id !== change.step_id)) {
+      ctx.addIssue({ code: "custom", path: ["change", "step_id"], message: "before/after step_id must equal change.step_id" });
+    }
+    const inSteps = v.steps.find((s) => s.step_id === change.step_id);
+    if (
+      !inSteps ||
+      inSteps.title !== change.after.title ||
+      inSteps.text !== change.after.text ||
+      inSteps.role !== change.after.role
+    ) {
+      ctx.addIssue({ code: "custom", path: ["change", "after"], message: "change.after must equal the step with that step_id in steps" });
+    }
+    if (eff !== null && !(change.review_date > eff)) {
+      ctx.addIssue({ code: "custom", path: ["change", "review_date"], message: "review_date must be after effective_from_date" });
     }
   });
 export type SopVersion = z.infer<typeof SopVersionSchema>;
