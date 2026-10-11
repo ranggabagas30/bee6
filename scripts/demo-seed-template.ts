@@ -135,6 +135,8 @@ export interface TemplateSeedDeps {
 }
 
 // ── HTTP, exactly like the phone ─────────────────────────────────────────────
+// Every request is sent with `redirect: "error"`: a 307/308 would otherwise replay the device token or the
+// single-use pairing code (and the clip bytes) to wherever the Location header points.
 async function send(
   deps: TemplateSeedDeps,
   method: "POST" | "PUT",
@@ -147,7 +149,7 @@ async function send(
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     let res: Response;
     try {
-      res = await deps.fetchFn(`${deps.baseUrl}${route}`, { method, headers, body });
+      res = await deps.fetchFn(`${deps.baseUrl}${route}`, { method, headers, body, redirect: "error" });
     } catch {
       lastStatus = 0;
       if (attempt < attempts) await deps.sleep(SEGMENT_RETRY_MS);
@@ -196,7 +198,7 @@ async function assertDemoService(deps: TemplateSeedDeps): Promise<void> {
     new TemplateSeedError("The base URL did not identify itself as a demo service; nothing was sent. Check --base-url.");
   let res: Response;
   try {
-    res = await deps.fetchFn(`${deps.baseUrl}/api/v1/reviews/fast-forward`, { method: "GET" });
+    res = await deps.fetchFn(`${deps.baseUrl}/api/v1/reviews/fast-forward`, { method: "GET", redirect: "error" });
   } catch {
     throw refuse();
   }
