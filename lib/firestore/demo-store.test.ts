@@ -3,6 +3,7 @@ import { Timestamp, type Firestore } from "firebase-admin/firestore";
 import { COLLECTIONS } from "@/lib/firestore/collections";
 import { firestoreDemoStore } from "@/lib/firestore/demo-store";
 import { TemplateTooLargeError } from "@/lib/demo/store-types";
+import { LockedError } from "@/lib/http/errors";
 import { cloneTemplate } from "@/lib/demo/clone";
 import { CLEANUP_GRACE_MS, TEMPLATE_DEVICE_ID, TEMPLATE_OUTLET_ID, WRITE_BATCH_MAX } from "@/lib/demo/constants";
 import { templateSet } from "@/lib/demo/testing/fixtures";
@@ -429,6 +430,31 @@ describe("5.S4 bumpCounter", () => {
     const store = firestoreDemoStore(db);
     expect(await store.bumpCounter("bad", "sandbox_day", "2026-10-28", 5, EXP)).toBe(false);
     await expect(store.bumpCounter("a/b", "sandbox_day", "2026-10-28", 5, EXP)).rejects.toThrow();
+  });
+});
+
+describe("L10 bumpCounter under contention", () => {
+  const EXP = "2026-10-30T00:00:00.000Z";
+
+  it("a transaction that keeps aborting (hot counter) is a 429 demo_busy with Retry-After, not a 500", async () => {
+    const { db } = fakeDb();
+    (db as unknown as { runTransaction: () => Promise<never> }).runTransaction = async () => {
+      throw Object.assign(new Error("10 ABORTED: too much contention on these documents"), { code: 10 });
+    };
+    const err = await firestoreDemoStore(db).bumpCounter("hot", "model_day", "2026-10-28", 5, EXP).then(() => null, (e) => e);
+    expect(err).toBeInstanceOf(LockedError);
+    expect((err as LockedError).statusCode).toBe(429);
+    expect((err as LockedError).code).toBe("demo_busy");
+    expect((err as LockedError).retryAfterSeconds).toBeGreaterThanOrEqual(1);
+    expect((err as Error).message).not.toContain("contention"); // no upstream text
+  });
+
+  it("any other failure is rethrown untouched", async () => {
+    const { db } = fakeDb();
+    (db as unknown as { runTransaction: () => Promise<never> }).runTransaction = async () => {
+      throw new Error("PERMISSION_DENIED");
+    };
+    await expect(firestoreDemoStore(db).bumpCounter("c", "model_day", "2026-10-28", 5, EXP)).rejects.toThrow("PERMISSION_DENIED");
   });
 });
 

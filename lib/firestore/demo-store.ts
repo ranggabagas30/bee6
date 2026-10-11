@@ -23,6 +23,7 @@ import {
   WRITE_BATCH_MAX,
 } from "@/lib/demo/constants";
 import { TemplateTooLargeError, type DemoStore } from "@/lib/demo/store-types";
+import { LockedError } from "@/lib/http/errors";
 
 /**
  * Firestore-backed `DemoStore` (R-12 Task 5). Demo project only: every caller first checks
@@ -228,22 +229,31 @@ export function firestoreDemoStore(db: Firestore = adminDb()): DemoStore {
     async bumpCounter(counterId, kind, day, limit, expiresAtIso): Promise<boolean> {
       if (counterId.includes("/") || counterId.length === 0) throw new Error("demo-store: invalid counter id");
       const ref = db.collection(COLLECTIONS.demoCounters).doc(counterId);
-      return db.runTransaction(async (tx) => {
-        const snap = await tx.get(ref);
-        let count = 0;
-        if (snap.exists) {
-          const raw = (snap.data() as { count?: unknown } | undefined)?.count;
-          if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 0) {
-            logSkippedDoc("demo_counter", counterId);
-            return false; // fail closed: a damaged counter must not lift a limit
+      try {
+        return await db.runTransaction(async (tx) => {
+          const snap = await tx.get(ref);
+          let count = 0;
+          if (snap.exists) {
+            const raw = (snap.data() as { count?: unknown } | undefined)?.count;
+            if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 0) {
+              logSkippedDoc("demo_counter", counterId);
+              return false; // fail closed: a damaged counter must not lift a limit
+            }
+            count = raw;
           }
-          count = raw;
+          if (count >= limit) return false;
+          const next = DemoCounterSchema.parse({ counter_id: counterId, kind, day, count: count + 1, expires_at: expiresAtIso });
+          tx.set(ref, { ...next, expires_at: Timestamp.fromDate(new Date(next.expires_at)) });
+          return true;
+        });
+      } catch (error) {
+        // A hot counter (the shared day/model counters) can exhaust the transaction's retries with ABORTED.
+        // That is back-pressure, not a server fault: answer 429 with Retry-After and no upstream text.
+        if ((error as { code?: unknown } | null)?.code === 10) {
+          throw new LockedError(2, "The demo is busy, try again shortly", "demo_busy");
         }
-        if (count >= limit) return false;
-        const next = DemoCounterSchema.parse({ counter_id: counterId, kind, day, count: count + 1, expires_at: expiresAtIso });
-        tx.set(ref, { ...next, expires_at: Timestamp.fromDate(new Date(next.expires_at)) });
-        return true;
-      });
+        throw error;
+      }
     },
 
     async readCounter(counterId): Promise<number> {
