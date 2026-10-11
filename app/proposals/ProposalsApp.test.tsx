@@ -383,6 +383,24 @@ describe("ProposalsApp — proposals list and decisions (R-09 8.2)", () => {
     expect(screen.queryByRole("button", { name: "Use these dates" })).toBeNull();
   });
 
+  it("a decision clears the generate result card so its old status line does not linger", async () => {
+    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [] } };
+    authedPostJson.mockImplementation(async (...args: unknown[]) =>
+      args[1] === "/api/v1/proposals/generate"
+        ? { kind: "ok", data: makeResponse() }
+        : { kind: "ok", data: { result: "feasible", status: "awaiting_owner" } },
+    );
+    await renderReady();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Feasible" })).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Generate proposal" }));
+    // Generate card + the listed card both show the proposal.
+    await waitFor(() => expect(screen.getAllByText("Add a greeting script")).toHaveLength(2));
+    fireEvent.click(screen.getByRole("button", { name: "Feasible" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes" }));
+    expect(await screen.findByText("Marked feasible. Sent to the owner.")).not.toBeNull();
+    await waitFor(() => expect(screen.getAllByText("Add a greeting script")).toHaveLength(1));
+  });
+
   it("a conflict answer shows its message in the banner and reloads the list", async () => {
     proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [] } };
     authedPostJson.mockResolvedValue({ kind: "conflict", code: "ALREADY_DECIDED" });

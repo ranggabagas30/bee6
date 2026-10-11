@@ -144,6 +144,8 @@ export function ProposalsApp({ config }: { config: FirebaseWebConfig | null }) {
   /** A decision on a listed proposal got an answer: show it, reload the list, and after a rejection the constraints too. */
   function handleSettled(settled: { messageKey: DictKey; range?: { from_date: string; to_date: string } }) {
     setBanner({ key: settled.messageKey, range: settled.range });
+    // The generate result card now shows a status the decision has changed; the reloaded list is the truth.
+    setOutcome({ kind: "idle" });
     setListKey((k) => k + 1);
     if (settled.messageKey === "C-prop-done-rejected-sup" || settled.messageKey === "C-prop-done-rejected-owner") {
       setConstraintsKey((k) => k + 1);
