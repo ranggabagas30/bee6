@@ -85,9 +85,10 @@ export function DemoBar({ config }: { config: FirebaseWebConfig | null }) {
   }, [ended]);
 
   // The switch button the visitor just tapped is gone once the end is noticed: put keyboard and screen-reader
-  // focus on the ended line. (A timer-driven end does not move focus; the line is a status and is announced.)
+  // focus on the status line, which now says the demo ended. (A timer-driven end does not move focus; the
+  // line is a live region and is announced.)
   useEffect(() => {
-    if (endedHere) lineRef.current?.focus();
+    if (endedHere) statusRef.current?.focus();
   }, [endedHere]);
 
   // Re-read the snapshot at the expiry instant so a bar left open flips to "ended" without a tap.
@@ -118,25 +119,15 @@ export function DemoBar({ config }: { config: FirebaseWebConfig | null }) {
   if (!view && !endedHere) return null;
   if (ended && pathname === "/sign-in") return null;
 
-  if (ended) {
-    return (
-      <aside aria-labelledby="demo-bar-line" style={BAR_STYLE}>
-        <p id="demo-bar-line" ref={lineRef} tabIndex={-1} role="status" style={{ ...LINE_STYLE, margin: 0 }}>
-          {t(lang, "C-demo-expired")}
-        </p>
-        <Link href="/" style={LINK_STYLE}>
-          {t(lang, "C-demo-restart")}
-        </Link>
-      </aside>
-    );
-  }
+  const live = view?.state ?? null;
 
-  const live = view!.state;
-  const roleLabel = t(lang, ROLE_KEY[live.role]);
-  const barText = t(lang, "C-demo-bar", { role: roleLabel, time: hhmm(live.expires_at_ms) });
-
+  // ONE live region (the status line) stays mounted for the bar's whole life, empty at first, so the end of
+  // the demo is announced when its text lands in it; a separate element that appears with its text already
+  // in it is not reliably announced.
   let statusText = "";
-  if (busy) {
+  if (ended) {
+    statusText = t(lang, "C-demo-expired");
+  } else if (busy) {
     statusText = t(lang, "C-demo-busy");
   } else if (refusal && refusal.kind !== "sandbox_expired") {
     // "Sandbox gone" is shown by the ended state above, not as a leftover line under a later live session.
@@ -145,20 +136,37 @@ export function DemoBar({ config }: { config: FirebaseWebConfig | null }) {
   }
 
   return (
-    <aside aria-labelledby="demo-bar-line" style={BAR_STYLE}>
-      <p id="demo-bar-line" ref={lineRef} tabIndex={-1} style={LINE_STYLE}>
-        {barText}
-      </p>
-      <div style={ROW_STYLE}>
-        {ALL_ROLES.filter((role) => role !== live.role).map((role) => (
-          <button key={role} type="button" disabled={busy} onClick={() => void onSwitch(role)} style={BUTTON_STYLE}>
-            {t(lang, "C-demo-switch", { role: t(lang, ROLE_KEY[role]) })}
-          </button>
-        ))}
-      </div>
-      <p ref={statusRef} tabIndex={-1} role="status" aria-live="polite" data-testid="demo-bar-status" style={STATUS_STYLE}>
+    <aside aria-labelledby={live && !ended ? "demo-bar-line" : "demo-bar-status-line"} style={BAR_STYLE}>
+      {live && !ended && (
+        <p id="demo-bar-line" ref={lineRef} tabIndex={-1} style={LINE_STYLE}>
+          {t(lang, "C-demo-bar", { role: t(lang, ROLE_KEY[live.role]), time: hhmm(live.expires_at_ms) })}
+        </p>
+      )}
+      {live && !ended && (
+        <div style={ROW_STYLE}>
+          {ALL_ROLES.filter((role) => role !== live.role).map((role) => (
+            <button key={role} type="button" disabled={busy} onClick={() => void onSwitch(role)} style={BUTTON_STYLE}>
+              {t(lang, "C-demo-switch", { role: t(lang, ROLE_KEY[role]) })}
+            </button>
+          ))}
+        </div>
+      )}
+      <p
+        id="demo-bar-status-line"
+        ref={statusRef}
+        tabIndex={-1}
+        role="status"
+        aria-live="polite"
+        data-testid="demo-bar-status"
+        style={ended ? { ...LINE_STYLE, margin: 0 } : STATUS_STYLE}
+      >
         {statusText}
       </p>
+      {ended && (
+        <Link href="/" style={LINK_STYLE}>
+          {t(lang, "C-demo-restart")}
+        </Link>
+      )}
     </aside>
   );
 }

@@ -304,6 +304,28 @@ describe("DemoBar expiry", () => {
     expect(screen.getByRole("status").textContent).toBe("Your demo session has ended.");
   });
 
+  it("announces a timer-driven end through the one live region that was already mounted (empty) while the demo was live", () => {
+    vi.useFakeTimers({ now: new Date("2026-10-19T08:00:00Z") });
+    seed("owner", Date.now() + 5_000);
+    renderBar();
+    const region = screen.getByRole("status");
+    expect(region.textContent).toBe("");
+    act(() => void vi.advanceTimersByTime(5_001));
+    expect(screen.getAllByRole("status")).toEqual([region]); // the same element, not a new one with the text already in it
+    expect(region.textContent).toBe("Your demo session has ended.");
+  });
+
+  it("announces a switch-induced end through the same live region too", async () => {
+    seed("staff", Date.now() + 3_600_000);
+    startDemo.mockResolvedValue({ kind: "sandbox_expired" });
+    renderBar();
+    const region = screen.getByRole("status");
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Switch to Owner" })));
+    expect(screen.getAllByRole("status")).toEqual([region]);
+    expect(region.textContent).toBe("Your demo session has ended.");
+    expect(document.activeElement).toBe(region);
+  });
+
   it("when a tapped switch finds the sandbox gone, focus moves to the ended line (the button that had it is gone)", async () => {
     seed("staff", Date.now() + 3_600_000);
     startDemo.mockResolvedValue({ kind: "sandbox_expired" });
