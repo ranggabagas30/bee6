@@ -27,6 +27,7 @@ export type Permission =
   | "proposals:read"
   | "constraints:read"
   | "constraints:write"
+  | "reviews:read"
   | "reviews:verdict"
   | "sop:read"
   | "sop:diff"
@@ -50,6 +51,7 @@ const ROLE_PERMISSIONS: Record<PrincipalRole, ReadonlySet<Permission>> = {
     "proposals:read", // R-09: list proposals
     "constraints:read", // R-08 Q-11 b
     "constraints:write", // R-08 Q-11 b
+    "reviews:read", // R-11: list reviews
     "reviews:verdict",
     "sop:read",
     "sop:diff",
@@ -65,6 +67,7 @@ const ROLE_PERMISSIONS: Record<PrincipalRole, ReadonlySet<Permission>> = {
     "proposals:read", // R-09: list proposals
     "constraints:read", // R-08 Q-8/Q-11
     "constraints:write", // R-08 Q-8/Q-11
+    "reviews:read", // R-11: list reviews
     "reviews:verdict",
     "sop:read",
     "sop:diff",

@@ -6,6 +6,7 @@ import {
   DeviceSchema,
   HeartbeatSchema,
   LabelUnitLedgerSchema,
+  OutcomeSchema,
   OutletSchema,
   OwnerDecisionSchema,
   PipelineLockSchema,
@@ -14,6 +15,7 @@ import {
   ProposalSchema,
   QuestionDocSchema,
   QuestionSchema,
+  ReviewSchema,
   SegmentSchema,
   SopChangeMetricSchema,
   SopStepSchema,
@@ -23,6 +25,7 @@ import {
   ThreadSchema,
   UserSchema,
 } from "@/lib/firestore/schema";
+import { outcomeDoc, reviewDoc } from "@/lib/reviews/testing/fixtures";
 
 const NOW = "2026-09-30T00:00:00.000Z";
 
@@ -937,5 +940,55 @@ describe("SopVersionSchema (R-10)", () => {
     expect(z.toJSONSchema(SopChangeMetricSchema)).toEqual(
       z.toJSONSchema(ProposalContentSchema.shape.metric),
     );
+  });
+});
+
+describe("Review / Outcome (R-11)", () => {
+  const review = () => reviewDoc();
+  const rv = (over: Record<string, unknown>) => ReviewSchema.safeParse({ ...review(), ...over });
+  const ov = (over: Record<string, unknown>) => OutcomeSchema.safeParse({ ...outcomeDoc(), ...over });
+
+  it("1.T1 a valid awaiting_supervisor review parses; an extra key fails (strict)", () => {
+    expect(ReviewSchema.safeParse(review()).success).toBe(true);
+    expect(rv({ extra: 1 }).success).toBe(false);
+  });
+
+  it("1.T2 id invariants", () => {
+    expect(rv({ review_id: "o1:v3" }).success).toBe(false);
+    expect(rv({ sop_version_id: "o1:v3", review_id: "o1:v3" }).success).toBe(false);
+  });
+
+  it("1.T3 date invariants", () => {
+    expect(rv({ review_date: "2026-10-16" }).success).toBe(false);
+    expect(rv({ confirm_by_date: "2026-10-23" }).success).toBe(false);
+  });
+
+  it("1.T4 status / verdict matrix", () => {
+    const entry = { verdict: "revise", reason: null, decided_at_ms: 1 };
+    expect(rv({ status: "awaiting_owner" }).success).toBe(false);
+    expect(rv({ status: "awaiting_owner", supervisor_verdict: entry }).success).toBe(true);
+    expect(rv({ status: "confirmed", supervisor_verdict: entry }).success).toBe(false);
+    expect(rv({ status: "confirmed", supervisor_verdict: entry, owner_verdict: entry }).success).toBe(true);
+    expect(rv({ status: "unknown", supervisor_verdict: entry, owner_verdict: entry }).success).toBe(false);
+    expect(rv({ status: "unknown", supervisor_verdict: entry }).success).toBe(true);
+    expect(rv({ status: "unknown" }).success).toBe(true);
+    expect(rv({ status: "awaiting_supervisor", supervisor_verdict: entry }).success).toBe(false);
+  });
+
+  it("1.T5 suggestion: null verdict iff not_enough_days / no_baseline", () => {
+    const s = (verdict: string | null, reason: string) => ({ verdict, reason, change_ratio: null, rule_version: "rev-v1" });
+    expect(rv({ suggestion: s("worked", "not_enough_days") }).success).toBe(false);
+    expect(rv({ suggestion: s(null, "improved") }).success).toBe(false);
+    expect(rv({ suggestion: s(null, "not_enough_days") }).success).toBe(true);
+    expect(rv({ suggestion: s(null, "no_baseline") }).success).toBe(true);
+  });
+
+  it("1.T6 outcome invariants (in_memory iff not unknown; ids equal; no text key)", () => {
+    expect(OutcomeSchema.safeParse(outcomeDoc()).success).toBe(true);
+    expect(ov({ verdict: "unknown", in_memory: true }).success).toBe(false);
+    expect(ov({ verdict: "worked", in_memory: false }).success).toBe(false);
+    expect(ov({ verdict: "unknown", in_memory: false, supervisor_verdict: null }).success).toBe(true);
+    expect(ov({ outcome_id: "o1:v3" }).success).toBe(false);
+    expect(ov({ reason: "text" }).success).toBe(false);
   });
 });
