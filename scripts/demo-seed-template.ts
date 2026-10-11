@@ -490,37 +490,56 @@ export function isCheckOnly(argv: string[]): boolean {
   return argv.includes("--check-only");
 }
 
+/**
+ * The command-line branch logic, with everything that touches the network or Firestore injected:
+ * `--check-only` returns after the read-only readiness check (no flag parsing, no `runSeed`, no HTTP call);
+ * otherwise the flags are parsed (and refused when wrong) and `runSeed` does the real run.
+ * Returns the process exit code: 0 READY, 2 NOT READY.
+ */
+export async function runCli(
+  argv: string[],
+  io: {
+    readiness: ReadinessReader;
+    log: (line: string) => void;
+    runSeed: (args: ReturnType<typeof parseCliArgs>) => Promise<ReadinessResult>;
+  },
+): Promise<0 | 2> {
+  if (isCheckOnly(argv)) {
+    const result = await runReadinessCheck({ readiness: io.readiness, log: io.log });
+    return result.ready ? 0 : 2;
+  }
+  const result = await io.runSeed(parseCliArgs(argv));
+  return result.ready ? 0 : 2;
+}
+
 async function main(): Promise<void> {
   assertNotPilotProject(process.env);
-  const argv = process.argv.slice(2);
   const log = (line: string) => console.log(line);
   const readiness = await firestoreReadinessReader();
 
-  if (isCheckOnly(argv)) {
-    const result = await runReadinessCheck({ readiness, log });
-    if (!result.ready) process.exitCode = 2;
-    return;
-  }
-
-  const { baseUrl, code, clipsDir, planPath } = parseCliArgs(argv);
-  const plan = PlanSchema.parse(JSON.parse(await readFile(planPath, "utf8")));
-
-  const result = await runTemplateSeed({
-    baseUrl,
-    code,
-    plan,
-    nowMs: Date.now(),
-    fetchFn: fetch,
-    readClip: async (file) => new Uint8Array(await readFile(path.join(clipsDir, file))),
-    randomUUID,
-    readProgress: () => readProgressFromFirestore(TZ),
+  const code = await runCli(process.argv.slice(2), {
     readiness,
-    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     log,
-    pollEveryMs: 30_000,
-    pollMaxMs: 15 * 60_000,
+    runSeed: async ({ baseUrl, code, clipsDir, planPath }) => {
+      const plan = PlanSchema.parse(JSON.parse(await readFile(planPath, "utf8")));
+      return runTemplateSeed({
+        baseUrl,
+        code,
+        plan,
+        nowMs: Date.now(),
+        fetchFn: fetch,
+        readClip: async (file) => new Uint8Array(await readFile(path.join(clipsDir, file))),
+        randomUUID,
+        readProgress: () => readProgressFromFirestore(TZ),
+        readiness,
+        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+        log,
+        pollEveryMs: 30_000,
+        pollMaxMs: 15 * 60_000,
+      });
+    },
   });
-  if (!result.ready) process.exitCode = 2;
+  if (code !== 0) process.exitCode = code;
 }
 
 const isMainModule =

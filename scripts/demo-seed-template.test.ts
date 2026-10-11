@@ -10,7 +10,7 @@ import {
   checkTemplateReadiness,
   isCheckOnly,
   parseCliArgs,
-  runReadinessCheck,
+  runCli,
   runTemplateSeed,
   type ProgressSnapshot,
   type ReadinessReader,
@@ -466,13 +466,34 @@ describe("R-18 P0 3.T1-3.T3 readiness check (same candidates and evidence floor 
     expect(isCheckOnly(["--base-url", "https://x", "--code", "123456", "--clips-dir", "c"])).toBe(false);
   });
 
-  it("3.T3 --check-only runs only the read: no HTTP call, no upload, no pairing", async () => {
-    const fetchFn = vi.fn();
-    const logs: string[] = [];
-    const res = await runReadinessCheck({ readiness: reader([threadOn(1, "2026-10-17"), threadOn(2, "2026-10-18")]).r, log: (l) => logs.push(l) });
-    expect(res.ready).toBe(true);
-    expect(logs).toEqual(["[demo-seed] READY: facts=2 dates=2"]);
-    expect(fetchFn).not.toHaveBeenCalled();
+  it("3.T3 the CLI with --check-only reads only: no seed run, no HTTP call, exit 0 when READY and 2 when NOT READY", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    try {
+      const runSeed = vi.fn();
+      const logs: string[] = [];
+      const ready = reader([threadOn(1, "2026-10-17"), threadOn(2, "2026-10-18")]).r;
+      expect(await runCli(["--check-only"], { readiness: ready, log: (l) => logs.push(l), runSeed })).toBe(0);
+      expect(logs).toEqual(["[demo-seed] READY: facts=2 dates=2"]);
+
+      const notReady = reader([threadOn(1, "2026-10-17")]).r;
+      expect(await runCli(["--check-only"], { readiness: notReady, log: (l) => logs.push(l), runSeed })).toBe(2);
+      expect(logs.at(-1)).toMatch(/^\[demo-seed\] NOT READY: facts=1 dates=1/);
+
+      expect(runSeed).not.toHaveBeenCalled(); // needs no --base-url, --code or --clips-dir, so parseCliArgs is never reached
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("3.T3 without --check-only the CLI takes the seed path: bad flags are refused before the read, and a good run's verdict sets the exit code", async () => {
+    const runSeed = vi.fn(async () => ({ ready: false, facts: 0, dates: 0, line: "NOT READY: x" }));
+    const base = { readiness: reader([]).r, log: () => {}, runSeed };
+    await expect(runCli([], base)).rejects.toThrow(TemplateSeedError);
+    expect(runSeed).not.toHaveBeenCalled();
+    const argv = ["--base-url", "https://demo.example.run.app", "--code", "123456", "--clips-dir", "clips-here"];
+    expect(await runCli(argv, base)).toBe(2);
+    expect(runSeed).toHaveBeenCalledTimes(1);
   });
 });
 
