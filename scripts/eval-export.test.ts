@@ -34,6 +34,19 @@ describe("parseCliArgs", () => {
     expect(() => parseCliArgs(BASE.map((v) => (v === "2026-10-06" ? "2026-10-01" : v)))).toThrow(/before/);
   });
 
+  it.each(["2026-02-30", "2026-13-45", "2026-10-00", "2026-04-31", "2025-02-29"])(
+    "rejects the impossible calendar date %s with 'must be YYYY-MM-DD'",
+    (bad) => {
+      expect(() => parseCliArgs(BASE.map((v) => (v === "2026-10-05" ? bad : v)))).toThrow(/--from must be YYYY-MM-DD/);
+      expect(() => parseCliArgs(BASE.map((v) => (v === "2026-10-06" ? bad : v)))).toThrow(/--to must be YYYY-MM-DD/);
+    },
+  );
+
+  it("accepts a real leap day", () => {
+    const argv = BASE.map((v) => (v === "2026-10-05" ? "2028-02-29" : v === "2026-10-06" ? "2028-03-01" : v));
+    expect(parseCliArgs(argv)).toMatchObject({ from: "2028-02-29", to: "2028-03-01" });
+  });
+
   it("refuses the pilot project unless --allow-pilot", () => {
     const pilot = BASE.map((v) => (v === "bee6-playground" ? PILOT_PROJECT_ID : v));
     expect(() => parseCliArgs(pilot)).toThrow(/pilot/i);

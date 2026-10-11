@@ -28,7 +28,16 @@ import { buildEpisodeExport, type ExportThread } from "@/lib/eval/export";
 import { PILOT_PROJECT_ID } from "@/scripts/demo-seed-template";
 
 const DEFAULT_TZ = "Asia/Jakarta";
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** True only for a real calendar date (rejects 2026-02-30, 2026-13-45, 2026-10-00). */
+function isRealDate(value: string): boolean {
+  const m = DATE_RE.exec(value);
+  if (!m) return false;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const at = new Date(Date.UTC(y, mo - 1, d));
+  return at.getUTCFullYear() === y && at.getUTCMonth() === mo - 1 && at.getUTCDate() === d;
+}
 
 export class ExportError extends Error {}
 
@@ -61,8 +70,8 @@ export function parseCliArgs(argv: string[]): ExportArgs {
   const from = need("--from");
   const to = need("--to");
   const outDir = path.resolve(need("--out-dir"));
-  if (!DATE_RE.test(from)) throw new ExportError(`--from must be YYYY-MM-DD. ${usage}`);
-  if (!DATE_RE.test(to)) throw new ExportError(`--to must be YYYY-MM-DD. ${usage}`);
+  if (!isRealDate(from)) throw new ExportError(`--from must be YYYY-MM-DD. ${usage}`);
+  if (!isRealDate(to)) throw new ExportError(`--to must be YYYY-MM-DD. ${usage}`);
   if (to < from) throw new ExportError("--to must not be before --from.");
   const allowPilot = argv.includes("--allow-pilot");
   if (project === PILOT_PROJECT_ID && !allowPilot) {
