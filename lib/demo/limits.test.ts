@@ -103,6 +103,27 @@ describe("clientIp", () => {
   });
 });
 
+describe("clientIp zone ids (N-1)", () => {
+  it("cuts everything from the first % so a hostile zone id cannot throw", () => {
+    expect(() => clientIp(h({ "x-forwarded-for": "1:2:3:4:5:6:7:8%x::y" }))).not.toThrow();
+    expect(clientIp(h({ "x-forwarded-for": "1:2:3:4:5:6:7:8%x::y" }))).toBe("1:2:3:4::/64");
+  });
+
+  it("a zone id on an IPv4-mapped address still gives the IPv4 bucket", () => {
+    expect(clientIp(h({ "x-forwarded-for": "::ffff:1.2.3.4%a:b" }))).toBe("1.2.3.4");
+  });
+
+  it("a plain zone id is dropped", () => {
+    expect(clientIp(h({ "x-forwarded-for": "fe80::1%eth0" }))).toBe("fe80:0:0:0::/64");
+  });
+
+  it("never throws on a malformed IPv6 string; falls back to the unknown bucket", () => {
+    for (const bad of ["1:2:3:4:5:6:7:8::", "1:2:3:4:5:6:7::8:9", "::1:2:3:4:5:6:7:8"]) {
+      expect(() => clientIp(h({ "x-forwarded-for": bad }))).not.toThrow();
+    }
+  });
+});
+
 describe("resolveXffFromEnd (DEMO_XFF_FROM_END)", () => {
   it("is 1 when unset or empty", () => {
     expect(resolveXffFromEnd(undefined)).toBe(1);

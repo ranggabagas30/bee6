@@ -47,7 +47,9 @@ function ipv6Groups(ip: string): number[] {
   const [left, right] = text.split("::");
   const l = left ? left.split(":") : [];
   const r = right === undefined ? [] : right ? right.split(":") : [];
-  const fill = right === undefined ? [] : Array<string>(8 - l.length - r.length).fill("0");
+  const fillLen = right === undefined ? 0 : 8 - l.length - r.length;
+  if (fillLen < 0) throw new RangeError("ipv6Groups: too many groups");
+  const fill = Array<string>(fillLen).fill("0");
   return [...l, ...fill, ...r].map((g) => parseInt(g, 16));
 }
 
@@ -71,8 +73,16 @@ function normalizeIp(entry: string): string | null {
   const bracketed = /^\[([^\]]+)\](?::\d{1,5})?$/.exec(entry);
   if (bracketed) candidate = bracketed[1]!;
   else if (/^[^:]+:\d{1,5}$/.test(entry)) candidate = entry.slice(0, entry.lastIndexOf(":")); // ipv4:port
-  candidate = candidate.replace(/%[0-9A-Za-z._~-]{1,64}$/, ""); // IPv6 zone id
-  return isIP(candidate) !== 0 ? bucketValue(candidate.toLowerCase()) : null;
+  // An IPv6 zone id (`%eth0`) is never part of the bucket: cut everything from the first '%'
+  // (a hostile zone id may itself contain ':' or '::').
+  const zone = candidate.indexOf("%");
+  if (zone !== -1) candidate = candidate.slice(0, zone);
+  if (isIP(candidate) === 0) return null;
+  try {
+    return bucketValue(candidate.toLowerCase());
+  } catch {
+    return null; // never a 500 from a hostile header: the shared "unknown" bucket
+  }
 }
 
 /**
