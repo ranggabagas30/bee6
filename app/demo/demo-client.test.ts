@@ -242,6 +242,20 @@ describe("clock skew: the expiry is corrected to this device's clock", () => {
     expect(await expiryFor(SERVER_NOW, SERVER_EXPIRES + H)).toBe(SERVER_EXPIRES);
   });
 
+  it("trusts a Date header only when the time left is within the 2 h sandbox life plus 5 min of margin", async () => {
+    const limit = 2 * H + 5 * 60_000;
+    const deviceNow = SERVER_NOW + 3 * H;
+    // Exactly at the limit: the correction applies.
+    expect(await expiryFor(deviceNow, SERVER_EXPIRES - limit)).toBe(deviceNow + limit);
+    // One second past it, or a few hours past it: not a clock reading to trust, the server's value stays.
+    expect(await expiryFor(deviceNow, SERVER_EXPIRES - limit - 1000)).toBe(SERVER_EXPIRES);
+    expect(await expiryFor(deviceNow, SERVER_EXPIRES - 3 * H)).toBe(SERVER_EXPIRES);
+    expect(await expiryFor(deviceNow, SERVER_EXPIRES - 23 * H)).toBe(SERVER_EXPIRES);
+    // Just inside (1 s left) still corrects; none left does not.
+    expect(await expiryFor(deviceNow, SERVER_EXPIRES - 1000)).toBe(deviceNow + 1000);
+    expect(await expiryFor(deviceNow, SERVER_EXPIRES)).toBe(SERVER_EXPIRES);
+  });
+
   it("startDemo stores the corrected expiry, so the bar's end time and the expiry check use the device's own clock", async () => {
     const deviceNow = SERVER_NOW + 3 * H;
     const f = vi.fn(withDate(SERVER_NOW));

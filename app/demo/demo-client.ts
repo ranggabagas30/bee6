@@ -174,8 +174,11 @@ async function bodyOrNull(res: Response): Promise<unknown> {
   }
 }
 
-/** A longer remaining time than this, or none left, makes a response's Date header untrustworthy as a clock reading. */
-const SANE_REMAINING_MS = 24 * 60 * 60_000;
+/**
+ * A sandbox lives 2 h. A Date header that leaves more than that plus a 5 min margin, or nothing, is not a
+ * clock reading to trust (a wrong or hostile header must not stretch the demo or end it early).
+ */
+const SANE_REMAINING_MS = 2 * 60 * 60_000 + 5 * 60_000;
 
 /**
  * The server's `expires_at_ms` is on the server's clock. The response's Date header says what that clock
