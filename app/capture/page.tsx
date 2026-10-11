@@ -40,9 +40,9 @@ import {
 } from "@/lib/capture/browser/event-log";
 import { isDevControlsEnabled } from "@/lib/capture/dev-mode";
 import type { CaptureConfigResponse } from "@/lib/capture/contract";
+import { autoStopDeadline, selesaiReady } from "@/lib/capture/demo-session";
 import {
   addDays,
-  autoStopAtMs,
   businessDateOf,
   localDateOf,
   mulaiAvailability,
@@ -286,7 +286,13 @@ export default function CapturePage() {
   const autoStopInFlightRef = useRef(false);
   useEffect(() => {
     if (!session || !config || nowMs === null || autoStopInFlightRef.current) return;
-    const deadline = autoStopAtMs(session.local_date, config.weekly_hours, config.timezone);
+    const deadline = autoStopDeadline({
+      localDate: session.local_date,
+      startedAtMs: session.started_at_ms,
+      weekly: config.weekly_hours,
+      tz: config.timezone,
+      maxMs: config.demo_session?.max_ms,
+    });
     if (deadline === null || nowMs < deadline) return;
     const auth = readDeviceAuth();
     if (!auth) return;
@@ -326,6 +332,15 @@ export default function CapturePage() {
       document.removeEventListener("visibilitychange", tick);
     };
   }, []);
+
+  // R-18: a sandbox session hard-stops at start + max_ms, so the clock must not wait for the 30 s tick.
+  // Only while a demo session is open; a pilot page never runs this interval.
+  const demoTicking = session !== null && config?.demo_session !== undefined;
+  useEffect(() => {
+    if (!demoTicking) return;
+    const id = setInterval(() => setNowMs(Date.now()), 1_000);
+    return () => clearInterval(id);
+  }, [demoTicking]);
 
   // Batalkan panel's own fast tick (arm delay + auto-close).
   useEffect(() => {
@@ -600,6 +615,7 @@ export default function CapturePage() {
       weekly: config.weekly_hours,
       tz: config.timezone,
       lang,
+      demo: selesaiReady(config.demo_session),
     });
     if (!sv.ready) return <p>{sv.note}</p>;
     return (
