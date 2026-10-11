@@ -39,8 +39,8 @@ const authedPostJson = vi.fn();
 // 8.1) defaults to an empty list.
 let constraintsResult: unknown = { kind: "error" };
 let proposalsResult: unknown = { kind: "ok", data: { open: [], decided: [] } };
-const authedGetJson = vi.fn(async (_auth: unknown, path: unknown) =>
-  path === "/api/v1/proposals" ? proposalsResult : constraintsResult,
+const authedGetJson = vi.fn(async (...args: unknown[]) =>
+  args[1] === "/api/v1/proposals" ? proposalsResult : constraintsResult,
 );
 vi.mock("@/lib/auth/client/api", () => ({
   authedPostJson: (...args: unknown[]) => authedPostJson(...args),
