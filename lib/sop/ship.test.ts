@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { effectiveFromDate, newStepId, planShip, shipReviewDate, SOP_MAX_STEPS } from "@/lib/sop/ship";
-import { PROPOSAL_ID, proposalV1, seedV1 } from "@/lib/sop/testing/fixtures";
+import {
+  effectiveFromDate,
+  newStepId,
+  planShip,
+  shipReviewDate,
+  SOP_MAX_STEPS,
+  SOP_STEP_TEXT_MODEL_CAP,
+} from "@/lib/sop/ship";
+import { WIRE_MAX } from "@/lib/proposals/wire-schema";
+import { PROPOSAL_ID, proposalV1, seedV1, step } from "@/lib/sop/testing/fixtures";
+import { SopVersionSchema } from "@/lib/firestore/schema";
 import type { SopVersion } from "@/lib/firestore/schema";
 
 const TZ = "Asia/Jakarta";
@@ -50,6 +59,55 @@ describe("planShip conflicts", () => {
     );
     const noContent = { ...proposalV1(), content: null } as ReturnType<typeof proposalV1>;
     expect(() => ship(seedV1(), noContent)).toThrow(/not shippable/);
+  });
+});
+
+describe("planShip carry-over refusals (PR-1 tech-lead review)", () => {
+  const legacyGenerator = () => ({ ...proposalV1().generator, agent_version: "proposal-v1" });
+
+  it("CO.1 a proposal-v1 proposal is refused with LEGACY_PROPOSAL (its change_text may be a description)", () => {
+    expect(ship(seedV1(), proposalV1({ generator: legacyGenerator() }))).toEqual({
+      kind: "conflict",
+      code: "LEGACY_PROPOSAL",
+    });
+    // also for an add, and before any SOP lookup
+    expect(ship(seedV1(), proposalV1({ generator: legacyGenerator() }, { target_step_id: null }))).toEqual({
+      kind: "conflict",
+      code: "LEGACY_PROPOSAL",
+    });
+    expect(ship(null, proposalV1({ generator: legacyGenerator() }))).toEqual({
+      kind: "conflict",
+      code: "LEGACY_PROPOSAL",
+    });
+  });
+
+  it("CO.1 a proposal-v2 proposal still ships", () => {
+    expect(ship(seedV1()).kind).toBe("ship");
+  });
+
+  it("CO.2 the cap used is the model wire cap for change_text (400)", () => {
+    expect(SOP_STEP_TEXT_MODEL_CAP).toBe(WIRE_MAX.change_text);
+    expect(SOP_STEP_TEXT_MODEL_CAP).toBe(400);
+  });
+
+  function sopWithStockText(text: string) {
+    const v1 = seedV1();
+    return SopVersionSchema.parse({ ...v1, steps: [step("stock-01", text), ...v1.steps.slice(1)] });
+  }
+
+  it("CO.2 a modify whose current step text is longer than 400 chars is refused with STEP_TEXT_TOO_LONG, nothing shipped", () => {
+    expect(ship(sopWithStockText("x".repeat(401)))).toEqual({ kind: "conflict", code: "STEP_TEXT_TOO_LONG" });
+  });
+
+  it("CO.2 a current step text of exactly 400 chars still ships", () => {
+    expect(ship(sopWithStockText("x".repeat(400))).kind).toBe("ship");
+  });
+
+  it("CO.2 another long step does not block a modify of a short step, and an add is never refused for it", () => {
+    const v1 = seedV1();
+    const longOther = SopVersionSchema.parse({ ...v1, steps: [...v1.steps.slice(0, 1), step("open-01", "y".repeat(700)), ...v1.steps.slice(2)] });
+    expect(ship(longOther).kind).toBe("ship");
+    expect(ship(longOther, proposalV1({}, { target_step_id: null })).kind).toBe("ship");
   });
 });
 

@@ -15,11 +15,13 @@ import {
 import {
   decideProposal,
   listProposals,
+  type DecisionWrite,
   type ProposalReviewStore,
   type ReviewDeps,
   type ReviewThreadRow,
 } from "@/lib/proposals/review-service";
 import type { DecisionSnapshot } from "@/lib/proposals/review-plan";
+import { seedV1 } from "@/lib/sop/testing/fixtures";
 import { LIST_DECIDED_MAX, LIST_OPEN_MAX } from "@/lib/proposals/review-contract";
 import type { ApproveBody, ReviewBody } from "@/lib/proposals/review-contract";
 
@@ -79,7 +81,7 @@ function proposal(n = 1, overrides: Record<string, unknown> = {}): Proposal {
       kind: "adk",
       model: "gemini-3.5-flash",
       location: "global",
-      agent_version: "proposal-v1",
+      agent_version: "proposal-v2",
       gate_version: "pgate-v1",
       library_version: { interventions: 1, rubric: 1 },
       sop_version_id: `${OUTLET_ID}:v1`,
@@ -216,6 +218,9 @@ class FakeReviewStore implements ProposalReviewStore {
   transactCalls = 0;
   listStatusCalls: Array<readonly string[]> = [];
   beforeTransact: (() => void) | null = null;
+  /** Runs after the in-transaction snapshot is taken and decide() returned, before the commit (a concurrent commit). */
+  beforeCommit: (() => void) | null = null;
+  sopWrites: SopVersion[] = [];
   constructor(
     public cstore: FakeConstraintStore,
     public audits: AuditSink,
@@ -259,6 +264,7 @@ class FakeReviewStore implements ProposalReviewStore {
   }
   private snapshotOf(id: string): DecisionSnapshot {
     const p = this.proposals.get(id) ?? null;
+    const currentSop = [...this.sops.values()].sort((a, b) => b.version - a.version)[0] ?? null;
     return {
       proposal: p,
       same_range: p
@@ -274,7 +280,8 @@ class FakeReviewStore implements ProposalReviewStore {
         }),
       ),
       constraint_ids: this.cstore.docs.map((c) => c.constraint_id),
-      current_sop_version_id: [...this.sops.values()].sort((a, b) => b.version - a.version)[0]?.sop_version_id ?? null,
+      current_sop_version_id: currentSop?.sop_version_id ?? null,
+      current_sop: currentSop,
     };
   }
   async readDecisionSnapshot(id: string) {
@@ -282,15 +289,26 @@ class FakeReviewStore implements ProposalReviewStore {
   }
   async transactDecision<T>(
     id: string,
-    decide: (snap: DecisionSnapshot) => { write: { proposal: Proposal; audit: AuditLog } | null; outcome: T },
+    decide: (snap: DecisionSnapshot) => { write: DecisionWrite | null; outcome: T },
   ) {
     this.transactCalls++;
     this.beforeTransact?.();
     this.beforeTransact = null;
     const { write, outcome } = decide(this.snapshotOf(id));
+    this.beforeCommit?.();
+    this.beforeCommit = null;
     if (write) {
+      // All-or-nothing, like the real commit: a taken sop_versions id rejects the whole write (ALREADY_EXISTS).
+      if (write.sop_version && this.sops.has(write.sop_version.sop_version_id)) {
+        throw new ConflictError("Decision refused", "SOP_CHANGED");
+      }
       this.proposals.set(id, write.proposal);
       this.audits.push(write.audit);
+      if (write.sop_version) {
+        this.sops.set(write.sop_version.sop_version_id, write.sop_version);
+        this.sopWrites.push(write.sop_version);
+      }
+      if (write.sop_audit) this.audits.push(write.sop_audit);
     }
     return outcome;
   }
@@ -498,7 +516,7 @@ describe("decideProposal: positive decisions", () => {
     ctx.store.put(awaitingOwner(1));
     const res = await own(ctx, approveBody());
     expect(res).toEqual({ result: "approved", status: "approved" });
-    expect(ctx.audits.map((a) => a.action)).toEqual(["proposal.approved"]);
+    expect(ctx.audits.map((a) => a.action)).toEqual(["proposal.approved", "sop.version_created"]);
     expect(ctx.cstore.createInTransactionCalls).toBe(0);
   });
 
@@ -720,6 +738,201 @@ describe("decideProposal: owner reject (Q-1 = yes)", () => {
     await own(ctx, rejectBody("the oven only holds 2.5 kg."), { id: uuid(2) });
     expect(ctx.cstore.docs).toHaveLength(1);
     expect(ctx.store.proposals.get(uuid(2))!.owner_decision!.constraint_id).toBe(first.constraint_id);
+  });
+});
+
+const withContent = (p: Proposal, patch: Record<string, unknown>): Proposal =>
+  ProposalSchema.parse({ ...p, content: { ...p.content!, ...patch } });
+const legacy = (p: Proposal): Proposal =>
+  ProposalSchema.parse({ ...p, generator: { ...p.generator, agent_version: "proposal-v1" } });
+
+describe("decideProposal: the owner's approval ships the next SOP version (R-10)", () => {
+  async function approveFlow(ctx: Ctx, p = proposal(1)) {
+    ctx.store.put(p);
+    await sup(ctx, feasibleBody([C1]));
+    return own(ctx, approveBody());
+  }
+  const nothingWritten = (ctx: Ctx, status: Proposal["status"]) => {
+    expect(ctx.store.proposals.get(P1)!.status).toBe(status);
+    expect(ctx.store.sopWrites).toHaveLength(0);
+    expect([...ctx.store.sops.keys()]).toEqual([`${OUTLET_ID}:v1`]);
+  };
+
+  it("6.T1 done-when: Feasible then Approve creates v2 with the changed step and a review date after 18 Oct", async () => {
+    const ctx = setup();
+    ctx.cstore.docs.push(constraint(C1, "Old rule"));
+    const res = await approveFlow(ctx);
+    expect(res).toEqual({ result: "approved", status: "approved" });
+    const v2 = ctx.store.sops.get(`${OUTLET_ID}:v2`)!;
+    expect(v2.source).toBe("proposal");
+    expect(v2.source_proposal_id).toBe(P1);
+    expect(v2.previous_version_id).toBe(`${OUTLET_ID}:v1`);
+    expect(v2.steps.find((s) => s.step_id === "stock-01")!.text).toBe("Check the display every 30 minutes.");
+    expect(v2.change!.review_date > "2026-10-18").toBe(true);
+    expect(v2.effective_from_date).toBe("2026-10-12"); // NOW is 2026-10-11 12:00 WIB
+  });
+
+  it("6.T2 audits in order: proposal.approved (with sop_version_id, review_date) then sop.version_created (owner, exact details)", async () => {
+    const ctx = setup();
+    ctx.cstore.docs.push(constraint(C1, "Old rule"));
+    await approveFlow(ctx);
+    const [, approvedAudit, sopAudit] = ctx.audits;
+    expect(ctx.audits.map((a) => a.action)).toEqual(["proposal.feasible", "proposal.approved", "sop.version_created"]);
+    expect(approvedAudit!.details).toMatchObject({ sop_version_id: `${OUTLET_ID}:v2`, review_date: "2026-10-26" });
+    expect(sopAudit).toMatchObject({
+      actor_role: "owner",
+      target_type: "sop_version",
+      target_id: `${OUTLET_ID}:v2`,
+      details: {
+        version: 2,
+        change_kind: "modify",
+        source_proposal_id: P1,
+        effective_from_date: "2026-10-12",
+        review_date: "2026-10-26",
+      },
+    });
+    expect(Object.keys(sopAudit!.details!).sort()).toEqual(
+      ["change_kind", "effective_from_date", "review_date", "source_proposal_id", "version"].sort(),
+    );
+  });
+
+  it("6.T3 the proposal's review_date equals the version's change.review_date = effective + review_after_days; nothing else in content changes", async () => {
+    const ctx = setup();
+    ctx.cstore.docs.push(constraint(C1, "Old rule"));
+    const before = proposal(1);
+    await approveFlow(ctx, before);
+    const stored = ctx.store.proposals.get(P1)!;
+    const v2 = ctx.store.sops.get(`${OUTLET_ID}:v2`)!;
+    expect(stored.content!.review_date).toBe(v2.change!.review_date);
+    expect(v2.change!.review_date).toBe("2026-10-26"); // 2026-10-12 + 14
+    expect({ ...stored.content!, review_date: before.content!.review_date }).toEqual(before.content);
+  });
+
+  it("6.T4 a newer SOP than the proposal saw -> 409 SOP_CHANGED from R-09's guard, nothing written", async () => {
+    const ctx = setup();
+    ctx.store.put(awaitingOwner(1));
+    ctx.store.sops.set(`${OUTLET_ID}:v2`, { ...sop(2), source: "seed" });
+    const err = await own(ctx, approveBody()).catch((e) => e);
+    expect((err as ConflictError).code).toBe("SOP_CHANGED");
+    expect(ctx.store.proposals.get(P1)!.status).toBe("awaiting_owner");
+    expect(ctx.store.sopWrites).toHaveLength(0);
+    expect(ctx.audits).toHaveLength(0);
+  });
+
+  it("6.T4 a target step missing from the latest SOP (ids match) -> 409 SOP_CHANGED from planShip, nothing written", async () => {
+    const ctx = setup();
+    ctx.store.put(withContent(awaitingOwner(1), { target_step_id: "gone-01" }));
+    const err = await own(ctx, approveBody()).catch((e) => e);
+    expect((err as ConflictError).code).toBe("SOP_CHANGED");
+    nothingWritten(ctx, "awaiting_owner");
+    expect(ctx.audits).toHaveLength(0);
+  });
+
+  it("6.T5 a new step on a 200-step SOP -> 409 SOP_STEP_LIMIT, nothing written", async () => {
+    const ctx = setup();
+    ctx.store.sops.set(`${OUTLET_ID}:v1`, seedV1(200));
+    ctx.store.put(withContent(awaitingOwner(1), { target_step_id: null }));
+    const err = await own(ctx, approveBody()).catch((e) => e);
+    expect((err as ConflictError).code).toBe("SOP_STEP_LIMIT");
+    expect(err.statusCode).toBe(409);
+    nothingWritten(ctx, "awaiting_owner");
+    expect(ctx.audits).toHaveLength(0);
+  });
+
+  it("6.T6 a sentinel in change_text and failure_condition is stored in the SOP version but in no audit and no log", async () => {
+    const ctx = setup();
+    ctx.cstore.docs.push(constraint(C1, "Old rule"));
+    await approveFlow(
+      ctx,
+      withContent(proposal(1), { change_text: "TEXT-SENTINEL-77 every 30 minutes.", failure_condition: "FAIL-SENTINEL-88" }),
+    );
+    const v2 = ctx.store.sops.get(`${OUTLET_ID}:v2`)!;
+    expect(JSON.stringify(v2)).toContain("TEXT-SENTINEL-77");
+    expect(JSON.stringify(v2)).toContain("FAIL-SENTINEL-88");
+    expect(JSON.stringify(ctx.audits)).not.toContain("SENTINEL");
+    neverLogged("SENTINEL");
+  });
+
+  it("6.T7 supervisor Feasible, supervisor Reject and owner Reject never write sop_versions", async () => {
+    const a = setup();
+    a.cstore.docs.push(constraint(C1, "Old rule"));
+    a.store.put(proposal(1));
+    await sup(a, feasibleBody([C1]));
+    const b = setup();
+    b.store.put(proposal(1));
+    await sup(b, rejectBody());
+    const c = setup();
+    c.store.put(awaitingOwner(1));
+    await own(c, rejectBody());
+    for (const ctx of [a, b, c]) {
+      expect(ctx.store.sopWrites).toHaveLength(0);
+      expect([...ctx.store.sops.keys()]).toEqual([`${OUTLET_ID}:v1`]);
+      expect(ctx.audits.some((x) => x.action === "sop.version_created")).toBe(false);
+    }
+  });
+
+  it("6.T8 approving twice: the second is unchanged and exactly one version exists", async () => {
+    const ctx = setup();
+    ctx.cstore.docs.push(constraint(C1, "Old rule"));
+    await approveFlow(ctx);
+    expect(await own(ctx, approveBody())).toEqual({ result: "unchanged", status: "approved" });
+    expect(ctx.store.sopWrites).toHaveLength(1);
+    expect(ctx.audits.filter((x) => x.action === "sop.version_created")).toHaveLength(1);
+  });
+
+  it("6.T9 two proposals on v1: approving A ships v2, approving B is 409 SOP_CHANGED and B stays awaiting_owner", async () => {
+    const ctx = setup();
+    const rangeB = { from_date: "2026-10-05", to_date: "2026-10-06" };
+    ctx.store.put(awaitingOwner(1), awaitingOwner(2, { range: rangeB }));
+    await own(ctx, approveBody(), { id: P1 });
+    const err = await own(ctx, approveBody(), { id: uuid(2) }).catch((e) => e);
+    expect((err as ConflictError).code).toBe("SOP_CHANGED");
+    expect(ctx.store.proposals.get(uuid(2))!.status).toBe("awaiting_owner");
+    expect(ctx.store.sopWrites).toHaveLength(1);
+  });
+
+  it("6.T10 a commit race on the version id (ALREADY_EXISTS) is a 409 SOP_CHANGED and the proposal is unchanged", async () => {
+    const ctx = setup();
+    ctx.store.put(awaitingOwner(1));
+    ctx.store.beforeCommit = () => ctx.store.sops.set(`${OUTLET_ID}:v2`, { ...sop(2) });
+    const err = await own(ctx, approveBody()).catch((e) => e);
+    expect(err).toBeInstanceOf(ConflictError);
+    expect((err as ConflictError).code).toBe("SOP_CHANGED");
+    expect(ctx.store.proposals.get(P1)!.status).toBe("awaiting_owner");
+    expect(ctx.store.sopWrites).toHaveLength(0);
+    expect(ctx.audits).toHaveLength(0);
+  });
+
+  it("an owner Approve of a new-step proposal appends the step last", async () => {
+    const ctx = setup();
+    ctx.store.put(withContent(awaitingOwner(1), { target_step_id: null }));
+    await own(ctx, approveBody());
+    const v2 = ctx.store.sops.get(`${OUTLET_ID}:v2`)!;
+    expect(v2.steps).toHaveLength(2);
+    expect(v2.change!.kind).toBe("add");
+    expect(ctx.audits.at(-1)!.details).toMatchObject({ change_kind: "add" });
+  });
+
+  it("CO.1 a proposal-v1 proposal cannot be approved: 409 LEGACY_PROPOSAL, nothing written; Reject still works", async () => {
+    const ctx = setup();
+    ctx.store.put(legacy(awaitingOwner(1)));
+    const err = await own(ctx, approveBody()).catch((e) => e);
+    expect(err).toBeInstanceOf(ConflictError);
+    expect((err as ConflictError).code).toBe("LEGACY_PROPOSAL");
+    nothingWritten(ctx, "awaiting_owner");
+    expect(ctx.audits).toHaveLength(0);
+    expect(await own(ctx, rejectBody())).toEqual({ result: "rejected", status: "rejected" });
+  });
+
+  it("CO.2 an existing step longer than the model wire cap cannot be approved: 409 STEP_TEXT_TOO_LONG, nothing written", async () => {
+    const ctx = setup();
+    const long = { ...sop(1), steps: [{ step_id: "stock-01", title: "Display check", text: "x".repeat(401), role: "staff" as const }] };
+    ctx.store.sops.set(`${OUTLET_ID}:v1`, long);
+    ctx.store.put(awaitingOwner(1));
+    const err = await own(ctx, approveBody()).catch((e) => e);
+    expect((err as ConflictError).code).toBe("STEP_TEXT_TOO_LONG");
+    nothingWritten(ctx, "awaiting_owner");
+    expect(ctx.audits).toHaveLength(0);
   });
 });
 

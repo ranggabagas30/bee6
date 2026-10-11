@@ -4,6 +4,9 @@ import { firestoreProposalReviewStore } from "@/lib/firestore/proposal-review-st
 import { COLLECTIONS } from "@/lib/firestore/collections";
 import type { AuditLog, Constraint, Outlet, Proposal, SopVersion } from "@/lib/firestore/schema";
 import type { DecisionSnapshot } from "@/lib/proposals/review-plan";
+import { ConflictError } from "@/lib/http/errors";
+import { planShip } from "@/lib/sop/ship";
+import { proposalV1, seedV1 } from "@/lib/sop/testing/fixtures";
 
 /**
  * Hand-rolled fake Firestore (copied from proposal-store.test.ts, R-09 Task 5.3) — the same technique as
@@ -461,6 +464,7 @@ describe("decision snapshot (5.S4, 5.S5)", () => {
       fresh: new Map(),
       constraint_ids: [],
       current_sop_version_id: null,
+      current_sop: null,
     });
     expect(queryLog).toHaveLength(0);
     expect(getAll).not.toHaveBeenCalled();
@@ -505,6 +509,7 @@ describe("decision snapshot (5.S4, 5.S5)", () => {
     expect(snap.fresh.get("t1")).toEqual({ status: "fact", label_source: "model" });
     expect(snap.constraint_ids.sort()).toEqual([C1, C2].sort());
     expect(snap.current_sop_version_id).toBe(`${OUTLET_ID}:v3`);
+    expect(snap.current_sop?.sop_version_id).toBe(`${OUTLET_ID}:v3`);
   });
 });
 
@@ -607,5 +612,189 @@ describe("transactDecision (5.S6, 5.S7)", () => {
       (Array.isArray(v) ? v.some(has) : v !== null && typeof v === "object" ? Object.values(v).some(has) : false);
     expect(has(stored)).toBe(false);
     expect(has(collections.get(COLLECTIONS.auditLog)!.values().next().value)).toBe(false);
+  });
+});
+
+describe("transactDecision ships the SOP version (R-10 Task 6)", () => {
+  const NOW_MS = Date.parse("2026-10-15T16:30:00Z");
+  const owner = (): Proposal => proposalV1() as Proposal;
+  const decisionAudit: AuditLog = {
+    outlet_id: OUTLET_ID,
+    ts: "2026-10-15T16:30:00.000Z",
+    actor_role: "owner",
+    action: "proposal.approved",
+    target_type: "proposal",
+    target_id: proposalV1().proposal_id,
+    details: { from_status: "awaiting_owner", to_status: "approved", late_constraints_acknowledged: 0 },
+  };
+  const sopAudit: AuditLog = {
+    outlet_id: OUTLET_ID,
+    ts: "2026-10-15T16:30:00.000Z",
+    actor_role: "owner",
+    action: "sop.version_created",
+    target_type: "sop_version",
+    target_id: `${OUTLET_ID}:v2`,
+    details: { version: 2 },
+  };
+  function v2(): SopVersion {
+    const plan = planShip({ current: seedV1(), proposal: owner(), now_ms: NOW_MS, tz: "Asia/Jakarta" });
+    if (plan.kind !== "ship") throw new Error("fixture must ship");
+    return plan.sop_version;
+  }
+  const approvedProposal = (): Proposal => ({ ...owner(), status: "approved", updated_at_ms: NOW_MS });
+  const PID = proposalV1().proposal_id;
+  function seeded(extra: Record<string, Record<string, unknown>> = {}) {
+    return fakeDb({
+      [COLLECTIONS.proposals]: { [PID]: asDoc(owner()) },
+      [COLLECTIONS.sopVersions]: { [`${OUTLET_ID}:v1`]: asDoc(seedV1()), ...extra },
+    });
+  }
+  /** Records every tx write as [method, ref.id] in call order. */
+  function recordTx(db: Firestore) {
+    const calls: Array<[string, string]> = [];
+    const orig = db.runTransaction.bind(db);
+    vi.spyOn(db, "runTransaction").mockImplementation(((fn: (tx: Record<string, unknown>) => Promise<unknown>) =>
+      orig((tx: unknown) => {
+        const t = tx as Record<string, (...a: unknown[]) => unknown>;
+        const wrap = (m: string) => (ref: { id: string }, ...rest: unknown[]) => {
+          calls.push([m, ref.id]);
+          return t[m]!(ref, ...rest);
+        };
+        return fn({ ...t, set: wrap("set"), create: wrap("create"), delete: wrap("delete") });
+      })) as never);
+    return calls;
+  }
+
+  /** Runs the callback (so the store sees a SOP write queued), then fails the commit like the real SDK does. */
+  function failCommitWith(db: Firestore, err: unknown) {
+    const orig = db.runTransaction.bind(db);
+    vi.spyOn(db, "runTransaction").mockImplementationOnce((async (fn: (tx: unknown) => Promise<unknown>) => {
+      await orig((tx: unknown) => fn(tx) as never);
+      throw err;
+    }) as never);
+  }
+
+  it("6.S1 the snapshot carries current_sop (the highest version) read through the transaction", async () => {
+    const { db } = seeded({ [`${OUTLET_ID}:v2`]: asDoc(v2()) });
+    const dbGetAll = vi.spyOn(db, "getAll");
+    const seen: Array<DecisionSnapshot["current_sop"]> = [];
+    await firestoreProposalReviewStore(OUTLET_ID, db).transactDecision(PID, (snap) => {
+      seen.push(snap.current_sop);
+      return { write: null, outcome: 1 };
+    });
+    expect(seen[0]?.sop_version_id).toBe(`${OUTLET_ID}:v2`);
+    expect(seen[0]?.version).toBe(2);
+    expect(dbGetAll).not.toHaveBeenCalled();
+  });
+
+  it("6.S2 a write with sop_version: set(proposal), create(audit), create(sop version), create(sop audit) in one runTransaction, never set on sop_versions", async () => {
+    const { db, collections } = seeded();
+    const calls = recordTx(db);
+    await firestoreProposalReviewStore(OUTLET_ID, db).transactDecision(PID, () => ({
+      write: { proposal: approvedProposal(), audit: decisionAudit, sop_version: v2(), sop_audit: sopAudit },
+      outcome: 1,
+    }));
+    expect(db.runTransaction).toHaveBeenCalledTimes(1);
+    expect(calls.map(([m]) => m)).toEqual(["set", "create", "create", "create"]);
+    expect(calls[0]).toEqual(["set", PID]);
+    expect(calls[2]).toEqual(["create", `${OUTLET_ID}:v2`]);
+    expect(calls.filter(([m, id]) => m === "set" && id.includes(":v"))).toHaveLength(0);
+    expect(collections.get(COLLECTIONS.sopVersions)!.has(`${OUTLET_ID}:v2`)).toBe(true);
+    expect([...collections.get(COLLECTIONS.auditLog)!.values()].map((a) => (a as AuditLog).action)).toEqual([
+      "proposal.approved",
+      "sop.version_created",
+    ]);
+  });
+
+  it("6.S2 a write without sop_version touches no sop_versions doc (R-09 behaviour)", async () => {
+    const { db, collections } = seeded();
+    const calls = recordTx(db);
+    await firestoreProposalReviewStore(OUTLET_ID, db).transactDecision(PID, () => ({
+      write: { proposal: approvedProposal(), audit: decisionAudit },
+      outcome: 1,
+    }));
+    expect(calls.map(([m]) => m)).toEqual(["set", "create"]);
+    expect(collections.get(COLLECTIONS.sopVersions)!.size).toBe(1);
+  });
+
+  it("6.S3 create on an existing sop_versions id (numeric code 6) becomes ConflictError SOP_CHANGED", async () => {
+    const { db } = seeded({ [`${OUTLET_ID}:v2`]: asDoc(v2()) });
+    const err = await firestoreProposalReviewStore(OUTLET_ID, db)
+      .transactDecision(PID, () => ({
+        write: { proposal: approvedProposal(), audit: decisionAudit, sop_version: v2(), sop_audit: sopAudit },
+        outcome: 1,
+      }))
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictError);
+    expect((err as ConflictError).code).toBe("SOP_CHANGED");
+    expect((err as ConflictError).statusCode).toBe(409);
+  });
+
+  it.each([["already-exists"], ["ALREADY_EXISTS"], [6]])("6.S3 ALREADY_EXISTS shape %s is recognised", async (code) => {
+    const { db } = seeded();
+    failCommitWith(db, Object.assign(new Error("boom"), { code }));
+    await expect(
+      firestoreProposalReviewStore(OUTLET_ID, db).transactDecision(PID, () => ({
+        write: { proposal: approvedProposal(), audit: decisionAudit, sop_version: v2(), sop_audit: sopAudit },
+        outcome: 1,
+      })),
+    ).rejects.toMatchObject({ code: "SOP_CHANGED" });
+  });
+
+  it("6.S3 an unrelated error while shipping is rethrown unchanged", async () => {
+    const { db } = seeded();
+    const boom = Object.assign(new Error("unavailable"), { code: 14 });
+    failCommitWith(db, boom);
+    await expect(
+      firestoreProposalReviewStore(OUTLET_ID, db).transactDecision(PID, () => ({
+        write: { proposal: approvedProposal(), audit: decisionAudit, sop_version: v2(), sop_audit: sopAudit },
+        outcome: 1,
+      })),
+    ).rejects.toBe(boom);
+  });
+
+  it("6.S3 ALREADY_EXISTS when no SOP was being shipped is rethrown unchanged", async () => {
+    const { db } = seeded();
+    const dup = Object.assign(new Error("dup"), { code: 6 });
+    vi.spyOn(db, "runTransaction").mockImplementationOnce((async (fn: (tx: unknown) => Promise<unknown>) => {
+      await fn({
+        get: async (r: { get(): Promise<unknown> }) => r.get(),
+        getAll: async () => [],
+        set: () => {},
+        create: () => {},
+      });
+      throw dup;
+    }) as never);
+    await expect(
+      firestoreProposalReviewStore(OUTLET_ID, db).transactDecision(PID, () => ({
+        write: { proposal: approvedProposal(), audit: decisionAudit },
+        outcome: 1,
+      })),
+    ).rejects.toBe(dup);
+  });
+
+  it("6.S4 a sop_version of another outlet throws and nothing is written", async () => {
+    const { db, collections } = seeded();
+    const foreign = { ...v2(), outlet_id: "o2", sop_version_id: "o2:v2", previous_version_id: "o2:v1" } as SopVersion;
+    await expect(
+      firestoreProposalReviewStore(OUTLET_ID, db).transactDecision(PID, () => ({
+        write: { proposal: approvedProposal(), audit: decisionAudit, sop_version: foreign, sop_audit: sopAudit },
+        outcome: 1,
+      })),
+    ).rejects.toThrow(/sop outlet mismatch/);
+    expect(collections.get(COLLECTIONS.sopVersions)!.has("o2:v2")).toBe(false);
+    expect(collections.get(COLLECTIONS.auditLog)?.size ?? 0).toBe(0);
+  });
+
+  it("6.S4 the SOP version written has no undefined at any depth", async () => {
+    const { db, collections } = seeded();
+    await firestoreProposalReviewStore(OUTLET_ID, db).transactDecision(PID, () => ({
+      write: { proposal: approvedProposal(), audit: decisionAudit, sop_version: v2(), sop_audit: sopAudit },
+      outcome: 1,
+    }));
+    const has = (v: unknown): boolean =>
+      v === undefined ||
+      (Array.isArray(v) ? v.some(has) : v !== null && typeof v === "object" ? Object.values(v).some(has) : false);
+    expect(has(collections.get(COLLECTIONS.sopVersions)!.get(`${OUTLET_ID}:v2`))).toBe(false);
   });
 });

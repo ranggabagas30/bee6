@@ -9,7 +9,7 @@ import {
   ForbiddenError,
   NotFoundError,
 } from "@/lib/http/errors";
-import type { AuditLog, Constraint, Outlet, Proposal, ProposalStatus, SopVersion } from "@/lib/firestore/schema";
+import { ProposalSchema, type AuditLog, type Constraint, type Outlet, type Proposal, type ProposalStatus, type SopVersion } from "@/lib/firestore/schema";
 import { evidenceStillHolds, type FreshThread } from "@/lib/proposals/freshness";
 import {
   buildDecisionWrite,
@@ -33,6 +33,7 @@ import {
   type ReviewView,
 } from "@/lib/proposals/review-contract";
 import { toProposalView } from "@/lib/proposals/view";
+import { planShip } from "@/lib/sop/ship";
 
 /**
  * Review/approve service for R-09. The store interface lives here (next to its
@@ -41,6 +42,18 @@ import { toProposalView } from "@/lib/proposals/view";
 
 export interface ReviewThreadRow extends FreshThread {
   summary: string;
+}
+
+/**
+ * What one decision commits. `sop_version` + `sop_audit` are present only when
+ * the owner approves (R-10): the new immutable SOP version ships in the same
+ * transaction as the approval.
+ */
+export interface DecisionWrite {
+  proposal: Proposal;
+  audit: AuditLog;
+  sop_version?: SopVersion;
+  sop_audit?: AuditLog;
 }
 
 export interface ProposalReviewStore {
@@ -59,10 +72,12 @@ export interface ProposalReviewStore {
   /** The DecisionSnapshot, read WITHOUT a transaction (pre-check only). */
   readDecisionSnapshot(proposalId: string): Promise<DecisionSnapshot>;
   /** One Firestore transaction: reads the DecisionSnapshot, calls decide(snap) exactly once; if it returns a
-   *  write, tx.set(proposals/{id}, write.proposal) + tx.create(audit_log/<auto>, write.audit). Returns outcome. */
+   *  write, tx.set(proposals/{id}, write.proposal) + tx.create(audit_log/<auto>, write.audit); and, when it carries
+   *  a sop_version (R-10), tx.create(sop_versions/{id}) + tx.create(sop_audit). A lost race on the version id
+   *  (ALREADY_EXISTS) is a ConflictError SOP_CHANGED. Returns outcome. */
   transactDecision<T>(
     proposalId: string,
-    decide: (snap: DecisionSnapshot) => { write: { proposal: Proposal; audit: AuditLog } | null; outcome: T },
+    decide: (snap: DecisionSnapshot) => { write: DecisionWrite | null; outcome: T },
   ): Promise<T>;
 }
 
@@ -257,11 +272,13 @@ async function decideCore(
     return { result: "unchanged", status: check.status };
   };
 
+  const tz = outlet.timezone;
+
   const transact = (reason: string | null, constraint_id: string | null) =>
     store.transactDecision<TransactOutcome>(input.proposal_id, (snap) => {
       const check = classifyDecision({ snap, outlet_id, actor, requested, acknowledged_constraint_ids: ack });
       if (check.kind !== "proceed") return { write: null, outcome: check };
-      const write = buildDecisionWrite({
+      const base = buildDecisionWrite({
         proposal: check.proposal,
         actor,
         requested,
@@ -270,7 +287,42 @@ async function decideCore(
         constraint_id,
         now_ms,
       });
-      return { write, outcome: { kind: "written", status: write.proposal.status } };
+      if (!(actor === "owner" && requested === "approved")) {
+        return { write: base, outcome: { kind: "written" as const, status: base.proposal.status } };
+      }
+
+      // R-10: the owner's approval ships the next immutable SOP version in the SAME transaction. planShip runs on
+      // the in-transaction snapshot (never the pre-check), so the version is built on exactly the SOP just read.
+      const plan = planShip({ current: snap.current_sop, proposal: check.proposal, now_ms, tz });
+      if (plan.kind === "conflict") return { write: null, outcome: { kind: "conflict" as const, code: plan.code } };
+      const proposal = ProposalSchema.parse({
+        ...base.proposal,
+        content: { ...base.proposal.content!, review_date: plan.review_date }, // counted from the ship date (R-10 §1)
+      });
+      const audit: AuditLog = {
+        ...base.audit,
+        details: { ...base.audit.details, sop_version_id: plan.sop_version.sop_version_id, review_date: plan.review_date },
+      };
+      // Ids, versions and dates only: no step text, title, metric or failure condition (hard rule #7, R-10 §2).
+      const sop_audit: AuditLog = {
+        outlet_id: proposal.outlet_id,
+        ts: new Date(now_ms).toISOString(),
+        actor_role: "owner",
+        action: "sop.version_created",
+        target_type: "sop_version",
+        target_id: plan.sop_version.sop_version_id,
+        details: {
+          version: plan.sop_version.version,
+          change_kind: plan.sop_version.change!.kind,
+          source_proposal_id: proposal.proposal_id,
+          effective_from_date: plan.effective_from_date,
+          review_date: plan.review_date,
+        },
+      };
+      return {
+        write: { proposal, audit, sop_version: plan.sop_version, sop_audit },
+        outcome: { kind: "written" as const, status: proposal.status },
+      };
     });
 
   const finish = (out: TransactOutcome): DecisionResponse =>
