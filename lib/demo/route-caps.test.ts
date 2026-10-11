@@ -83,6 +83,20 @@ describe("enforceDemoCapsForRoute", () => {
     expect(hoisted.factory).not.toHaveBeenCalled();
   });
 
+  it("mode 'check' reads the counters and never writes one; a later 'charge' does", async () => {
+    f.sandboxes.set(SBX, sandboxOutlet());
+    vi.stubEnv("DEMO_FAST_FORWARD_SANDBOX_CAP", "1");
+    const who = { outlet_id: SBX, role: "supervisor" } as const;
+    await enforceDemoCapsForRoute("fast_forward", who, "reviews:verdict", "check");
+    await enforceDemoCapsForRoute("fast_forward", who, "reviews:verdict", "check");
+    expect(f.bumps).toEqual([]);
+    await enforceDemoCapsForRoute("fast_forward", who, "reviews:verdict", "charge");
+    const err = await enforceDemoCapsForRoute("fast_forward", who, "reviews:verdict", "check").then(() => null, (e) => e);
+    expect(err).toBeInstanceOf(LockedError);
+    expect((err as LockedError).code).toBe("demo_fast_forward_cap");
+    expect(f.bumps).toHaveLength(1);
+  });
+
   it("fails closed (503 demo_not_ready) when a sandbox outlet's doc cannot be read", async () => {
     const err = await enforceDemoCapsForRoute("segment", { outlet_id: SBX, role: "device" }).then(() => null, (e) => e);
     expect(err).toBeInstanceOf(AppError);

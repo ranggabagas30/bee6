@@ -15,6 +15,9 @@ import {
 } from "@/lib/reviews/service";
 import { OUTLET, REASON_SENTINEL, reviewDoc, seedV1, shippedVersion, TZ, verdictEntry } from "@/lib/reviews/testing/fixtures";
 import { proposalV1 } from "@/lib/sop/testing/fixtures";
+import { enforceDemoCaps } from "@/lib/demo/caps";
+import { fakeStore as fakeDemoStore } from "@/lib/demo/testing/fake-store";
+import { templateSet } from "@/lib/demo/testing/fixtures";
 
 const DEVICE = "dev-DEVSENTINEL-77";
 const at = (date: string, hm = "09:00") => zonedTimeToEpochMs(date, hm, TZ);
@@ -478,5 +481,114 @@ describe("fastForwardReview", () => {
     const orig = f.store.createReview;
     f.store.createReview = async () => { await orig(reviewDoc(), f.audits[0] ?? ({} as AuditLog)); return "exists"; };
     await expect(ff(f)).rejects.toMatchObject({ code: "NOTHING_TO_REVIEW" });
+  });
+
+  it("R-12 afterCreate runs once, only after the review was really created", async () => {
+    const f = fakeStore({ ...windowData() });
+    const seen: number[] = [];
+    await fastForwardReview(f.store, {
+      claims: claims("supervisor"),
+      now_ms: at("2026-10-17"),
+      demoMode: true,
+      afterCreate: async () => {
+        seen.push(f.reviews.size);
+      },
+    });
+    expect(seen).toEqual([1]);
+  });
+
+  it("R-12 afterCreate is not called when the skip loses the race (exists) or createReview throws", async () => {
+    const afterCreate = vi.fn(async () => {});
+    const call = (f: ReturnType<typeof fakeStore>) =>
+      fastForwardReview(f.store, { claims: claims("supervisor"), now_ms: at("2026-10-17"), demoMode: true, afterCreate });
+    const lost = fakeStore({ ...windowData() });
+    const orig = lost.store.createReview;
+    lost.store.createReview = async () => { await orig(reviewDoc(), lost.audits[0] ?? ({} as AuditLog)); return "exists"; };
+    await expect(call(lost)).rejects.toMatchObject({ code: "NOTHING_TO_REVIEW" });
+    await expect(call(fakeStore({ ...windowData(), proposal: false }))).rejects.toThrow("source proposal missing");
+    expect(afterCreate).not.toHaveBeenCalled();
+  });
+
+  it("R-12 an afterCreate failure (a cap overshoot, an outage) never fails a skip that already ran", async () => {
+    const f = fakeStore({ ...windowData() });
+    await expect(
+      fastForwardReview(f.store, {
+        claims: claims("supervisor"),
+        now_ms: at("2026-10-17"),
+        demoMode: true,
+        afterCreate: async () => {
+          throw new ConflictError("capped", "CAPPED");
+        },
+      }),
+    ).resolves.toEqual({ version: 2 });
+    expect(f.reviews.size).toBe(1);
+  });
+});
+
+describe("fastForwardReview with the real sandbox cap (QA D1: a refused or lost skip costs no slot)", () => {
+  const SBX = "sbx-0123456789ab";
+  const NOW = at("2026-10-17");
+  const sandbox = (): Outlet => ({
+    ...templateSet().outlet,
+    outlet_id: SBX,
+    sandbox: { template_outlet_id: "demo-tpl-outlet", created_at_ms: NOW, expires_at_ms: NOW + 3_600_000, key_sha256: "a".repeat(64) },
+  });
+  const manyVersions = () => [seedV1(), ...[2, 3, 4, 5, 6, 7].map((v) => shippedVersion(v, "2026-10-16", "2026-10-23"))];
+  function setup(opts: Parameters<typeof fakeStore>[0] = {}) {
+    const f = fakeStore({ ...windowData(), versions: manyVersions(), ...opts });
+    const demo = fakeDemoStore();
+    const cap = (mode: "check" | "charge") => () => enforceDemoCaps(demo.store, { outlet: sandbox(), now_ms: NOW, key: "fast_forward", mode });
+    const skip = () =>
+      fastForwardReview(f.store, {
+        claims: claims("supervisor"),
+        now_ms: NOW,
+        demoMode: true,
+        beforeCreate: cap("check"),
+        afterCreate: cap("charge"),
+      });
+    const slots = () => demo.counters.get(`fast_forward_sandbox:${SBX}`) ?? 0;
+    return { f, skip, slots };
+  }
+
+  it("a double tap makes one review and spends exactly one slot", async () => {
+    const { f, skip, slots } = setup();
+    const results = await Promise.allSettled([skip(), skip()]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const lost = results.find((r) => r.status === "rejected") as PromiseRejectedResult;
+    expect(lost.reason).toMatchObject({ code: "NOTHING_TO_REVIEW" });
+    expect(f.reviews.size).toBe(1);
+    expect(slots()).toBe(1);
+  });
+
+  it("8 parallel skips on 6 versions: the slots spent equal the skips that really happened; no loser is charged", async () => {
+    const { f, skip, slots } = setup();
+    const results = await Promise.allSettled(Array.from({ length: 8 }, () => skip()));
+    const ok = results.filter((r) => r.status === "fulfilled").length;
+    expect(ok).toBe(f.reviews.size);
+    expect(slots()).toBe(ok);
+    for (const r of results) {
+      if (r.status === "rejected") expect((r.reason as { code?: string }).code).toBe("NOTHING_TO_REVIEW");
+    }
+  });
+
+  it("a skip whose source proposal is missing throws and spends nothing", async () => {
+    const { skip, slots } = setup({ proposal: false });
+    await expect(skip()).rejects.toThrow("source proposal missing");
+    expect(slots()).toBe(0);
+  });
+
+  it("nothing to review spends nothing", async () => {
+    const { skip, slots } = setup({ reviews: [reviewDoc()], versions: [seedV1(), shippedVersion(2)] });
+    await expect(skip()).rejects.toMatchObject({ code: "NOTHING_TO_REVIEW" });
+    expect(slots()).toBe(0);
+  });
+
+  it("the cap still stops the 4th successful skip (429 demo_fast_forward_cap) and writes no 4th review", async () => {
+    const { f, skip, slots } = setup();
+    for (let i = 0; i < 3; i++) await skip();
+    expect(slots()).toBe(3);
+    await expect(skip()).rejects.toMatchObject({ code: "demo_fast_forward_cap", statusCode: 429 });
+    expect(f.reviews.size).toBe(3);
+    expect(slots()).toBe(3);
   });
 });

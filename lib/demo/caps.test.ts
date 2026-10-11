@@ -213,6 +213,46 @@ describe("enforceDemoCaps", () => {
   });
 });
 
+describe("enforceDemoCaps mode 'check' (QA D1: look without charging)", () => {
+  const check = (f: ReturnType<typeof fakeStore>, key: DemoCapKey, env: Record<string, string | undefined> = {}) =>
+    enforceDemoCaps(f.store, { outlet: sandboxOutlet(), now_ms: NOW, key, env, mode: "check" });
+  const charge = (f: ReturnType<typeof fakeStore>, key: DemoCapKey, env: Record<string, string | undefined> = {}) =>
+    enforceDemoCaps(f.store, { outlet: sandboxOutlet(), now_ms: NOW, key, env });
+
+  it("passes below the cap and writes no counter at all", async () => {
+    const f = fakeStore();
+    await check(f, "fast_forward");
+    await check(f, "segment");
+    expect(f.bumps).toEqual([]);
+    expect(f.counters.size).toBe(0);
+  });
+
+  it("refuses at the cap with the same code and Retry-After as a charge would", async () => {
+    const f = fakeStore();
+    const env = { DEMO_FAST_FORWARD_SANDBOX_CAP: "2" };
+    await charge(f, "fast_forward", env);
+    await charge(f, "fast_forward", env);
+    const err = await refusal(check(f, "fast_forward", env));
+    expect(err.code).toBe("demo_fast_forward_cap");
+    expect(err.retryAfterSeconds).toBe(Math.ceil((EXPIRES - NOW) / 1000));
+    expect(f.counters.get(`fast_forward_sandbox:${SBX}`)).toBe(2);
+  });
+
+  it("checks the path's daily cap and the model ceiling too, and honours the kill switches", async () => {
+    const f = fakeStore();
+    await charge(f, "segment", { DEMO_SEGMENT_DAILY_CAP: "1" });
+    expect((await refusal(check(f, "segment", { DEMO_SEGMENT_DAILY_CAP: "1" }))).code).toBe("demo_daily_cap");
+    expect((await refusal(check(fakeStore(), "segment", { DEMO_MODEL_DAILY_CAP: "0" }))).code).toBe("demo_model_cap");
+    expect((await refusal(check(fakeStore(), "segment", { DEMO_SEGMENT_SANDBOX_CAP: "0" }))).code).toBe("demo_segment_cap");
+  });
+
+  it("still fails closed for an outlet without a sandbox object", async () => {
+    const f = fakeStore();
+    const err = await enforceDemoCaps(f.store, { outlet: plainOutlet(), now_ms: NOW, key: "fast_forward", mode: "check" }).then(() => null, (e) => e);
+    expect(err).toMatchObject({ statusCode: 503, code: "demo_not_ready" });
+  });
+});
+
 describe("L8 the daily sandbox cap stays below the review run's outlet read", () => {
   // A sandbox is live >= 26 h, so two UTC days of sandboxes can coexist: 2 * cap + 50 (real outlets) must fit.
   const maxCap = Math.ceil((OUTLETS_READ_MAX - 50) / 2) - 1;

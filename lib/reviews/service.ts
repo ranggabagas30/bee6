@@ -345,15 +345,26 @@ export async function decideVerdict(
  * (or any non-demo outlet) cannot tell this route exists from a 403.
  * Calls the same `createReview` as the daily run, flagged `simulated`.
  *
- * `beforeCreate` (R-12) runs once every refusal that needs no spend has passed (404, role, outlet, nothing
- * to review) and right before the review is written: the route charges the per-sandbox skip cap there, so
- * a skip that cannot run never costs a slot. A throw from it stops the skip.
+ * R-12 skip cap, in two steps so that a refused or lost skip costs nothing (QA D1):
+ *  - `beforeCreate` runs once every refusal that needs no spend has passed (404, role, outlet, nothing to
+ *    review) and right before the review is written. The route only CHECKS the per-sandbox cap there (no
+ *    counter is written). A throw from it stops the skip.
+ *  - `afterCreate` runs only when `createReview` returned "created", and the route CHARGES the slot there.
+ *    A lost race ("exists"), a missing source proposal or any other failure never reaches it. A failure of
+ *    `afterCreate` itself (a cap overshoot under a race, an outage) is logged and never fails a skip that
+ *    already ran: fast-forward calls no model, so a small overshoot under concurrency is acceptable.
  */
 export async function fastForwardReview(
   store: ReviewStore,
-  input: { claims: CustomClaims; now_ms: number; demoMode: boolean; beforeCreate?: () => Promise<void> },
+  input: {
+    claims: CustomClaims;
+    now_ms: number;
+    demoMode: boolean;
+    beforeCreate?: () => Promise<void>;
+    afterCreate?: () => Promise<void>;
+  },
 ): Promise<FastForwardResponse> {
-  const { claims, now_ms, demoMode, beforeCreate } = input;
+  const { claims, now_ms, demoMode, beforeCreate, afterCreate } = input;
   if (!demoMode) throw new NotFoundError("route", "route");
   const outlet = await store.getOutlet();
   if (!outlet || outlet.project_kind !== "demo") throw new NotFoundError("route", "route");
@@ -371,5 +382,15 @@ export async function fastForwardReview(
   if (beforeCreate) await beforeCreate();
   const result = await createReview(store, { outlet, sop: next, versions, simulated: true, now_ms, actor_role: claims.role });
   if (result === "exists") throw new ConflictError("Nothing to review", "NOTHING_TO_REVIEW");
+  if (afterCreate) {
+    try {
+      await afterCreate();
+    } catch (error) {
+      console.error("[review] fast-forward charge failed after the review was created", {
+        outlet_id: outlet.outlet_id,
+        error_class: error instanceof Error ? error.name : "unknown",
+      });
+    }
+  }
   return FastForwardResponseSchema.parse({ version: next.version });
 }

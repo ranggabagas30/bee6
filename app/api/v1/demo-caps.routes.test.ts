@@ -38,11 +38,14 @@ const ffRefuses = vi.hoisted(() => ({ value: false }));
 const fastForwardReview = vi.fn();
 vi.mock("@/lib/reviews/service", () => ({
   decideVerdict: (...a: unknown[]) => decideVerdict(...a),
-  // The real service calls beforeCreate (the cap charge) once its own pre-checks pass; ffRefuses models one that cannot run.
-  fastForwardReview: async (store: unknown, input: { beforeCreate?: () => Promise<void> }) => {
+  // The real service calls beforeCreate (the cap check) once its own pre-checks pass and afterCreate (the cap
+  // charge) once the review was created; ffRefuses models a skip that cannot run.
+  fastForwardReview: async (store: unknown, input: { beforeCreate?: () => Promise<void>; afterCreate?: () => Promise<void> }) => {
     if (ffRefuses.value) throw new ConflictError("Nothing to review", "NOTHING_TO_REVIEW");
     await input.beforeCreate?.();
-    return fastForwardReview(store, input);
+    const result = await fastForwardReview(store, input);
+    await input.afterCreate?.();
+    return result;
   },
 }));
 const createConstraint = vi.fn();
@@ -252,6 +255,25 @@ describe("fast-forward: a skip that cannot run spends no cap slot", () => {
     ffRefuses.value = false;
     c.service.mockResolvedValue(c.serviceResult);
     expect((await c.call(headers(), JSON.stringify(c.body))).status).toBe(200); // the single slot is still there
+    expect(f.bumps).toHaveLength(1);
+  });
+});
+
+describe("fast-forward: the slot is charged only after the review was created", () => {
+  it("a skip that fails after the cap check (e.g. the source proposal is gone) burns no slot", async () => {
+    const c = CASES.find((x) => x.name === "review fast-forward")!;
+    principal(c, SBX);
+    c.service.mockRejectedValue(new Error("createReview: source proposal missing"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    expect((await c.call(headers(), JSON.stringify(c.body))).status).toBe(500);
+    expect(f.bumps).toEqual([]);
+  });
+
+  it("a successful skip burns exactly one slot", async () => {
+    const c = CASES.find((x) => x.name === "review fast-forward")!;
+    principal(c, SBX);
+    c.service.mockResolvedValue(c.serviceResult);
+    expect((await c.call(headers(), JSON.stringify(c.body))).status).toBe(200);
     expect(f.bumps).toHaveLength(1);
   });
 });

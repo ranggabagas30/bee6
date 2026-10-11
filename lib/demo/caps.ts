@@ -138,9 +138,18 @@ export function modelDailyLimit(env: CapEnv = process.env): number {
   return killableCapFromEnv(env.DEMO_MODEL_DAILY_CAP, MODEL_DAILY);
 }
 
+/**
+ * "charge" (default) counts the request against every cap that applies. "check" only LOOKS: same kill
+ * switches, same refusals, but no counter is written. Fast-forward uses check before the review is written
+ * and charge only after it was really created, so a skip that is refused or loses a race costs nothing (R-12
+ * QA D1). Under a race several skips can pass the check before the first charge lands, so the cap can be
+ * overshot by the number of concurrent skips; fast-forward calls no model, so that is acceptable.
+ */
+export type CapMode = "charge" | "check";
+
 export async function enforceDemoCaps(
   store: DemoStore,
-  input: { outlet: Outlet; now_ms: number; key: DemoCapKey; env?: CapEnv },
+  input: { outlet: Outlet; now_ms: number; key: DemoCapKey; env?: CapEnv; mode?: CapMode },
 ): Promise<void> {
   const { outlet, now_ms } = input;
   // Callers only reach here for an sbx- outlet; one with no sandbox object is a broken doc: fail closed, never uncapped.
@@ -149,6 +158,10 @@ export async function enforceDemoCaps(
   const day = utcDay(now_ms);
   const expiry = new Date(now_ms + COUNTER_TTL_MS).toISOString();
   const midnight = secondsToUtcMidnight(now_ms);
+  const count = (counterId: string, kind: DemoCounterKind, limit: number): Promise<boolean> =>
+    input.mode === "check"
+      ? store.readCounter(counterId).then((n) => n < limit)
+      : store.bumpCounter(counterId, kind, day, limit, expiry);
 
   // Kill switches (a cap set to exactly 0): refuse before any counter is touched.
   if (spec.sandboxLimit === 0) {
@@ -159,13 +172,13 @@ export async function enforceDemoCaps(
     throw new LockedError(midnight, "The demo has reached today's usage limit", "demo_model_cap");
   }
 
-  if (!(await store.bumpCounter(`${spec.sandboxKind}:${outlet.outlet_id}`, spec.sandboxKind, day, spec.sandboxLimit, expiry))) {
+  if (!(await count(`${spec.sandboxKind}:${outlet.outlet_id}`, spec.sandboxKind, spec.sandboxLimit))) {
     throw new LockedError(Math.max(1, Math.ceil((outlet.sandbox.expires_at_ms - now_ms) / 1000)), spec.message, spec.code);
   }
-  if (spec.daily && !(await store.bumpCounter(`${spec.daily.kind}:${day}`, spec.daily.kind, day, spec.daily.limit, expiry))) {
+  if (spec.daily && !(await count(`${spec.daily.kind}:${day}`, spec.daily.kind, spec.daily.limit))) {
     throw new LockedError(midnight, "The demo has reached today's limit", "demo_daily_cap");
   }
-  if (spec.model && !(await store.bumpCounter(`model_day:${day}`, "model_day", day, modelDailyLimit(input.env), expiry))) {
+  if (spec.model && !(await count(`model_day:${day}`, "model_day", modelDailyLimit(input.env)))) {
     throw new LockedError(midnight, "The demo has reached today's usage limit", "demo_model_cap");
   }
 }
