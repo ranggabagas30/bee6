@@ -372,6 +372,18 @@ describe("ProposalDecisionPanel — invalid, error, busy (7.T10)", () => {
     expect(onSettled).not.toHaveBeenCalled();
   });
 
+  it("invalid on Feasible shows the generic message and does not open the reason form", async () => {
+    authedPostJson.mockResolvedValue({ kind: "invalid" });
+    renderPanel("supervisor", makeItem());
+    click("Feasible");
+    click("Yes");
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe("Something went wrong. Try again.");
+    expect(screen.queryByLabelText("Reason (required)")).toBeNull();
+    expect(screen.getByText("Mark this proposal feasible? It goes to the owner for approval.")).not.toBeNull();
+    expect(onSettled).not.toHaveBeenCalled();
+  });
+
   it("error shows the generic message, keeps the confirm step, and Yes retries", async () => {
     authedPostJson.mockResolvedValueOnce({ kind: "error" });
     renderPanel("supervisor", makeItem());

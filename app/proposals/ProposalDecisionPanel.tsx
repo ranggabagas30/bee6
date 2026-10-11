@@ -179,8 +179,13 @@ export function ProposalDecisionPanel({
       return;
     }
     if (result.kind === "invalid") {
-      setStep("reason");
-      setMessage("C-con-err-length");
+      // Only a rejection carries user text; a 422 on Feasible/Approve is not a reason-length problem.
+      if (kind === "reject") {
+        setStep("reason");
+        setMessage("C-con-err-length");
+      } else {
+        setMessage("C-srv-generic");
+      }
       return;
     }
     if (result.kind === "forbidden") {
