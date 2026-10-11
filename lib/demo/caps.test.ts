@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { LockedError } from "@/lib/http/errors";
 import type { Outlet } from "@/lib/firestore/schema";
-import { capFromEnv, capSpec, enforceDemoCaps, modelDailyLimit, type DemoCapKey } from "@/lib/demo/caps";
+import { capFromEnv, capSpec, enforceDemoCaps, modelDailyLimit, sandboxDailyLimit, type DemoCapKey } from "@/lib/demo/caps";
+import { SANDBOX_DAILY } from "@/lib/demo/constants";
+import { OUTLETS_READ_MAX } from "@/lib/reviews/constants";
 import { secondsToUtcMidnight, utcDay } from "@/lib/demo/limits";
 import { fakeStore } from "@/lib/demo/testing/fake-store";
 import { templateSet } from "@/lib/demo/testing/fixtures";
@@ -134,5 +136,24 @@ describe("enforceDemoCaps", () => {
     const f = fakeStore();
     await run(f, "segment");
     expect(f.bumps.map((b) => b.id)).toEqual([`segment_sandbox:${SBX}`, `segment_day:${utcDay(NOW)}`, `model_day:${utcDay(NOW)}`]);
+  });
+});
+
+describe("L8 the daily sandbox cap stays below the review run's outlet read", () => {
+  it("the default is below OUTLETS_READ_MAX", () => {
+    expect(SANDBOX_DAILY).toBeLessThan(OUTLETS_READ_MAX);
+    expect(sandboxDailyLimit({})).toBe(SANDBOX_DAILY);
+  });
+
+  it("an env override below the limit is used; one at or above it falls back to the default (fail closed) and is logged once", async () => {
+    vi.resetModules();
+    const fresh = await import("@/lib/demo/caps");
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(fresh.sandboxDailyLimit({ DEMO_SANDBOX_DAILY_CAP: "50" })).toBe(50);
+    expect(fresh.sandboxDailyLimit({ DEMO_SANDBOX_DAILY_CAP: String(OUTLETS_READ_MAX - 1) })).toBe(OUTLETS_READ_MAX - 1);
+    expect(err).not.toHaveBeenCalled();
+    for (const bad of [String(OUTLETS_READ_MAX), "10000"]) expect(fresh.sandboxDailyLimit({ DEMO_SANDBOX_DAILY_CAP: bad })).toBe(SANDBOX_DAILY);
+    expect(err).toHaveBeenCalledTimes(1);
+    err.mockRestore();
   });
 });

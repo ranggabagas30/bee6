@@ -8,10 +8,12 @@ import {
   MODEL_DAILY,
   REDACT_PER_SANDBOX,
   SEGMENT_DAILY,
+  SANDBOX_DAILY,
   SEGMENT_PER_SANDBOX,
 } from "@/lib/demo/constants";
 import { secondsToUtcMidnight, utcDay } from "@/lib/demo/limits";
 import type { DemoStore } from "@/lib/demo/store-types";
+import { OUTLETS_READ_MAX } from "@/lib/reviews/constants";
 
 /**
  * Spend caps for the public demo (R-12 H2). A judge in a sandbox can reach routes that call Gemini or
@@ -90,6 +92,26 @@ export function capSpec(key: DemoCapKey, env: CapEnv = process.env): DemoCapSpec
         model: true,
       };
   }
+}
+
+let sandboxCapWarned = false;
+
+/**
+ * The effective per-day sandbox-creation cap (DEMO_SANDBOX_DAILY_CAP, default 300). Sandboxes are outlets
+ * too, and the daily review run reads at most OUTLETS_READ_MAX outlets, so the cap must stay below it or the
+ * demo could crowd real outlets out of that read. A value at or above the limit falls back to the default
+ * and is logged once.
+ */
+export function sandboxDailyLimit(env: CapEnv = process.env): number {
+  const n = capFromEnv(env.DEMO_SANDBOX_DAILY_CAP, SANDBOX_DAILY);
+  if (n < OUTLETS_READ_MAX) return n;
+  if (!sandboxCapWarned) {
+    sandboxCapWarned = true;
+    console.error("[demo] DEMO_SANDBOX_DAILY_CAP must stay below the review run's outlet read; using the default", {
+      error_class: "InvalidEnv",
+    });
+  }
+  return SANDBOX_DAILY;
 }
 
 export function modelDailyLimit(env: CapEnv = process.env): number {

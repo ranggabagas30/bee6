@@ -6,9 +6,9 @@ import { jsonOk } from "@/lib/http/respond";
 import { firestoreDemoStore } from "@/lib/firestore/demo-store";
 import { DemoSessionBodySchema } from "@/lib/demo/contract";
 import { clientIp, resolveXffFromEnd } from "@/lib/demo/limits";
-import { capFromEnv } from "@/lib/demo/caps";
+import { capFromEnv, sandboxDailyLimit } from "@/lib/demo/caps";
 import { issueDemoSession } from "@/lib/demo/service";
-import { SANDBOX_DAILY, SWITCH_IP_DAILY } from "@/lib/demo/constants";
+import { SWITCH_IP_DAILY } from "@/lib/demo/constants";
 
 /**
  * POST /api/v1/demo/session (R-12 Task 6.4; web spec 6.2 "Anyone (demo only)"). The judge's sign-in:
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
       {
         mintToken: mintCustomToken,
         caps: {
-          sandboxDaily: capFromEnv(process.env.DEMO_SANDBOX_DAILY_CAP, SANDBOX_DAILY),
+          sandboxDaily: sandboxDailyLimit(process.env),
           switchIpDaily: capFromEnv(process.env.DEMO_SWITCH_IP_CAP, SWITCH_IP_DAILY),
         },
       },
