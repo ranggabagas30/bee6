@@ -442,6 +442,9 @@ export default function CapturePage() {
     sessionRef.current = captureSession;
     setSessionRunning(true);
     setSession({ session_id: sessionId, started_at_ms: startedAt, local_date: localDate });
+    // The page clock is only refreshed every 30 s: bring it up to now so the sandbox countdown (computed from
+    // it) starts at 5:00 instead of showing the staleness (up to 5:30) until the first 1 s tick.
+    setNowMs(Date.now());
   }
 
   // ── Selesai (§5.5, web spec §6.6.3) ─────────────────────────────────────────

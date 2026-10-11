@@ -631,6 +631,15 @@ describe("CapturePage script drawer (R-18, sandbox only)", () => {
     expect(screen.getByText("Demo ends automatically in 3:59")).toBeTruthy();
   });
 
+  it("item 7: right after Start the countdown reads 5:00, not 5:25, even when the page clock was 25 s stale", async () => {
+    const start = await renderDemoIdle();
+    vi.setSystemTime(new Date(Date.parse(MON_1000_WIB) + 25_000)); // 25 s pass; the 30 s tick has not fired
+    fireEvent.click(start);
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    expect(screen.getByText("Demo ends automatically in 5:00")).toBeTruthy();
+    expect(screen.queryByText(/Demo ends automatically in 5:[1-5]/)).toBeNull();
+  });
+
   it("Cancel session returns the drawer to the rules card and offers Mulai again", async () => {
     await renderDemoRunning();
     await vi.advanceTimersByTimeAsync(1_000);
