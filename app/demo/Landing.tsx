@@ -6,11 +6,10 @@ import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import type { DemoRole } from "@/lib/demo/contract";
 import { useLang } from "@/lib/i18n/context";
 import { t, type DictKey } from "@/lib/i18n/dict";
-import { getClientAuth, type Auth } from "@/lib/auth/client/firebase-client";
 import { WebTopBar } from "@/app/web/WebTopBar";
 import { endDemo, demoSnapshot, subscribeDemoState, viewFromSnapshot } from "@/app/demo/demo-client";
 import { refusalLines } from "@/app/demo/demo-errors";
-import { useDemoStart } from "@/app/demo/useDemoStart";
+import { authOrNull, useDemoStart } from "@/app/demo/useDemoStart";
 
 /**
  * "/" on a demo deployment (R-12 Task 8.3). One paragraph on the product, the suggested judge path, the
@@ -46,6 +45,8 @@ export function Landing({ config }: { config: FirebaseWebConfig | null }) {
   const { busy, refusal, start, clearRefusal } = useDemoStart(config, "restart");
   const [confirming, setConfirming] = useState(false);
   const [restarted, setRestarted] = useState(false);
+  // True from "Yes, start over" until the Firebase sign-out has settled: a late sign-out must not land after (and undo) a new sign-in.
+  const [ending, setEnding] = useState(false);
   const statusRef = useRef<HTMLParagraphElement>(null);
   const confirmRef = useRef<HTMLParagraphElement>(null);
   const restartRef = useRef<HTMLButtonElement>(null);
@@ -75,14 +76,10 @@ export function Landing({ config }: { config: FirebaseWebConfig | null }) {
   }
 
   function onRestartYes() {
-    // Forgets the sandbox and device keys now; the Firebase web user is signed out in the background.
-    let auth: Auth | null = null;
-    try {
-      auth = config ? getClientAuth(config) : null;
-    } catch {
-      // No usable auth client: nothing to sign out of.
-    }
-    void endDemo(auth);
+    // Forgets the sandbox and device keys now (the status line says so at once); the Try-as buttons stay
+    // disabled until the Firebase web user is signed out. endDemo never throws.
+    setEnding(true);
+    void endDemo(authOrNull(config)).finally(() => setEnding(false));
     clearRefusal();
     setConfirming(false);
     setRestarted(true);
@@ -114,7 +111,7 @@ export function Landing({ config }: { config: FirebaseWebConfig | null }) {
       </p>
 
       {ROLES.map(({ role, key }) => (
-        <button key={role} type="button" disabled={busy} onClick={() => void onTry(role)} style={BUTTON_STYLE}>
+        <button key={role} type="button" disabled={busy || ending} onClick={() => void onTry(role)} style={BUTTON_STYLE}>
           {t(lang, key)}
         </button>
       ))}

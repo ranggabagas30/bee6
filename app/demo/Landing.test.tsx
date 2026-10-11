@@ -241,6 +241,34 @@ describe("Landing with an earlier visit in this tab", () => {
     expect(window.localStorage.getItem("bee6.device_id")).toBeNull();
   });
 
+  it("keeps the Try-as buttons disabled until the sign-out has settled, so a late sign-out cannot race a new sign-in", async () => {
+    window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: Date.now() + 3_600_000, role: "owner" }));
+    const d = deferred<void>();
+    signOut.mockReturnValue(d.promise);
+    renderLanding();
+    fireEvent.click(button(/Start a new demo/));
+    fireEvent.click(button(/Yes, start over/));
+    await waitFor(() => expect(signOut).toHaveBeenCalledWith(FAKE_AUTH));
+    for (const name of [/Try as Staff/, /Try as Supervisor/, /Try as Owner/]) {
+      expect((button(name) as HTMLButtonElement).disabled).toBe(true);
+    }
+    fireEvent.click(button(/Try as Owner/));
+    expect(startDemo).not.toHaveBeenCalled();
+    await act(async () => d.resolve());
+    for (const name of [/Try as Staff/, /Try as Supervisor/, /Try as Owner/]) {
+      expect((button(name) as HTMLButtonElement).disabled).toBe(false);
+    }
+  });
+
+  it("re-enables the Try-as buttons even when the sign-out fails", async () => {
+    window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: Date.now() + 3_600_000, role: "owner" }));
+    signOut.mockRejectedValue(new Error("offline"));
+    renderLanding();
+    fireEvent.click(button(/Start a new demo/));
+    fireEvent.click(button(/Yes, start over/));
+    await waitFor(() => expect((button(/Try as Owner/) as HTMLButtonElement).disabled).toBe(false));
+  });
+
   it("Yes, start over still works when there is no Firebase config or the auth client cannot start", async () => {
     window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: Date.now() + 3_600_000, role: "staff" }));
     getClientAuth.mockImplementation(() => {
