@@ -50,6 +50,21 @@ export interface DemoCapSpec {
 export type CapEnv = Record<string, string | undefined>;
 
 /**
+ * No cap override may exceed this (security L3): a typo such as 3000000 for 3000 would otherwise silently
+ * raise the spend ceiling a thousandfold. A value above it falls back to the default, like any bad value.
+ * The largest default is 5000 (DEMO_MODEL_DAILY_CAP), so this leaves 20x room.
+ */
+export const CAP_SANITY_MAX = 100_000;
+
+let sanityWarned = false;
+function warnCapAboveSanityBound(): void {
+  if (sanityWarned) return;
+  sanityWarned = true;
+  // Never the value or the variable's content: only that some override was ignored.
+  console.error("[demo] a DEMO_* cap override is above the sanity bound; using the default", { error_class: "InvalidEnv" });
+}
+
+/**
  * A positive-integer env override, else the default ("0" is NOT accepted here; see killableCapFromEnv).
  * The value is trimmed first: a Secret Manager secret often carries a trailing newline.
  */
@@ -57,7 +72,12 @@ export function capFromEnv(value: string | undefined, fallback: number): number 
   const v = value?.trim();
   if (v === undefined || !/^\d+$/.test(v)) return fallback;
   const n = Number(v);
-  return Number.isSafeInteger(n) && n > 0 ? n : fallback;
+  if (!Number.isSafeInteger(n) || n <= 0) return fallback;
+  if (n > CAP_SANITY_MAX) {
+    warnCapAboveSanityBound();
+    return fallback;
+  }
+  return n;
 }
 
 /**

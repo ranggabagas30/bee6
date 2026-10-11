@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { AppError, LockedError } from "@/lib/http/errors";
 import type { Outlet } from "@/lib/firestore/schema";
 import { capFromEnv, killableCapFromEnv, capSpec, enforceDemoCaps, modelDailyLimit, sandboxDailyLimit, type DemoCapKey } from "@/lib/demo/caps";
-import { SANDBOX_DAILY } from "@/lib/demo/constants";
+import { MODEL_DAILY, SANDBOX_DAILY, SEGMENT_DAILY } from "@/lib/demo/constants";
 import { OUTLETS_READ_MAX } from "@/lib/reviews/constants";
 import { secondsToUtcMidnight, utcDay } from "@/lib/demo/limits";
 import { fakeStore } from "@/lib/demo/testing/fake-store";
@@ -274,6 +274,46 @@ describe("L8 the daily sandbox cap stays below the review run's outlet read", ()
       expect(fresh.sandboxDailyLimit({ DEMO_SANDBOX_DAILY_CAP: bad })).toBe(SANDBOX_DAILY);
     }
     expect(err).toHaveBeenCalledTimes(1);
+    err.mockRestore();
+  });
+});
+
+describe("sanity upper bound on every cap override (security L3)", () => {
+  it("a value above 100000 falls back to the default, in both parsers and through the specs", async () => {
+    vi.resetModules();
+    const fresh = await import("@/lib/demo/caps");
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    for (const bad of ["100001", "3000000", "99999999999"]) {
+      expect(fresh.capFromEnv(bad, 300)).toBe(300);
+      expect(fresh.killableCapFromEnv(bad, 300)).toBe(300);
+    }
+    expect(fresh.modelDailyLimit({ DEMO_MODEL_DAILY_CAP: "3000000" })).toBe(MODEL_DAILY);
+    expect(fresh.capSpec("segment", { DEMO_SEGMENT_DAILY_CAP: "3000000" }).daily?.limit).toBe(SEGMENT_DAILY);
+    err.mockRestore();
+  });
+
+  it("100000 itself is accepted; the kill switch 0 and normal values are unchanged", async () => {
+    vi.resetModules();
+    const fresh = await import("@/lib/demo/caps");
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(fresh.capFromEnv("100000", 300)).toBe(100000);
+    expect(fresh.killableCapFromEnv("100000\n", 300)).toBe(100000);
+    expect(fresh.killableCapFromEnv("0", 300)).toBe(0);
+    expect(fresh.capFromEnv("50", 300)).toBe(50);
+    expect(err).not.toHaveBeenCalled();
+    err.mockRestore();
+  });
+
+  it("is logged once, with no value in the log", async () => {
+    vi.resetModules();
+    const fresh = await import("@/lib/demo/caps");
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    fresh.capFromEnv("3000000", 300);
+    fresh.killableCapFromEnv("7654321", 300);
+    fresh.capFromEnv("100001", 300);
+    expect(err).toHaveBeenCalledTimes(1);
+    const logged = JSON.stringify(err.mock.calls);
+    for (const v of ["3000000", "7654321", "100001"]) expect(logged).not.toContain(v);
     err.mockRestore();
   });
 });
