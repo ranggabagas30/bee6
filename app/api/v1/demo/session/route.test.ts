@@ -139,6 +139,80 @@ describe("on-demo", () => {
     expect(f.calls).toEqual([]);
   });
 
+  it("M3 413 on a Content-Length over 1 KB before the body is read at all", async () => {
+    let pulled = 0;
+    const stream = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          pulled += 1;
+          controller.enqueue(new TextEncoder().encode("x".repeat(500)));
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const res = await POST(
+      new NextRequest("http://localhost/api/v1/demo/session", {
+        method: "POST",
+        headers: { "content-type": "application/json", "content-length": "99999" },
+        body: stream,
+        duplex: "half",
+      } as ConstructorParameters<typeof NextRequest>[1]),
+    );
+    expect(res.status).toBe(413);
+    noStore(res);
+    expect(pulled).toBe(0);
+    expect(f.calls).toEqual([]);
+  });
+
+  it("M3 a body with no Content-Length (streamed) is cut off at the byte cap, not read whole", async () => {
+    let pulled = 0;
+    const stream = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          pulled += 1;
+          controller.enqueue(new TextEncoder().encode("x".repeat(400)));
+          if (pulled >= 1000) controller.close();
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const res = await POST(
+      new NextRequest("http://localhost/api/v1/demo/session", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: stream,
+        duplex: "half",
+      } as ConstructorParameters<typeof NextRequest>[1]),
+    );
+    expect(res.status).toBe(413);
+    expect(pulled).toBeLessThan(10);
+    expect(f.calls).toEqual([]);
+  });
+
+  it("M3 the cap counts bytes, not characters (multi-byte text under 1024 characters is still too big)", async () => {
+    const res = await POST(req(JSON.stringify({ role: "owner", pad: "é".repeat(600) }), {}, true));
+    expect(res.status).toBe(413);
+    expect(f.calls).toEqual([]);
+  });
+
+  it("M3/L3 anything but application/json is refused with 415 before the body is read (closes the cross-site text/plain POST)", async () => {
+    for (const type of ["text/plain", "text/plain;charset=UTF-8", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x"]) {
+      const res = await POST(req({ role: "owner" }, { "content-type": type }));
+      expect(res.status, type).toBe(415);
+      noStore(res);
+    }
+    const none = new NextRequest("http://localhost/api/v1/demo/session", { method: "POST", body: JSON.stringify({ role: "owner" }) });
+    none.headers.delete("content-type");
+    expect((await POST(none)).status).toBe(415);
+    expect(f.calls).toEqual([]);
+  });
+
+  it("M3 application/json with parameters or odd case is accepted", async () => {
+    for (const type of ["application/json; charset=utf-8", "Application/JSON"]) {
+      expect((await POST(req({ role: "owner" }, { "content-type": type }, false))).status, type).toBe(200);
+    }
+  });
+
   it("404 for an unknown key", async () => {
     const res = await POST(req({ role: "owner", sandbox_key: KEY }));
     expect(res.status).toBe(404);
@@ -172,6 +246,26 @@ describe("on-demo", () => {
     const res = await POST(req({ role: "owner" }, { "x-forwarded-for": "198.51.100.9" }));
     expect(res.status).toBe(429);
     expect((await res.json()).error.code).toBe("demo_daily_cap");
+  });
+
+  it("D1 a missing or empty DEMO_IP_SALT is 503 demo_not_ready on a role switch too, before any store call", async () => {
+    for (const salt of ["", undefined]) {
+      if (salt === undefined) delete process.env.DEMO_IP_SALT;
+      else process.env.DEMO_IP_SALT = salt;
+      const res = await POST(req({ role: "owner", sandbox_key: KEY }));
+      expect(res.status).toBe(503);
+      expect((await res.json()).error.code).toBe("demo_not_ready");
+    }
+    expect(f.calls).toEqual([]);
+  });
+
+  it("M1 DEMO_SWITCH_IP_CAP overrides the per-IP role-switch limit", async () => {
+    process.env.DEMO_SWITCH_IP_CAP = "1";
+    expect((await POST(req({ role: "owner", sandbox_key: KEY }))).status).toBe(404);
+    const res = await POST(req({ role: "owner", sandbox_key: KEY }));
+    expect(res.status).toBe(429);
+    expect(Number(res.headers.get("Retry-After"))).toBeGreaterThanOrEqual(1);
+    delete process.env.DEMO_SWITCH_IP_CAP;
   });
 
   it("6.T10 503 demo_not_ready with an empty DEMO_IP_SALT (never an unsalted hash) and with a missing template", async () => {
