@@ -77,6 +77,7 @@ export function ProposalsApp({ config }: { config: FirebaseWebConfig | null }) {
   const [constraintsKey, setConstraintsKey] = useState(0);
   const [banner, setBanner] = useState<Banner | null>(null);
   const generateButtonRef = useRef<HTMLButtonElement>(null);
+  const bannerRef = useRef<HTMLParagraphElement>(null);
 
   const uid = authUser.status === "signed_in" ? authUser.user.uid : null;
 
@@ -147,6 +148,8 @@ export function ProposalsApp({ config }: { config: FirebaseWebConfig | null }) {
     // The generate result card now shows a status the decision has changed; the reloaded list is the truth.
     setOutcome({ kind: "idle" });
     setListKey((k) => k + 1);
+    // The tapped button is about to unmount; keep keyboard focus on the answer instead of letting it fall to <body>.
+    bannerRef.current?.focus();
     if (settled.messageKey === "C-prop-done-rejected-sup" || settled.messageKey === "C-prop-done-rejected-owner") {
       setConstraintsKey((k) => k + 1);
     }
@@ -279,7 +282,13 @@ export function ProposalsApp({ config }: { config: FirebaseWebConfig | null }) {
         </>
       )}
 
-      <p role="status" aria-live="polite" style={banner ? BANNER_STYLE : BANNER_EMPTY_STYLE}>
+      <p
+        ref={bannerRef}
+        tabIndex={-1}
+        role="status"
+        aria-live="polite"
+        style={banner ? BANNER_STYLE : BANNER_EMPTY_STYLE}
+      >
         {banner ? t(lang, banner.key) : ""}
       </p>
       {bannerRange && (

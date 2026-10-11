@@ -418,6 +418,19 @@ describe("ProposalsApp — proposals list and decisions (R-09 8.2)", () => {
     expect(screen.queryByRole("button", { name: "Use these dates" })).toBeNull();
   });
 
+  it("after a decision keyboard focus lands on the banner, not on the document body", async () => {
+    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [] } };
+    authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "feasible", status: "awaiting_owner" } });
+    await renderReady();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Feasible" })).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Feasible" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes" }));
+    const banner = await screen.findByText("Marked feasible. Sent to the owner.");
+    await waitFor(() => expect(getsTo("/api/v1/proposals")).toBe(2));
+    expect(banner.getAttribute("tabindex")).toBe("-1");
+    expect(document.activeElement).toBe(banner);
+  });
+
   it("a conflict answer shows its message in the banner and reloads the list", async () => {
     proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [] } };
     authedPostJson.mockResolvedValue({ kind: "conflict", code: "ALREADY_DECIDED" });
