@@ -61,6 +61,22 @@ describe("parseRefsCsv", () => {
   it("rejects an empty reference", () => {
     expect(parseRefsCsv("clip,reference\na.webm,").errors.join()).toMatch(/reference/i);
   });
+
+  it.each(["...", "- ,", "!?"])("rejects a punctuation-only reference %j (0 words after normalisation)", (ref) => {
+    const { refs, errors } = parseRefsCsv(`clip,reference\na.webm,"${ref}"`);
+    expect(refs).toEqual([]);
+    expect(errors.join()).toMatch(/a\.webm.*no words/i);
+  });
+
+  it("ignores fully empty rows", () => {
+    const { refs, errors } = parseRefsCsv("clip,reference,duration_ms\na.webm,halo,\n,,\n , , \nb.webm,hai,\n,,\n");
+    expect(errors).toEqual([]);
+    expect(refs.map((r) => r.clip)).toEqual(["a.webm", "b.webm"]);
+  });
+
+  it("still reports a row with a reference but no clip name", () => {
+    expect(parseRefsCsv("clip,reference\n,halo").errors.length).toBe(1);
+  });
 });
 
 describe("evaluateClips", () => {

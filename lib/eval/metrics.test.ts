@@ -304,6 +304,26 @@ describe("parseGoldCsv", () => {
     },
   );
 
+  it("ignores fully empty rows (Sheets pads exports with ',,,,,,,'), counting them nowhere", () => {
+    const text = [
+      HEADER,
+      "E0001,d,09:00,x,TRAINING,TRAINING,,",
+      ",,,,,,,",
+      " , ,,,,,, ",
+      "E0002,d,10:00,x,TRAINING,SKIP,,",
+      ",,,,,,,",
+    ].join("\n");
+    const { rows, skipped, errors } = parseGoldCsv(text);
+    expect(errors).toEqual([]);
+    expect(rows.map((r) => r.episode)).toEqual(["E0001"]);
+    expect(skipped).toBe(1);
+  });
+
+  it("still reports a row with data but no episode alias", () => {
+    const { errors } = parseGoldCsv([HEADER, ",d,09:00,x,TRAINING,TRAINING,,"].join("\n"));
+    expect(errors.some((e) => /episode alias is empty/.test(e))).toBe(true);
+  });
+
   it("reports an empty file", () => {
     expect(parseGoldCsv("").errors.length).toBeGreaterThan(0);
   });

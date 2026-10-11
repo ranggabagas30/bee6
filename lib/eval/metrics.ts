@@ -69,6 +69,7 @@ export function parseGoldCsv(text: string): { rows: LabelRow[]; skipped: number;
 
   const seen = new Set<string>();
   for (const [offset, r] of table.slice(1).entries()) {
+    if (r.every((c) => c.trim() === "")) continue; // padding rows such as ",,,,,,,"
     const episode = cell(r, "episode");
     const label = episode || `(row ${offset + 2})`;
     if (!episode) {

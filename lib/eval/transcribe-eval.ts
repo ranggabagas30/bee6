@@ -1,6 +1,6 @@
 import { MAX_SEGMENT_BYTES, SEGMENT_CONTENT_TYPE } from "@/lib/capture/contract";
 import { parseCsv } from "@/lib/eval/csv";
-import { percentile, WER_NORMALIZATION_RULE, wer } from "@/lib/eval/metrics";
+import { normalizeForWer, percentile, WER_NORMALIZATION_RULE, wer } from "@/lib/eval/metrics";
 import { ServiceUnavailableError } from "@/lib/http/errors";
 import type { Transcriber } from "@/lib/transcribe/types";
 
@@ -50,6 +50,7 @@ export function parseRefsCsv(text: string): { refs: RefRow[]; errors: string[] }
   }
   const seen = new Set<string>();
   for (const [offset, row] of table.slice(1).entries()) {
+    if (row.every((c) => c.trim() === "")) continue; // padding rows such as ",,"
     const clip = (row[iClip] ?? "").trim();
     const where = clip || `row ${offset + 2}`;
     if (!CLIP_NAME_RE.test(clip) || clip.includes("..")) {
@@ -64,6 +65,10 @@ export function parseRefsCsv(text: string): { refs: RefRow[]; errors: string[] }
     const reference = (row[iRef] ?? "").trim();
     if (reference === "") {
       errors.push(`${clip}: reference transcript is empty`);
+      continue;
+    }
+    if (normalizeForWer(reference).length === 0) {
+      errors.push(`${clip}: reference transcript has no words after normalisation (punctuation only)`);
       continue;
     }
     let duration: number | null = null;
