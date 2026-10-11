@@ -345,6 +345,7 @@ export function DebriefFlow({
           onLewati={handleLewati}
           onCheck={refresh ? () => void refreshQuestions(true) : undefined}
           checking={checking}
+          debriefDate={state.business_date}
         />
       );
 

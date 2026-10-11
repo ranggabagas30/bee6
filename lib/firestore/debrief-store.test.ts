@@ -289,6 +289,19 @@ describe("firestoreDebriefStore.getOutletCalendar", () => {
     });
   });
 
+  it("R-18: reports sandbox: true only for a demo sandbox outlet; a pilot outlet's result has no such key", async () => {
+    const sandbox = { template_outlet_id: "tpl", created_at_ms: 1, expires_at_ms: 2, key_sha256: "a".repeat(64) };
+    const { db } = fakeDb({
+      [COLLECTIONS.outlets]: { [OUTLET]: asDoc(makeOutlet({ sandbox })), pilot: asDoc(makeOutlet()) },
+    });
+    expect(await firestoreDebriefStore(OUTLET, db).getOutletCalendar()).toEqual({
+      tz: "Asia/Jakarta",
+      retention_days: 14,
+      sandbox: true,
+    });
+    expect(Object.keys(await firestoreDebriefStore("pilot", db).getOutletCalendar())).toEqual(["tz", "retention_days"]);
+  });
+
   it("defaults retention_days to 14 when the outlet doc doesn't have it", async () => {
     const { db } = fakeDb({ [COLLECTIONS.outlets]: { [OUTLET]: asDoc(makeOutlet()) } });
     expect(await firestoreDebriefStore(OUTLET, db).getOutletCalendar()).toEqual({

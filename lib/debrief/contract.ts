@@ -40,9 +40,9 @@ export const DebriefQuestionViewSchema = z
     start_hm: z.string().regex(/^\d{2}:\d{2}$/),
     end_hm: z.string().regex(/^\d{2}:\d{2}$/),
     /**
-     * R-18: the question window's business date, present ONLY when it differs from the debrief's own business
-     * date (a question carried over from an earlier day in a demo sandbox). Absent on every pilot question, so
-     * a pilot response is unchanged.
+     * R-18: the question window's business date, present ONLY on a demo sandbox outlet and only when it is strictly
+     * before the debrief's own business date (a question carried over from an earlier day). Absent on every
+     * pilot question, so a pilot response is unchanged.
      */
     business_date: dateString.optional(),
   })

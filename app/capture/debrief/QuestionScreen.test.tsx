@@ -235,6 +235,41 @@ describe("QuestionScreen: R-18 Earlier day chip", () => {
     expect(screen.queryByText(/Earlier day/)).toBeNull();
   });
 
+  it("no chip when the question's day is the debrief's day or LATER, whatever the server sent", () => {
+    for (const day of ["2026-10-12", "2026-10-13"]) {
+      cleanup();
+      render(
+        <QuestionScreen
+          view={baseView({ list: [q({ business_date: day })] })}
+          debriefDate="2026-10-12"
+          lang="en"
+          uploadNote={null}
+          onChoose={() => {}}
+          onTypeReason={() => {}}
+          onLanjut={() => {}}
+          onLewati={() => {}}
+        />,
+      );
+      expect(screen.queryByText(/Earlier day/)).toBeNull();
+    }
+  });
+
+  it("the chip shows only for a day strictly before the debrief's day", () => {
+    render(
+      <QuestionScreen
+        view={baseView({ list: [q({ business_date: "2026-10-11" })] })}
+        debriefDate="2026-10-12"
+        lang="en"
+        uploadNote={null}
+        onChoose={() => {}}
+        onTypeReason={() => {}}
+        onLanjut={() => {}}
+        onLewati={() => {}}
+      />,
+    );
+    expect(screen.getByText("Earlier day · Sun 11 Oct")).toBeTruthy();
+  });
+
   it("Bahasa chip", () => {
     render(
       <QuestionScreen

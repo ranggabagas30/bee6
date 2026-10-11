@@ -32,6 +32,8 @@ export interface QuestionScreenProps {
   /** R-18, sandbox only: omitted on the pilot, so no "Check for new questions" button renders there. */
   onCheck?: () => void;
   checking?: boolean;
+  /** The debrief's own business date: the chip shows only for a question from a day strictly before it. */
+  debriefDate?: string | null;
 }
 
 const RADIOGROUP_STYLE: React.CSSProperties = {
@@ -58,7 +60,7 @@ const RADIO_SELECTED_STYLE: React.CSSProperties = {
   borderColor: "#1a4d2e",
 };
 
-export function QuestionScreen({ view, lang, uploadNote, onChoose, onTypeReason, onLanjut, onLewati, onCheck, checking = false }: QuestionScreenProps) {
+export function QuestionScreen({ view, lang, uploadNote, onChoose, onTypeReason, onLanjut, onLewati, onCheck, checking = false, debriefDate = null }: QuestionScreenProps) {
   const question = view.list[view.index];
   const headingRef = useRef<HTMLDivElement>(null);
   const alertRef = useRef<HTMLDivElement>(null);
@@ -116,7 +118,7 @@ export function QuestionScreen({ view, lang, uploadNote, onChoose, onTypeReason,
         <p style={{ fontSize: 14, margin: 0, color: "#555" }}>
           {t(lang, "C-d-prog", { N: view.index + 1, M: view.list.length })}
         </p>
-        {question.business_date ? (
+        {question.business_date && (debriefDate === null || question.business_date < debriefDate) ? (
           <p
             style={{
               display: "inline-block",

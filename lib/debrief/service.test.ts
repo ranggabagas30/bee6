@@ -36,7 +36,7 @@ class FakeDebriefStore implements DebriefStore {
   threads = new Map<string, Thread>();
   corrections = new Set<string>();
   staffNames: string[] = [];
-  calendar = { tz: "Asia/Jakarta", retention_days: 14 };
+  calendar: { tz: string; retention_days: number; sandbox?: boolean } = { tz: "Asia/Jakarta", retention_days: 14 };
   endedDebriefsByKey = new Map<string, { business_date: string; debrief_ends_at_ms: number }>();
   transactCalls = 0;
   getQuestionCalls = 0;
@@ -153,6 +153,7 @@ describe("listDebriefQuestions", () => {
 
   it("R-18: a question from an earlier business day carries business_date (the 'Earlier day' chip); same-day ones carry none", async () => {
     const store = new FakeDebriefStore();
+    store.calendar = { ...store.calendar, sandbox: true };
     setUpActiveDebrief(store); // debrief business date 2026-10-07
     store.questions.set(
       "q_today",
@@ -166,6 +167,35 @@ describe("listDebriefQuestions", () => {
     const byId = new Map(result.questions.map((x) => [x.question_id, x]));
     expect(byId.get("q_old")).toMatchObject({ business_date: "2026-10-05" });
     expect(byId.get("q_today")).not.toHaveProperty("business_date");
+  });
+
+  it("R-18: a pilot outlet (no sandbox) never gets business_date, even for a question from an earlier day (response identical to base)", async () => {
+    const store = new FakeDebriefStore();
+    setUpActiveDebrief(store);
+    store.questions.set(
+      "q_old",
+      makeQuestion({ question_id: "q_old", window_start_ms: Date.UTC(2026, 9, 5, 3, 0), window_end_ms: Date.UTC(2026, 9, 5, 3, 5) }),
+    );
+    const result = await listDebriefQuestions(store, CLAIMS, ENDS_MS - 10_000);
+    expect(result.questions).toEqual([{ question_id: "q_old", kind: "gate", category: "ROUTINE_OPS", start_hm: "10:00", end_hm: "10:05" }]);
+  });
+
+  it("R-18: a question from a LATER business day than the debrief carries no business_date (never labelled 'Earlier day')", async () => {
+    const store = new FakeDebriefStore();
+    store.calendar = { ...store.calendar, sandbox: true };
+    setUpActiveDebrief(store); // debrief business date 2026-10-07 (a session started 00:56 WIB on 10-08 still belongs to it)
+    store.questions.set(
+      "q_next",
+      // 01:15 WIB on 8 Oct = business date 2026-10-08, after the debrief's 2026-10-07
+      makeQuestion({ question_id: "q_next", window_start_ms: Date.UTC(2026, 9, 7, 18, 15), window_end_ms: Date.UTC(2026, 9, 7, 18, 20) }),
+    );
+    store.questions.set(
+      "q_late",
+      // 00:30 WIB on 8 Oct is still business date 2026-10-07: the same day
+      makeQuestion({ question_id: "q_late", window_start_ms: Date.UTC(2026, 9, 7, 17, 30), window_end_ms: Date.UTC(2026, 9, 7, 17, 35) }),
+    );
+    const result = await listDebriefQuestions(store, CLAIMS, ENDS_MS - 10_000);
+    for (const item of result.questions) expect(item).not.toHaveProperty("business_date");
   });
 
   it("never shows another device's question", async () => {
