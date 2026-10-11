@@ -18,6 +18,8 @@ export interface SelesaiViewInput {
   weekly: WeeklyHours;
   tz: string;
   lang: Lang;
+  /** R-18: the sandbox demo profile is present, so Selesai is ready at once. */
+  demo?: boolean;
 }
 
 export interface SelesaiView {
@@ -29,6 +31,7 @@ export interface SelesaiView {
 
 export function selesaiViewFor(input: SelesaiViewInput): SelesaiView {
   const { nowMs, session, weekly, tz, lang } = input;
+  if (input.demo === true) return { ready: true, note: null };
   const from = selesaiFromMs(session.started_at_ms, session.local_date, weekly, tz);
   if (nowMs >= from) return { ready: true, note: null };
   return { ready: false, note: t(lang, "C-n-selesai-from", { time: clockLabel(from, tz) }) };
