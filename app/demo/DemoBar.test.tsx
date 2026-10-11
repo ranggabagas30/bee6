@@ -304,7 +304,7 @@ describe("DemoBar signs the Firebase web user out when the demo ends", () => {
     await act(async () => void vi.advanceTimersByTime(5_001));
     expect(signOut).toHaveBeenCalledTimes(1);
     expect(signOut).toHaveBeenCalledWith(FAKE_AUTH);
-    expect(JSON.parse(window.localStorage.getItem(DEMO_STATE_KEY)!)).toEqual({ sandbox_key: KEY, expires_at_ms: expires, role: "owner" });
+    expect(JSON.parse(window.localStorage.getItem(DEMO_STATE_KEY)!)).toEqual({ expires_at_ms: expires, role: "owner" }); // the key is dropped once the demo has ended
   });
 
   it("does so on /sign-in too, where the bar itself is hidden", async () => {

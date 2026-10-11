@@ -357,7 +357,8 @@ describe("startDemo", () => {
     const result = await startDemo("owner", { auth: AUTH, navigate, fetchImpl: f as never, now: () => NOW, onExpired: "stop" });
     expect(result).toEqual({ kind: "sandbox_expired" });
     expect(f).toHaveBeenCalledTimes(1);
-    expect(readDemoState()).toEqual({ sandbox_key: KEY, expires_at_ms: NOW, role: "staff" }); // kept, as ended
+    expect(readDemoState()).toEqual({ expires_at_ms: NOW, role: "staff" }); // kept, as ended, without the key
+    expect(fakeLocal.getItem(DEMO_STATE_KEY)).not.toContain(KEY);
     expect(demoSnapshot(NOW).endsWith("|expired")).toBe(true);
     expect(fakeLocal.getItem(DEVICE_TOKEN_KEY)).toBeNull();
     expect(navigate).not.toHaveBeenCalled();
@@ -373,7 +374,8 @@ describe("startDemo", () => {
     const result = await startDemo("owner", { auth: AUTH, navigate, fetchImpl: f as never, now: () => EXPIRES, onExpired: "stop" });
     expect(result).toEqual({ kind: "sandbox_expired" });
     expect(f).toHaveBeenCalledTimes(0);
-    expect(readDemoState()).toMatchObject({ expires_at_ms: EXPIRES, role: "staff" }); // kept as ended, same end time
+    expect(readDemoState()).toEqual({ expires_at_ms: EXPIRES, role: "staff" }); // kept as ended, same end time, no key
+    expect(fakeLocal.getItem(DEMO_STATE_KEY)).not.toContain(KEY);
     expect(demoSnapshot(EXPIRES).endsWith("|expired")).toBe(true);
     expect(fakeLocal.getItem(DEVICE_TOKEN_KEY)).toBeNull();
     expect(fakeLocal.getItem(DEVICE_ID_KEY)).toBeNull();
@@ -434,6 +436,53 @@ describe("startDemo", () => {
     signOut.mockRejectedValue(new Error("offline"));
     await expect(endDemo(AUTH)).resolves.toBeUndefined();
     await expect(endDemo(null)).resolves.toBeUndefined();
+  });
+
+  it("closeEndedDemo keeps the ended record but drops the sandbox key, and the change reaches other listeners", async () => {
+    const ended = Date.now() - 1000;
+    writeDemoState({ sandbox_key: KEY, expires_at_ms: ended, role: "owner" });
+    const onChange = vi.fn();
+    const off = subscribeDemoState(onChange);
+    await closeEndedDemo(AUTH);
+    off();
+    expect(readDemoState()).toEqual({ expires_at_ms: ended, role: "owner" });
+    expect(fakeLocal.getItem(DEMO_STATE_KEY)).not.toContain(KEY);
+    expect(demoSnapshot(Date.now()).endsWith("|expired")).toBe(true);
+    expect(onChange).toHaveBeenCalled();
+  });
+
+  it("closeEndedDemo on a record that is still live (a switch learned it is gone) ends it now, without the key", async () => {
+    writeDemoState({ sandbox_key: KEY, expires_at_ms: Date.now() + 3_600_000, role: "owner" });
+    await closeEndedDemo(AUTH);
+    const ended = readDemoState();
+    expect(ended).not.toHaveProperty("sandbox_key");
+    expect(isDemoExpired(ended!, Date.now())).toBe(true);
+  });
+
+  it("closeEndedDemo is idempotent: a record already without the key is not rewritten", async () => {
+    fakeLocal.setItem(DEMO_STATE_KEY, JSON.stringify({ expires_at_ms: NOW - 1000, role: "owner" }));
+    const onChange = vi.fn();
+    const off = subscribeDemoState(onChange);
+    await closeEndedDemo(AUTH);
+    off();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("an ended record (no key) round-trips, but a record with an extra field or a bad key is still refused", () => {
+    expect(parseDemoState(JSON.stringify({ expires_at_ms: 1, role: "owner" }))).toEqual({ expires_at_ms: 1, role: "owner" });
+    expect(parseDemoState(JSON.stringify({ expires_at_ms: 1, role: "owner", extra: 1 }))).toBeNull();
+    expect(parseDemoState(JSON.stringify({ sandbox_key: "short", expires_at_ms: 1, role: "owner" }))).toBeNull();
+  });
+
+  it("a tampered live record with no key never sends a keyless POST from the bar, and a Try-as button starts fresh", async () => {
+    fakeLocal.setItem(DEMO_STATE_KEY, JSON.stringify({ expires_at_ms: EXPIRES, role: "owner" }));
+    const f = vi.fn().mockResolvedValue(ok(WEB_OK));
+    const stopped = await startDemo("supervisor", { auth: AUTH, navigate, fetchImpl: f as never, now: () => NOW, onExpired: "stop" });
+    expect(stopped).toEqual({ kind: "sandbox_expired" });
+    expect(f).not.toHaveBeenCalled();
+    fakeLocal.setItem(DEMO_STATE_KEY, JSON.stringify({ expires_at_ms: EXPIRES, role: "owner" }));
+    await startDemo("supervisor", { auth: AUTH, navigate, fetchImpl: f as never, now: () => NOW, onExpired: "restart" });
+    expect(JSON.parse(f.mock.calls[0]![1].body)).toEqual({ role: "supervisor" });
   });
 
   it("closeEndedDemo without any stored demo record touches nothing (a real paired phone keeps its device keys and user)", async () => {

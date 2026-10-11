@@ -22,9 +22,12 @@ const SESSION_PATH = "/api/v1/demo/session";
 /** The uid prefix of every judge web user (`demo-<role>-<sandbox>`). */
 const DEMO_UID_PREFIX = "demo-";
 
+// `sandbox_key` is present while the demo is live and dropped once it has ended: an ended record only needs
+// to say "this browser's demo is over" (the bar and /sign-in read that), and a dead sandbox's key has no
+// reason to stay in storage.
 const DemoStateSchema = z
   .object({
-    sandbox_key: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+    sandbox_key: z.string().regex(/^[A-Za-z0-9_-]{43}$/).optional(),
     expires_at_ms: z.number().int().positive(),
     role: DemoRoleSchema,
   })
@@ -294,15 +297,18 @@ export async function endDemo(auth: Auth | null): Promise<void> {
 /**
  * The demo has ended by the clock or because a switch found the sandbox gone: remove the judge phone's device
  * keys and sign the Firebase web user out, but KEEP the stored (expired) record, so the bar and /sign-in
- * still say "Your demo session has ended." Never throws.
+ * still say "Your demo session has ended." (without the sandbox key, which is of no use any more).
+ * Never throws.
  *
  * It acts only when this browser holds a demo record, and signs out only a judge's own user (custom-token
  * uids are `demo-<role>-<sandbox>`, read once Firebase has restored the session). A normal email/password
  * session in a browser that once ran a demo is left alone, so it survives every reload.
  */
 export async function closeEndedDemo(auth: Auth | null): Promise<void> {
-  if (readDemoState() === null) return;
+  const stored = readDemoState();
+  if (stored === null) return;
   removeDeviceKeys();
+  if (stored.sandbox_key !== undefined) writeDemoState(endedRecord(stored, Date.now())); // drop the dead key
   if (!auth) return;
   try {
     await auth.authStateReady();
@@ -356,6 +362,11 @@ async function applyCredentials(data: DemoSessionResponse, auth: Auth | null, na
   return true;
 }
 
+/** The stored record as an ended one: no sandbox key, and an end time no later than `nowMs`. */
+function endedRecord(state: DemoState, nowMs: number): DemoState {
+  return { expires_at_ms: Math.min(state.expires_at_ms, nowMs), role: state.role };
+}
+
 /**
  * A switch found the sandbox gone (a 409/404, or the stored one already past its end). Keep the record, marked
  * as ended now (or at its own earlier end), so the bar and /sign-in both still say "Your demo session has
@@ -363,7 +374,7 @@ async function applyCredentials(data: DemoSessionResponse, auth: Auth | null, na
  * nothing to explain. Never throws.
  */
 async function endedBySwitch(stored: DemoState | null, auth: Auth | null, now: () => number): Promise<StartDemoResult> {
-  if (stored) writeDemoState({ ...stored, expires_at_ms: Math.min(stored.expires_at_ms, now()) });
+  if (stored) writeDemoState(endedRecord(stored, now()));
   else notifyChange();
   removeDeviceKeys();
   await signOutQuietly(auth); // do not leave a web user signed in behind a forgotten sandbox
