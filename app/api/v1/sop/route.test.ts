@@ -33,6 +33,7 @@ const outlet: Outlet = {
 const store = (o: Outlet | null = outlet): SopStore => ({
   getOutlet: async () => o,
   listVersions: async () => [seedV1()],
+  listOutcomes: async () => [],
 });
 const claimsFor = (role: string, outlet_id = "o1") => ({
   uid: "u1",
@@ -97,6 +98,7 @@ describe("GET /api/v1/sop", () => {
       listVersions: async () => {
         throw new Error("boom SECRET-DETAIL");
       },
+      listOutcomes: async () => [],
     });
     vi.spyOn(console, "error").mockImplementation(() => {});
     const res = await GET(req("Bearer t"));

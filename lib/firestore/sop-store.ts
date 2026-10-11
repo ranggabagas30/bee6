@@ -1,7 +1,7 @@
 import type { Firestore } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import { COLLECTIONS } from "@/lib/firestore/collections";
-import { SopVersionSchema, parseOutletDoc, type SopVersion } from "@/lib/firestore/schema";
+import { OutcomeSchema, SopVersionSchema, parseOutletDoc, type Outcome, type SopVersion } from "@/lib/firestore/schema";
 import type { SopStore } from "@/lib/sop/service";
 
 /**
@@ -9,11 +9,13 @@ import type { SopStore } from "@/lib/sop/service";
  * malformed or foreign-outlet docs are skipped and logged `{ doc_id,
  * error_class }` only, never step text. There is deliberately no write method:
  * SOP versions are written only by the owner-approval transaction and the seed
- * (hard rule #9; see lib/sop/write-boundary.test.ts).
+ * (hard rule #9; see lib/sop/write-boundary.test.ts). `listOutcomes` (R-11
+ * Task 7) reads the remembered review outcomes so the SOP change card can show
+ * them; outcomes carry no text.
  */
 
-function logSkippedDoc(docId: string): void {
-  console.error("[sop-store] skipping malformed sop_version doc", { doc_id: docId, error_class: "ZodError" });
+function logSkippedDoc(docId: string, kind: "sop_version" | "outcome" = "sop_version"): void {
+  console.error(`[sop-store] skipping malformed ${kind} doc`, { doc_id: docId, error_class: "ZodError" });
 }
 
 export function firestoreSopStore(outletId: string, db: Firestore = adminDb()): SopStore {
@@ -30,6 +32,21 @@ export function firestoreSopStore(outletId: string, db: Firestore = adminDb()): 
         const result = SopVersionSchema.safeParse(doc.data());
         if (!result.success) {
           logSkippedDoc(doc.id);
+          continue;
+        }
+        if (result.data.outlet_id !== outletId) continue;
+        out.push(result.data);
+      }
+      return out;
+    },
+
+    async listOutcomes() {
+      const snap = await db.collection(COLLECTIONS.outcomes).where("outlet_id", "==", outletId).limit(50).get();
+      const out: Outcome[] = [];
+      for (const doc of snap.docs) {
+        const result = OutcomeSchema.safeParse(doc.data());
+        if (!result.success) {
+          logSkippedDoc(doc.id, "outcome");
           continue;
         }
         if (result.data.outlet_id !== outletId) continue;

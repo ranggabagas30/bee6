@@ -1,5 +1,13 @@
 // Test-only fixtures shared by lib/sop tests (fictional demo data).
-import { ProposalSchema, SopVersionSchema, type Proposal, type SopStep, type SopVersion } from "@/lib/firestore/schema";
+import {
+  OutcomeSchema,
+  ProposalSchema,
+  SopVersionSchema,
+  type Outcome,
+  type Proposal,
+  type SopStep,
+  type SopVersion,
+} from "@/lib/firestore/schema";
 
 export const OUTLET = "o1";
 export const PROPOSAL_ID = "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f";
@@ -79,6 +87,32 @@ export function proposalV1(overrides: Record<string, unknown> = {}, content: Rec
     owner_decision: null,
     created_at_ms: 1_700_000_000_000,
     updated_at_ms: 1_700_000_000_000,
+    ...overrides,
+  });
+}
+
+/** A remembered outcome for the shipped change of `version` (test-only; fictional). */
+export function outcomeFor(version: number, overrides: Record<string, unknown> = {}): Outcome {
+  const id = `${OUTLET}:v${version}`;
+  return OutcomeSchema.parse({
+    outlet_id: OUTLET,
+    outcome_id: id,
+    review_id: id,
+    sop_version_id: id,
+    version,
+    source_proposal_id: PROPOSAL_ID,
+    step_id: "stock-01",
+    intervention_id: "change_quantity_time",
+    metric_category: "CUSTOMER_SERVICE",
+    metric_direction: "decrease",
+    before: { from_date: "2026-10-06", to_date: "2026-10-12", days_captured: 3, count: 6 },
+    after: { from_date: "2026-10-16", to_date: "2026-10-22", days_captured: 3, count: 2 },
+    suggested_verdict: "worked",
+    supervisor_verdict: "revise",
+    verdict: "worked",
+    in_memory: true,
+    simulated: false,
+    decided_at_ms: 1_700_000_100_000,
     ...overrides,
   });
 }

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { getSopOverview, type SopStore } from "@/lib/sop/service";
 import { planShip } from "@/lib/sop/ship";
-import { proposalV1, seedV1 } from "@/lib/sop/testing/fixtures";
+import { outcomeFor, proposalV1, seedV1 } from "@/lib/sop/testing/fixtures";
 import { ForbiddenError, NotFoundError } from "@/lib/http/errors";
-import type { Outlet, SopVersion } from "@/lib/firestore/schema";
+import type { Outcome, Outlet, SopVersion } from "@/lib/firestore/schema";
 import type { CustomClaims } from "@/lib/auth/roles";
 
 const TZ = "Asia/Jakarta";
@@ -33,8 +33,8 @@ const v1 = seedV1();
 const v2 = shipOn(v1, APPROVE_V2);
 const v3 = shipOn(v2, APPROVE_V3, { target_step_id: null }, "7a1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f");
 
-function store(versions: SopVersion[], o: Outlet | null = outlet): SopStore {
-  return { getOutlet: async () => o, listVersions: async () => [...versions] };
+function store(versions: SopVersion[], o: Outlet | null = outlet, outcomes: Outcome[] = []): SopStore {
+  return { getOutlet: async () => o, listVersions: async () => [...versions], listOutcomes: async () => [...outcomes] };
 }
 const claims = (role: string, outlet_id = "o1"): CustomClaims => ({ outlet_id, role }) as CustomClaims;
 const at = (iso: string) => Date.parse(iso);
@@ -116,5 +116,36 @@ describe("getSopOverview", () => {
     await expect(getSopOverview(store([broken]), { claims: claims("owner"), now_ms: 0 })).rejects.toThrow(
       "getSopOverview: internal schema violation",
     );
+  });
+});
+
+describe("getSopOverview: outcomes (R-11 Task 7)", () => {
+  const now = at("2026-10-30T01:00:00Z");
+
+  it("7.T1 a change without an outcome has outcome null", async () => {
+    const r = await getSopOverview(store([v1, v2]), { claims: claims("owner"), now_ms: now });
+    expect(r.changes[0]!.outcome).toBeNull();
+  });
+
+  it("7.T2 maps a remembered outcome onto its change, with only verdict and simulated", async () => {
+    const r = await getSopOverview(store([v1, v2, v3], outlet, [outcomeFor(2, { simulated: true })]), {
+      claims: claims("supervisor"),
+      now_ms: now,
+    });
+    const byVersion = new Map(r.changes.map((c) => [c.version, c]));
+    expect(byVersion.get(2)!.outcome).toEqual({ verdict: "worked", simulated: true });
+    expect(byVersion.get(3)!.outcome).toBeNull();
+    expect(JSON.stringify(r)).not.toContain("o1:v2");
+  });
+
+  it("7.T3 an unknown outcome is passed through as unknown", async () => {
+    const unknown = outcomeFor(2, { verdict: "unknown", in_memory: false, supervisor_verdict: null });
+    const r = await getSopOverview(store([v1, v2], outlet, [unknown]), { claims: claims("owner"), now_ms: now });
+    expect(r.changes[0]!.outcome).toEqual({ verdict: "unknown", simulated: false });
+  });
+
+  it("7.T4 an outcome whose version has no change is ignored", async () => {
+    const r = await getSopOverview(store([v1, v2], outlet, [outcomeFor(9)]), { claims: claims("owner"), now_ms: now });
+    expect(r.changes.map((c) => c.outcome)).toEqual([null]);
   });
 });

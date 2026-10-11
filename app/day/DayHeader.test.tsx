@@ -96,3 +96,15 @@ describe("DayHeader — SOP link (R-10 Task 5.5)", () => {
     expect(link.style.minHeight).toBe("48px");
   });
 });
+
+describe("DayHeader — reviews link (R-11 Task 6.6)", () => {
+  it.each([
+    ["owner", OWNER_HEADER],
+    ["supervisor", SUPERVISOR_HEADER],
+  ] as const)("%s view shows a 48px link to /reviews", (view, header) => {
+    renderHeader(view, header);
+    const link = screen.getByRole("link", { name: "Reviews" }) as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("/reviews");
+    expect(link.style.minHeight).toBe("48px");
+  });
+});

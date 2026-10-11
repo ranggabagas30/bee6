@@ -402,6 +402,56 @@ export const ID = {
   "C-sop-approved-on": "Disetujui pada {date}", // PROVISIONAL
   "C-sop-steps": "Langkah di versi {version}", // PROVISIONAL
   "C-sop-err-forbidden": "Hanya pemilik atau supervisor yang bisa melihat perubahan SOP.", // PROVISIONAL
+  "C-rev-title": "Tinjauan", // PROVISIONAL
+  "C-rev-link": "Tinjauan", // PROVISIONAL
+  "C-rev-open": "Menunggu keputusan", // PROVISIONAL
+  "C-rev-decided": "Sudah diputuskan", // PROVISIONAL
+  "C-rev-empty": "Belum ada tinjauan. Tinjauan dimulai pada tanggal tinjauan setiap perubahan SOP.", // PROVISIONAL
+  "C-rev-head": "SOP versi {version}: ditinjau pada {date}", // PROVISIONAL
+  "C-rev-simulated": "Waktu simulasi (demo)", // PROVISIONAL
+  "C-rev-window-before": "Sebelum ({from} s.d. {to}): {count} dalam {days} hari terekam, {rate} per hari", // PROVISIONAL
+  "C-rev-window-after": "Sesudah ({from} s.d. {to}): {count} dalam {days} hari terekam, {rate} per hari", // PROVISIONAL
+  "C-rev-window-before-none": "Sebelum ({from} s.d. {to}): tidak ada hari terekam", // PROVISIONAL
+  "C-rev-window-after-none": "Sesudah ({from} s.d. {to}): tidak ada hari terekam", // PROVISIONAL
+  "C-rev-short-window": "Ini jangka waktu pendek, jadi baca angkanya dengan hati-hati.", // PROVISIONAL
+  "C-rev-suggest": "Saran bee6: {verdict}", // PROVISIONAL
+  "C-rev-suggest-none": "bee6 tidak punya saran: {why}", // PROVISIONAL
+  "C-rev-why-not_enough_days": "kurang dari 2 hari terekam di salah satu jangka waktu", // PROVISIONAL
+  "C-rev-why-no_baseline": "tidak ada sebelum perubahan", // PROVISIONAL
+  "C-rev-why-improved": "jumlah per hari bergerak ke arah yang benar sebesar {pct}%", // PROVISIONAL
+  "C-rev-why-worsened": "jumlah per hari bergerak ke arah yang salah sebesar {pct}%", // PROVISIONAL
+  "C-rev-why-no_clear_change": "jumlah per hari berubah kurang dari 20%", // PROVISIONAL
+  "C-rev-v-worked": "Berhasil", // PROVISIONAL
+  "C-rev-v-revise": "Perlu direvisi", // PROVISIONAL
+  "C-rev-v-revert": "Kembalikan", // PROVISIONAL
+  "C-rev-notice-overlap": "Ada perubahan SOP lain yang berlaku selama periode pengukuran; angkanya mungkin bercampur.", // PROVISIONAL
+  "C-rev-notice-truncated": "Terlalu banyak catatan untuk dibaca semua; jumlahnya mungkin kurang.", // PROVISIONAL
+  "C-rev-sup-said": "Keputusan supervisor pada {date}: {verdict}", // PROVISIONAL
+  "C-rev-owner-said": "Keputusan pemilik pada {date}: {verdict}", // PROVISIONAL
+  "C-rev-reason": "Alasan:", // PROVISIONAL
+  "C-rev-st-awaiting-sup": "Menunggu keputusan supervisor paling lambat {date}", // PROVISIONAL
+  "C-rev-st-awaiting-owner": "Menunggu keputusan pemilik paling lambat {date}", // PROVISIONAL
+  "C-rev-st-confirmed": "Dikonfirmasi. Diingat sebagai: {verdict}", // PROVISIONAL
+  "C-rev-st-unknown": "Tidak dikonfirmasi tepat waktu. Disimpan sebagai tidak diketahui dan tidak diingat.", // PROVISIONAL
+  "C-rev-revert-note": "Mengembalikan tidak mengubah SOP dengan sendirinya. Untuk membatalkan perubahan, buat usulan baru.", // PROVISIONAL
+  "C-rev-reason-label": "Alasan (opsional)", // PROVISIONAL
+  "C-rev-reason-hint": "Tanpa nama atau nomor telepon.", // PROVISIONAL
+  "C-rev-confirm": "Simpan \"{verdict}\" sebagai keputusan Anda?", // PROVISIONAL
+  "C-rev-yes": "Ya", // PROVISIONAL
+  "C-rev-no": "Batal", // PROVISIONAL
+  "C-rev-done": "Keputusan tersimpan.", // PROVISIONAL
+  "C-rev-done-unchanged": "Keputusan ini sudah tersimpan.", // PROVISIONAL
+  "C-rev-err-decided": "Keputusan sudah tercatat. Daftar sudah diperbarui.", // PROVISIONAL
+  "C-rev-err-not-yet": "Supervisor belum memberi keputusan.", // PROVISIONAL
+  "C-rev-err-expired": "Waktu untuk konfirmasi sudah lewat.", // PROVISIONAL
+  "C-rev-err-length": "Alasan harus 3 sampai 300 karakter.", // PROVISIONAL
+  "C-rev-ff": "Lompat ke tanggal tinjauan (simulasi)", // PROVISIONAL
+  "C-rev-ff-done": "Tinjauan simulasi dibuat.", // PROVISIONAL
+  "C-rev-ff-none": "Tidak ada perubahan SOP yang tersisa untuk ditinjau.", // PROVISIONAL
+  "C-rev-err-forbidden": "Hanya pemilik atau supervisor yang bisa melihat tinjauan.", // PROVISIONAL
+  "C-rev-retry": "Coba lagi", // PROVISIONAL
+  "C-sop-outcome": "Hasil: {verdict}", // PROVISIONAL
+  "C-sop-outcome-unknown": "Hasil: tidak diketahui (tidak dikonfirmasi, tidak diingat)", // PROVISIONAL
 } as const;
 
 export type DictKey = keyof typeof ID;
@@ -776,6 +826,56 @@ export const EN: Record<DictKey, string> = {
   "C-sop-approved-on": "Approved on {date}", // PROVISIONAL
   "C-sop-steps": "Steps in version {version}", // PROVISIONAL
   "C-sop-err-forbidden": "Only the owner or a supervisor can see the SOP changes.", // PROVISIONAL
+  "C-rev-title": "Reviews", // PROVISIONAL
+  "C-rev-link": "Reviews", // PROVISIONAL
+  "C-rev-open": "Waiting for a verdict", // PROVISIONAL
+  "C-rev-decided": "Decided", // PROVISIONAL
+  "C-rev-empty": "No reviews yet. A review starts on the review date of each SOP change.", // PROVISIONAL
+  "C-rev-head": "SOP version {version}: review on {date}", // PROVISIONAL
+  "C-rev-simulated": "Simulated time (demo)", // PROVISIONAL
+  "C-rev-window-before": "Before ({from} to {to}): {count} in {days} captured days, {rate} per day", // PROVISIONAL
+  "C-rev-window-after": "After ({from} to {to}): {count} in {days} captured days, {rate} per day", // PROVISIONAL
+  "C-rev-window-before-none": "Before ({from} to {to}): no captured days", // PROVISIONAL
+  "C-rev-window-after-none": "After ({from} to {to}): no captured days", // PROVISIONAL
+  "C-rev-short-window": "This is a short window, so read the numbers with care.", // PROVISIONAL
+  "C-rev-suggest": "bee6 suggests: {verdict}", // PROVISIONAL
+  "C-rev-suggest-none": "bee6 has no suggestion: {why}", // PROVISIONAL
+  "C-rev-why-not_enough_days": "fewer than 2 captured days in one of the windows", // PROVISIONAL
+  "C-rev-why-no_baseline": "there were none before the change", // PROVISIONAL
+  "C-rev-why-improved": "the count per day moved the right way by {pct}%", // PROVISIONAL
+  "C-rev-why-worsened": "the count per day moved the wrong way by {pct}%", // PROVISIONAL
+  "C-rev-why-no_clear_change": "the count per day changed by less than 20%", // PROVISIONAL
+  "C-rev-v-worked": "Worked", // PROVISIONAL
+  "C-rev-v-revise": "Revise", // PROVISIONAL
+  "C-rev-v-revert": "Revert", // PROVISIONAL
+  "C-rev-notice-overlap": "Another SOP change took effect during the measured period; these numbers may mix both.", // PROVISIONAL
+  "C-rev-notice-truncated": "Too many records to read in full; the counts may be low.", // PROVISIONAL
+  "C-rev-sup-said": "Supervisor's verdict on {date}: {verdict}", // PROVISIONAL
+  "C-rev-owner-said": "Owner's verdict on {date}: {verdict}", // PROVISIONAL
+  "C-rev-reason": "Reason:", // PROVISIONAL
+  "C-rev-st-awaiting-sup": "Waiting for the supervisor's verdict by {date}", // PROVISIONAL
+  "C-rev-st-awaiting-owner": "Waiting for the owner's verdict by {date}", // PROVISIONAL
+  "C-rev-st-confirmed": "Confirmed. Remembered as: {verdict}", // PROVISIONAL
+  "C-rev-st-unknown": "Not confirmed in time. Stored as unknown and not remembered.", // PROVISIONAL
+  "C-rev-revert-note": "Reverting does not change the SOP by itself. To undo the change, generate a new proposal.", // PROVISIONAL
+  "C-rev-reason-label": "Reason (optional)", // PROVISIONAL
+  "C-rev-reason-hint": "No names or phone numbers.", // PROVISIONAL
+  "C-rev-confirm": "Record \"{verdict}\" as your verdict?", // PROVISIONAL
+  "C-rev-yes": "Yes", // PROVISIONAL
+  "C-rev-no": "Cancel", // PROVISIONAL
+  "C-rev-done": "Verdict saved.", // PROVISIONAL
+  "C-rev-done-unchanged": "This verdict was already saved.", // PROVISIONAL
+  "C-rev-err-decided": "A verdict was already recorded. The list is updated.", // PROVISIONAL
+  "C-rev-err-not-yet": "The supervisor has not given a verdict yet.", // PROVISIONAL
+  "C-rev-err-expired": "The time to confirm has passed.", // PROVISIONAL
+  "C-rev-err-length": "A reason must be 3 to 300 characters.", // PROVISIONAL
+  "C-rev-ff": "Fast-forward to the review date (simulated)", // PROVISIONAL
+  "C-rev-ff-done": "Simulated review created.", // PROVISIONAL
+  "C-rev-ff-none": "No SOP change left to review.", // PROVISIONAL
+  "C-rev-err-forbidden": "Only the owner or a supervisor can see reviews.", // PROVISIONAL
+  "C-rev-retry": "Try again", // PROVISIONAL
+  "C-sop-outcome": "Outcome: {verdict}", // PROVISIONAL
+  "C-sop-outcome-unknown": "Outcome: unknown (not confirmed, not remembered)", // PROVISIONAL
 };
 
 export const DICT: Record<Lang, Record<DictKey, string>> = { id: ID, en: EN };

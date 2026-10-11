@@ -108,6 +108,12 @@ export function DayHeader({
         </Link>
       </p>
 
+      <p>
+        <Link href="/reviews" style={NAV_LINK_STYLE}>
+          {t(lang, "C-rev-link")}
+        </Link>
+      </p>
+
       {view === "supervisor" && (
         <p>
           <Link href="/questions" style={NAV_LINK_STYLE}>

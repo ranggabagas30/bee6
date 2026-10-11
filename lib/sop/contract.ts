@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { dateString } from "@/lib/day/contract";
 import { UserRoleSchema } from "@/lib/auth/roles";
-import { SOP_CHANGE_KINDS, SopChangeMetricSchema } from "@/lib/firestore/schema";
+import { OUTCOME_VERDICTS, SOP_CHANGE_KINDS, SopChangeMetricSchema } from "@/lib/firestore/schema";
 
 /**
  * Wire contract for GET /api/v1/sop (R-10 Task 4.1). Views carry no
@@ -27,6 +27,8 @@ export const SopChangeViewSchema = z
     metric: SopChangeMetricSchema,
     failure_condition: z.string(),
     review_date: dateString,
+    // R-11 Task 7: the remembered review result, if any. Verdict and the simulated flag only; never text or ids.
+    outcome: z.object({ verdict: z.enum(OUTCOME_VERDICTS), simulated: z.boolean() }).strict().nullable(),
   })
   .strict();
 export type SopChangeView = z.infer<typeof SopChangeViewSchema>;

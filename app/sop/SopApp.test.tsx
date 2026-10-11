@@ -54,6 +54,7 @@ const changeView = (version: number, overrides: Partial<SopChangeView> = {}): So
   metric: { category: "CUSTOMER_SERVICE", direction: "decrease", description: "d", baseline_count: 3, baseline_days: 7 },
   failure_condition: "f",
   review_date: "2026-10-23",
+  outcome: null,
   ...overrides,
 });
 const overview = (o: Partial<SopOverview> = {}): SopOverview => ({

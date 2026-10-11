@@ -4,11 +4,13 @@ import { t, type DictKey } from "@/lib/i18n/dict";
 import { dayLabel } from "@/lib/i18n/format";
 import { CATEGORY_KEY } from "@/lib/day/view-model";
 import type { SopChangeView } from "@/lib/sop/contract";
+import { VERDICT_KEY } from "@/app/reviews/ReviewCard";
 
 /**
  * One approved SOP change as a plain before/after list (R-10 Task 5.4). The
  * changed step as it was, then as it is now, then the metric, failure
- * condition and review date. No highlighting, no colour coding, no "diff"
+ * condition and review date (and, once reviewed, the remembered outcome: R-11
+ * Task 7, verdict only, no reasons). No highlighting, no colour coding, no "diff"
  * wording (cut #51). Every model text field (change title, step title/text,
  * metric description, failure condition) is rendered as a plain text node:
  * never through `t()`, never as HTML.
@@ -76,6 +78,18 @@ export function SopChangeCard({ change, lang }: { change: SopChangeView; lang: L
       </p>
       <p style={LINE_STYLE}>{t(lang, "C-prop-review", { date: dayLabel(change.review_date, lang) })}</p>
       <p style={LINE_STYLE}>{t(lang, "C-sop-approved-on", { date: dayLabel(change.approved_date, lang) })}</p>
+      {change.outcome !== null && (
+        <>
+          <p style={LINE_STYLE}>
+            {change.outcome.verdict === "unknown"
+              ? t(lang, "C-sop-outcome-unknown")
+              : t(lang, "C-sop-outcome", { verdict: t(lang, VERDICT_KEY[change.outcome.verdict]) })}
+          </p>
+          {change.outcome.simulated && (
+            <p style={{ ...LINE_STYLE, fontWeight: 700 }}>{t(lang, "C-rev-simulated")}</p>
+          )}
+        </>
+      )}
     </article>
   );
 }

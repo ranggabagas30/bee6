@@ -1,0 +1,13 @@
+import { connection } from "next/server";
+import { readFirebaseWebConfig } from "@/lib/auth/web-config";
+import { ReviewsApp } from "@/app/reviews/ReviewsApp";
+
+/**
+ * /reviews (R-11 Task 6.2). A server component so the Firebase web config is
+ * read from `process.env` at request time, not baked into the build; same
+ * runtime-env pattern as `app/sop/page.tsx` and `app/proposals/page.tsx`.
+ */
+export default async function ReviewsPage() {
+  await connection();
+  return <ReviewsApp config={readFirebaseWebConfig()} />;
+}
