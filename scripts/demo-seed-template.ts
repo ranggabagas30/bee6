@@ -23,6 +23,9 @@
  *   Each clip is one WebM/Opus segment of at most 15 s (the real segment contract). The script
  *   never cuts audio. `duration_ms` is the clip length, used for the device end time.
  *
+ * Before pairing it checks that --base-url answers like a demo service (a read-only GET; see assertDemoService)
+ * and refuses otherwise, so the single-use pairing code is never sent to a pilot or unrelated service.
+ *
  * Hard rules: audio is read from disk, sent in the request body and never stored, logged or
  * echoed (#2); the device token is held in memory only (never written, never logged); logs print
  * counts and routes, never text.
@@ -181,9 +184,32 @@ function isDone(progress: ProgressSnapshot, dates: readonly string[]): boolean {
   });
 }
 
+/**
+ * Proves the base URL is a DEMO service before any state-changing call. The pairing code is single use and
+ * the pair route cannot be asked who owns a code without consuming it, so the check is on the service: the
+ * fast-forward route is demo only and answers a wrong method (here GET, no token, no body, read-only) with
+ * 405 + `Allow: POST` when DEMO_MODE is on, and with the same 404 as any missing route when it is off (the
+ * pilot never sets DEMO_MODE). Anything else, including a network error, refuses the run.
+ */
+async function assertDemoService(deps: TemplateSeedDeps): Promise<void> {
+  const refuse = () =>
+    new TemplateSeedError("The base URL did not identify itself as a demo service; nothing was sent. Check --base-url.");
+  let res: Response;
+  try {
+    res = await deps.fetchFn(`${deps.baseUrl}/api/v1/reviews/fast-forward`, { method: "GET" });
+  } catch {
+    throw refuse();
+  }
+  const allow = (res.headers.get("allow") ?? "").toUpperCase();
+  if (res.status !== 405 || !allow.split(",").some((m) => m.trim() === "POST")) throw refuse();
+}
+
 /** The whole run. Throws `TemplateSeedError` on any failure; resolves when the tick has produced every day. */
 export async function runTemplateSeed(deps: TemplateSeedDeps): Promise<void> {
   const tz = deps.tz ?? TZ;
+
+  // 0. Refuse a service that is not a demo service, before the single-use pairing code is spent.
+  await assertDemoService(deps);
 
   // 1. Pair. The token stays in this function's memory.
   const paired = (await send(deps, "POST", "/api/v1/devices/pair", jsonHeaders(), JSON.stringify({ code: deps.code }))) as

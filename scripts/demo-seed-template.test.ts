@@ -99,6 +99,10 @@ function harness(opts: { pair?: { device_id: string; outlet_id: string }; failAt
     calls.push(call);
     const forced = opts.failAt?.(call);
     if (forced) return forced;
+    if (call.method === "GET" && call.url.endsWith("/api/v1/reviews/fast-forward")) {
+      // A demo service answers a wrong method with 405 + Allow: POST; any other service answers 404.
+      return new Response(null, { status: 405, headers: { Allow: "POST" } });
+    }
     if (call.url.endsWith("/api/v1/devices/pair")) {
       return envelope(
         { ...(opts.pair ?? { device_id: "demo-tpl-phone", outlet_id: "demo-tpl-outlet" }), device_token: TOKEN },
@@ -138,6 +142,7 @@ describe("runTemplateSeed", () => {
     await runTemplateSeed(deps);
     const routes = calls.map((c) => `${c.method} ${c.url.replace(deps.baseUrl, "").replace(/[0-9a-f-]{36}/g, "<uuid>")}`);
     expect(routes).toEqual([
+      "GET /api/v1/reviews/fast-forward",
       "POST /api/v1/devices/pair",
       "POST /api/v1/capture/sessions",
       "PUT /api/v1/segments/demo-tpl-phone:<uuid>",
@@ -181,7 +186,40 @@ describe("runTemplateSeed", () => {
   it("aborts when the pairing code belongs to another device or outlet (never seeds the wrong shop)", async () => {
     const { deps, calls } = harness({ pair: { device_id: "demo-phone", outlet_id: "demo-outlet" } });
     await expect(runTemplateSeed(deps)).rejects.toBeInstanceOf(TemplateSeedError);
-    expect(calls).toHaveLength(1);
+    expect(calls.map((c) => c.method)).toEqual(["GET", "POST"]); // the demo probe, then the pairing; nothing after
+  });
+
+  describe("LOW-7 the service must prove it is a demo service before any state-changing call", () => {
+    const probeResponses: [string, () => Response | Promise<Response>][] = [
+      ["404 (DEMO_MODE off: a pilot or any non-demo service)", () => new Response("{}", { status: 404 })],
+      ["200 (some unrelated service)", () => new Response("ok", { status: 200 })],
+      ["405 without Allow: POST", () => new Response(null, { status: 405 })],
+      ["a 5xx", () => new Response(null, { status: 502 })],
+      ["a network error", () => Promise.reject(new TypeError("fetch failed"))],
+    ];
+    for (const [name, make] of probeResponses) {
+      it(`refuses on ${name}: the pairing code is never sent and nothing is uploaded`, async () => {
+        const h = harness();
+        h.fetchFn.mockImplementation(async (url: string, init?: RequestInit) => {
+          h.calls.push({ method: init?.method ?? "GET", url: String(url), headers: {}, body: init?.body });
+          return make();
+        });
+        const err = await runTemplateSeed(h.deps).catch((e) => e);
+        expect(err).toBeInstanceOf(TemplateSeedError);
+        expect(h.calls).toHaveLength(1);
+        expect(h.calls[0]).toMatchObject({ method: "GET" });
+        expect(h.calls[0]!.url).toBe("https://demo.example.run.app/api/v1/reviews/fast-forward");
+        expect(h.deps.readClip).not.toHaveBeenCalled();
+        expect(err.message).not.toContain("123456");
+      });
+    }
+
+    it("the probe sends no credentials", async () => {
+      const { deps, calls } = harness();
+      await runTemplateSeed(deps);
+      expect(calls[0]!.headers.Authorization).toBeUndefined();
+      expect(calls[0]!.body).toBeUndefined();
+    });
   });
 
   it("an HTTP error exits with status and route only (no body, no token)", async () => {
