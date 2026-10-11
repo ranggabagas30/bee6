@@ -1,4 +1,4 @@
-import type { AuditLog, OwnerDecision, Proposal, ProposalStatus, SupervisorReview } from "@/lib/firestore/schema";
+import type { AuditLog, OwnerDecision, Proposal, ProposalStatus, SopVersion, SupervisorReview } from "@/lib/firestore/schema";
 import { ProposalSchema } from "@/lib/firestore/schema";
 import { evidenceStillHolds, type FreshThread } from "@/lib/proposals/freshness";
 import type { DecisionConflictCode } from "@/lib/proposals/review-contract";
@@ -26,6 +26,9 @@ export interface DecisionSnapshot {
   constraint_ids: string[];
   /** Highest-version sop_versions id of the outlet; null if none. */
   current_sop_version_id: string | null;
+  /** The outlet's latest sop_versions doc (R-10: planShip builds v{n+1} on it). null if none.
+   *  Invariant: current_sop_version_id === (current_sop?.sop_version_id ?? null). */
+  current_sop: SopVersion | null;
 }
 
 export type DecisionCheck =

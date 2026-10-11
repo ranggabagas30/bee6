@@ -259,6 +259,7 @@ class FakeReviewStore implements ProposalReviewStore {
   }
   private snapshotOf(id: string): DecisionSnapshot {
     const p = this.proposals.get(id) ?? null;
+    const currentSop = [...this.sops.values()].sort((a, b) => b.version - a.version)[0] ?? null;
     return {
       proposal: p,
       same_range: p
@@ -274,7 +275,8 @@ class FakeReviewStore implements ProposalReviewStore {
         }),
       ),
       constraint_ids: this.cstore.docs.map((c) => c.constraint_id),
-      current_sop_version_id: [...this.sops.values()].sort((a, b) => b.version - a.version)[0]?.sop_version_id ?? null,
+      current_sop_version_id: currentSop?.sop_version_id ?? null,
+      current_sop: currentSop,
     };
   }
   async readDecisionSnapshot(id: string) {

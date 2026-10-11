@@ -8,6 +8,7 @@ import {
 } from "@/lib/proposals/review-plan";
 import type { FreshThread } from "@/lib/proposals/freshness";
 import { ProposalSchema, type Proposal } from "@/lib/firestore/schema";
+import { seedV1 } from "@/lib/sop/testing/fixtures";
 
 const OUTLET = "demo-outlet";
 const P1 = "33333333-3333-4333-8333-333333333333";
@@ -109,6 +110,7 @@ function snap(p: Proposal | null, o: Partial<DecisionSnapshot> = {}): DecisionSn
     fresh: allFresh(),
     constraint_ids: [C1],
     current_sop_version_id: "o1:v1",
+    current_sop: seedV1(),
     ...o,
   };
 }

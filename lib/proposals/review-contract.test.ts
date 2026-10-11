@@ -1,11 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
   ApproveBodySchema,
+  DECISION_CONFLICT_CODES,
   ListProposalsResponseSchema,
   ProposalIdSchema,
   ProposalListItemSchema,
   ReviewBodySchema,
 } from "@/lib/proposals/review-contract";
+
+describe("DECISION_CONFLICT_CODES (R-10)", () => {
+  it("carries the ship refusals so a refused approval is a typed 409", () => {
+    expect(DECISION_CONFLICT_CODES).toEqual(
+      expect.arrayContaining(["SOP_CHANGED", "SOP_STEP_LIMIT", "LEGACY_PROPOSAL", "STEP_TEXT_TOO_LONG"]),
+    );
+  });
+});
 
 const U1 = "11111111-1111-4111-8111-111111111111";
 

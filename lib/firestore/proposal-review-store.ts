@@ -8,6 +8,7 @@ import type {
 } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import { COLLECTIONS } from "@/lib/firestore/collections";
+import { ConflictError } from "@/lib/http/errors";
 import { firestoreConstraintStore } from "@/lib/firestore/constraint-store";
 import {
   ConstraintSchema,
@@ -31,6 +32,18 @@ import type { ProposalReviewStore, ReviewThreadRow } from "@/lib/proposals/revie
  */
 
 const LIST_READ_PER_STATUS = 50;
+
+/**
+ * Firestore ALREADY_EXISTS as the Admin SDK surfaces it: `tx.create` queues a
+ * write with an `exists: false` precondition, so a duplicate id fails the
+ * COMMIT (not the `tx.create` call) with gRPC status 6, which the SDK does not
+ * retry. Checked as the numeric code, the lower-case gRPC name and the
+ * upper-case status name.
+ */
+function isAlreadyExists(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === 6 || code === "already-exists" || code === "ALREADY_EXISTS";
+}
 
 function logSkippedDoc(context: string, docId: string): void {
   console.error(`[proposal-review-store] skipping malformed ${context} doc`, {
@@ -85,6 +98,7 @@ export function firestoreProposalReviewStore(outletId: string, db: Firestore = a
       fresh: new Map(),
       constraint_ids: [],
       current_sop_version_id: null,
+      current_sop: null,
     };
 
     // 1. The proposal itself.
@@ -176,7 +190,14 @@ export function firestoreProposalReviewStore(outletId: string, db: Firestore = a
       if (!best || r.data.version > best.version) best = r.data;
     }
 
-    return { proposal, same_range, fresh, constraint_ids, current_sop_version_id: best?.sop_version_id ?? null };
+    return {
+      proposal,
+      same_range,
+      fresh,
+      constraint_ids,
+      current_sop_version_id: best?.sop_version_id ?? null,
+      current_sop: best,
+    };
   }
 
   return {
@@ -279,16 +300,34 @@ export function firestoreProposalReviewStore(outletId: string, db: Firestore = a
     },
 
     async transactDecision(proposalId, decide) {
-      return db.runTransaction(async (tx: Transaction) => {
-        const snap = await loadSnapshot(txReader(tx), proposalId);
-        const { write, outcome } = decide(snap);
-        if (write) {
-          if (write.proposal.proposal_id !== proposalId) throw new Error("transactDecision: id mismatch");
-          tx.set(proposalRef(proposalId), write.proposal);
-          tx.create(db.collection(COLLECTIONS.auditLog).doc(), write.audit);
-        }
-        return outcome;
-      });
+      // Set on every attempt (a retried transaction re-runs the callback); read only to classify a failure.
+      let shippingSop = false;
+      try {
+        return await db.runTransaction(async (tx: Transaction) => {
+          shippingSop = false;
+          const snap = await loadSnapshot(txReader(tx), proposalId);
+          const { write, outcome } = decide(snap);
+          if (write) {
+            if (write.proposal.proposal_id !== proposalId) throw new Error("transactDecision: id mismatch");
+            if (write.sop_version && write.sop_version.outlet_id !== outletId) {
+              throw new Error("transactDecision: sop outlet mismatch");
+            }
+            tx.set(proposalRef(proposalId), write.proposal);
+            tx.create(db.collection(COLLECTIONS.auditLog).doc(), write.audit);
+            if (write.sop_version) {
+              shippingSop = true;
+              // create, never set: sop_versions are immutable, and a second create of the same id fails the commit.
+              tx.create(db.collection(COLLECTIONS.sopVersions).doc(write.sop_version.sop_version_id), write.sop_version);
+            }
+            if (write.sop_audit) tx.create(db.collection(COLLECTIONS.auditLog).doc(), write.sop_audit);
+          }
+          return outcome;
+        });
+      } catch (error) {
+        // A lost race on the version id: the whole commit (proposal, audits, SOP doc) was rejected atomically.
+        if (shippingSop && isAlreadyExists(error)) throw new ConflictError("Decision refused", "SOP_CHANGED");
+        throw error;
+      }
     },
   };
 }

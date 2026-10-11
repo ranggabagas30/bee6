@@ -34,6 +34,9 @@ export const DECISION_CONFLICT_CODES = [
   "EVIDENCE_STALE",
   "SOP_CHANGED",
   "CONSTRAINT_ADDED",
+  "SOP_STEP_LIMIT", // R-10: a new step cannot be added to a full SOP
+  "LEGACY_PROPOSAL", // R-10: made by proposal-v1, whose change_text may be a description, not the full step text
+  "STEP_TEXT_TOO_LONG", // R-10: the step's current text is longer than the model can rewrite
 ] as const; // plus CONSTRAINT_LIMIT, which createConstraint throws on a reject
 export type DecisionConflictCode = (typeof DECISION_CONFLICT_CODES)[number];
 

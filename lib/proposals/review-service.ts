@@ -43,6 +43,18 @@ export interface ReviewThreadRow extends FreshThread {
   summary: string;
 }
 
+/**
+ * What one decision commits. `sop_version` + `sop_audit` are present only when
+ * the owner approves (R-10): the new immutable SOP version ships in the same
+ * transaction as the approval.
+ */
+export interface DecisionWrite {
+  proposal: Proposal;
+  audit: AuditLog;
+  sop_version?: SopVersion;
+  sop_audit?: AuditLog;
+}
+
 export interface ProposalReviewStore {
   getOutlet(): Promise<Outlet | null>;
   /** One equality query per status: where outlet_id == X, where status == s, limit LIST_READ_PER_STATUS (50).
@@ -59,10 +71,12 @@ export interface ProposalReviewStore {
   /** The DecisionSnapshot, read WITHOUT a transaction (pre-check only). */
   readDecisionSnapshot(proposalId: string): Promise<DecisionSnapshot>;
   /** One Firestore transaction: reads the DecisionSnapshot, calls decide(snap) exactly once; if it returns a
-   *  write, tx.set(proposals/{id}, write.proposal) + tx.create(audit_log/<auto>, write.audit). Returns outcome. */
+   *  write, tx.set(proposals/{id}, write.proposal) + tx.create(audit_log/<auto>, write.audit); and, when it carries
+   *  a sop_version (R-10), tx.create(sop_versions/{id}) + tx.create(sop_audit). A lost race on the version id
+   *  (ALREADY_EXISTS) is a ConflictError SOP_CHANGED. Returns outcome. */
   transactDecision<T>(
     proposalId: string,
-    decide: (snap: DecisionSnapshot) => { write: { proposal: Proposal; audit: AuditLog } | null; outcome: T },
+    decide: (snap: DecisionSnapshot) => { write: DecisionWrite | null; outcome: T },
   ): Promise<T>;
 }
 
