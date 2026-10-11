@@ -1,0 +1,776 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { zonedTimeToEpochMs } from "@/lib/capture/calendar";
+import type { CustomClaims } from "@/lib/auth/roles";
+import type { ConstraintStore } from "@/lib/constraints/service";
+import { ConflictError, ForbiddenError, NotFoundError, ServiceUnavailableError } from "@/lib/http/errors";
+import { LibraryNotReadyError, type ProposalLibrary } from "@/config/proposal-library";
+import {
+  ProposalSchema,
+  type AuditLog,
+  type Constraint,
+  type Outlet,
+  type Proposal,
+  type SopVersion,
+} from "@/lib/firestore/schema";
+import {
+  decideProposal,
+  listProposals,
+  type ProposalReviewStore,
+  type ReviewDeps,
+  type ReviewThreadRow,
+} from "@/lib/proposals/review-service";
+import type { DecisionSnapshot } from "@/lib/proposals/review-plan";
+import { LIST_DECIDED_MAX, LIST_OPEN_MAX } from "@/lib/proposals/review-contract";
+import type { ApproveBody, ReviewBody } from "@/lib/proposals/review-contract";
+
+const TZ = "Asia/Jakarta";
+const OUTLET_ID = "o1";
+const DEVICE = "DEVSENTINEL";
+const NOW = zonedTimeToEpochMs("2026-10-11", "12:00", TZ);
+
+const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const P1 = uuid(1);
+const C1 = uuid(101);
+const C2 = uuid(102);
+
+const claims = (role: CustomClaims["role"], outlet_id = OUTLET_ID): CustomClaims => ({ outlet_id, role });
+
+const OUTLET: Outlet = {
+  outlet_id: OUTLET_ID,
+  name: "Test Outlet",
+  project_kind: "demo",
+  timezone: TZ,
+  opening_time: "07:00",
+  closing_time: "21:45",
+  retention_days: 14,
+  created_at: "2026-01-01T00:00:00.000Z",
+};
+
+const sop = (version: number): SopVersion => ({
+  outlet_id: OUTLET_ID,
+  sop_version_id: `${OUTLET_ID}:v${version}`,
+  version,
+  steps: [{ step_id: "stock-01", title: "Display check", text: "Check hourly.", role: "staff" }],
+  source: "seed",
+  source_proposal_id: null,
+  created_at_ms: 1,
+});
+
+const LIBRARY: ProposalLibrary = {
+  interventions: {
+    version: 1,
+    entries: [{ id: "change_quantity_time", label_en: "Change quantity or time", label_id: "x", definition: "d" }],
+  },
+  rubric: { version: 1, entries: [{ id: "observable", label_en: "Observable", label_id: "x", definition: "d" }] },
+  draft: false,
+};
+
+const threadId = (n: number) => `unit_${DEVICE}_w${n}:0`;
+const THREAD_IDS = [threadId(1), threadId(2), threadId(3)];
+
+function proposal(n = 1, overrides: Record<string, unknown> = {}): Proposal {
+  return ProposalSchema.parse({
+    outlet_id: OUTLET_ID,
+    proposal_id: uuid(n),
+    status: "awaiting_supervisor",
+    requested_by_role: "supervisor",
+    range: { from_date: "2026-10-01", to_date: "2026-10-03" },
+    generator: {
+      kind: "adk",
+      model: "gemini-3.5-flash",
+      location: "global",
+      agent_version: "proposal-v1",
+      gate_version: "pgate-v1",
+      library_version: { interventions: 1, rubric: 1 },
+      sop_version_id: `${OUTLET_ID}:v1`,
+      attempts: 1,
+    },
+    gate: { passed: true, fired_rule: null, checks: [] },
+    counts: { candidate_facts: 3, candidate_dates: 3, constraints: 1 },
+    suppression: null,
+    content: {
+      intervention_id: "change_quantity_time",
+      rubric_criterion_ids: ["observable"],
+      target_step_id: "stock-01",
+      change_title: "Check the display",
+      change_text: "Check the display every 30 minutes.",
+      rationale: "Customers asked for sold-out items.",
+      metric: {
+        category: "CUSTOMER_SERVICE",
+        direction: "decrease",
+        description: "Sold-out requests per day.",
+        baseline_count: 4,
+        baseline_days: 3,
+      },
+      failure_condition: "No fall.",
+      review_after_days: 14,
+      review_date: "2026-10-24",
+      evidence: THREAD_IDS.map((tid, i) => ({
+        thread_id: tid,
+        local_date: `2026-10-0${i + 1}`,
+        category: "CUSTOMER_SERVICE" as const,
+        first_line_start_ms: zonedTimeToEpochMs(`2026-10-0${i + 1}`, "10:00", TZ),
+      })),
+      constraint_ids_acknowledged: [C1],
+      censored_floor: true,
+    },
+    created_at_ms: 1_700_000_000_000 + n,
+    updated_at_ms: 1_700_000_000_000 + n,
+    ...overrides,
+  });
+}
+
+const feasible = (decided_at_ms = NOW) => ({
+  decision: "feasible" as const,
+  reason: null,
+  constraint_id: null,
+  acknowledged_constraint_ids: [],
+  decided_at_ms,
+});
+const awaitingOwner = (n = 1, o: Record<string, unknown> = {}) =>
+  proposal(n, { status: "awaiting_owner", supervisor_review: feasible(), owner_decision: null, ...o });
+const supRejected = (n = 1, decided_at_ms = NOW) =>
+  proposal(n, {
+    status: "rejected",
+    supervisor_review: {
+      decision: "rejected",
+      reason: "The oven only holds 2.5 kg.",
+      constraint_id: uuid(900),
+      acknowledged_constraint_ids: [],
+      decided_at_ms,
+    },
+    owner_decision: null,
+  });
+const approved = (n = 1) =>
+  proposal(n, {
+    status: "approved",
+    supervisor_review: feasible(),
+    owner_decision: { ...feasible(), decision: "approved" },
+  });
+const ownerRejected = (n = 1) =>
+  proposal(n, {
+    status: "rejected",
+    supervisor_review: feasible(),
+    owner_decision: {
+      decision: "rejected",
+      reason: "Too busy at lunch.",
+      constraint_id: uuid(901),
+      acknowledged_constraint_ids: [],
+      decided_at_ms: NOW,
+    },
+  });
+
+const constraint = (id: string, text: string, created_at_ms = 1, overrides: Partial<Constraint> = {}): Constraint => ({
+  outlet_id: OUTLET_ID,
+  constraint_id: id,
+  text,
+  source: "manual",
+  source_proposal_id: null,
+  created_by_role: "supervisor",
+  created_at_ms,
+  ...overrides,
+});
+
+/** Shared, ordered audit trail for both fake stores. */
+type AuditSink = AuditLog[];
+
+class FakeConstraintStore implements ConstraintStore {
+  docs: Constraint[] = [];
+  createInTransactionCalls = 0;
+  staff = ["Ari Demo"];
+  constructor(public audits: AuditSink) {}
+  async getOutlet() {
+    return OUTLET;
+  }
+  async list() {
+    return [...this.docs].sort((a, b) => a.created_at_ms - b.created_at_ms);
+  }
+  async listStaffScrubNames() {
+    return this.staff;
+  }
+  async createInTransaction(
+    decide: (
+      existing: Constraint[],
+    ) =>
+      | { kind: "create"; constraint: Constraint; audit: AuditLog }
+      | { kind: "duplicate"; existing: Constraint }
+      | { kind: "limit" },
+  ) {
+    this.createInTransactionCalls++;
+    const result = decide(await this.list());
+    if (result.kind === "create") {
+      this.docs.push(result.constraint);
+      this.audits.push(result.audit);
+      return { kind: "create" as const, constraint: result.constraint };
+    }
+    return result.kind === "duplicate"
+      ? { kind: "duplicate" as const, existing: result.existing }
+      : { kind: "limit" as const };
+  }
+}
+
+class FakeReviewStore implements ProposalReviewStore {
+  proposals = new Map<string, Proposal>();
+  threads = new Map<string, ReviewThreadRow>();
+  sops = new Map<string, SopVersion>([[`${OUTLET_ID}:v1`, sop(1)]]);
+  transactCalls = 0;
+  listStatusCalls: Array<readonly string[]> = [];
+  beforeTransact: (() => void) | null = null;
+  constructor(
+    public cstore: FakeConstraintStore,
+    public audits: AuditSink,
+  ) {
+    for (const t of THREAD_IDS) this.threads.set(t, { status: "fact", summary: `Summary for ${t.slice(-4)}` });
+  }
+  put(...ps: Proposal[]) {
+    for (const p of ps) this.proposals.set(p.proposal_id, p);
+    return this;
+  }
+  async getOutlet() {
+    return OUTLET;
+  }
+  async listByStatuses(statuses: readonly Proposal["status"][]) {
+    this.listStatusCalls.push(statuses);
+    return [...this.proposals.values()].filter((p) => statuses.includes(p.status));
+  }
+  async getThreads(ids: readonly string[]) {
+    const m = new Map<string, ReviewThreadRow>();
+    for (const id of ids) {
+      const t = this.threads.get(id);
+      if (t) m.set(id, t);
+    }
+    return m;
+  }
+  async getSopVersions(ids: readonly string[]) {
+    const m = new Map<string, SopVersion>();
+    for (const id of ids) {
+      const s = this.sops.get(id);
+      if (s) m.set(id, s);
+    }
+    return m;
+  }
+  async getCurrentSopVersionId() {
+    let best: SopVersion | null = null;
+    for (const s of this.sops.values()) if (!best || s.version > best.version) best = s;
+    return best?.sop_version_id ?? null;
+  }
+  async listConstraints() {
+    return this.cstore.list();
+  }
+  private snapshotOf(id: string): DecisionSnapshot {
+    const p = this.proposals.get(id) ?? null;
+    return {
+      proposal: p,
+      same_range: p
+        ? [...this.proposals.values()].filter(
+            (q) =>
+              q.proposal_id !== id && q.range.from_date === p.range.from_date && q.range.to_date === p.range.to_date,
+          )
+        : [],
+      fresh: new Map(
+        (p?.content?.evidence ?? []).flatMap((e) => {
+          const t = this.threads.get(e.thread_id);
+          return t ? [[e.thread_id, { status: t.status, label_source: t.label_source }] as const] : [];
+        }),
+      ),
+      constraint_ids: this.cstore.docs.map((c) => c.constraint_id),
+      current_sop_version_id: [...this.sops.values()].sort((a, b) => b.version - a.version)[0]?.sop_version_id ?? null,
+    };
+  }
+  async readDecisionSnapshot(id: string) {
+    return this.snapshotOf(id);
+  }
+  async transactDecision<T>(
+    id: string,
+    decide: (snap: DecisionSnapshot) => { write: { proposal: Proposal; audit: AuditLog } | null; outcome: T },
+  ) {
+    this.transactCalls++;
+    this.beforeTransact?.();
+    this.beforeTransact = null;
+    const { write, outcome } = decide(this.snapshotOf(id));
+    if (write) {
+      this.proposals.set(id, write.proposal);
+      this.audits.push(write.audit);
+    }
+    return outcome;
+  }
+}
+
+let infoSpy: ReturnType<typeof vi.spyOn>;
+let errorSpy: ReturnType<typeof vi.spyOn>;
+let warnSpy: ReturnType<typeof vi.spyOn>;
+let logSpy: ReturnType<typeof vi.spyOn>;
+beforeEach(() => {
+  infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+  errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+});
+afterEach(() => vi.restoreAllMocks());
+
+function neverLogged(needle: string) {
+  for (const spy of [infoSpy, errorSpy, warnSpy, logSpy]) {
+    expect(JSON.stringify(spy.mock.calls)).not.toContain(needle);
+  }
+}
+
+function setup() {
+  const audits: AuditSink = [];
+  const cstore = new FakeConstraintStore(audits);
+  const store = new FakeReviewStore(cstore, audits);
+  const redactCalls: string[][] = [];
+  let idCounter = 800;
+  const deps: ReviewDeps = {
+    loadLibrary: () => LIBRARY,
+    redact: async (texts) => {
+      redactCalls.push([...texts]);
+      return texts.map((t) => `[R] ${t}`);
+    },
+    newId: () => uuid(idCounter++),
+  };
+  return { audits, cstore, store, deps, redactCalls };
+}
+type Ctx = ReturnType<typeof setup>;
+
+const sup = (ctx: Ctx, body: ReviewBody, over: { id?: string; claims?: CustomClaims } = {}) =>
+  decideProposal(ctx.store, ctx.cstore, ctx.deps, {
+    claims: over.claims ?? claims("supervisor"),
+    proposal_id: over.id ?? P1,
+    actor: "supervisor",
+    body,
+    now_ms: NOW,
+  });
+const own = (ctx: Ctx, body: ApproveBody, over: { id?: string; claims?: CustomClaims } = {}) =>
+  decideProposal(ctx.store, ctx.cstore, ctx.deps, {
+    claims: over.claims ?? claims("owner"),
+    proposal_id: over.id ?? P1,
+    actor: "owner",
+    body,
+    now_ms: NOW,
+  });
+const feasibleBody = (ack: string[] = []): ReviewBody => ({ decision: "feasible", acknowledged_constraint_ids: ack });
+const approveBody = (ack: string[] = []): ApproveBody => ({ decision: "approve", acknowledged_constraint_ids: ack });
+const rejectBody = (reason = "The oven only holds 2.5 kg."): { decision: "reject"; reason: string } => ({
+  decision: "reject",
+  reason,
+});
+
+const list = (ctx: Ctx, c: CustomClaims = claims("supervisor")) =>
+  listProposals(ctx.store, { loadLibrary: ctx.deps.loadLibrary }, { claims: c });
+
+describe("listProposals", () => {
+  it("5.T1 splits open / decided, sorts newest first, caps, and never reads suppressed or blocked", async () => {
+    const ctx = setup();
+    for (let i = 1; i <= 25; i++) ctx.store.put(proposal(i, { range: { from_date: "2026-10-01", to_date: `2026-10-${String(i % 9 + 1).padStart(2, "0")}` } }));
+    for (let i = 101; i <= 115; i++) ctx.store.put(supRejected(i));
+    ctx.store.put(
+      proposal(200, {
+        status: "blocked",
+        content: null,
+        gate: { passed: false, fired_rule: "evidence_min", checks: [] },
+      }),
+    );
+    const res = await list(ctx);
+    expect(res.open).toHaveLength(LIST_OPEN_MAX);
+    expect(res.decided).toHaveLength(LIST_DECIDED_MAX);
+    const openIds = res.open.map((i) => i.proposal.proposal_id);
+    expect(openIds[0]).toBe(uuid(25));
+    expect(openIds).toEqual([...openIds].sort().reverse());
+    expect(res.open.every((i) => i.proposal.status.startsWith("awaiting"))).toBe(true);
+    expect(res.decided.every((i) => ["approved", "rejected"].includes(i.proposal.status))).toBe(true);
+    expect(res.decided[0]!.proposal.proposal_id).toBe(uuid(115));
+    expect(ctx.store.listStatusCalls[0]).toEqual(["awaiting_supervisor", "awaiting_owner", "approved", "rejected"]);
+  });
+
+  it("5.T2 notices: late constraint, stale evidence, SOP changed, superseded; decided items have empty notices", async () => {
+    const ctx = setup();
+    ctx.cstore.docs.push(constraint(C1, "Old rule", 1), constraint(C2, "Brand new rule", 2));
+    ctx.store.put(proposal(1), proposal(2, { range: { from_date: "2026-10-05", to_date: "2026-10-06" } }));
+    ctx.store.sops.set(`${OUTLET_ID}:v2`, sop(2));
+    ctx.store.threads.set(THREAD_IDS[0]!, { status: "fact", label_source: "supervisor_rejected", summary: "x" });
+    ctx.store.threads.set(THREAD_IDS[1]!, { status: "open", summary: "y" });
+    // P3 is a newer proposal for the SAME range as P1 -> P1 superseded
+    ctx.store.put(proposal(3));
+    const res = await list(ctx);
+    const byId = new Map(res.open.map((i) => [i.proposal.proposal_id, i]));
+    const p1 = byId.get(uuid(1))!;
+    expect(p1.notices.late_constraints).toEqual([{ constraint_id: C2, text: "Brand new rule" }]);
+    expect(p1.notices.evidence_stale).toBe(true);
+    expect(p1.notices.sop_changed).toBe(true);
+    expect(p1.notices.superseded).toBe(true);
+    expect(byId.get(uuid(3))!.notices.superseded).toBe(false);
+
+    const ctx2 = setup();
+    ctx2.store.put(supRejected(7, zonedTimeToEpochMs("2026-10-10", "20:00", "UTC")));
+    const dec = (await list(ctx2)).decided[0]!;
+    expect(dec.notices).toEqual({ late_constraints: [], evidence_stale: false, sop_changed: false, superseded: false });
+    // 2026-10-10 20:00 UTC is 2026-10-11 03:00 in Jakarta
+    expect(dec.review.supervisor).toEqual({
+      decision: "rejected",
+      reason: "The oven only holds 2.5 kg.",
+      decided_date: "2026-10-11",
+    });
+    expect(dec.review.owner).toBeNull();
+  });
+
+  it("5.T3 owner and supervisor get the same payload; staff and device are forbidden", async () => {
+    const ctx = setup();
+    ctx.store.put(proposal(1), approved(2), ownerRejected(3));
+    const a = await list(ctx, claims("supervisor"));
+    const b = await list(ctx, claims("owner"));
+    expect(b).toEqual(a);
+    await expect(list(ctx, claims("staff"))).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(list(ctx, claims("device"))).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(list(ctx, claims("owner", "other-outlet"))).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("5.T4 skips a proposal whose SOP and current SOP are both missing, logging only id + class", async () => {
+    const ctx = setup();
+    ctx.store.sops.clear();
+    ctx.store.put(proposal(1));
+    const res = await list(ctx);
+    expect(res.open).toHaveLength(0);
+    expect(errorSpy).toHaveBeenCalledWith("[proposal-review] sop missing", {
+      proposal_id: uuid(1),
+      error_class: "sop_missing",
+    });
+  });
+
+  it("falls back to the current SOP when the proposal's own version doc is gone", async () => {
+    const ctx = setup();
+    ctx.store.sops.clear();
+    ctx.store.sops.set(`${OUTLET_ID}:v2`, sop(2));
+    ctx.store.put(proposal(1));
+    expect((await list(ctx)).open).toHaveLength(1);
+  });
+
+  it("maps LibraryNotReadyError to 409 LIBRARY_NOT_READY", async () => {
+    const ctx = setup();
+    const err = await listProposals(
+      ctx.store,
+      {
+        loadLibrary: () => {
+          throw new LibraryNotReadyError("no library");
+        },
+      },
+      { claims: claims("owner") },
+    ).catch((e) => e);
+    expect(err).toBeInstanceOf(ConflictError);
+    expect((err as ConflictError).code).toBe("LIBRARY_NOT_READY");
+  });
+
+  it("5.T15 the list response never contains a device id or thread id", async () => {
+    const ctx = setup();
+    ctx.store.put(proposal(1), supRejected(2), awaitingOwner(3));
+    const res = await list(ctx);
+    expect(JSON.stringify(res)).not.toContain(DEVICE);
+    expect(JSON.stringify(res)).not.toContain("unit_");
+  });
+
+  it("5.T18 a corrupt doc inside the service's own parse surfaces as a plain Error", async () => {
+    const ctx = setup();
+    const bad = proposal(1);
+    (bad.content as unknown as { change_title: unknown }).change_title = 12345;
+    ctx.store.put(bad);
+    const err = await list(ctx).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.constructor.name).toBe("Error");
+    expect((err as Error).message).toMatch(/internal schema violation/);
+  });
+});
+
+describe("decideProposal: positive decisions", () => {
+  it("5.T5 feasible -> awaiting_owner, one proposal.feasible audit, constraint store untouched", async () => {
+    const ctx = setup();
+    ctx.cstore.docs.push(constraint(C1, "Old rule"));
+    ctx.store.put(proposal(1));
+    const res = await sup(ctx, feasibleBody());
+    expect(res).toEqual({ result: "feasible", status: "awaiting_owner" });
+    expect(ctx.store.proposals.get(P1)!.status).toBe("awaiting_owner");
+    expect(ctx.audits.map((a) => a.action)).toEqual(["proposal.feasible"]);
+    expect(ctx.cstore.createInTransactionCalls).toBe(0);
+    expect(ctx.redactCalls).toHaveLength(0);
+  });
+
+  it("5.T7 approve after feasible -> approved; constraint store untouched", async () => {
+    const ctx = setup();
+    ctx.cstore.docs.push(constraint(C1, "Old rule"));
+    ctx.store.put(awaitingOwner(1));
+    const res = await own(ctx, approveBody());
+    expect(res).toEqual({ result: "approved", status: "approved" });
+    expect(ctx.audits.map((a) => a.action)).toEqual(["proposal.approved"]);
+    expect(ctx.cstore.createInTransactionCalls).toBe(0);
+  });
+
+  it("5.T12 a late constraint without an ack is refused; with the ack it is stored", async () => {
+    const ctx = setup();
+    ctx.cstore.docs.push(constraint(C1, "Old rule", 1), constraint(C2, "New rule", 2));
+    ctx.store.put(proposal(1));
+    const err = await sup(ctx, feasibleBody()).catch((e) => e);
+    expect(err).toBeInstanceOf(ConflictError);
+    expect((err as ConflictError).code).toBe("CONSTRAINT_ADDED");
+    expect(ctx.store.proposals.get(P1)!.status).toBe("awaiting_supervisor");
+    expect(ctx.audits).toHaveLength(0);
+
+    const res = await sup(ctx, feasibleBody([C2]));
+    expect(res.status).toBe("awaiting_owner");
+    expect(ctx.store.proposals.get(P1)!.supervisor_review!.acknowledged_constraint_ids).toEqual([C2]);
+  });
+
+  it("5.T17 owner approve of an owner-generated proposal still at awaiting_supervisor -> NOT_YET_REVIEWABLE", async () => {
+    const ctx = setup();
+    ctx.cstore.docs.push(constraint(C1, "Old rule"));
+    ctx.store.put(proposal(1, { requested_by_role: "owner" }));
+    const err = await own(ctx, approveBody()).catch((e) => e);
+    expect(err).toBeInstanceOf(ConflictError);
+    expect((err as ConflictError).code).toBe("NOT_YET_REVIEWABLE");
+    expect(ctx.store.proposals.get(P1)!.status).toBe("awaiting_supervisor");
+  });
+
+  it("idempotent: feasible twice is unchanged and writes once", async () => {
+    const ctx = setup();
+    ctx.cstore.docs.push(constraint(C1, "Old rule"));
+    ctx.store.put(proposal(1));
+    await sup(ctx, feasibleBody());
+    expect(await sup(ctx, feasibleBody())).toEqual({ result: "unchanged", status: "awaiting_owner" });
+    expect(ctx.audits).toHaveLength(1);
+  });
+
+  it("unknown proposal -> NotFoundError without the id", async () => {
+    const ctx = setup();
+    const err = await sup(ctx, feasibleBody()).catch((e) => e);
+    expect(err).toBeInstanceOf(NotFoundError);
+    expect((err as Error).message).not.toContain(P1);
+  });
+});
+
+describe("decideProposal: supervisor reject", () => {
+  it("5.T6 creates a supervisor_rejection constraint through createConstraint, then rejects", async () => {
+    const ctx = setup();
+    ctx.cstore.docs.push(constraint(C1, "Old rule"));
+    ctx.store.put(proposal(1));
+    const res = await sup(ctx, rejectBody("The oven only holds 2.5 kg."));
+    expect(res).toEqual({ result: "rejected", status: "rejected" });
+    expect(ctx.cstore.createInTransactionCalls).toBe(1);
+    const created = ctx.cstore.docs.find((c) => c.source === "supervisor_rejection")!;
+    expect(created.source_proposal_id).toBe(P1);
+    expect(created.created_by_role).toBe("supervisor");
+    const stored = ctx.store.proposals.get(P1)!;
+    expect(stored.supervisor_review!.reason).toBe(created.text);
+    expect(stored.supervisor_review!.constraint_id).toBe(created.constraint_id);
+    expect(ctx.audits.map((a) => a.action)).toEqual(["constraint.created", "proposal.supervisor_rejected"]);
+  });
+
+  it("5.T8 the reason is masked, name-scrubbed and redacted before storage; raw text appears nowhere", async () => {
+    const ctx = setup();
+    ctx.store.put(proposal(1));
+    await sup(ctx, rejectBody("Call Ari Demo on 0812345678"));
+    expect(ctx.redactCalls).toHaveLength(1);
+    expect(ctx.redactCalls[0]![0]).not.toContain("Ari Demo");
+    expect(ctx.redactCalls[0]![0]).not.toContain("0812345678");
+    const stored = ctx.store.proposals.get(P1)!;
+    expect(stored.supervisor_review!.reason).toBe(`[R] ${ctx.redactCalls[0]![0]}`);
+    const everything = JSON.stringify([[...ctx.store.proposals.values()], ctx.cstore.docs, ctx.audits]);
+    for (const needle of ["Ari Demo", "0812345678"]) {
+      expect(everything).not.toContain(needle);
+      neverLogged(needle);
+    }
+  });
+
+  it("5.T10 pre-check conflicts never call the redactor or the constraint store", async () => {
+    const ctx = setup();
+    ctx.store.put(awaitingOwner(1));
+    const err = await sup(ctx, rejectBody()).catch((e) => e);
+    expect((err as ConflictError).code).toBe("ALREADY_DECIDED");
+    expect(ctx.redactCalls).toHaveLength(0);
+    expect(ctx.cstore.createInTransactionCalls).toBe(0);
+    expect(ctx.cstore.docs).toHaveLength(0);
+
+    const ctx2 = setup();
+    ctx2.store.put(supRejected(1));
+    expect(await sup(ctx2, rejectBody())).toEqual({ result: "unchanged", status: "rejected" });
+    expect(ctx2.redactCalls).toHaveLength(0);
+    expect(ctx2.cstore.createInTransactionCalls).toBe(0);
+  });
+
+  it("5.T11 SDP down -> 503, no constraint, proposal unchanged; 200 constraints -> CONSTRAINT_LIMIT", async () => {
+    const ctx = setup();
+    ctx.store.put(proposal(1));
+    ctx.deps.redact = async () => {
+      throw new Error("sdp down");
+    };
+    const err = await sup(ctx, rejectBody()).catch((e) => e);
+    expect(err).toBeInstanceOf(ServiceUnavailableError);
+    expect(ctx.cstore.docs).toHaveLength(0);
+    expect(ctx.store.proposals.get(P1)!.status).toBe("awaiting_supervisor");
+    expect(ctx.audits).toHaveLength(0);
+
+    const ctx2 = setup();
+    ctx2.store.put(proposal(1));
+    for (let i = 0; i < 200; i++) ctx2.cstore.docs.push(constraint(uuid(1000 + i), `rule number ${i}`, i));
+    const err2 = await sup(ctx2, rejectBody("a brand new reason")).catch((e) => e);
+    expect((err2 as ConflictError).code).toBe("CONSTRAINT_LIMIT");
+    expect(ctx2.store.proposals.get(P1)!.status).toBe("awaiting_supervisor");
+    expect(ctx2.cstore.docs).toHaveLength(200);
+  });
+
+  it("5.T13 a lost race: 409 ALREADY_DECIDED, the constraint stays", async () => {
+    const ctx = setup();
+    ctx.store.put(proposal(1));
+    ctx.store.beforeTransact = () => ctx.store.put(awaitingOwner(1));
+    const err = await sup(ctx, rejectBody()).catch((e) => e);
+    expect(err).toBeInstanceOf(ConflictError);
+    expect((err as ConflictError).code).toBe("ALREADY_DECIDED");
+    expect(ctx.cstore.docs).toHaveLength(1);
+    expect(ctx.cstore.docs[0]!.source_proposal_id).toBe(P1);
+    expect(ctx.store.proposals.get(P1)!.status).toBe("awaiting_owner");
+  });
+
+  it("5.T14 a duplicate reason links the existing constraint and creates no new doc", async () => {
+    const ctx = setup();
+    ctx.cstore.docs.push(constraint(C1, "[R] the oven only holds 2.5 kg."));
+    ctx.store.put(proposal(1));
+    await sup(ctx, rejectBody("The  OVEN only holds 2.5 kg."));
+    expect(ctx.cstore.docs).toHaveLength(1);
+    expect(ctx.store.proposals.get(P1)!.supervisor_review!.constraint_id).toBe(C1);
+  });
+
+  it("a superseded proposal cannot be rejected (no junk constraints from tidying)", async () => {
+    const ctx = setup();
+    ctx.store.put(proposal(1), proposal(2));
+    const err = await sup(ctx, rejectBody()).catch((e) => e);
+    expect((err as ConflictError).code).toBe("SUPERSEDED");
+    expect(ctx.cstore.createInTransactionCalls).toBe(0);
+  });
+});
+
+describe("decideProposal: owner reject (Q-1 = yes)", () => {
+  it("5.T7 creates an owner_rejection constraint, links it, keeps the supervisor review", async () => {
+    const ctx = setup();
+    ctx.store.put(awaitingOwner(1));
+    const res = await own(ctx, rejectBody("Too busy at lunch."));
+    expect(res).toEqual({ result: "rejected", status: "rejected" });
+    expect(ctx.cstore.createInTransactionCalls).toBe(1);
+    const created = ctx.cstore.docs[0]!;
+    expect(created.source).toBe("owner_rejection");
+    expect(created.source_proposal_id).toBe(P1);
+    expect(created.created_by_role).toBe("owner");
+    const stored = ctx.store.proposals.get(P1)!;
+    expect(stored.owner_decision!.reason).toBe(created.text);
+    expect(stored.owner_decision!.constraint_id).toBe(created.constraint_id);
+    expect(stored.supervisor_review!.decision).toBe("feasible");
+    expect(ctx.audits.map((a) => a.action)).toEqual(["constraint.created", "proposal.owner_rejected"]);
+  });
+
+  it("5.T9 the owner's reason is redacted through createConstraint; SDP down -> 503 and nothing written", async () => {
+    const ctx = setup();
+    ctx.store.put(awaitingOwner(1));
+    await own(ctx, rejectBody("Call Ari Demo on 0812345678"));
+    const stored = ctx.store.proposals.get(P1)!;
+    expect(stored.owner_decision!.reason).toBe(ctx.cstore.docs[0]!.text);
+    expect(stored.owner_decision!.reason).toBe(`[R] ${ctx.redactCalls[0]![0]}`);
+    for (const needle of ["Ari Demo", "0812345678"]) {
+      expect(JSON.stringify([[...ctx.store.proposals.values()], ctx.cstore.docs, ctx.audits])).not.toContain(needle);
+      neverLogged(needle);
+    }
+
+    const ctx2 = setup();
+    ctx2.store.put(awaitingOwner(1));
+    ctx2.deps.redact = async () => {
+      throw new Error("sdp down");
+    };
+    const err = await own(ctx2, rejectBody()).catch((e) => e);
+    expect(err).toBeInstanceOf(ServiceUnavailableError);
+    expect(ctx2.cstore.docs).toHaveLength(0);
+    expect(ctx2.store.proposals.get(P1)!.status).toBe("awaiting_owner");
+  });
+
+  it("5.T10 owner pre-check conflicts never call the redactor or the constraint store", async () => {
+    const cases: Array<[Proposal, string | null]> = [
+      [proposal(1), "NOT_YET_REVIEWABLE"],
+      [approved(1), "ALREADY_DECIDED"],
+      [ownerRejected(1), null],
+    ];
+    for (const [p, code] of cases) {
+      const ctx = setup();
+      ctx.store.put(p);
+      const out = await own(ctx, rejectBody("Too busy at lunch.")).catch((e) => e);
+      if (code) expect((out as ConflictError).code).toBe(code);
+      else expect(out).toEqual({ result: "unchanged", status: "rejected" });
+      expect(ctx.redactCalls).toHaveLength(0);
+      expect(ctx.cstore.createInTransactionCalls).toBe(0);
+    }
+  });
+
+  it("5.T11 owner: 200 constraints -> CONSTRAINT_LIMIT and the proposal is unchanged", async () => {
+    const ctx = setup();
+    ctx.store.put(awaitingOwner(1));
+    for (let i = 0; i < 200; i++) ctx.cstore.docs.push(constraint(uuid(1000 + i), `rule number ${i}`, i));
+    const err = await own(ctx, rejectBody("a brand new reason")).catch((e) => e);
+    expect((err as ConflictError).code).toBe("CONSTRAINT_LIMIT");
+    expect(ctx.store.proposals.get(P1)!.status).toBe("awaiting_owner");
+  });
+
+  it("5.T14 an owner reject whose text equals the supervisor's rejection constraint links that constraint", async () => {
+    const ctx = setup();
+    ctx.store.put(proposal(1), awaitingOwner(2, { range: { from_date: "2026-10-05", to_date: "2026-10-06" } }));
+    await sup(ctx, rejectBody("The oven only holds 2.5 kg."), { id: uuid(1) });
+    const first = ctx.cstore.docs[0]!;
+    // second proposal is the owner's; same reason text
+    await own(ctx, rejectBody("the oven only holds 2.5 kg."), { id: uuid(2) });
+    expect(ctx.cstore.docs).toHaveLength(1);
+    expect(ctx.store.proposals.get(uuid(2))!.owner_decision!.constraint_id).toBe(first.constraint_id);
+  });
+});
+
+describe("decideProposal: permissions, logging, errors", () => {
+  it("5.T16 wrong roles and wrong outlets are forbidden", async () => {
+    const ctx = setup();
+    ctx.store.put(proposal(1));
+    await expect(sup(ctx, feasibleBody(), { claims: claims("owner") })).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(own(ctx, approveBody(), { claims: claims("supervisor") })).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(sup(ctx, feasibleBody(), { claims: claims("staff") })).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(own(ctx, approveBody(), { claims: claims("device") })).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(sup(ctx, feasibleBody(), { claims: claims("supervisor", "other") })).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+    expect(ctx.audits).toHaveLength(0);
+  });
+
+  it("logs only ids, actor and result/code, never a reason", async () => {
+    const ctx = setup();
+    ctx.store.put(proposal(1), awaitingOwner(2, { range: { from_date: "2026-10-05", to_date: "2026-10-06" } }));
+    await sup(ctx, rejectBody("REASON-LOG-SENTINEL words"));
+    await own(ctx, approveBody(), { id: P1 }).catch(() => {});
+    expect(infoSpy).toHaveBeenCalledWith("[proposal] decided", {
+      outlet_id: OUTLET_ID,
+      proposal_id: P1,
+      actor: "supervisor",
+      result: "rejected",
+    });
+    expect(infoSpy).toHaveBeenCalledWith("[proposal] decision refused", {
+      outlet_id: OUTLET_ID,
+      proposal_id: P1,
+      actor: "owner",
+      code: "ALREADY_DECIDED",
+    });
+    neverLogged("REASON-LOG-SENTINEL");
+  });
+
+  it("5.T15 errors never carry a device id", async () => {
+    const ctx = setup();
+    ctx.store.put(supRejected(1));
+    const err = await own(ctx, approveBody()).catch((e) => e);
+    expect(JSON.stringify([err.message, err.details])).not.toContain(DEVICE);
+  });
+
+  it("5.T18 a corrupt doc inside the service's own parse surfaces as a plain Error", async () => {
+    const ctx = setup();
+    const bad = proposal(1);
+    (bad as unknown as { gate: { passed: boolean } }).gate = { passed: false } as never;
+    ctx.store.put(bad);
+    const err = await sup(ctx, feasibleBody([C1])).catch((e) => e);
+    expect(err.constructor.name).toBe("Error");
+    expect((err as Error).message).toMatch(/internal schema violation/);
+  });
+});
