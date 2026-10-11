@@ -2,14 +2,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { ScriptDrawer, type ScriptDrawerProps } from "@/app/capture/ScriptDrawer";
-import { BAKERY_V1 } from "@/lib/demo/script";
 
 afterEach(() => cleanup());
 
 const STARTED = 1_800_000_000_000;
 function props(over: Partial<ScriptDrawerProps> = {}): ScriptDrawerProps {
   return {
-    script: BAKERY_V1,
+    scriptId: "bakery-v1",
     lang: "en",
     state: "running",
     startedAtMs: STARTED,
@@ -212,6 +211,11 @@ describe("ScriptDrawer (R-18)", () => {
     expect(within(region()).getByText("If this page reloads, tap Start again.")).toBeTruthy();
     rerender(<ScriptDrawer {...props({ lang: "id" })} />);
     expect(within(screen.getByRole("region", { name: "Skrip demo" })).getByText("Jika halaman ini dimuat ulang, ketuk Mulai lagi.")).toBeTruthy();
+  });
+
+  it("an unknown script id renders nothing (no empty drawer)", () => {
+    const { container } = render(<ScriptDrawer {...props({ scriptId: "nope" })} />);
+    expect(container.textContent).toBe("");
   });
 
   it("prefers-reduced-motion turns the slide off", () => {

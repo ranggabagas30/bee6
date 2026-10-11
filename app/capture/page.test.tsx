@@ -538,7 +538,9 @@ describe("CapturePage script drawer (R-18, sandbox only)", () => {
     vi.setSystemTime(new Date(MON_1000_WIB));
     fetchCaptureConfig.mockResolvedValue(demoConfig());
     await renderReady();
-    return screen.findByRole("button", { name: "Start" });
+    const start = await screen.findByRole("button", { name: "Start" });
+    await screen.findByRole("region", { name: "Demo script" }); // the drawer is a lazy chunk
+    return start;
   }
   async function renderDemoRunning() {
     fireEvent.click(await renderDemoIdle());

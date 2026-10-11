@@ -148,3 +148,38 @@ describe("pilot isolation of the demo sign-in (R-18 P1)", () => {
     expect(importLines('import { x } from "@/app/demo/DemoAccess";').filter((l) => /["']@\/(app|lib)\/demo\//.test(l))).toHaveLength(1);
   });
 });
+
+/**
+ * R-18 pilot bundle boundary: the sandbox script text must not ship on the pilot /capture. The page loads the
+ * drawer lazily (next/dynamic, ssr: false) only when the server's capture config carries `demo_session`, and
+ * the drawer resolves its own script. So neither the page nor the layout helpers it imports may statically
+ * import the drawer or the script data.
+ */
+describe("pilot /capture bundle boundary (R-18)", () => {
+  const staticImport = (spec: string) => new RegExp(`(?:^|\\n)\\s*(?:import|export)\\s[^;]*?from\\s+["']${spec}["']`);
+  const guarded = ["app/capture/page.tsx", "app/capture/drawer-layout.ts"];
+  const banned = ["@/lib/demo/script", "@/app/capture/ScriptDrawer"];
+
+  for (const file of guarded) {
+    for (const spec of banned) {
+      it(`${file} has no static import of ${spec}`, () => {
+        const text = readFileSync(join(ROOT, file), "utf8");
+        expect(staticImport(spec.replace(/[/.]/g, "\\$&")).test(text)).toBe(false);
+      });
+    }
+  }
+
+  it("the page loads the drawer with next/dynamic and ssr: false", () => {
+    const text = readFileSync(join(ROOT, "app/capture/page.tsx"), "utf8");
+    expect(text).toMatch(/from\s+["']next\/dynamic["']/);
+    expect(text).toMatch(/import\(\s*["']@\/app\/capture\/ScriptDrawer["']\s*\)/);
+    expect(text).toMatch(/ssr:\s*false/);
+  });
+
+  it("positive control: the static-import matcher catches a plain and a type-and-value import", () => {
+    const re = staticImport("@/lib/demo/script".replace(/[/.]/g, "\\$&"));
+    expect(re.test('import { scriptFor } from "@/lib/demo/script";')).toBe(true);
+    expect(re.test('\nimport { a,\n b } from "@/lib/demo/script"')).toBe(true);
+    expect(re.test('const x = import("@/lib/demo/script")')).toBe(false);
+  });
+});

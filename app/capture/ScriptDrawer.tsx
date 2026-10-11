@@ -3,7 +3,7 @@
 import { useId, useState } from "react";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import type { Lang } from "@/lib/i18n/lang";
-import type { DemoScript, ScriptCard } from "@/lib/demo/script";
+import { scriptFor, type ScriptCard } from "@/lib/demo/script";
 import { HANDLE_HEIGHT_PX, PANEL_WIDTH_PX, SHEET_MAX_DVH, type DrawerState } from "@/app/capture/drawer-layout";
 
 /**
@@ -22,7 +22,8 @@ import { HANDLE_HEIGHT_PX, PANEL_WIDTH_PX, SHEET_MAX_DVH, type DrawerState } fro
  */
 
 export interface ScriptDrawerProps {
-  script: DemoScript;
+  /** Which script to show (the capture config's `demo_session.script_id`); the drawer resolves it itself so the page never imports the script data. */
+  scriptId: string;
   lang: Lang;
   state: DrawerState;
   startedAtMs: number | null;
@@ -67,7 +68,7 @@ function clock(ms: number): string {
 }
 
 export function ScriptDrawer(props: ScriptDrawerProps) {
-  const { script, lang, state, startedAtMs, maxMs, nowMs, onFinish, finishing, open, onToggle, wide, reducedMotion } = props;
+  const { scriptId, lang, state, startedAtMs, maxMs, nowMs, onFinish, finishing, open, onToggle, wide, reducedMotion } = props;
   const bodyId = useId();
   const [index, setIndex] = useState(0);
   const [seenState, setSeenState] = useState(state);
@@ -77,12 +78,15 @@ export function ScriptDrawer(props: ScriptDrawerProps) {
     setIndex(0);
   }
 
-  const rules = script.cards.find((c) => c.kind === "rules");
-  const cards = script.cards.filter((c) => c.kind !== "rules");
+  const script = scriptFor(scriptId);
+  const rules = script?.cards.find((c) => c.kind === "rules");
+  const cards = script?.cards.filter((c) => c.kind !== "rules") ?? [];
   const total = cards.length;
-  const safeIndex = Math.min(index, total - 1);
+  const safeIndex = Math.max(0, Math.min(index, total - 1));
   const card = cards[safeIndex];
   const isLast = safeIndex === total - 1;
+
+  if (!script) return null; // an unknown script id shows no drawer rather than an empty one
 
   const region: React.CSSProperties = {
     background: "#fff",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { StatusBanner, headlineStateFor } from "@/app/capture/StatusBanner";
 import { DevPanel } from "@/app/capture/DevPanel";
@@ -20,9 +21,7 @@ import { idleViewFor } from "@/app/capture/idle-view";
 import { selesaiViewFor } from "@/app/capture/selesai-view";
 import { isDiscardArmed, nextMulaiIsNow, shouldAutoClosePanel } from "@/app/capture/batalkan-panel";
 import { DebriefFlow } from "@/app/capture/debrief/DebriefFlow";
-import { ScriptDrawer } from "@/app/capture/ScriptDrawer";
 import { drawerInsetStyle, isCompactChrome, useDrawerLayout, type DrawerState } from "@/app/capture/drawer-layout";
-import { scriptFor } from "@/lib/demo/script";
 import { ShopTopBar } from "@/app/shop/ShopTopBar";
 import { useLang } from "@/lib/i18n/context";
 import { t, type DictKey } from "@/lib/i18n/dict";
@@ -65,6 +64,15 @@ import type { MicSourceClass } from "@/lib/capture/mic-source";
  * redirects to /pair), fetches the outlet's timezone/weekly hours/last_ended,
  * and shows a big status only; a transcript is NEVER displayed (hard rule #2).
  */
+
+/**
+ * The R-18 script drawer (sandbox judge devices only). Loaded lazily and only rendered when the server's
+ * capture config carries `demo_session`, so the pilot /capture never downloads the script text. The page
+ * must not import the drawer or the script data statically (see app/demo/import-boundaries.test.ts).
+ */
+const ScriptDrawer = dynamic(() => import("@/app/capture/ScriptDrawer").then((m) => m.ScriptDrawer), {
+  ssr: false,
+});
 
 const PAGE_STYLE: React.CSSProperties = {
   maxWidth: 360,
@@ -239,7 +247,7 @@ export default function CapturePage() {
       : null;
 
   // R-18: the script drawer exists only for a sandbox judge device (server field `demo_session`).
-  const demoScript = config?.demo_session ? scriptFor(config.demo_session.script_id) : null;
+  const demoSession = config?.demo_session;
   const drawerState: DrawerState = session
     ? "running"
     : idle && !idle.offered && (idle.headline === "ended" || idle.headline === "ended_auto")
@@ -252,7 +260,7 @@ export default function CapturePage() {
     setSeenDrawerState(drawerState);
     setScriptOpen(drawerState !== "before");
   }
-  const compactChrome = isCompactChrome({ present: demoScript !== null, wide: drawerLayout.wide });
+  const compactChrome = isCompactChrome({ present: demoSession !== undefined, wide: drawerLayout.wide });
 
   // Debrief entry (R-07, technical spec §8.10): per-device, from this
   // device's own last-ended record — the phone-local one set the instant
@@ -791,7 +799,7 @@ export default function CapturePage() {
   }
 
   const inset = drawerInsetStyle({
-    present: view === "ready" && demoScript !== null,
+    present: view === "ready" && demoSession !== undefined,
     wide: drawerLayout.wide,
     open: scriptOpen,
   });
@@ -836,13 +844,13 @@ export default function CapturePage() {
 
       {view === "ready" ? (sessionRunning ? renderRunning() : renderIdle()) : null}
 
-      {view === "ready" && demoScript ? (
+      {view === "ready" && demoSession ? (
         <ScriptDrawer
-          script={demoScript}
+          scriptId={demoSession.script_id}
           lang={lang}
           state={drawerState}
           startedAtMs={session?.started_at_ms ?? null}
-          maxMs={config?.demo_session?.max_ms ?? 0}
+          maxMs={demoSession.max_ms}
           nowMs={nowMs}
           onFinish={handleDrawerFinish}
           finishing={selesaiBusy || autoStopBusy}
