@@ -151,9 +151,11 @@ npm run smoke            # not built: there is no end-to-end smoke script yet
 the real segment route, on the demo project only. `npm run seed -- --project pilot` reads an untracked
 `private/seed.pilot.json`. Pilot and demo are separate Google Cloud projects and the scripts refuse to mix them.
 
-**Deploy:** a Cloud Build trigger on `main` builds the image (`cloudbuild.yaml`) and deploys the Cloud Run service
-`web` in `asia-southeast2`. The `develop` branch deploys to a separate private staging service `web-develop` on the demo project, kept as a future staging environment before the pilot. Cloud Scheduler calls two OIDC-verified internal routes: the pipeline tick
-(`/api/internal/pipeline/tick`) and the daily review run (`/api/internal/reviews/run`).
+**Deploy:** a Cloud Build trigger on `main` builds the image (`cloudbuild.yaml`) and deploys the Cloud Run
+service `web` in `asia-southeast2`. Cloud Scheduler calls two OIDC-verified internal routes: the pipeline
+tick (`/api/internal/pipeline/tick`) and the daily review run (`/api/internal/reviews/run`). The `develop`
+branch deploys to a separate private staging service `web-develop` on the demo project, kept as a future
+staging environment before the pilot.
 
 ## Environment
 
