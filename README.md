@@ -19,8 +19,8 @@ app.
 
 ## Try it
 
-- Demo: [DEMO URL]
-- Repository: [REPOSITORY LINK]
+- Demo: [https://web-33uzb53tza-et.a.run.app](https://web-33uzb53tza-et.a.run.app)
+- Repository: [https://github.com/ranggabagas30/bee6](https://github.com/ranggabagas30/bee6)
 - Team contact: [TEAM CONTACT]
 
 Every visit to the demo gets its own **private sandbox**: a copy of a fictional bakery that lasts 2 hours and cannot
@@ -152,7 +152,7 @@ the real segment route, on the demo project only. `npm run seed -- --project pil
 `private/seed.pilot.json`. Pilot and demo are separate Google Cloud projects and the scripts refuse to mix them.
 
 **Deploy:** a Cloud Build trigger on `main` builds the image (`cloudbuild.yaml`) and deploys the Cloud Run service
-`web` in `asia-southeast2`. Cloud Scheduler calls two OIDC-verified internal routes: the pipeline tick
+`web` in `asia-southeast2`. The `develop` branch deploys to a separate private staging service `web-develop` on the demo project, kept as a future staging environment before the pilot. Cloud Scheduler calls two OIDC-verified internal routes: the pipeline tick
 (`/api/internal/pipeline/tick`) and the daily review run (`/api/internal/reviews/run`).
 
 ## Environment
@@ -257,8 +257,8 @@ How each is run:
   focus into the panel.
 - Demo only: the demo is English-first, and its Bahasa strings are provisional.
 - Staff first names also live in the private, gitignored `config/vocabulary.yaml`, which is loaded as the transcription
-  vocabulary (`lib/transcribe/vocabulary.ts`). Whether this fits the rule that staff names live only in `staff` is an
-  open question.
+  vocabulary (`lib/transcribe/vocabulary.ts`). Whether this fits the rule that staff names live only in `staff` is parked
+  pending input from the domain expert (Tiffany).
 
 ## Next
 
