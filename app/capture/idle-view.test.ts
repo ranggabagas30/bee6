@@ -151,3 +151,66 @@ describe("idleViewFor: the Mulai button's headline and note (UX-03 5.4)", () => 
     );
   });
 });
+
+describe("idleViewFor with the R-18 demo profile (sandbox only)", () => {
+  const demo = { max_ms: 300_000 as const, script_id: "bakery-v1" as const };
+  const DEMO: CaptureConfigResponse = { ...CONFIG, demo_session: demo };
+  const MON_2230_JKT = Date.UTC(2026, 9, 12, 15, 30);
+
+  it("offers Mulai at 22:30 WIB (the pilot says window_passed for the same instant)", () => {
+    expect(idleViewFor({ config: CONFIG, nowMs: MON_2230_JKT, lang: "en" }).offered).toBe(false);
+    expect(idleViewFor({ config: DEMO, nowMs: MON_2230_JKT, lang: "en" })).toEqual({
+      headline: "idle",
+      offered: true,
+      note: null,
+      endedAt: null,
+    });
+  });
+
+  it("offers Mulai on a closed weekday", () => {
+    expect(idleViewFor({ config: DEMO, nowMs: SUN_1200_JKT, lang: "en" }).offered).toBe(true);
+  });
+
+  it("a finished demo day: Ended headline and the Switch-to-Supervisor note, no next-Start text", () => {
+    const config: CaptureConfigResponse = {
+      ...DEMO,
+      last_ended: { business_date: "2026-10-12", end_reason: "selesai", debrief_ends_at_ms: MON_2230_JKT + 1_800_000 },
+    };
+    expect(idleViewFor({ config, nowMs: MON_2230_JKT, lang: "en" })).toEqual({
+      headline: "ended",
+      offered: false,
+      note: "Demo day finished. Switch to Supervisor to see it.",
+      endedAt: null,
+    });
+    expect(idleViewFor({ config, nowMs: MON_2230_JKT, lang: "id" }).note).toBe(
+      "Hari demo selesai. Ganti ke Supervisor untuk melihatnya.",
+    );
+  });
+
+  it("after the demo auto-stop the banner shows when it stopped (debrief end minus 1 h)", () => {
+    const stoppedAt = Date.UTC(2026, 9, 12, 15, 5); // 22:05 WIB
+    const config: CaptureConfigResponse = {
+      ...DEMO,
+      last_ended: { business_date: "2026-10-12", end_reason: "auto_stop", debrief_ends_at_ms: stoppedAt + 3_600_000 },
+    };
+    expect(idleViewFor({ config, nowMs: MON_2230_JKT, lang: "en" })).toMatchObject({
+      headline: "ended_auto",
+      offered: false,
+      endedAt: "22:05",
+    });
+  });
+
+  it("a cancelled demo session: Mulai is offered again (retake), headline says cancelled", () => {
+    const config: CaptureConfigResponse = {
+      ...DEMO,
+      last_ended: { business_date: "2026-10-12", end_reason: "discarded", debrief_ends_at_ms: null },
+    };
+    expect(idleViewFor({ config, nowMs: MON_2230_JKT, lang: "en" })).toEqual({
+      headline: "discarded",
+      offered: true,
+      note: null,
+      endedAt: null,
+    });
+  });
+});
+

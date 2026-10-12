@@ -26,6 +26,45 @@ afterEach(() => {
 });
 
 describe("requireClaims (end-to-end through the guard, not just the pure fns)", () => {
+  it("maps a verifyIdToken failure (expired/revoked/malformed token) to 401, not 500", async () => {
+    const { requireClaims } = await import("@/lib/http/guard");
+    const { UnauthorizedError } = await import("@/lib/http/errors");
+    verifyIdToken.mockRejectedValueOnce(new Error("auth/id-token-expired"));
+    await expect(
+      requireClaims(fakeRequest("Bearer expired.token")),
+    ).rejects.toThrow(UnauthorizedError);
+  });
+
+  it("handleApiError of a verifyIdToken failure responds 401 UNAUTHORIZED", async () => {
+    const { requireClaims } = await import("@/lib/http/guard");
+    const { handleApiError } = await import("@/lib/http/errors");
+    verifyIdToken.mockRejectedValueOnce(new Error("auth/id-token-expired"));
+    let caught: unknown;
+    try {
+      await requireClaims(fakeRequest("Bearer expired.token"));
+    } catch (error) {
+      caught = error;
+    }
+    const res = handleApiError(caught);
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.error.code).toBe("UNAUTHORIZED");
+  });
+
+  it("never includes the bearer token string in the thrown error's message", async () => {
+    const { requireClaims } = await import("@/lib/http/guard");
+    verifyIdToken.mockRejectedValueOnce(new Error("auth/id-token-expired"));
+    const secretToken = "expired.secret.token.value";
+    let caught: unknown;
+    try {
+      await requireClaims(fakeRequest(`Bearer ${secretToken}`));
+    } catch (error) {
+      caught = error;
+    }
+    const message = caught instanceof Error ? caught.message : String(caught);
+    expect(message).not.toContain(secretToken);
+  });
+
   it("returns full claims for a token carrying outlet_id + role", async () => {
     const { requireClaims } = await import("@/lib/http/guard");
     verifyIdToken.mockResolvedValueOnce({
@@ -57,6 +96,86 @@ describe("requireClaims (end-to-end through the guard, not just the pure fns)", 
     const { UnauthorizedError } = await import("@/lib/http/errors");
     await expect(requireClaims(fakeRequest())).rejects.toThrow(UnauthorizedError);
     expect(verifyIdToken).not.toHaveBeenCalled();
+  });
+});
+
+describe("requireClaims demo session expiry (R-12)", () => {
+  const verified = (claims: Record<string, unknown>) => ({
+    uid: "demo-owner-sbx-1",
+    email: undefined,
+    email_verified: false,
+    claims,
+  });
+
+  it("2.T1 a token with a past demo_exp_ms is 401 demo_session_expired", async () => {
+    const { requireClaims } = await import("@/lib/http/guard");
+    const { UnauthorizedError } = await import("@/lib/http/errors");
+    verifyIdToken.mockResolvedValueOnce(
+      verified({ outlet_id: "sbx-1", role: "owner", demo_exp_ms: Date.now() - 1 }),
+    );
+    const err = await requireClaims(fakeRequest("Bearer demo.token")).catch((e) => e);
+    expect(err).toBeInstanceOf(UnauthorizedError);
+    expect(err.statusCode).toBe(401);
+    expect(err.code).toBe("demo_session_expired");
+  });
+
+  it("2.T1b a token expiring exactly now is expired (>=)", async () => {
+    const { requireClaims } = await import("@/lib/http/guard");
+    const now = 1_800_000_000_000;
+    const spy = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      verifyIdToken.mockResolvedValueOnce(verified({ outlet_id: "sbx-1", role: "owner", demo_exp_ms: now }));
+      await expect(requireClaims(fakeRequest("Bearer demo.token"))).rejects.toMatchObject({ code: "demo_session_expired" });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("2.T2 a token with a future demo_exp_ms passes and keeps the claim", async () => {
+    const { requireClaims } = await import("@/lib/http/guard");
+    const exp = Date.now() + 60_000;
+    verifyIdToken.mockResolvedValueOnce(verified({ outlet_id: "sbx-1", role: "supervisor", demo_exp_ms: exp }));
+    expect(await requireClaims(fakeRequest("Bearer demo.token"))).toEqual({
+      outlet_id: "sbx-1",
+      role: "supervisor",
+      demo_exp_ms: exp,
+    });
+  });
+
+  it("2.T5 a real token without the claim is unchanged", async () => {
+    const { requireClaims } = await import("@/lib/http/guard");
+    verifyIdToken.mockResolvedValueOnce(verified({ outlet_id: "proofed", role: "owner" }));
+    expect(await requireClaims(fakeRequest("Bearer real.token"))).toEqual({ outlet_id: "proofed", role: "owner" });
+  });
+});
+
+describe("requireClaims demo claim consistency (R-12 L1, fail closed)", () => {
+  const verified = (claims: Record<string, unknown>) => ({ uid: "u", email: undefined, email_verified: false, claims });
+
+  it("L1 an sbx- outlet token WITHOUT demo_exp_ms is 401 (a sandbox principal always expires)", async () => {
+    const { requireClaims } = await import("@/lib/http/guard");
+    const { UnauthorizedError } = await import("@/lib/http/errors");
+    verifyIdToken.mockResolvedValueOnce(verified({ outlet_id: "sbx-0123456789ab", role: "owner" }));
+    const err = await requireClaims(fakeRequest("Bearer t")).catch((e) => e);
+    expect(err).toBeInstanceOf(UnauthorizedError);
+    expect(err.statusCode).toBe(401);
+  });
+
+  it("L1 a demo_exp_ms on an outlet that is not sbx- is 401, even a future one (a sandbox claim never belongs to a real shop)", async () => {
+    const { requireClaims } = await import("@/lib/http/guard");
+    const { UnauthorizedError } = await import("@/lib/http/errors");
+    for (const outlet_id of ["proofed", "demo-outlet", "demo-tpl-outlet", "xsbx-1"]) {
+      verifyIdToken.mockResolvedValueOnce(verified({ outlet_id, role: "owner", demo_exp_ms: Date.now() + 60_000 }));
+      const err = await requireClaims(fakeRequest("Bearer t")).catch((e) => e);
+      expect(err, outlet_id).toBeInstanceOf(UnauthorizedError);
+    }
+  });
+
+  it("L1 a well-formed sandbox token (sbx- outlet + future demo_exp_ms) still passes", async () => {
+    const { requireClaims } = await import("@/lib/http/guard");
+    const exp = Date.now() + 60_000;
+    verifyIdToken.mockResolvedValueOnce(verified({ outlet_id: "sbx-0123456789ab", role: "owner", demo_exp_ms: exp }));
+    expect(await requireClaims(fakeRequest("Bearer t"))).toEqual({ outlet_id: "sbx-0123456789ab", role: "owner", demo_exp_ms: exp });
   });
 });
 

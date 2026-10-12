@@ -13,6 +13,7 @@ import { buildWindows, planLabelUnits, earliestLineStartMs, type LabelUnit, type
 import { buildThreads, openThreadsAt, type BuiltThread, type OpenThread, type LabelOutput } from "@/lib/pipeline/threads";
 import { evaluateGate, applyGateDecision } from "@/lib/pipeline/gate";
 import { remapOpenThreadAliases } from "@/lib/pipeline/tick/alias";
+import { threadQuestionId } from "@/lib/pipeline/question-ids";
 import type {
   LedgerWrite,
   QuestionWrite,
@@ -400,7 +401,7 @@ async function processOneUnit(input: {
         questionWrites.push({
           outlet_id,
           device_id,
-          question_id: `q_thread_${builtThread.thread_id}`,
+          question_id: threadQuestionId(builtThread.thread_id),
           thread_id: builtThread.thread_id,
           kind: "gate",
           status: "open",

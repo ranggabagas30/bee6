@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   try {
     const claims = await requireDevice(req);
     const result = await startCaptureSession(
-      { sessions: firestoreCaptureSessionStore(claims.outlet_id), outlets: firestoreCaptureStore() },
+      { sessions: firestoreCaptureSessionStore(claims.outlet_id), outlets: firestoreCaptureStore(), demoMode: process.env.DEMO_MODE === "true" },
       claims,
       await readJsonBody(req),
       Date.now(),

@@ -4,6 +4,7 @@
  * device with a 6-digit pairing code (valid 10 min), then prints the code.
  *
  *   npm run seed -- --project demo    # built-in FICTIONAL data
+ *   npm run seed -- --project demo --template   # R-12 judge-sandbox template (demo project only)
  *   npm run seed -- --project pilot   # reads private/seed.pilot.json (untracked)
  *
  * Hard rules honoured:
@@ -19,21 +20,26 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
+import type { Firestore } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import { COLLECTIONS } from "@/lib/firestore/collections";
 import {
   DeviceSchema,
   OutletSchema,
+  SopStepSchema,
+  SopVersionSchema,
   StaffSchema,
   UserSchema,
   type Device,
   type Outlet,
+  type SopVersion,
   type Staff,
   type User,
 } from "@/lib/firestore/schema";
 import { hashPin } from "@/lib/auth/pin";
 import { generatePairingCode, pairingCodeExpiry } from "@/lib/auth/pairing";
 import { normalizeStaffName } from "@/lib/auth/staff-name";
+import { DEMO_SOP_V1 } from "@/scripts/demo-sop";
 
 // ── seed config shape ────────────────────────────────────────────────────────
 export const SeedConfigSchema = z
@@ -62,8 +68,22 @@ export const SeedConfigSchema = z
       )
       .min(1),
     device: z
-      .object({ device_id: z.string().min(1), label: z.string().min(1) })
+      .object({
+        device_id: z.string().min(1),
+        /**
+         * Placement label only (e.g. "Register 1", "Kitchen phone"), never a
+         * person's name (hard rule #7).
+         */
+        label: z.string().min(1),
+      })
       .strict(),
+    /**
+     * R-08 Task 2.3: optional SOP v1 steps. Optional so Rangga's current
+     * `private/seed.pilot.json` (no SOP yet) still seeds unchanged. When
+     * present, the seed writes `sop_versions/{outlet_id}:v1` once (never
+     * overwritten — SOP versions are immutable, hard rule #9).
+     */
+    sop_v1: z.object({ steps: z.array(SopStepSchema).min(1).max(200) }).strict().optional(),
   })
   .strict();
 export type SeedConfig = z.infer<typeof SeedConfigSchema>;
@@ -86,6 +106,23 @@ export const DEMO_SEED: SeedConfig = {
     { staff_id: "demo-staff-2", name: "Bella Demo", role: "staff", pin: "2222" },
   ],
   device: { device_id: "demo-phone", label: "Demo shop phone" },
+  // FICTIONAL demo SOP, pluggable in scripts/demo-sop.ts (R-12: the full-size English SOP lands there later).
+  sop_v1: DEMO_SOP_V1,
+};
+
+/**
+ * FICTIONAL. Template for R-12 judge sandboxes; never real data. The template outlet is seeded
+ * with `--template` on the demo project only, then filled through the real segment API by
+ * `scripts/demo-seed-template.ts`; each judge visit clones its pipeline output. Same fictional
+ * staff and SOP v1 as `DEMO_SEED`; distinct sign-in emails so an email maps to one outlet only.
+ */
+export const DEMO_TEMPLATE_SEED: SeedConfig = {
+  outlet: { ...DEMO_SEED.outlet, outlet_id: "demo-tpl-outlet", name: "Demo Bakehouse" },
+  owner: { email: "demo-tpl-owner@example.com" },
+  supervisors: [{ email: "demo-tpl-supervisor@example.com" }],
+  staff: DEMO_SEED.staff,
+  device: { device_id: "demo-tpl-phone", label: "Demo shop phone" },
+  sop_v1: DEMO_SEED.sop_v1,
 };
 
 // ── document builder (pure; unit-tested) ─────────────────────────────────────
@@ -95,6 +132,25 @@ export interface SeedDocuments {
   staff: Staff[];
   device: Device;
   pairingCode: string;
+  /** R-08 Task 2.3: null when the config carries no `sop_v1` block. */
+  sopVersion: SopVersion | null;
+}
+
+/** Pure: builds the `sop_versions/{outlet_id}:v1` doc from a config's `sop_v1` block. */
+export function buildSopVersionDoc(
+  outletId: string,
+  sopV1: NonNullable<SeedConfig["sop_v1"]>,
+  nowMs: number,
+): SopVersion {
+  return SopVersionSchema.parse({
+    outlet_id: outletId,
+    sop_version_id: `${outletId}:v1`,
+    version: 1,
+    steps: sopV1.steps,
+    source: "seed",
+    source_proposal_id: null,
+    created_at_ms: nowMs,
+  });
 }
 
 /**
@@ -172,7 +228,11 @@ export async function buildSeedDocuments(
     created_at: nowIso,
   });
 
-  return { outlet, users, staff, device, pairingCode: opts.pairingCode };
+  const sopVersion = config.sop_v1
+    ? buildSopVersionDoc(outlet.outlet_id, config.sop_v1, opts.now.getTime())
+    : null;
+
+  return { outlet, users, staff, device, pairingCode: opts.pairingCode, sopVersion };
 }
 
 // ── CLI wiring ───────────────────────────────────────────────────────────────
@@ -185,8 +245,27 @@ function parseProjectArg(argv: string[]): ProjectKind {
   return value;
 }
 
+/** True when `--template` is on the command line (R-12). */
+export function parseTemplateArg(argv: string[]): boolean {
+  return argv.includes("--template");
+}
+
+/**
+ * Picks the built-in demo config, or the R-12 template config with `--template`. The template
+ * exists on the demo project only: `--template` with the pilot project throws (exit 1).
+ */
+export function selectSeedConfig(project: ProjectKind, opts: { template: boolean }): SeedConfig {
+  if (opts.template) {
+    if (project !== "demo") {
+      throw new Error("Refusing --template on the pilot project: the demo template is demo-project only.");
+    }
+    return SeedConfigSchema.parse(DEMO_TEMPLATE_SEED);
+  }
+  return loadConfig(project);
+}
+
 /** Refuses to seed demo data into the pilot project (and vice versa). */
-function assertProjectMatchesEnv(project: ProjectKind): void {
+export function assertProjectMatchesEnv(project: ProjectKind): void {
   const demoMode = (process.env.DEMO_MODE ?? "").toLowerCase() === "true";
   if (project === "demo" && !demoMode) {
     throw new Error(
@@ -202,7 +281,9 @@ function assertProjectMatchesEnv(project: ProjectKind): void {
   }
 }
 
-function loadConfig(project: ProjectKind): SeedConfig {
+/** Exported (R-08 Task 2.3) so the SOP-separation guard tests can assert the
+ * demo branch reads no file at all (`loadConfig("demo")` never touches `fs`). */
+export function loadConfig(project: ProjectKind): SeedConfig {
   if (project === "demo") return SeedConfigSchema.parse(DEMO_SEED);
   // Pilot data is never committed — read it from an untracked file.
   const configPath = path.join(process.cwd(), "private", "seed.pilot.json");
@@ -238,15 +319,41 @@ async function writeSeed(project: ProjectKind, docs: SeedDocuments): Promise<voi
     docs.device,
   );
   await batch.commit();
+
+  if (docs.sopVersion) {
+    await writeSopVersionIfAbsent(db, docs.sopVersion);
+  }
+}
+
+/**
+ * Writes the SOP version doc only if no doc with that id exists yet — SOP
+ * versions are immutable (hard rule #9: SOP changes only through
+ * proposals; the seed script never overwrites one it already wrote).
+ * Returns whether it wrote. `db` is a seam so unit tests inject a fake.
+ */
+export async function writeSopVersionIfAbsent(
+  db: Pick<Firestore, "collection">,
+  sopVersion: SopVersion,
+): Promise<boolean> {
+  const ref = db.collection(COLLECTIONS.sopVersions).doc(sopVersion.sop_version_id);
+  const existing = await ref.get();
+  if (existing.exists) return false;
+  await ref.set(sopVersion);
+  return true;
+}
+
+/** The pairing code the seed prints: never a reserved one (R-18; `generatePairingCode` redraws). `draw` is a test seam. */
+export function seedPairingCode(draw?: (min: number, max: number) => number): string {
+  return generatePairingCode(draw);
 }
 
 async function main(): Promise<void> {
   const project = parseProjectArg(process.argv.slice(2));
   assertProjectMatchesEnv(project);
 
-  const config = loadConfig(project);
+  const config = selectSeedConfig(project, { template: parseTemplateArg(process.argv.slice(2)) });
   const docs = await buildSeedDocuments(config, project, {
-    pairingCode: generatePairingCode(),
+    pairingCode: seedPairingCode(),
     now: new Date(),
   });
   await writeSeed(project, docs);
@@ -258,6 +365,9 @@ async function main(): Promise<void> {
     `[seed] pairing code (valid 10 min): ${docs.pairingCode}  ` +
       `→ enter at /pair on the shop phone`,
   );
+  if (docs.sopVersion) {
+    console.log(`[seed] sop_versions/${docs.sopVersion.sop_version_id} (written only if absent)`);
+  }
 }
 
 const isMainModule =

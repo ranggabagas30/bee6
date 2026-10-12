@@ -135,6 +135,22 @@ describe("pairDevice", () => {
     ).rejects.toThrow(UnauthorizedError);
   });
 
+  it("2.T2 refuses a reserved code before any store lookup, with the same error as an unknown code", async () => {
+    const store = makeDeviceStore([device({ pairing_code: "000000" })]);
+    let lookups = 0;
+    const findByPairingCode = store.findByPairingCode.bind(store);
+    store.findByPairingCode = async (code) => {
+      lookups += 1;
+      return findByPairingCode(code);
+    };
+    const reserved = await pairDevice({ devices: store, now: clock }, { code: "000000" }).catch((e: unknown) => e);
+    const unknown = await pairDevice({ devices: store, now: clock }, { code: "999999" }).catch((e: unknown) => e);
+    expect(reserved).toBeInstanceOf(UnauthorizedError);
+    expect((reserved as Error).message).toBe((unknown as Error).message);
+    expect(lookups).toBe(1); // only the unknown code reached the store
+    expect(store.saved).toHaveLength(0);
+  });
+
   it("rejects an expired code", async () => {
     const store = makeDeviceStore([
       device({ pairing_code_expires_at: new Date(NOW.getTime() - 1).toISOString() }),
@@ -202,6 +218,48 @@ describe("authenticateDeviceToken", () => {
     expect(u.code).toBe(w.code);
     expect(u.message).toBe(w.message);
     expect(u.message).toBe("Invalid device token");
+  });
+});
+
+describe("authenticateDeviceToken expiry (R-12)", () => {
+  const nowMs = NOW.getTime();
+
+  it("2.T3 a judge device past expires_at_ms is the same 401 as a bad token", async () => {
+    const token = "judge-token";
+    const store = makeDeviceStore([
+      device({ token_hash: await hashDeviceToken(token), expires_at_ms: nowMs - 1 }),
+    ]);
+    const expired = await authenticateDeviceToken({ devices: store, now: clock }, { device_id: "d1", token }).catch((e) => e);
+    const bad = await authenticateDeviceToken({ devices: store, now: clock }, { device_id: "d1", token: "wrong" }).catch((e) => e);
+    expect(expired).toBeInstanceOf(UnauthorizedError);
+    expect(expired.statusCode).toBe(bad.statusCode);
+    expect(expired.code).toBe(bad.code);
+    expect(expired.message).toBe(bad.message);
+    expect(expired.message).toBe("Invalid device token");
+  });
+
+  it("2.T3b expiring exactly now is expired (>=)", async () => {
+    const token = "judge-token";
+    const store = makeDeviceStore([device({ token_hash: await hashDeviceToken(token), expires_at_ms: nowMs })]);
+    await expect(
+      authenticateDeviceToken({ devices: store, now: clock }, { device_id: "d1", token }),
+    ).rejects.toThrow(UnauthorizedError);
+  });
+
+  it("2.T4 a judge device before expires_at_ms authenticates", async () => {
+    const token = "judge-token";
+    const store = makeDeviceStore([device({ token_hash: await hashDeviceToken(token), expires_at_ms: nowMs + 1 })]);
+    expect(await authenticateDeviceToken({ devices: store, now: clock }, { device_id: "d1", token })).toEqual({
+      outlet_id: "proofed",
+      role: "device",
+      device_id: "d1",
+    });
+  });
+
+  it("2.T5 a device without expires_at_ms never expires (no now needed)", async () => {
+    const token = "real-token";
+    const store = makeDeviceStore([device({ token_hash: await hashDeviceToken(token) })]);
+    expect(await authenticateDeviceToken({ devices: store }, { device_id: "d1", token })).toMatchObject({ role: "device" });
   });
 });
 

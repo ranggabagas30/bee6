@@ -118,6 +118,22 @@ describe("POST /api/v1/questions/[id]/answer", () => {
     expect(textSpy).not.toHaveBeenCalled();
   });
 
+  it("LOW-4 a body over 32 KB is a 413 before it is parsed or any store is touched (counted in bytes, not characters)", async () => {
+    vi.spyOn(guardModule, "requireDevice").mockResolvedValueOnce({ outlet_id: OUTLET, device_id: DEVICE, role: "device" });
+    const big = answerBody({ reason: "é".repeat(17_000) }); // 17k characters, over 32 KB in UTF-8
+    const response = await POST(postRequest(big), { params: Promise.resolve({ id: "q1" }) });
+    expect(response.status).toBe(413);
+    expect((await response.json()).error.code).toBe("PAYLOAD_TOO_LARGE");
+    expect(debriefStoreModule.firestoreDebriefStore).not.toHaveBeenCalled();
+  });
+
+  it("LOW-4 a normal 500-character reason (a few KB at most) still passes the cap", async () => {
+    vi.spyOn(guardModule, "requireDevice").mockResolvedValueOnce({ outlet_id: OUTLET, device_id: DEVICE, role: "device" });
+    vi.spyOn(debriefStoreModule, "firestoreDebriefStore").mockReturnValueOnce(fakeStoreWithQuestion(makeQuestion()));
+    const response = await POST(postRequest(answerBody({ reason: "é".repeat(500) })), { params: Promise.resolve({ id: "q1" }) });
+    expect(response.status).toBe(200);
+  });
+
   it("returns 400 invalid_body on unparseable JSON", async () => {
     vi.spyOn(guardModule, "requireDevice").mockResolvedValueOnce({ outlet_id: OUTLET, device_id: DEVICE, role: "device" });
     vi.spyOn(debriefStoreModule, "firestoreDebriefStore").mockReturnValueOnce(fakeStore());

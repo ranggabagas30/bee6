@@ -34,8 +34,8 @@ export class BadRequestError extends AppError {
 
 /** 401 — missing or invalid credentials (no/invalid token). */
 export class UnauthorizedError extends AppError {
-  constructor(message = "Authentication required") {
-    super(message, "UNAUTHORIZED", 401);
+  constructor(message = "Authentication required", code = "UNAUTHORIZED") {
+    super(message, code, 401);
   }
 }
 
@@ -74,13 +74,17 @@ export class ValidationError extends AppError {
   }
 }
 
-/** 429 — locked out or rate limited; `retryAfterSeconds` for the client. */
+/**
+ * 429 — locked out or rate limited; `retryAfterSeconds` for the client. `code` defaults to
+ * LOCKED; the public demo (R-12) passes `rate_limited` / `demo_daily_cap` / `demo_generate_cap`.
+ */
 export class LockedError extends AppError {
   constructor(
     public readonly retryAfterSeconds: number,
     message = "Too many attempts",
+    code = "LOCKED",
   ) {
-    super(message, "LOCKED", 429);
+    super(message, code, 429);
   }
 }
 
@@ -98,6 +102,18 @@ export class ServiceUnavailableError extends AppError {
     public readonly upstream?: number | "timeout" | "unknown",
   ) {
     super(message, "SERVICE_UNAVAILABLE", 503);
+  }
+}
+
+/**
+ * 503 — the public demo's spend-cap check on a text path could not give an answer (R-12): the sandbox
+ * outlet is not ready (`demo_not_ready`) or the check itself failed (`demo_cap_unavailable`). It is a
+ * distinct type so that `redactUserText` can tell it from a genuine Sensitive Data Protection failure and
+ * pass it through (a client sees why, and nothing was spent). The message is fixed and carries no detail.
+ */
+export class DemoCapError extends AppError {
+  constructor(message: string, code: "demo_not_ready" | "demo_cap_unavailable") {
+    super(message, code, 503);
   }
 }
 

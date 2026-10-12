@@ -48,7 +48,10 @@ async function sendOne(
   entry: AnswerCacheEntry,
 ): Promise<{ disposition: Disposition; status: number | "network" }> {
   try {
-    const res = await deps.fetchFn(answerUrl(entry.question_id), {
+    // Called bare (never `deps.fetchFn(...)`): the browser's fetch throws "Illegal invocation" when its `this`
+    // is anything but window, which silently kept every answer offline.
+    const { fetchFn } = deps;
+    const res = await fetchFn(answerUrl(entry.question_id), {
       method: "POST",
       headers: { ...deviceAuthHeaders(deps.auth), "Content-Type": "application/json" },
       body: JSON.stringify(entry),

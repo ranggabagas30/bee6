@@ -26,12 +26,16 @@ export const COLLECTIONS = {
   corrections: "corrections",
   sopVersions: "sop_versions",
   proposals: "proposals",
+  /** Single-flight proposal generation lease per outlet (R-08). */
+  proposalLocks: "proposal_locks",
   constraints: "constraints",
   reviews: "reviews",
   outcomes: "outcomes",
   salesEvents: "sales_events",
   eventCards: "event_cards",
   auditLog: "audit_log",
+  /** Demo project only (R-12): rate-limit and cap counters. */
+  demoCounters: "demo_counters",
 } as const;
 
 export type CollectionName = (typeof COLLECTIONS)[keyof typeof COLLECTIONS];

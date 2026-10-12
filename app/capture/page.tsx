@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { StatusBanner, headlineStateFor } from "@/app/capture/StatusBanner";
 import { DevPanel } from "@/app/capture/DevPanel";
@@ -20,6 +21,7 @@ import { idleViewFor } from "@/app/capture/idle-view";
 import { selesaiViewFor } from "@/app/capture/selesai-view";
 import { isDiscardArmed, nextMulaiIsNow, shouldAutoClosePanel } from "@/app/capture/batalkan-panel";
 import { DebriefFlow } from "@/app/capture/debrief/DebriefFlow";
+import { drawerInsetStyle, isCompactChrome, useDrawerLayout, type DrawerState } from "@/app/capture/drawer-layout";
 import { ShopTopBar } from "@/app/shop/ShopTopBar";
 import { useLang } from "@/lib/i18n/context";
 import { t, type DictKey } from "@/lib/i18n/dict";
@@ -40,9 +42,9 @@ import {
 } from "@/lib/capture/browser/event-log";
 import { isDevControlsEnabled } from "@/lib/capture/dev-mode";
 import type { CaptureConfigResponse } from "@/lib/capture/contract";
+import { autoStopDeadline, selesaiReady } from "@/lib/capture/demo-session";
 import {
   addDays,
-  autoStopAtMs,
   businessDateOf,
   localDateOf,
   mulaiAvailability,
@@ -62,6 +64,15 @@ import type { MicSourceClass } from "@/lib/capture/mic-source";
  * redirects to /pair), fetches the outlet's timezone/weekly hours/last_ended,
  * and shows a big status only; a transcript is NEVER displayed (hard rule #2).
  */
+
+/**
+ * The R-18 script drawer (sandbox judge devices only). Loaded lazily and only rendered when the server's
+ * capture config carries `demo_session`, so the pilot /capture never downloads the script text. The page
+ * must not import the drawer or the script data statically (see app/demo/import-boundaries.test.ts).
+ */
+const ScriptDrawer = dynamic(() => import("@/app/capture/ScriptDrawer").then((m) => m.ScriptDrawer), {
+  ssr: false,
+});
 
 const PAGE_STYLE: React.CSSProperties = {
   maxWidth: 360,
@@ -156,6 +167,10 @@ export default function CapturePage() {
   const sessionRef = useRef<CaptureSession | null>(null);
   const sessionGenRef = useRef(0);
   const [sessionRunning, setSessionRunning] = useState(false);
+  // R-18 script drawer (sandbox only): open/collapsed is page state (the side-panel layout moves the page
+  // column). Collapsed before Start; it opens by itself on Start (see the state change below).
+  const [scriptOpen, setScriptOpen] = useState(false);
+  const drawerLayout = useDrawerLayout();
   const [status, setStatus] = useState<CaptureStatus | null>(null);
   const [lastUploadStatus, setLastUploadStatus] = useState<CaptureStatus | null>(null);
   const retainedUploadRef = useRef<RetainedUpload>(NO_RETAINED_UPLOAD);
@@ -231,6 +246,22 @@ export default function CapturePage() {
       ? idleViewFor({ config: effectiveConfig, nowMs, lang })
       : null;
 
+  // R-18: the script drawer exists only for a sandbox judge device (server field `demo_session`).
+  const demoSession = config?.demo_session;
+  const drawerState: DrawerState = session
+    ? "running"
+    : idle && !idle.offered && (idle.headline === "ended" || idle.headline === "ended_auto")
+      ? "ended"
+      : "before";
+  // The drawer is collapsed before Start and opens by itself as Start is tapped (and on the ended text); a
+  // return to "before" (Cancel session) collapses it again. A tap on its toggle wins until the next change.
+  const [seenDrawerState, setSeenDrawerState] = useState<DrawerState>(drawerState);
+  if (seenDrawerState !== drawerState) {
+    setSeenDrawerState(drawerState);
+    setScriptOpen(drawerState !== "before");
+  }
+  const compactChrome = isCompactChrome({ present: demoSession !== undefined, wide: drawerLayout.wide });
+
   // Debrief entry (R-07, technical spec §8.10): per-device, from this
   // device's own last-ended record — the phone-local one set the instant
   // Selesai/the auto-stop succeeds (below), or the config's on load/reload.
@@ -242,8 +273,9 @@ export default function CapturePage() {
   // (`idleViewFor`'s own `mulaiAvailability` call), computed the same way so
   // the debrief card and done screen never show a different answer than the
   // Mulai note underneath.
+  // R-18: a sandbox has one demo day, so "You can tap Start again <date>" is never true there; no line at all.
   const nextMulaiText =
-    effectiveConfig && nowMs !== null
+    effectiveConfig && nowMs !== null && effectiveConfig.demo_session === undefined
       ? (() => {
           const nextMs = mulaiAvailability({
             now_ms: nowMs,
@@ -284,15 +316,24 @@ export default function CapturePage() {
   // effect's own synchronous body) so it stays a real microtask — safe under
   // fake timers in tests, unlike a macrotask such as `setTimeout`.
   const autoStopInFlightRef = useRef(false);
+  const [autoStopBusy, setAutoStopBusy] = useState(false);
   useEffect(() => {
-    if (!session || !config || nowMs === null || autoStopInFlightRef.current) return;
-    const deadline = autoStopAtMs(session.local_date, config.weekly_hours, config.timezone);
+    // Also stay out while a Selesai (End dialog or the drawer's Finish) request is in flight: one end call only.
+    if (!session || !config || nowMs === null || autoStopInFlightRef.current || selesaiBusyRef.current) return;
+    const deadline = autoStopDeadline({
+      localDate: session.local_date,
+      startedAtMs: session.started_at_ms,
+      weekly: config.weekly_hours,
+      tz: config.timezone,
+      maxMs: config.demo_session?.max_ms,
+    });
     if (deadline === null || nowMs < deadline) return;
     const auth = readDeviceAuth();
     if (!auth) return;
     autoStopInFlightRef.current = true;
     const current = session;
     queueMicrotask(() => {
+      setAutoStopBusy(true);
       void (async () => {
         const endedAt = Date.now();
         await postSessionEnd(auth, current.session_id, {
@@ -311,7 +352,9 @@ export default function CapturePage() {
         });
         stopRunningSession();
         setSession(null);
-        autoStopInFlightRef.current = false;
+        // autoStopInFlightRef stays true until the next Mulai: this session is over, and a render that still
+        // holds it (a tick between the render and the effect flush) must not end it a second time.
+        setAutoStopBusy(false);
       })();
     });
   }, [session, config, nowMs, stopRunningSession]);
@@ -326,6 +369,15 @@ export default function CapturePage() {
       document.removeEventListener("visibilitychange", tick);
     };
   }, []);
+
+  // R-18: a sandbox session hard-stops at start + max_ms, so the clock must not wait for the 30 s tick.
+  // Only while a demo session is open; a pilot page never runs this interval.
+  const demoTicking = session !== null && config?.demo_session !== undefined;
+  useEffect(() => {
+    if (!demoTicking) return;
+    const id = setInterval(() => setNowMs(Date.now()), 1_000);
+    return () => clearInterval(id);
+  }, [demoTicking]);
 
   // Batalkan panel's own fast tick (arm delay + auto-close).
   useEffect(() => {
@@ -378,6 +430,9 @@ export default function CapturePage() {
       return;
     }
     mulaiInFlightRef.current = true;
+    // A new session: the previous one's end guards (Selesai, auto-stop) are done.
+    selesaiBusyRef.current = false;
+    autoStopInFlightRef.current = false;
     setMulaiBusy(true);
     setMulaiErrorKey(null);
     const sessionId = crypto.randomUUID();
@@ -413,6 +468,9 @@ export default function CapturePage() {
     sessionRef.current = captureSession;
     setSessionRunning(true);
     setSession({ session_id: sessionId, started_at_ms: startedAt, local_date: localDate });
+    // The page clock is only refreshed every 30 s: bring it up to now so the sandbox countdown (computed from
+    // it) starts at 5:00 instead of showing the staleness (up to 5:30) until the first 1 s tick.
+    setNowMs(Date.now());
   }
 
   // ── Selesai (§5.5, web spec §6.6.3) ─────────────────────────────────────────
@@ -426,7 +484,9 @@ export default function CapturePage() {
     setSelesaiConfirmOpen(false);
   }
   async function confirmSelesai() {
-    if (!session || selesaiBusyRef.current) return;
+    // The 5:00 auto-stop already ended (or is ending) this session: a second end call would race it and could
+    // flip the headline from "Ended automatically" to a plain Selesai.
+    if (!session || selesaiBusyRef.current || autoStopInFlightRef.current) return;
     const auth = readDeviceAuth();
     if (!auth) return;
     selesaiBusyRef.current = true;
@@ -437,12 +497,13 @@ export default function CapturePage() {
       ended_at_ms: endedAt,
       end_reason: "selesai",
     });
-    selesaiBusyRef.current = false;
     setSelesaiBusy(false);
     if (!result.ok) {
+      selesaiBusyRef.current = false;
       setSelesaiErrorKey(sessionErrorKey(result.status, result.code));
       return; // stay running; the tap can be retried
     }
+    // On success selesaiBusyRef stays true until the next Mulai, for the same reason as the auto-stop guard.
     setSelesaiConfirmOpen(false);
     setLastEnded({
       business_date: session.local_date,
@@ -451,6 +512,13 @@ export default function CapturePage() {
     });
     stopRunningSession();
     setSession(null);
+  }
+
+  // R-18: the drawer's Finish IS the Selesai confirmation (it skips the dialog) and runs the same handler.
+  // It does nothing while the 5:00 auto-stop is already ending the session.
+  function handleDrawerFinish() {
+    if (autoStopInFlightRef.current) return;
+    void confirmSelesai();
   }
 
   // ── Batalkan (§5.6, web spec §6.6.5) ────────────────────────────────────────
@@ -542,6 +610,7 @@ export default function CapturePage() {
         micSource={micSource}
         note={idle.note}
         endedAt={idle.endedAt ?? undefined}
+        compact={compactChrome}
       />
     );
     const primary = (
@@ -587,6 +656,7 @@ export default function CapturePage() {
         nextMulaiText={nextMulaiText}
         headline={headline}
         primary={primary}
+        refresh={config?.demo_session !== undefined}
       />
     );
   }
@@ -600,6 +670,7 @@ export default function CapturePage() {
       weekly: config.weekly_hours,
       tz: config.timezone,
       lang,
+      demo: selesaiReady(config.demo_session),
     });
     if (!sv.ready) return <p>{sv.note}</p>;
     return (
@@ -625,10 +696,13 @@ export default function CapturePage() {
       <div role="group" aria-label={t(lang, "C-c-selesai-h")} style={PANEL_STYLE}>
         <h2 style={{ fontSize: 18, margin: 0 }}>{t(lang, "C-c-selesai-h")}</h2>
         <p>
-          {t(lang, "C-c-selesai-b", {
-            date: dayLabel(localDateOf(nextMulaiMs, tz), lang),
-            time: clockLabel(nextMulaiMs, tz),
-          })}
+          {config.demo_session
+            ? // Sandbox: one demo day, End has no restart, so no "tap Start again <date>".
+              t(lang, "C-script-end-b")
+            : t(lang, "C-c-selesai-b", {
+                date: dayLabel(localDateOf(nextMulaiMs, tz), lang),
+                time: clockLabel(nextMulaiMs, tz),
+              })}
         </p>
         <button type="button" style={PRIMARY_BUTTON_STYLE} onClick={closeSelesaiConfirm} autoFocus>
           {t(lang, "C-b-belum-lanjut")}
@@ -637,7 +711,7 @@ export default function CapturePage() {
           type="button"
           style={SECONDARY_BUTTON_STYLE}
           onClick={confirmSelesai}
-          disabled={selesaiBusy}
+          disabled={selesaiBusy || autoStopBusy}
         >
           {t(lang, "C-b-ya-selesai")}
         </button>
@@ -661,7 +735,8 @@ export default function CapturePage() {
     const tz = config.timezone;
     const now = batalkanTickMs;
     const armed = isDiscardArmed(batalkanOpenedAtMs, now);
-    const body = nextMulaiIsNow(session.local_date, now, tz)
+    // Sandbox: Cancel is the retake path and Start is offered again at once, whatever the weekday hours say.
+    const body = config.demo_session || nextMulaiIsNow(session.local_date, now, tz)
       ? t(lang, "C-c-cancel-b-now")
       : t(lang, "C-c-cancel-b", {
           date: dayLabel(nextOpenLocalDate(session.local_date, config.weekly_hours), lang),
@@ -702,6 +777,7 @@ export default function CapturePage() {
         <StatusBanner
           state={sessionRunning ? headlineStateFor(status?.state ?? "listening") : "idle"}
           micSource={micSource}
+          compact={compactChrome}
         />
         {sampleRateMsg ? (
           <p role="alert" style={{ color: "#b00020", marginTop: 16 }}>
@@ -728,10 +804,29 @@ export default function CapturePage() {
     );
   }
 
+  const inset = drawerInsetStyle({
+    present: view === "ready" && demoSession !== undefined,
+    wide: drawerLayout.wide,
+    open: scriptOpen,
+  });
+  // Compact top-of-page chrome keeps banner + End + Cancel + the open drawer on one 360 x 640 screen.
+  const mainPadding = compactChrome ? "12px 24px 24px" : PAGE_STYLE.padding;
+  const mainStyle: React.CSSProperties =
+    Object.keys(inset).length === 0
+      ? { ...PAGE_STYLE, padding: mainPadding }
+      : {
+          maxWidth: 360,
+          marginLeft: "auto",
+          marginRight: "auto",
+          padding: mainPadding,
+          fontFamily: "system-ui, sans-serif",
+          ...inset,
+        };
+
   return (
-    <main style={PAGE_STYLE}>
-      <ShopTopBar />
-      <h1 style={{ fontSize: 22 }}>{t(lang, "C-cap-title")}</h1>
+    <main style={mainStyle}>
+      <ShopTopBar compact={compactChrome} />
+      <h1 style={compactChrome ? { fontSize: 22, margin: "0 0 8px" } : { fontSize: 22 }}>{t(lang, "C-cap-title")}</h1>
 
       {devControlsEnabled ? (
         <DevPanel onStart={handleDevStart} onPause={handleDevStop} onStop={handleDevStop} events={events} />
@@ -755,6 +850,23 @@ export default function CapturePage() {
 
       {view === "ready" ? (sessionRunning ? renderRunning() : renderIdle()) : null}
 
+      {view === "ready" && demoSession ? (
+        <ScriptDrawer
+          scriptId={demoSession.script_id}
+          lang={lang}
+          state={drawerState}
+          startedAtMs={session?.started_at_ms ?? null}
+          maxMs={demoSession.max_ms}
+          nowMs={nowMs}
+          onFinish={handleDrawerFinish}
+          finishing={selesaiBusy || autoStopBusy}
+          open={scriptOpen}
+          onToggle={() => setScriptOpen((o) => !o)}
+          wide={drawerLayout.wide}
+          reducedMotion={drawerLayout.reducedMotion}
+        />
+      ) : null}
+
       {/* Upload block (UX-03 §5.7): shown in every mode, including idle and
           stopped. While a session runs it follows the live status; after a
           stop it keeps only the lost line and the retry row, until the next
@@ -776,6 +888,7 @@ export default function CapturePage() {
       <p data-testid="capture-notice" style={{ marginTop: 24, fontSize: 14, color: "#444" }}>
         {t(lang, "C-notice-pilot")}
       </p>
+
     </main>
   );
 }

@@ -62,6 +62,7 @@ export async function verifyIdToken(idToken: string): Promise<VerifiedToken> {
     role: decoded.role,
     staff_id: decoded.staff_id,
     device_id: decoded.device_id,
+    demo_exp_ms: decoded.demo_exp_ms,
   });
   return {
     uid: decoded.uid,

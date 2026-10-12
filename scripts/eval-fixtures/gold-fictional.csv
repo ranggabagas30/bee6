@@ -1,0 +1,14 @@
+episode,local_date,start_hm,lines,model_category,gold,gold_2,notes
+E0001,2026-10-05,09:05,Fictional cafe. Opening checklist is done / Ovens are on,ROUTINE_OPS,ROUTINE_OPS,,
+E0002,2026-10-05,09:40,Counting the float / Float is correct,ROUTINE_OPS,ROUTINE_OPS,,
+E0003,2026-10-05,11:15,Wiping tables / Restocking cups,ROUTINE_OPS,ROUTINE_OPS,ROUTINE_OPS,
+E0004,2026-10-05,12:05,Refilling the milk fridge / Labelling the tubs,ROUTINE_OPS,ROUTINE_OPS,ROUTINE_OPS,
+E0005,2026-10-05,13:30,"A guest asked, ""is the soup vegan?"" / Checked the card and answered",CUSTOMER_SERVICE,ROUTINE_OPS,CUSTOMER_SERVICE,Ambiguous on purpose
+E0006,2026-10-05,14:20,Greeting a regular / Taking an order,CUSTOMER_SERVICE,CUSTOMER_SERVICE,,
+E0007,2026-10-05,17:10,Helping a guest find a table / Offering a menu,CUSTOMER_SERVICE,CUSTOMER_SERVICE,CUSTOMER_SERVICE,
+E0008,2026-10-05,18:45,Reordering the dessert case / Guest waited for a menu,ROUTINE_OPS,CUSTOMER_SERVICE,CUSTOMER_SERVICE,
+E0009,2026-10-05,19:59,Showing the new hire the till / How the card machine works,TRAINING,CUSTOMER_SERVICE,,
+E0010,2026-10-05,20:30,Walking a trainee through closing / Why we count twice,TRAINING,TRAINING,,
+E0011,2026-10-05,19:00,Cleaning the espresso machine / Trainee watches,ROUTINE_OPS,TRAINING,,
+E0012,2026-10-05,10:00,Unlabelled episode on purpose,ROUTINE_OPS,,,
+E0013,2026-10-05,15:00,Skipped on purpose,ROUTINE_OPS,SKIP,,

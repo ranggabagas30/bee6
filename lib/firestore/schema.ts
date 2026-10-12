@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { PrincipalRoleSchema, UserRoleSchema } from "@/lib/auth/roles";
 import { MIC_SOURCE_CLASSES } from "@/lib/capture/mic-source";
-import { CategorySchema } from "@/lib/pipeline/categories";
+import { CategorySchema, WorkCategorySchema } from "@/lib/pipeline/categories";
 import { GateDecisionSchema } from "@/lib/pipeline/gate";
 import { CORRECTION_TEXT_MAX_CHARS } from "@/lib/debrief/constants";
 
@@ -132,6 +132,16 @@ export const OutletSchema = z
      * absent (`lib/firestore/debrief-store.ts`'s `getOutletCalendar`).
      */
     retention_days: z.number().int().min(1).max(90).optional(),
+    /** R-12: present only on a per-judge demo sandbox outlet (demo project only). */
+    sandbox: z
+      .object({
+        template_outlet_id: z.string().min(1),
+        created_at_ms: z.number().int().min(0),
+        expires_at_ms: z.number().int().min(0),
+        key_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+      })
+      .strict()
+      .optional(),
     created_at: isoDateTime,
   })
   .strict();
@@ -151,11 +161,11 @@ export function parseOutletDoc(raw: unknown): Outlet {
   return OutletSchema.parse(raw);
 }
 
-// ── users (owner / supervisor; Google sign-in) ───────────────────────────────
+// ── users (owner / supervisor; email + password, admin-provisioned) ──────────
 export const UserSchema = z
   .object({
     ...withOutlet,
-    /** Firebase Auth uid; null until the person signs in for the first time. */
+    /** Firebase Auth uid; null until the account completes its first sign-in. */
     uid: z.string().min(1).nullable(),
     email: z.email(),
     role: z.enum(["owner", "supervisor"]),
@@ -173,15 +183,33 @@ export const StaffSchema = z
     name: z.string().min(1),
     /**
      * Normalized name (trim + casefold + collapsed whitespace) used to match a
-     * typed PIN-login name to this staff member. Derived from `name` via
-     * normalizeStaffName; still lives only in the `staff` collection.
+     * typed PIN-login name to this staff member. Dormant in MVP 1: no staff
+     * sign-in exists yet; the staff-name scrub does not read this field.
+     * Derived from `name` via normalizeStaffName; still lives only in the
+     * `staff` collection. Kept required on purpose so existing docs stay valid.
      */
     name_key: z.string().min(1),
-    role: UserRoleSchema, // job role used to route debrief questions
+    /**
+     * Reserved for future staff sign-in feature. Dormant in MVP 1: no staff
+     * sign-in is built; debrief questions are role-agnostic (hard rule #7).
+     * Kept required on purpose so existing docs stay valid.
+     */
+    role: UserRoleSchema,
+    /**
+     * Hash of staff PIN. Dormant in MVP 1: no staff sign-in is built. Kept
+     * required on purpose so existing docs stay valid.
+     */
     pin_hash: z.string().min(1),
-    /** Consecutive wrong-PIN attempts; resets on a correct PIN. */
+    /**
+     * Consecutive wrong-PIN attempts; resets on a correct PIN. Dormant in MVP 1:
+     * no staff sign-in is built. Kept required on purpose so existing docs stay valid.
+     */
     failed_attempts: z.number().int().min(0),
-    /** ISO time the account is locked until (5 wrong → 15 min), or null. */
+    /**
+     * ISO time the account is locked until (5 wrong → 15 min), or null. Dormant
+     * in MVP 1: no staff sign-in is built. Kept required on purpose so existing
+     * docs stay valid.
+     */
     locked_until: isoDateTime.nullable(),
     created_at: isoDateTime,
   })
@@ -234,6 +262,11 @@ export const DeviceSchema = z
   .object({
     ...withOutlet,
     device_id: z.string().min(1),
+    /**
+     * Placement label (e.g. "Register 1", "Kitchen phone"), never a person's name
+     * (hard rule #7). Set only by the admin running the seed script; never shown
+     * on any screen; not part of the /pair flow.
+     */
     label: z.string().min(1),
     /** bcrypt hash of the long-lived device token; null until paired. */
     token_hash: z.string().min(1).nullable(),
@@ -244,10 +277,43 @@ export const DeviceSchema = z
     /** 6-digit pairing code (plaintext, single-use); null when not pairing. */
     pairing_code: z.string().regex(/^\d{6}$/).nullable(),
     pairing_code_expires_at: isoDateTime.nullable(),
+    /** R-12: judge devices only; absent = never expires. */
+    expires_at_ms: z.number().int().min(0).optional(),
     created_at: isoDateTime,
   })
   .strict();
 export type Device = z.infer<typeof DeviceSchema>;
+
+// ── demo_counters (R-12; demo project only) ──────────────────────────────────
+/**
+ * Rate-limit and cap counters for the public demo. `counter_id` is the doc id; for per-IP
+ * counters it is a salted daily hash, never the IP itself. `expires_at` is stored as a native
+ * Timestamp (Firestore TTL), same conversion as segments.
+ */
+export const DEMO_COUNTER_KINDS = [
+  "sandbox_ip",
+  "sandbox_day",
+  "switch_sandbox",
+  "switch_ip",
+  "generate_sandbox",
+  "generate_day",
+  "segment_sandbox",
+  "segment_day",
+  "fast_forward_sandbox",
+  "redact_sandbox",
+  "model_day",
+] as const;
+export type DemoCounterKind = (typeof DEMO_COUNTER_KINDS)[number];
+export const DemoCounterSchema = z
+  .object({
+    counter_id: z.string().min(1),
+    kind: z.enum(DEMO_COUNTER_KINDS),
+    day: dateString,
+    count: z.number().int().min(0),
+    expires_at: isoDateTime,
+  })
+  .strict();
+export type DemoCounter = z.infer<typeof DemoCounterSchema>;
 
 // ── heartbeats (subcollection of devices) ────────────────────────────────────
 export const HeartbeatSchema = z
@@ -446,8 +512,20 @@ export const ThreadSchema = z
      * marks a staff NO (the thread stays `open`/visible to a supervisor but
      * is never counted as evidence) — independent of `label_source`, since
      * a NO never sets `staff_confirmed`.
+     *
+     * R-06 Task 10: `"supervisor_confirmed"` is set alongside
+     * `confirmed_category` the same way, by `POST /api/v1/threads/{id}/confirm`
+     * (`action: "confirm" | "override"`); it also writes
+     * `excluded_from_evidence: false` explicitly (undoing an earlier reject).
+     *
+     * R-06 Task 15 (v4): `"supervisor_rejected"` is set by the same route
+     * (`action: "reject"`); it writes `excluded_from_evidence: true` and
+     * `status: "open"`, and leaves `confirmed_category` as it was — the row
+     * still shows the category that was rejected.
      */
-    label_source: z.enum(["model", "staff_confirmed"]).optional(),
+    label_source: z
+      .enum(["model", "staff_confirmed", "supervisor_confirmed", "supervisor_rejected"])
+      .optional(),
     confirmed_category: CategorySchema.optional(),
     excluded_from_evidence: z.boolean().optional(),
   })
@@ -532,34 +610,519 @@ export const CorrectionSchema = z
   .strict();
 export type Correction = z.infer<typeof CorrectionSchema>;
 
-/** filled in R-10 (immutable SOP versions). */
-export const SopVersionSchema = z
-  .object({ ...withOutlet, version: z.number().int().positive() })
+// ── sop_versions (R-08 defines; R-10 writes v2+ inside the owner's approval transaction only) ──
+export const SopStepSchema = z
+  .object({
+    step_id: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,39}$/),
+    title: z.string().min(1).max(160), // R-10: was 80; a new step's title is the proposal's stored change_title (≤ 160)
+    text: z.string().min(1).max(800), // R-10: was 600; a changed step's text is the proposal's stored change_text (≤ 800)
+    role: UserRoleSchema, // who performs it; a role, never a name (hard rule #7)
+  })
   .strict();
+export type SopStep = z.infer<typeof SopStepSchema>;
+
+/**
+ * Same shape as ProposalContentSchema.shape.metric (declared later in this
+ * file, so it cannot be referenced here). schema.test.ts pins the two as
+ * identical; change both together or neither.
+ */
+export const SopChangeMetricSchema = z
+  .object({
+    category: WorkCategorySchema,
+    direction: z.enum(["decrease", "increase"]),
+    description: z.string().min(1).max(320),
+    baseline_count: z.number().int().min(0),
+    baseline_days: z.number().int().min(1),
+  })
+  .strict();
+
+export const SOP_CHANGE_KINDS = ["modify", "add"] as const;
+
+/**
+ * The one approved change that produced a version (R-10). Self-contained so
+ * the before/after list and R-11's review never need the proposal doc. Every
+ * text field is copied from the approved proposal, already redacted (R-08
+ * step 8e); `before` is copied verbatim from the previous version.
+ */
+export const SopChangeSchema = z
+  .object({
+    kind: z.enum(SOP_CHANGE_KINDS),
+    step_id: SopStepSchema.shape.step_id,
+    before: SopStepSchema.nullable(), // null iff kind === "add"
+    after: SopStepSchema,
+    change_title: z.string().min(1).max(160),
+    intervention_id: z.string().min(1),
+    metric: SopChangeMetricSchema,
+    failure_condition: z.string().min(1).max(480),
+    review_after_days: z.number().int().min(7).max(28),
+    review_date: dateString, // = effective_from_date + review_after_days (R-10 §1)
+    approved_at_ms: z.number().int().min(0),
+  })
+  .strict();
+export type SopChange = z.infer<typeof SopChangeSchema>;
+
+export const SopVersionSchema = z
+  .object({
+    ...withOutlet,
+    sop_version_id: z.string().min(1), // = doc id = `${outlet_id}:v${version}`
+    version: z.number().int().positive(),
+    steps: z.array(SopStepSchema).min(1).max(200),
+    source: z.enum(["seed", "proposal"]),
+    source_proposal_id: z.string().min(1).nullable(),
+    created_at_ms: z.number().int().min(0),
+    previous_version_id: z.string().min(1).nullable().optional(), // R-10; absent/null on seed docs
+    effective_from_date: dateString.nullable().optional(), // R-10: outlet-local date it is in force from; absent/null on seed = from the start
+    change: SopChangeSchema.nullable().optional(), // R-10; absent/null on seed docs
+  })
+  .strict()
+  .superRefine((v, ctx) => {
+    const seen = new Set<string>();
+    v.steps.forEach((step, i) => {
+      if (seen.has(step.step_id)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["steps", i, "step_id"],
+          message: `duplicate step_id "${step.step_id}"`,
+        });
+      }
+      seen.add(step.step_id);
+    });
+    if (v.sop_version_id !== `${v.outlet_id}:v${v.version}`) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["sop_version_id"],
+        message: `sop_version_id must equal "${v.outlet_id}:v${v.version}"`,
+      });
+    }
+    if (v.source === "seed" && v.source_proposal_id !== null) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["source_proposal_id"],
+        message: 'source "seed" requires source_proposal_id: null',
+      });
+    }
+    const change = v.change ?? null;
+    const eff = v.effective_from_date ?? null;
+    const prev = v.previous_version_id ?? null;
+    if (v.source === "seed") {
+      if (change !== null || eff !== null || prev !== null) {
+        ctx.addIssue({ code: "custom", path: ["change"], message: 'source "seed" requires change, effective_from_date and previous_version_id to be absent or null' });
+      }
+      return;
+    }
+    // source === "proposal"
+    if (v.version < 2) ctx.addIssue({ code: "custom", path: ["version"], message: 'source "proposal" requires version >= 2' });
+    if (v.source_proposal_id === null) ctx.addIssue({ code: "custom", path: ["source_proposal_id"], message: 'source "proposal" requires source_proposal_id' });
+    if (eff === null) ctx.addIssue({ code: "custom", path: ["effective_from_date"], message: 'source "proposal" requires effective_from_date' });
+    if (prev !== `${v.outlet_id}:v${v.version - 1}`) {
+      ctx.addIssue({ code: "custom", path: ["previous_version_id"], message: `previous_version_id must equal "${v.outlet_id}:v${v.version - 1}"` });
+    }
+    if (change === null) {
+      ctx.addIssue({ code: "custom", path: ["change"], message: 'source "proposal" requires change' });
+      return;
+    }
+    if ((change.kind === "add") !== (change.before === null)) {
+      ctx.addIssue({ code: "custom", path: ["change", "before"], message: 'before must be null iff kind is "add"' });
+    }
+    if (change.after.step_id !== change.step_id || (change.before !== null && change.before.step_id !== change.step_id)) {
+      ctx.addIssue({ code: "custom", path: ["change", "step_id"], message: "before/after step_id must equal change.step_id" });
+    }
+    const inSteps = v.steps.find((s) => s.step_id === change.step_id);
+    if (
+      !inSteps ||
+      inSteps.title !== change.after.title ||
+      inSteps.text !== change.after.text ||
+      inSteps.role !== change.after.role
+    ) {
+      ctx.addIssue({ code: "custom", path: ["change", "after"], message: "change.after must equal the step with that step_id in steps" });
+    }
+    if (eff !== null && !(change.review_date > eff)) {
+      ctx.addIssue({ code: "custom", path: ["change", "review_date"], message: "review_date must be after effective_from_date" });
+    }
+  });
 export type SopVersion = z.infer<typeof SopVersionSchema>;
 
-/** filled in R-08 (ProposalAgent output). */
-export const ProposalSchema = z
-  .object({ ...withOutlet, proposal_id: z.string().min(1) })
-  .strict();
-export type Proposal = z.infer<typeof ProposalSchema>;
-
-/** filled in R-09 (supervisor-reject reasons become permanent constraints). */
+// ── constraints (R-08 defines, reads, and writes manual ones via createConstraint;
+//    R-09 writes rejection-derived ones (supervisor and owner) through the SAME createConstraint) ──
+export const CONSTRAINT_SOURCES = ["supervisor_rejection", "owner_rejection", "manual"] as const;
 export const ConstraintSchema = z
-  .object({ ...withOutlet, constraint_id: z.string().min(1) })
-  .strict();
+  .object({
+    ...withOutlet,
+    constraint_id: z.string().uuid(), // = doc id
+    /** Already digit-masked, staff-name-scrubbed and SDP-redacted by createConstraint (hard rule #3). */
+    text: z.string().min(1).max(500),
+    source: z.enum(CONSTRAINT_SOURCES),
+    source_proposal_id: z.string().uuid().nullable(), // non-null iff source is a rejection (supervisor_rejection | owner_rejection)
+    created_by_role: z.enum(["supervisor", "owner"]), // the role that added it (Q-11 b); never a name or id
+    created_at_ms: z.number().int().min(0),
+  })
+  .strict()
+  .superRefine((c, ctx) => {
+    const isRejection = c.source === "supervisor_rejection" || c.source === "owner_rejection";
+    if (isRejection !== (c.source_proposal_id !== null)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["source_proposal_id"],
+        message: 'source_proposal_id must be non-null iff source is a rejection',
+      });
+    }
+  });
 export type Constraint = z.infer<typeof ConstraintSchema>;
 
-/** filled in R-11 (ReviewAgent). */
-export const ReviewSchema = z
-  .object({ ...withOutlet, review_id: z.string().min(1) })
-  .strict();
-export type Review = z.infer<typeof ReviewSchema>;
+// ── proposals (R-08) ─────────────────────────────────────────────────────────
+export const PROPOSAL_STATUSES = [
+  "suppressed",
+  "blocked",
+  "awaiting_supervisor",
+  "awaiting_owner",
+  "approved",
+  "rejected",
+] as const; // technical spec §4.3; R-09 writes the last three (review/approve routes)
+export const PROPOSAL_RULES = [
+  "schema_invalid",
+  "intervention_unknown",
+  "rubric_missing",
+  "rubric_unknown",
+  "evidence_unknown",
+  "evidence_min",
+  "step_unknown",
+  "constraints_unacknowledged",
+  "metric_not_in_evidence",
+  "output_too_long",
+  "evidence_stale",
+] as const; // pgate-v1, precedence order
+export type ProposalRule = (typeof PROPOSAL_RULES)[number];
+export const SUPPRESSION_REASONS = ["insufficient_evidence", "model_declined"] as const;
+export const MODEL_DECLINE_REASONS = [
+  "no_clear_pattern",
+  "constraints_block",
+  "no_matching_intervention",
+  "evidence_conflicts",
+] as const;
 
-/** filled in R-11 (outcome memory). */
-export const OutcomeSchema = z
-  .object({ ...withOutlet, outcome_id: z.string().min(1) })
+export const ProposalEvidenceRefSchema = z
+  .object({
+    // technical spec §8.15, no text
+    thread_id: z.string().min(1),
+    local_date: dateString,
+    category: WorkCategorySchema,
+    first_line_start_ms: z.number().int().min(0),
+  })
   .strict();
+export const ProposalFollowupSchema = z
+  .object({
+    categories: z.array(WorkCategorySchema).max(3),
+    have_facts: z.number().int().min(0),
+    have_dates: z.number().int().min(0),
+    need_facts: z.number().int().min(1),
+    need_dates: z.number().int().min(1),
+  })
+  .strict();
+export type ProposalFollowup = z.infer<typeof ProposalFollowupSchema>;
+export const ProposalContentSchema = z
+  .object({
+    intervention_id: z.string().min(1),
+    rubric_criterion_ids: z.array(z.string().min(1)).min(1).max(6),
+    target_step_id: z.string().min(1).nullable(), // null = a new step
+    change_title: z.string().min(1).max(160), // stored caps = 2x wire caps (redaction tokens grow text)
+    change_text: z.string().min(1).max(800),
+    rationale: z.string().min(1).max(800),
+    metric: z
+      .object({
+        category: WorkCategorySchema,
+        direction: z.enum(["decrease", "increase"]),
+        description: z.string().min(1).max(320),
+        baseline_count: z.number().int().min(0),
+        baseline_days: z.number().int().min(1),
+      })
+      .strict(),
+    failure_condition: z.string().min(1).max(480),
+    review_after_days: z.number().int().min(7).max(28),
+    review_date: dateString,
+    evidence: z.array(ProposalEvidenceRefSchema).min(2).max(10),
+    constraint_ids_acknowledged: z.array(z.string().uuid()),
+    censored_floor: z.literal(true),
+  })
+  .strict();
+// ── proposal decisions (R-09) ────────────────────────────────────────────────
+// The actor is the slot (supervisor_review / owner_decision), a role, never a
+// person (hard rule #7). `reason` is redacted text (hard rule #3): for both a
+// supervisor and an owner rejection it is the text createConstraint stored
+// (R-09 Q-1 = yes: both rejections become constraints).
+export const SUPERVISOR_DECISIONS = ["feasible", "rejected"] as const;
+export const OWNER_DECISIONS = ["approved", "rejected"] as const;
+
+const decisionCommon = {
+  reason: z.string().min(1).max(500).nullable(), // non-null iff decision === "rejected"
+  /** Late constraints (added after generation) this actor confirmed checking. [] on a rejection. */
+  acknowledged_constraint_ids: z.array(z.string().uuid()).max(200),
+  decided_at_ms: z.number().int().min(0),
+};
+
+export const SupervisorReviewSchema = z
+  .object({
+    decision: z.enum(SUPERVISOR_DECISIONS),
+    ...decisionCommon,
+    constraint_id: z.string().uuid().nullable(), // non-null iff decision === "rejected"
+  })
+  .strict()
+  .superRefine((r, ctx) => {
+    const rejected = r.decision === "rejected";
+    if (rejected !== (r.reason !== null)) {
+      ctx.addIssue({ code: "custom", path: ["reason"], message: 'reason must be set iff decision is "rejected"' });
+    }
+    if (rejected !== (r.constraint_id !== null)) {
+      ctx.addIssue({ code: "custom", path: ["constraint_id"], message: 'constraint_id must be set iff decision is "rejected"' });
+    }
+  });
+export type SupervisorReview = z.infer<typeof SupervisorReviewSchema>;
+
+export const OwnerDecisionSchema = z
+  .object({
+    decision: z.enum(OWNER_DECISIONS),
+    ...decisionCommon,
+    /** The owner_rejection constraint this rejection created or linked (R-09 Q-1 = yes, Rangga 11 Oct). Non-null iff decision === "rejected". */
+    constraint_id: z.string().uuid().nullable(),
+  })
+  .strict()
+  .superRefine((r, ctx) => {
+    const rejected = r.decision === "rejected";
+    if (rejected !== (r.reason !== null)) {
+      ctx.addIssue({ code: "custom", path: ["reason"], message: 'reason must be set iff decision is "rejected"' });
+    }
+    if (rejected !== (r.constraint_id !== null)) {
+      ctx.addIssue({ code: "custom", path: ["constraint_id"], message: 'constraint_id must be set iff decision is "rejected"' });
+    }
+  });
+export type OwnerDecision = z.infer<typeof OwnerDecisionSchema>;
+
+export type ProposalStatus = (typeof PROPOSAL_STATUSES)[number];
+
+export const ProposalSchema = z
+  .object({
+    ...withOutlet,
+    proposal_id: z.string().uuid(), // = doc id
+    status: z.enum(PROPOSAL_STATUSES),
+    requested_by_role: z.enum(["supervisor", "owner"]), // v2, Q-10: both roles generate; status is NOT derived from it
+    range: z.object({ from_date: dateString, to_date: dateString }).strict(),
+    generator: z
+      .object({
+        kind: z.enum(["adk", "direct"]),
+        model: z.string().min(1),
+        location: z.string().min(1),
+        agent_version: z.string().min(1),
+        gate_version: z.literal("pgate-v1"),
+        library_version: z.object({ interventions: z.number().int(), rubric: z.number().int() }).strict(),
+        sop_version_id: z.string().min(1),
+        attempts: z.number().int().min(0).max(2), // 0 = suppressed before any model call
+      })
+      .strict(),
+    gate: z
+      .object({
+        passed: z.boolean(),
+        fired_rule: z.enum(PROPOSAL_RULES).nullable(),
+        checks: z.array(z.object({ rule: z.enum(PROPOSAL_RULES), passed: z.boolean() }).strict()),
+      })
+      .strict(),
+    counts: z
+      .object({
+        candidate_facts: z.number().int().min(0),
+        candidate_dates: z.number().int().min(0),
+        constraints: z.number().int().min(0),
+      })
+      .strict(),
+    suppression: z
+      .object({
+        reason: z.enum(SUPPRESSION_REASONS),
+        model_reason: z.enum(MODEL_DECLINE_REASONS).nullable(),
+        followup: ProposalFollowupSchema,
+      })
+      .strict()
+      .nullable(),
+    content: ProposalContentSchema.nullable(), // non-null iff status NOT IN {suppressed, blocked}
+    supervisor_review: SupervisorReviewSchema.nullable().optional(), // R-09; absent on R-08-era docs = null
+    owner_decision: OwnerDecisionSchema.nullable().optional(), // R-09; absent on R-08-era docs = null
+    created_at_ms: z.number().int().min(0),
+    updated_at_ms: z.number().int().min(0),
+  })
+  .strict()
+  .superRefine((p, ctx) => {
+    if ((p.status === "suppressed") !== (p.suppression !== null)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["suppression"],
+        message: 'suppression must be set iff status is "suppressed"',
+      });
+    }
+    const contentless = p.status === "suppressed" || p.status === "blocked";
+    if (contentless !== (p.content === null)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["content"],
+        message: 'content must be null iff status is "suppressed" or "blocked"',
+      });
+    }
+    if (p.status === "blocked" && p.gate.fired_rule === null) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["gate", "fired_rule"],
+        message: 'status "blocked" requires gate.fired_rule to be set',
+      });
+    }
+    if ((p.status === "awaiting_supervisor" || p.status === "awaiting_owner") && p.gate.passed !== true) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["gate", "passed"],
+        message: 'an "awaiting_*" status requires gate.passed === true',
+      });
+    }
+    const sr = p.supervisor_review ?? null;
+    const od = p.owner_decision ?? null;
+    const decisionsOk =
+      p.status === "suppressed" || p.status === "blocked" || p.status === "awaiting_supervisor"
+        ? sr === null && od === null
+        : p.status === "awaiting_owner"
+          ? sr?.decision === "feasible" && od === null
+          : p.status === "approved"
+            ? sr?.decision === "feasible" && od?.decision === "approved"
+            : /* rejected */ (sr?.decision === "rejected" && od === null) ||
+              (sr?.decision === "feasible" && od?.decision === "rejected");
+    if (!decisionsOk) {
+      ctx.addIssue({ code: "custom", path: ["status"], message: `decisions do not match status "${p.status}"` });
+    }
+    if ((p.status === "approved" || p.status === "rejected") && p.gate.passed !== true) {
+      ctx.addIssue({ code: "custom", path: ["gate", "passed"], message: "a decided proposal requires gate.passed === true" });
+    }
+  });
+export type Proposal = z.infer<typeof ProposalSchema>;
+
+// ── proposal_locks (R-08) ────────────────────────────────────────────────────
+export const ProposalLockSchema = z
+  .object({
+    ...withOutlet, // = doc id
+    lease_token: z.string().uuid(),
+    acquired_at_ms: z.number().int().min(0),
+    expires_at_ms: z.number().int().min(0),
+  })
+  .strict();
+export type ProposalLock = z.infer<typeof ProposalLockSchema>;
+
+// ── reviews (R-11): one per shipped SOP change; doc id = review_id = sop_version_id ──
+export const REVIEW_STATUSES = ["awaiting_supervisor", "awaiting_owner", "confirmed", "unknown"] as const;
+export const REVIEW_VERDICTS = ["worked", "revise", "revert"] as const;
+export const SUGGESTION_REASONS = ["improved", "worsened", "no_clear_change", "not_enough_days", "no_baseline"] as const;
+
+export const ReviewWindowSchema = z
+  .object({
+    from_date: dateString,
+    to_date: dateString,
+    days_captured: z.number().int().min(0),
+    count: z.number().int().min(0),
+  })
+  .strict();
+export type ReviewWindow = z.infer<typeof ReviewWindowSchema>;
+
+const VerdictEntrySchema = z
+  .object({
+    verdict: z.enum(REVIEW_VERDICTS),
+    reason: z.string().min(1).max(500).nullable(), // redacted (hard rule #3); never copied to outcomes
+    decided_at_ms: z.number().int().min(0),
+  })
+  .strict();
+
+export const ReviewSchema = z
+  .object({
+    ...withOutlet,
+    review_id: z.string().min(1), // = doc id = sop_version_id
+    sop_version_id: z.string().min(1),
+    version: z.number().int().min(2),
+    source_proposal_id: z.string().uuid(),
+    change_title: z.string().min(1).max(160),
+    step_id: z.string().min(1),
+    intervention_id: z.string().min(1),
+    metric: SopChangeMetricSchema,
+    failure_condition: z.string().min(1).max(480),
+    effective_from_date: dateString,
+    review_date: dateString,
+    confirm_by_date: dateString, // review_date + REVIEW_CONFIRM_DAYS; confirm window is 7 days from the later of review_date and outlet-local run day
+    before: ReviewWindowSchema,
+    after: ReviewWindowSchema,
+    suggestion: z
+      .object({
+        verdict: z.enum(REVIEW_VERDICTS).nullable(),
+        reason: z.enum(SUGGESTION_REASONS),
+        change_ratio: z.number().finite().nullable(), // (after_rate - before_rate) / before_rate; null when before_rate is 0 or days too few
+        rule_version: z.literal("rev-v1"),
+      })
+      .strict(),
+    notices: z.object({ overlapping_change: z.boolean(), threads_truncated: z.boolean() }).strict(),
+    simulated: z.boolean(), // true = demo fast-forward (labelled "Simulated time")
+    status: z.enum(REVIEW_STATUSES),
+    supervisor_verdict: VerdictEntrySchema.nullable(),
+    owner_verdict: VerdictEntrySchema.nullable(),
+    created_at_ms: z.number().int().min(0),
+    updated_at_ms: z.number().int().min(0),
+  })
+  .strict()
+  .superRefine((r, ctx) => {
+    const issue = (path: (string | number)[], message: string) => ctx.addIssue({ code: "custom", path, message });
+    if (r.review_id !== r.sop_version_id) issue(["review_id"], "review_id must equal sop_version_id");
+    if (r.sop_version_id !== `${r.outlet_id}:v${r.version}`) issue(["sop_version_id"], `must equal "${r.outlet_id}:v${r.version}"`);
+    if (!(r.review_date > r.effective_from_date)) issue(["review_date"], "review_date must be after effective_from_date");
+    if (!(r.confirm_by_date > r.review_date)) issue(["confirm_by_date"], "confirm_by_date must be after review_date");
+    const sv = r.supervisor_verdict;
+    const ov = r.owner_verdict;
+    const ok =
+      r.status === "awaiting_supervisor"
+        ? sv === null && ov === null
+        : r.status === "awaiting_owner"
+          ? sv !== null && ov === null
+          : r.status === "confirmed"
+            ? sv !== null && ov !== null
+            : /* unknown */ ov === null;
+    if (!ok) issue(["status"], `verdicts do not match status "${r.status}"`);
+    const nullVerdict = r.suggestion.reason === "not_enough_days" || r.suggestion.reason === "no_baseline";
+    if (nullVerdict !== (r.suggestion.verdict === null)) {
+      issue(["suggestion", "verdict"], "verdict must be null iff reason is not_enough_days or no_baseline");
+    }
+  });
+export type Review = z.infer<typeof ReviewSchema>;
+export type ReviewStatus = (typeof REVIEW_STATUSES)[number];
+export type ReviewVerdict = (typeof REVIEW_VERDICTS)[number];
+export type SuggestionReason = (typeof SUGGESTION_REASONS)[number];
+
+// ── outcomes (R-11): the remembered result; doc id = outcome_id = review_id. No text. ──
+export const OUTCOME_VERDICTS = ["worked", "revise", "revert", "unknown"] as const;
+export const OutcomeSchema = z
+  .object({
+    ...withOutlet,
+    outcome_id: z.string().min(1),
+    review_id: z.string().min(1),
+    sop_version_id: z.string().min(1),
+    version: z.number().int().min(2),
+    source_proposal_id: z.string().uuid(),
+    step_id: z.string().min(1),
+    intervention_id: z.string().min(1),
+    metric_category: WorkCategorySchema,
+    metric_direction: z.enum(["decrease", "increase"]),
+    before: ReviewWindowSchema,
+    after: ReviewWindowSchema,
+    suggested_verdict: z.enum(REVIEW_VERDICTS).nullable(),
+    supervisor_verdict: z.enum(REVIEW_VERDICTS).nullable(),
+    verdict: z.enum(OUTCOME_VERDICTS), // the owner's verdict, or "unknown"
+    in_memory: z.boolean(), // === (verdict !== "unknown"); "unknown" is kept out of memory (T-509)
+    simulated: z.boolean(),
+    decided_at_ms: z.number().int().min(0),
+  })
+  .strict()
+  .superRefine((o, ctx) => {
+    if (o.outcome_id !== o.review_id || o.review_id !== o.sop_version_id) {
+      ctx.addIssue({ code: "custom", path: ["outcome_id"], message: "outcome_id, review_id and sop_version_id must be equal" });
+    }
+    if (o.in_memory !== (o.verdict !== "unknown")) {
+      ctx.addIssue({ code: "custom", path: ["in_memory"], message: 'in_memory must be false iff verdict is "unknown"' });
+    }
+  });
 export type Outcome = z.infer<typeof OutcomeSchema>;
 
 /** filled in P1 (POS CSV import). */

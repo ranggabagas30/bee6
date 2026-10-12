@@ -44,6 +44,15 @@ export type RegionsFile = z.infer<typeof RegionsFileSchema>;
 
 const DEFAULT_REGIONS_PATH = path.join(process.cwd(), "config", "regions.yaml");
 
+/** The parsed file is cached and shared by every caller, so it is frozen: callers must not mutate it. */
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value)) deepFreeze(child);
+  }
+  return value;
+}
+
 let cachedRegionsFile: RegionsFile | null = null;
 let cachedFromPath: string | null = null;
 
@@ -53,10 +62,20 @@ function loadRegionsFile(filePath: string = DEFAULT_REGIONS_PATH): RegionsFile {
   }
   const raw = readFileSync(filePath, "utf8");
   const parsed: unknown = parse(raw);
-  const file = RegionsFileSchema.parse(parsed);
+  const file = deepFreeze(RegionsFileSchema.parse(parsed));
   cachedRegionsFile = file;
   cachedFromPath = filePath;
   return file;
+}
+
+/**
+ * Returns the whole parsed regions.yaml (models and services, including any
+ * still "UNPROBED"). For read-only reporting such as `npm run readme:regions`;
+ * code that makes a call must use `getModelLocation` / `getServiceLocation`,
+ * which refuse an unprobed entry.
+ */
+export function readRegionsFile(filePath?: string): RegionsFile {
+  return loadRegionsFile(filePath);
 }
 
 /**

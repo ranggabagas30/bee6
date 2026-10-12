@@ -35,6 +35,8 @@ export type DebriefState = {
   view: DebriefView;
   ends_at_ms: number;
   business_date: string | null;
+  /** Ids this debrief actually put in front of the device (R-18 refresh never offers one twice). */
+  seen: ReadonlySet<string>;
 };
 
 export type DebriefEvent =
@@ -42,6 +44,12 @@ export type DebriefEvent =
   | { type: "RETRY" }
   | { type: "LOADED"; questions: DebriefQuestionView[]; business_date: string; cached: ReadonlySet<string> }
   | { type: "LOAD_FAILED" }
+  /**
+   * R-18 (sandbox only): a re-fetch of the list while it is on screen. The reducer's own `seen` set (only
+   * the ids it actually offered) keeps a skipped question from being offered twice, and an id that did not
+   * fit under DEBRIEF_SHOW_MAX stays unseen so a later refresh can offer it.
+   */
+  | { type: "REFRESHED"; questions: DebriefQuestionView[]; cached: ReadonlySet<string> }
   | { type: "CHOOSE"; answer: "yes" | "no" }
   | { type: "TYPE"; reason: string }
   | { type: "COMMITTED" }
@@ -93,7 +101,7 @@ export function reduceDebrief(s: DebriefState, e: DebriefEvent): DebriefState {
         .slice(0, DEBRIEF_SHOW_MAX);
       const view: DebriefView =
         filtered.length === 0 ? { kind: "empty" } : freshQuestion(filtered, 0, 0, 0);
-      return { ...s, business_date: e.business_date, view };
+      return { ...s, business_date: e.business_date, view, seen: new Set(filtered.map((item) => item.question_id)) };
     }
 
     case "LOAD_FAILED":
@@ -101,6 +109,24 @@ export function reduceDebrief(s: DebriefState, e: DebriefEvent): DebriefState {
       // that already moved on (e.g. a timeout that beat the GET).
       if (s.view.kind !== "loading") return s;
       return { ...s, view: { kind: "load_error" } };
+
+    case "REFRESHED": {
+      const v = s.view;
+      if (v.kind !== "empty" && v.kind !== "question" && v.kind !== "done") return s;
+      const fresh = e.questions.filter((item) => !e.cached.has(item.question_id) && !s.seen.has(item.question_id));
+      const markSeen = (add: DebriefQuestionView[]) => new Set([...s.seen, ...add.map((item) => item.question_id)]);
+      if (v.kind === "question") {
+        const room = DEBRIEF_SHOW_MAX - v.list.length;
+        const add = fresh.slice(0, Math.max(0, room));
+        if (add.length === 0) return s;
+        return { ...s, view: { ...v, list: [...v.list, ...add] }, seen: markSeen(add) };
+      }
+      const add = fresh.slice(0, DEBRIEF_SHOW_MAX);
+      if (add.length === 0) return s;
+      const answered = v.kind === "done" ? v.answered : 0;
+      const skipped = v.kind === "done" ? v.skipped : 0;
+      return { ...s, view: freshQuestion(add, 0, answered, skipped), seen: markSeen(add) };
+    }
 
     case "CHOOSE": {
       if (s.view.kind !== "question") return s;

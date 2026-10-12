@@ -190,6 +190,35 @@ describe("CaptureConfigResponseSchema", () => {
     expect(toCaptureConfig(outlet, null, 2).capture_mode).toBe("wearable");
   });
 
+  describe("R-18 demo_session (sandbox only, server-derived)", () => {
+    const sandbox = { template_outlet_id: "demo-tpl-outlet", created_at_ms: 1, expires_at_ms: 2, key_sha256: "a".repeat(64) };
+    const sbxOutlet = { ...outlet, project_kind: "demo" as const, sandbox };
+    const expiring = { expires_at_ms: 9_000_000_000_000 };
+
+    it("7.T1 absent without DEMO_MODE even for a sandbox outlet with an expiring device", () => {
+      expect(toCaptureConfig(sbxOutlet, null, 1, false, expiring)).not.toHaveProperty("demo_session");
+    });
+    it("7.T2 absent when the outlet has no sandbox object (the shared demo-outlet or the pilot)", () => {
+      expect(toCaptureConfig(outlet, null, 1, true, expiring)).not.toHaveProperty("demo_session");
+    });
+    it("7.T3 absent when the device carries no expiry (a real paired phone)", () => {
+      expect(toCaptureConfig(sbxOutlet, null, 1, true, {})).not.toHaveProperty("demo_session");
+      expect(toCaptureConfig(sbxOutlet, null, 1, true)).not.toHaveProperty("demo_session");
+    });
+    it("7.T4 present as exactly { max_ms: 300000, script_id: bakery-v1 } only when all three hold", () => {
+      expect(toCaptureConfig(sbxOutlet, null, 1, true, expiring).demo_session).toEqual({ max_ms: 300_000, script_id: "bakery-v1" });
+    });
+    it("the pilot response (no 4th/5th argument) is byte-identical to before", () => {
+      expect(Object.keys(toCaptureConfig(outlet, null, 1)).sort()).toEqual(["capture_mode", "last_ended", "timezone", "weekly_hours"]);
+    });
+    it("the schema is strict about the profile: another max_ms or an extra key is refused", () => {
+      const base = { timezone: "Asia/Jakarta", weekly_hours: weekly, last_ended: null, capture_mode: "room" };
+      expect(() => CaptureConfigResponseSchema.parse({ ...base, demo_session: { max_ms: 1, script_id: "bakery-v1" } })).toThrow();
+      expect(() => CaptureConfigResponseSchema.parse({ ...base, demo_session: { max_ms: 300_000, script_id: "bakery-v1", extra: 1 } })).toThrow();
+      expect(CaptureConfigResponseSchema.parse({ ...base, demo_session: { max_ms: 300_000, script_id: "bakery-v1" } }).demo_session).toBeDefined();
+    });
+  });
+
   it("round-trips the allowlist shape", () => {
     const config = {
       timezone: "Asia/Jakarta",

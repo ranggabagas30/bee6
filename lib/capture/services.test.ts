@@ -93,6 +93,19 @@ describe("getCaptureConfig", () => {
     });
   });
 
+  it("R-18: the demo profile needs DEMO_MODE, a sandbox outlet and an expiring device (all three)", async () => {
+    const sandbox = { template_outlet_id: "demo-tpl-outlet", created_at_ms: 1, expires_at_ms: 2, key_sha256: "a".repeat(64) };
+    const sbx = { ...outlet, project_kind: "demo" as const, sandbox };
+    const judge = { ...device, expires_at_ms: 9_000_000_000_000 };
+    const ids = { outlet_id: "outlet-1", device_id: "dev-1" };
+    const on = await getCaptureConfig(reader(sbx, judge), { ...ids, demo_mode: true });
+    expect(on.demo_session).toEqual({ max_ms: 300_000, script_id: "bakery-v1" });
+    expect((await getCaptureConfig(reader(sbx, judge), ids)).demo_session).toBeUndefined();
+    expect((await getCaptureConfig(reader(sbx, judge), { ...ids, demo_mode: false })).demo_session).toBeUndefined();
+    expect((await getCaptureConfig(reader(outlet, judge), { ...ids, demo_mode: true })).demo_session).toBeUndefined();
+    expect((await getCaptureConfig(reader(sbx, device), { ...ids, demo_mode: true })).demo_session).toBeUndefined();
+  });
+
   it("derives capture_mode from the store's paired-device count (R-07 Task 8)", async () => {
     expect(
       (await getCaptureConfig(reader(outlet, device, 0), { outlet_id: "outlet-1", device_id: "dev-1" }))

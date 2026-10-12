@@ -18,6 +18,7 @@ import {
   generateDeviceToken,
   hashDeviceToken,
   isPairingCodeExpired,
+  RESERVED_PAIRING_CODES,
   verifyDeviceToken,
 } from "@/lib/auth/pairing";
 
@@ -39,6 +40,8 @@ export interface DeviceRecord {
   revoked: boolean;
   pairing_code: string | null;
   pairing_code_expires_at: string | null;
+  /** R-12: judge devices only; absent = never expires. */
+  expires_at_ms?: number;
 }
 
 export interface StaffRecord {
@@ -109,6 +112,11 @@ export async function pairDevice(
   input: { code: string },
 ): Promise<PairDeviceResult> {
   const now = (deps.now ?? systemClock)();
+  // A reserved code (the published demo staff code) is refused BEFORE any store read, with the same error as an
+  // unknown code: no lookup, no existence oracle.
+  if (RESERVED_PAIRING_CODES.has(input.code)) {
+    throw new UnauthorizedError("Invalid or expired pairing code");
+  }
   const device = await deps.devices.findByPairingCode(input.code);
   if (!device || device.revoked) {
     throw new UnauthorizedError("Invalid or expired pairing code");
@@ -134,6 +142,7 @@ export async function pairDevice(
 // ── authenticateDeviceToken ──────────────────────────────────────────────────
 export interface DeviceAuthDeps {
   devices: DeviceStore;
+  now?: Clock;
 }
 
 /**
@@ -154,6 +163,11 @@ export async function authenticateDeviceToken(
   }
   const ok = await verifyDeviceToken(input.token, device.token_hash);
   if (!ok) throw new UnauthorizedError("Invalid device token");
+  // R-12: an expired judge device gets the SAME 401 as a bad token (no distinguishing message).
+  // Real shop phones carry no `expires_at_ms`, so this is inert for them.
+  if (device.expires_at_ms !== undefined && (deps.now ?? systemClock)().getTime() >= device.expires_at_ms) {
+    throw new UnauthorizedError("Invalid device token");
+  }
   return {
     outlet_id: device.outlet_id,
     role: "device",

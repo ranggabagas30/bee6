@@ -168,6 +168,364 @@ export const ID = {
   "C-d-over-one": "Terlalu panjang. Kurangi {N} karakter.",
   "C-d-done-unsent-one": "Masih ada {N} jawaban belum terkirim.",
   "C-d-done-skip-one": "{N} pertanyaan dilewati.",
+
+  // /sign-in (R-06 Task 4.8) — owner/supervisor email + password sign-in.
+  // All PROVISIONAL unless noted: UX-03 did not design this screen.
+  "C-signin-title": "Masuk", // PROVISIONAL
+  "C-signin-help": "Untuk pemilik dan supervisor. Akun disiapkan oleh bee6.", // PROVISIONAL
+  "C-signin-email": "Email", // PROVISIONAL
+  "C-signin-password": "Kata sandi", // PROVISIONAL
+  "C-signin-submit": "Masuk", // PROVISIONAL
+  "C-signin-busy": "Sedang masuk…", // PROVISIONAL
+  "C-signin-empty": "Isi email dan kata sandi.", // PROVISIONAL
+  "C-signin-bad": "Email atau kata sandi salah.", // PROVISIONAL
+  "C-signin-many": "Terlalu banyak percobaan. Tunggu beberapa menit.", // PROVISIONAL
+  "C-signin-denied": "Akun ini tidak punya akses ke bee6.", // PROVISIONAL
+  "C-signin-net": "Tidak ada koneksi. Coba lagi saat sinyal stabil.", // PROVISIONAL
+  "C-signin-config": "Masuk belum disiapkan di server ini.", // PROVISIONAL
+  // R-18 P1: the official role sign-in and the demo credentials box (kept apart from the R-12 block). All PROVISIONAL.
+  "C-signin-as": "Masuk sebagai", // PROVISIONAL
+  "C-signin-role-staff": "Staf", // PROVISIONAL
+  "C-signin-role-supervisor": "Supervisor", // PROVISIONAL
+  "C-signin-role-owner": "Pemilik", // PROVISIONAL
+  "C-signin-choose": "Pilih peran Anda untuk melanjutkan.", // PROVISIONAL
+  "C-signin-staff-help": "Masukkan kode 6 angka dari supervisor untuk menghubungkan ponsel ini.", // PROVISIONAL
+  "C-signin-staff-connected": "Ponsel ini sudah terhubung.", // PROVISIONAL
+  "C-demo-cred-title": "Akses demo", // PROVISIONAL
+  "C-demo-cred-code": "Kode staf", // PROVISIONAL
+  "C-demo-cred-email": "Email", // PROVISIONAL
+  "C-demo-cred-password": "Kata sandi", // PROVISIONAL
+  "C-demo-cred-fill": "Isi otomatis", // PROVISIONAL
+  "C-demo-cred-filled": "Sudah terisi. Kirim untuk melanjutkan.", // PROVISIONAL
+  "C-demo-cred-private": "Setiap masuk membuka salinan pribadi toko fiktif selama 2 jam. Yang Anda lakukan tidak memengaruhi orang lain.", // PROVISIONAL
+  "C-demo-cred-continuing": "Anda melanjutkan demo Anda (berakhir pukul {time}).", // PROVISIONAL
+  "C-demo-cred-fresh": "Mulai demo baru dari awal", // PROVISIONAL
+  "C-srv-generic": "Ada masalah. Coba lagi.", // PROVISIONAL
+  "C-web-signout": "Keluar", // PROVISIONAL
+
+  // /day (R-06 Task 6) — the day record screen, owner and supervisor.
+  "C-day-title": "Catatan hari", // PROVISIONAL
+  "C-day-prev": "Hari sebelumnya", // PROVISIONAL (aria-label)
+  "C-day-next": "Hari berikutnya", // PROVISIONAL (aria-label)
+  "C-day-off-closed": "Libur / tutup", // UX-03 §14 reference
+  "C-day-pending": "Belum dimulai", // PROVISIONAL
+  "C-day-cancelled": "Sesi dibatalkan: {N}", // UX-03 §14 reference
+  "C-day-mode-room": "Mode: ruangan", // web spec §4.3
+  "C-day-mode-wearable": "Mode: wearable", // web spec §4.3
+  "C-day-mode-none": "Mode: belum ada HP terpasang", // PROVISIONAL
+  "C-day-counts": "Fakta: {facts} · Pertanyaan: {questions}", // PROVISIONAL (supervisor)
+  "C-day-counts-owner": "Fakta: {facts}", // PROVISIONAL (owner)
+  "C-day-filter-group": "Saring menurut kategori", // PROVISIONAL
+  "C-day-filter-all": "Semua ({N})", // PROVISIONAL
+  "C-day-filter-cat": "{label} ({N})", // PROVISIONAL
+  "C-day-empty": "Tidak ada catatan kerja untuk tanggal ini.", // PROVISIONAL
+  "C-day-empty-2": "Catatan muncul beberapa menit setelah percakapan.", // PROVISIONAL
+  "C-day-empty-owner": "Belum ada fakta terkonfirmasi untuk tanggal ini.", // PROVISIONAL (owner)
+  "C-day-truncated": "Menampilkan {N} catatan pertama.", // PROVISIONAL
+  "C-day-time": "{start}–{end}", // PROVISIONAL
+  "C-day-confidence": "Keyakinan {pct}%", // PROVISIONAL
+  "C-day-no-summary": "Tidak ada ringkasan.", // PROVISIONAL
+  "C-day-evidence": "Bukti", // PROVISIONAL
+  "C-day-evidence-more": "+{N} baris lagi", // PROVISIONAL
+  "C-day-ans-yes": "Seorang staf menjawab Ya:", // R-07 ux-notes §4.4
+  "C-day-ans-no": "Seorang staf menjawab Tidak:", // R-07 ux-notes §4.4
+  "C-day-st-fact": "Fakta", // PROVISIONAL
+  "C-day-st-fact-staff": "Fakta, dikonfirmasi staf", // PROVISIONAL
+  "C-day-st-fact-supervisor": "Fakta, dikonfirmasi supervisor", // PROVISIONAL
+  "C-day-st-open": "Pertanyaan, menunggu debrief", // PROVISIONAL
+  "C-day-st-answered": "Sudah dijawab, belum jadi fakta", // PROVISIONAL
+  "C-day-st-supervisor": "Menunggu supervisor", // PROVISIONAL
+  "C-day-st-rejected": "Ditolak staf", // UX-03 §14 / R-07 ux-notes §4.4
+  "C-day-st-rejected-supervisor": "Ditolak supervisor", // PROVISIONAL (v4, Task 15.0)
+  "C-day-st-unverified": "Tidak terverifikasi", // PROVISIONAL
+  "C-day-err": "Catatan belum bisa dimuat.", // PROVISIONAL
+  "C-day-retry": "Coba lagi", // PROVISIONAL
+  "C-day-forbidden": "Akun ini tidak bisa melihat catatan hari.", // PROVISIONAL
+  "C-day-invalid": "Tanggal ini tidak tersedia.", // PROVISIONAL
+  "C-day-to-today": "Ke hari ini", // PROVISIONAL
+  "C-day-loading": "Memuat…", // PROVISIONAL
+  "C-cat-ROUTINE_OPS": "Pekerjaan rutin", // PROVISIONAL (Q-U23 family)
+  "C-cat-CUSTOMER_SERVICE": "Layanan pelanggan", // PROVISIONAL
+  "C-cat-TRAINING": "Pelatihan", // PROVISIONAL
+  "C-cat-STAFF_CONSULT": "Pertanyaan staf", // PROVISIONAL
+  "C-cat-CORRECTION": "Koreksi", // PROVISIONAL
+  "C-cat-PHONE_CALL": "Telepon", // PROVISIONAL
+  "C-cat-EVENT": "Acara terencana", // PROVISIONAL
+  "C-cat-COMPLAINT": "Keluhan pelanggan", // PROVISIONAL
+  "C-cat-SAFETY_INCIDENT": "Insiden keselamatan", // PROVISIONAL
+  "C-cat-SECURITY_INCIDENT": "Insiden keamanan", // PROVISIONAL
+  "C-cat-DISRUPTION": "Gangguan operasional", // PROVISIONAL
+
+  // Runner-up panel (R-06 Task 11), appended to the PR-3 block.
+  "C-day-runnerup": "Pilihan kedua: {label}", // PROVISIONAL
+  "C-day-runnerup-none": "Tidak ada alasan.", // PROVISIONAL
+  "C-cat-NON_WORK": "Bukan obrolan kerja", // PROVISIONAL
+
+  // Supervisor confirm/override (R-06 Task 10), appended to the PR-5 block.
+  "C-act-confirm": "Konfirmasi", // PROVISIONAL
+  "C-act-change": "Ubah kategori", // PROVISIONAL
+  "C-act-select": "Kategori baru", // PROVISIONAL
+  "C-act-save": "Simpan", // PROVISIONAL
+  "C-act-cancel": "Batal", // PROVISIONAL
+  "C-act-busy": "Menyimpan…", // PROVISIONAL
+  "C-act-blocked": "Tidak bisa dikonfirmasi: tidak ada baris bukti.", // PROVISIONAL
+  "C-act-stale": "Catatan ini berubah. Menampilkan yang terbaru.", // PROVISIONAL
+
+  // Supervisor reject (R-06 Task 15, v4), appended to the Task 10 block.
+  "C-act-reject": "Tolak", // PROVISIONAL
+  "C-act-reject-q": "Tolak catatan ini? Catatan ini tidak dihitung sebagai bukti.", // PROVISIONAL
+  "C-act-reject-yes": "Ya, tolak", // PROVISIONAL
+
+  // /home (R-06 Task 14a) — owner home, "today in 5 lines".
+  "C-home-title": "Hari ini", // PROVISIONAL
+  "C-home-more": "+{N} lagi di catatan hari", // PROVISIONAL
+  "C-home-to-day": "Buka catatan hari", // PROVISIONAL
+  "C-day-to-home": "Beranda", // PROVISIONAL
+
+  // Unlabelled moments (R-06 Task 12, PR-6), appended to the PR-3 block.
+  "C-day-unlabelled": "Belum berlabel", // PROVISIONAL
+  "C-day-unlabelled-help": "Tidak bisa dilabeli. Staf ditanya soal ini.", // PROVISIONAL
+  "C-day-filter-unlabelled": "Belum berlabel ({N})", // PROVISIONAL
+
+  // /questions (R-06 Task 13) — supervisor review queue. All PROVISIONAL:
+  // UX-03 did not design this screen.
+  "C-queue-title": "Menunggu ditinjau", // PROVISIONAL
+  "C-queue-help": "Jawaban staf yang perlu supervisor, 14 hari terakhir.", // PROVISIONAL
+  "C-queue-empty": "Tidak ada yang menunggu ditinjau.", // PROVISIONAL
+  "C-queue-open-day": "Buka hari ini", // PROVISIONAL
+  "C-queue-to-day": "Catatan hari", // PROVISIONAL
+  "C-day-to-queue": "Menunggu ditinjau", // PROVISIONAL
+
+  // /proposals (R-08 Task 7) — Generate proposal screen. All PROVISIONAL:
+  // uiux reviews in parallel, non-blocking (same convention as R-06).
+  "C-prop-title": "Usulan", // PROVISIONAL
+  "C-prop-help": "Buat satu usulan perubahan SOP dari fakta dalam rentang tanggal.", // PROVISIONAL
+  "C-prop-from": "Dari", // PROVISIONAL
+  "C-prop-to": "Sampai", // PROVISIONAL
+  "C-prop-generate": "Buat usulan", // PROVISIONAL
+  "C-prop-busy": "Sedang membuat… bisa sampai satu menit.", // PROVISIONAL
+  "C-prop-reused": "Usulan untuk tanggal ini sudah menunggu ditinjau.", // PROVISIONAL
+  "C-prop-st-awaiting": "Menunggu tinjauan supervisor", // PROVISIONAL
+  "C-prop-st-suppressed": "Tidak ada usulan", // PROVISIONAL
+  "C-prop-st-blocked": "Diblokir oleh pemeriksaan bukti", // PROVISIONAL
+  "C-prop-insufficient": "Bukti belum cukup: {facts} fakta pada {dates} hari. Usulan butuh {needFacts} fakta pada {needDates} hari berbeda.", // PROVISIONAL
+  "C-prop-watch": "Perhatikan: {categories}", // PROVISIONAL
+  "C-prop-declined-no_clear_pattern": "Fakta belum menunjukkan masalah berulang yang jelas.", // PROVISIONAL
+  "C-prop-declined-constraints_block": "Tidak ada perubahan yang sesuai semua batasan tersimpan.", // PROVISIONAL
+  "C-prop-declined-no_matching_intervention": "Tidak ada intervensi di pustaka yang cocok.", // PROVISIONAL
+  "C-prop-declined-evidence_conflicts": "Fakta saling bertentangan.", // PROVISIONAL
+  "C-prop-blocked": "Usulan tidak lolos pemeriksaan bukti ({rule}). Tidak ada yang dikirim untuk ditinjau.", // PROVISIONAL
+  "C-prop-intervention": "Intervensi", // PROVISIONAL
+  "C-prop-rubric": "Rubrik", // PROVISIONAL
+  "C-prop-step": "Langkah SOP", // PROVISIONAL
+  "C-prop-step-new": "Langkah baru", // PROVISIONAL
+  "C-prop-why": "Alasan", // PROVISIONAL
+  "C-prop-evidence": "Bukti", // PROVISIONAL
+  "C-prop-evidence-expired": "(sudah tidak disimpan)", // PROVISIONAL
+  "C-prop-metric": "Ukuran: {category} per hari harus {direction} (sekarang {count} dalam {days} hari)", // PROVISIONAL
+  "C-prop-dir-decrease": "turun", // PROVISIONAL
+  "C-prop-dir-increase": "naik", // PROVISIONAL
+  "C-prop-failure": "Kondisi gagal", // PROVISIONAL
+  "C-prop-review": "Ditinjau pada {date}", // PROVISIONAL
+  "C-prop-censored": "Permintaan yang tidak terpenuhi di sini adalah batas bawah: permintaan sebenarnya lebih tinggi, karena tidak semua permintaan terdengar atau diucapkan.", // PROVISIONAL
+  "C-prop-err-progress": "Usulan lain sedang dibuat. Coba lagi dalam satu menit.", // PROVISIONAL
+  "C-prop-err-library": "Pustaka intervensi belum disiapkan.", // PROVISIONAL
+  "C-prop-err-sop": "SOP untuk outlet ini belum disiapkan.", // PROVISIONAL
+  "C-prop-err-range": "Periksa tanggal: paling lama 14 hari, tidak di masa depan, dalam 14 hari terakhir.", // PROVISIONAL
+  "C-prop-err-forbidden": "Hanya pemilik atau supervisor yang bisa membuat usulan.", // PROVISIONAL
+  "C-prop-owner-note": "Usulan baru dikirim ke supervisor dulu. Anda menyetujuinya setelah supervisor menandainya layak.", // PROVISIONAL
+  // Approval screens (/proposals, R-09 Task 6, PROVISIONAL)
+  "C-prop-st-awaiting-owner": "Menunggu persetujuan pemilik", // PROVISIONAL
+  "C-prop-st-approved": "Disetujui", // PROVISIONAL
+  "C-prop-st-rejected": "Ditolak", // PROVISIONAL
+  "C-prop-list-open": "Usulan terbuka", // PROVISIONAL
+  "C-prop-list-decided": "Baru diputuskan", // PROVISIONAL
+  "C-prop-list-empty": "Belum ada usulan terbuka.", // PROVISIONAL
+  "C-prop-rev-feasible": "Supervisor menandai layak pada {date}.", // PROVISIONAL
+  "C-prop-rev-sup-rejected": "Supervisor menolak pada {date}. Alasan:", // PROVISIONAL
+  "C-prop-rev-approved": "Pemilik menyetujui pada {date}.", // PROVISIONAL
+  "C-prop-rev-owner-rejected": "Pemilik menolak pada {date}. Alasan:", // PROVISIONAL
+  "C-prop-notice-late": "Ditambahkan setelah usulan ini dibuat. Periksa usulan terhadap batasan ini sebelum memutuskan:", // PROVISIONAL
+  "C-prop-notice-stale": "Sebagian bukti sudah tidak berlaku. Buat ulang usulan untuk tanggal ini.", // PROVISIONAL
+  "C-prop-notice-sop": "SOP sudah berubah sejak usulan ini dibuat. Buat ulang usulan.", // PROVISIONAL
+  "C-prop-notice-superseded": "Ada usulan lebih baru untuk tanggal ini. Putuskan yang itu.", // PROVISIONAL
+  "C-prop-act-feasible": "Layak", // PROVISIONAL
+  "C-prop-act-approve": "Setujui", // PROVISIONAL
+  "C-prop-act-reject": "Tolak", // PROVISIONAL
+  "C-prop-reason-label": "Alasan (wajib)", // PROVISIONAL
+  "C-prop-reason-hint-sup": "Alasan ini menjadi batasan permanen untuk setiap usulan berikutnya. Tulis fakta tentang toko, bukan orang. Jangan tulis nama atau nomor telepon.", // PROVISIONAL
+  "C-prop-reason-hint-owner": "Alasan ini menjadi batasan permanen untuk setiap usulan berikutnya. Tulis fakta tentang toko, bukan orang. Jangan tulis nama atau nomor telepon.", // PROVISIONAL
+  "C-prop-continue": "Lanjut", // PROVISIONAL
+  "C-prop-confirm-feasible": "Tandai usulan ini layak? Usulan dikirim ke pemilik untuk disetujui.", // PROVISIONAL
+  "C-prop-confirm-approve": "Setujui perubahan ini? Perubahan ini menjadi versi SOP berikutnya, berlaku mulai besok. Tanggal tinjauan dihitung dari hari itu.", // PROVISIONAL
+  "C-prop-confirm-reject-sup": "Tolak usulan ini? Alasannya disimpan sebagai batasan permanen.", // PROVISIONAL
+  "C-prop-confirm-reject-owner": "Tolak usulan ini? Alasannya disimpan sebagai batasan permanen.", // PROVISIONAL
+  "C-prop-ack-late": "Saya sudah memeriksa usulan ini terhadap batasan di atas.", // PROVISIONAL
+  "C-prop-confirm-yes": "Ya", // PROVISIONAL
+  "C-prop-confirm-no": "Batal", // PROVISIONAL
+  "C-prop-done-feasible": "Ditandai layak. Dikirim ke pemilik.", // PROVISIONAL
+  "C-prop-done-rejected-sup": "Ditolak. Alasannya kini menjadi batasan. Buat ulang usulan untuk tanggal yang sama untuk mendapat usulan revisi.", // PROVISIONAL
+  "C-prop-done-approved": "Disetujui. Versi SOP baru berlaku mulai besok.", // PROVISIONAL
+  "C-prop-done-rejected-owner": "Ditolak. Alasannya kini menjadi batasan. Buat ulang usulan untuk tanggal yang sama untuk mendapat usulan revisi.", // PROVISIONAL
+  "C-prop-done-unchanged": "Keputusan ini sudah tersimpan.", // PROVISIONAL
+  "C-prop-use-dates": "Pakai tanggal ini", // PROVISIONAL
+  "C-prop-err-decided": "Usulan ini sudah diputuskan. Daftar sudah diperbarui.", // PROVISIONAL
+  "C-prop-err-not-yet": "Supervisor belum meninjau usulan ini.", // PROVISIONAL
+  "C-prop-err-not-reviewable": "Usulan ini tidak bisa ditinjau.", // PROVISIONAL
+  "C-prop-err-superseded": "Ada usulan lebih baru untuk tanggal ini. Daftar sudah diperbarui.", // PROVISIONAL
+  "C-prop-err-stale": "Sebagian bukti sudah tidak berlaku, jadi usulan ini tidak bisa dilanjutkan. Buat ulang untuk tanggal ini.", // PROVISIONAL
+  "C-prop-err-sop-changed": "SOP sudah berubah, jadi usulan ini tidak bisa dilanjutkan. Buat ulang.", // PROVISIONAL
+  "C-prop-err-constraint-added": "Ada batasan yang baru ditambahkan. Periksa, lalu putuskan lagi.", // PROVISIONAL
+  "C-prop-err-forbidden-decide": "Peran Anda tidak bisa membuat keputusan ini.", // PROVISIONAL
+  "C-prop-err-sop-limit": "SOP sudah punya 200 langkah, jadi langkah baru tidak bisa ditambahkan.", // PROVISIONAL
+  "C-prop-err-legacy": "Dibuat oleh versi lama. Tolak, lalu buat ulang.", // PROVISIONAL
+  "C-prop-err-step-too-long": "Langkah ini terlalu panjang untuk diubah otomatis.", // PROVISIONAL
+
+  // Constraints panel (/proposals, R-08 Task 8.6, PROVISIONAL)
+  "C-con-title": "Batasan", // PROVISIONAL
+  "C-con-help": "Aturan yang harus dipatuhi setiap usulan berikutnya, misalnya batas alat. Batasan ini permanen.", // PROVISIONAL
+  "C-con-empty": "Belum ada batasan.", // PROVISIONAL
+  "C-con-src-manual": "Ditambahkan langsung", // PROVISIONAL
+  "C-con-src-rejection": "Dari usulan yang ditolak", // PROVISIONAL
+  "C-con-src-owner-rejection": "Dari usulan yang ditolak pemilik", // PROVISIONAL
+  "C-con-add-label": "Batasan baru", // PROVISIONAL
+  "C-con-add-hint": "Tulis fakta tentang toko, bukan orang. Jangan tulis nama atau nomor telepon.", // PROVISIONAL
+  "C-con-add": "Tambah batasan", // PROVISIONAL
+  "C-con-confirm": "Batasan bersifat permanen dan harus dipatuhi setiap usulan berikutnya. Tambahkan?", // PROVISIONAL
+  "C-con-confirm-yes": "Ya, tambahkan", // PROVISIONAL
+  "C-con-confirm-no": "Batal", // PROVISIONAL
+  "C-con-added": "Batasan ditambahkan.", // PROVISIONAL
+  "C-con-duplicate": "Batasan ini sudah ada.", // PROVISIONAL
+  "C-con-err-length": "Tulis 3 sampai 300 karakter.", // PROVISIONAL
+  "C-con-err-limit": "Batas jumlah batasan (200) sudah tercapai.", // PROVISIONAL
+  "C-con-count": "{n}/300", // PROVISIONAL
+  // R-10 SOP versions and the plain before/after list
+  "C-sop-title": "SOP", // PROVISIONAL
+  "C-sop-link": "SOP dan perubahan", // PROVISIONAL
+  "C-sop-version-seed": "Versi {version}", // PROVISIONAL
+  "C-sop-version-in-force": "Versi {version}, berlaku sejak {date}", // PROVISIONAL
+  "C-sop-version-pending": "Versi {version} berlaku mulai {date}. Sampai saat itu, versi {current} yang berlaku.", // PROVISIONAL
+  "C-sop-empty": "SOP untuk outlet ini belum disiapkan.", // PROVISIONAL
+  "C-sop-changes": "Perubahan", // PROVISIONAL
+  "C-sop-changes-empty": "Belum ada perubahan. SOP hanya berubah lewat usulan yang disetujui.", // PROVISIONAL
+  "C-sop-change-head": "Versi {version}, mulai {date}", // PROVISIONAL
+  "C-sop-before": "Sebelum (versi {version})", // PROVISIONAL
+  "C-sop-after": "Sesudah (versi {version})", // PROVISIONAL
+  "C-sop-new-step": "Langkah baru. Tidak ada di versi {version}.", // PROVISIONAL
+  "C-sop-step-role": "Dikerjakan oleh: {role}", // PROVISIONAL
+  "C-sop-role-staff": "Staf", // PROVISIONAL
+  "C-sop-role-supervisor": "Supervisor", // PROVISIONAL
+  "C-sop-role-owner": "Pemilik", // PROVISIONAL
+  "C-sop-approved-on": "Disetujui pada {date}", // PROVISIONAL
+  "C-sop-steps": "Langkah di versi {version}", // PROVISIONAL
+  "C-sop-err-forbidden": "Hanya pemilik atau supervisor yang bisa melihat perubahan SOP.", // PROVISIONAL
+  "C-rev-title": "Tinjauan", // PROVISIONAL
+  "C-rev-link": "Tinjauan", // PROVISIONAL
+  "C-rev-open": "Menunggu keputusan", // PROVISIONAL
+  "C-rev-decided": "Sudah diputuskan", // PROVISIONAL
+  "C-rev-empty": "Belum ada tinjauan. Tinjauan dimulai pada tanggal tinjauan setiap perubahan SOP.", // PROVISIONAL
+  "C-rev-head": "SOP versi {version}: ditinjau pada {date}", // PROVISIONAL
+  "C-rev-simulated": "Waktu simulasi (demo)", // PROVISIONAL
+  "C-rev-window-before": "Sebelum ({from} s.d. {to}): {count} dalam {days} hari terekam, {rate} per hari", // PROVISIONAL
+  "C-rev-window-after": "Sesudah ({from} s.d. {to}): {count} dalam {days} hari terekam, {rate} per hari", // PROVISIONAL
+  "C-rev-window-before-none": "Sebelum ({from} s.d. {to}): tidak ada hari terekam", // PROVISIONAL
+  "C-rev-window-after-none": "Sesudah ({from} s.d. {to}): tidak ada hari terekam", // PROVISIONAL
+  "C-rev-short-window": "Ini jangka waktu pendek, jadi baca angkanya dengan hati-hati.", // PROVISIONAL
+  "C-rev-suggest": "Saran bee6: {verdict}", // PROVISIONAL
+  "C-rev-suggest-none": "bee6 tidak punya saran: {why}", // PROVISIONAL
+  "C-rev-why-not_enough_days": "kurang dari 2 hari terekam di salah satu jangka waktu", // PROVISIONAL
+  "C-rev-why-no_baseline": "tidak ada sebelum perubahan", // PROVISIONAL
+  "C-rev-why-improved": "jumlah per hari bergerak ke arah yang benar sebesar {pct}%", // PROVISIONAL
+  "C-rev-why-worsened": "jumlah per hari bergerak ke arah yang salah sebesar {pct}%", // PROVISIONAL
+  "C-rev-why-no_clear_change": "jumlah per hari berubah kurang dari 20%", // PROVISIONAL
+  "C-rev-v-worked": "Berhasil", // PROVISIONAL
+  "C-rev-v-revise": "Perlu direvisi", // PROVISIONAL
+  "C-rev-v-revert": "Kembalikan", // PROVISIONAL
+  "C-rev-notice-overlap": "Ada perubahan SOP lain yang berlaku selama periode pengukuran; angkanya mungkin bercampur.", // PROVISIONAL
+  "C-rev-notice-truncated": "Terlalu banyak catatan untuk dibaca semua; jumlahnya mungkin kurang.", // PROVISIONAL
+  "C-rev-sup-said": "Keputusan supervisor pada {date}: {verdict}", // PROVISIONAL
+  "C-rev-owner-said": "Keputusan pemilik pada {date}: {verdict}", // PROVISIONAL
+  "C-rev-reason": "Alasan:", // PROVISIONAL
+  "C-rev-st-awaiting-sup": "Menunggu keputusan supervisor paling lambat {date}", // PROVISIONAL
+  "C-rev-st-awaiting-owner": "Menunggu keputusan pemilik paling lambat {date}", // PROVISIONAL
+  "C-rev-st-confirmed": "Dikonfirmasi. Diingat sebagai: {verdict}", // PROVISIONAL
+  "C-rev-st-unknown": "Tidak dikonfirmasi tepat waktu. Disimpan sebagai tidak diketahui dan tidak diingat.", // PROVISIONAL
+  "C-rev-revert-note": "Mengembalikan tidak mengubah SOP dengan sendirinya. Untuk membatalkan perubahan, buat usulan baru.", // PROVISIONAL
+  "C-rev-reason-label": "Alasan (opsional)", // PROVISIONAL
+  "C-rev-reason-hint": "Tanpa nama atau nomor telepon.", // PROVISIONAL
+  "C-rev-confirm": "Simpan \"{verdict}\" sebagai keputusan Anda?", // PROVISIONAL
+  "C-rev-yes": "Ya", // PROVISIONAL
+  "C-rev-no": "Batal", // PROVISIONAL
+  "C-rev-done": "Keputusan tersimpan.", // PROVISIONAL
+  "C-rev-done-unchanged": "Keputusan ini sudah tersimpan.", // PROVISIONAL
+  "C-rev-err-decided": "Keputusan sudah tercatat. Daftar sudah diperbarui.", // PROVISIONAL
+  "C-rev-err-not-yet": "Supervisor belum memberi keputusan.", // PROVISIONAL
+  "C-rev-err-expired": "Waktu untuk konfirmasi sudah lewat.", // PROVISIONAL
+  "C-rev-err-length": "Alasan harus 3 sampai 300 karakter.", // PROVISIONAL
+  "C-rev-ff": "Lompat ke tanggal tinjauan (simulasi)", // PROVISIONAL
+  "C-rev-ff-done": "Tinjauan simulasi dibuat.", // PROVISIONAL
+  "C-rev-ff-none": "Tidak ada perubahan SOP yang tersisa untuk ditinjau.", // PROVISIONAL
+  "C-rev-err-forbidden": "Hanya pemilik atau supervisor yang bisa melihat tinjauan.", // PROVISIONAL
+  "C-rev-retry": "Coba lagi", // PROVISIONAL
+  "C-sop-outcome": "Hasil: {verdict}", // PROVISIONAL
+  "C-sop-outcome-unknown": "Hasil: tidak diketahui (tidak dikonfirmasi, tidak diingat)", // PROVISIONAL
+  // R-18 P2: demo script drawer, carried-question chip, debrief refresh. All PROVISIONAL; the ID column is a draft for Tiffany.
+  "C-script-title": "Skrip demo", // PROVISIONAL
+  "C-script-rules": "Biarkan tab ini terbuka dan layar menyala. Izinkan mikrofon. Colokkan charger jika baterai menipis.", // PROVISIONAL
+  "C-script-before": "Ketuk Mulai untuk memulai. Tidak ada yang direkam sebelum Anda menekannya.", // PROVISIONAL
+  "C-script-card": "Kartu {n} dari {total}", // PROVISIONAL
+  "C-script-card-short": "{n}/{total}", // PROVISIONAL
+  "C-script-back": "Kembali", // PROVISIONAL
+  "C-script-next": "Berikutnya", // PROVISIONAL
+  "C-script-finish": "Selesai dan akhiri hari", // PROVISIONAL
+  "C-script-finishing": "Mengakhiri…", // PROVISIONAL
+  "C-script-ended": "Selesai. Jawab pertanyaan debrief, lalu ganti ke Supervisor.", // PROVISIONAL
+  "C-script-countdown": "Demo berakhir otomatis dalam {time}", // PROVISIONAL
+  "C-script-countdown-short": "Berakhir {time}", // PROVISIONAL
+  "C-script-reload": "Jika halaman ini dimuat ulang, ketuk Mulai lagi.", // PROVISIONAL
+  "C-script-cards-label": "Kartu skrip", // PROVISIONAL
+  "C-script-collapse": "Sembunyikan skrip", // PROVISIONAL
+  "C-script-expand": "Tampilkan skrip", // PROVISIONAL
+  "C-script-say": "Ucapkan", // PROVISIONAL
+  "C-script-own-words": "Dengan kata-kata Anda sendiri", // PROVISIONAL
+  "C-script-example": "Contoh", // PROVISIONAL
+  "C-script-intent": "Yang seharusnya dicatat aplikasi", // PROVISIONAL
+  "C-script-seconds": "Sekitar {n} dtk", // PROVISIONAL
+  "C-script-speaker-you": "Anda", // PROVISIONAL
+  "C-script-speaker-customer": "Pelanggan", // PROVISIONAL
+  "C-script-speaker-colleague": "Rekan kerja", // PROVISIONAL
+  "C-script-speaker-caller": "Penelepon", // PROVISIONAL
+  "C-script-end-b": "Debrief 1 jam dimulai sekarang. Tidak bisa dikembalikan.", // PROVISIONAL
+  "C-script-day-ended": "Hari demo selesai. Ganti ke Supervisor untuk melihatnya.", // PROVISIONAL
+  "C-script-earlier-day": "Hari sebelumnya · {date}", // PROVISIONAL
+  "C-script-check-new": "Cek pertanyaan baru", // PROVISIONAL
+  "C-script-checking": "Memeriksa…", // PROVISIONAL
+  // R-12 PR-B: demo landing, demo bar, sign-in link. All PROVISIONAL (plan copy; UX-03 did not design these screens).
+  "C-demo-title": "bee6: Agen Perbaikan SOP", // PROVISIONAL
+  "C-demo-intro": "bee6 mendengarkan hari kerja toko kecil lewat ponsel yang dipasangkan, mengubah ucapan menjadi catatan kerja singkat (audio tidak pernah disimpan), menanyakan momen yang kurang jelas kepada staf, dan mengusulkan perubahan SOP yang dicek supervisor dan disetujui pemilik. Toko demo ini fiktif. Kunjungan Anda mendapat salinan sendiri selama 2 jam.", // PROVISIONAL
+  "C-demo-path": "Jalur yang disarankan: masuk sebagai Staf dan ucapkan satu hari kerja singkat, jawab debrief, lalu ganti ke Supervisor dan Pemilik lewat bar di atas.", // PROVISIONAL
+  "C-demo-fictional": "Data demo fiktif", // PROVISIONAL
+  "C-demo-bar": "Demo · Masuk sebagai {role} · Berakhir pukul {time}", // PROVISIONAL
+  "C-demo-switch": "Ganti ke {role}", // PROVISIONAL
+  "C-demo-role-staff": "Staf", // PROVISIONAL
+  "C-demo-role-supervisor": "Supervisor", // PROVISIONAL
+  "C-demo-role-owner": "Pemilik", // PROVISIONAL
+  "C-demo-busy": "Menyiapkan toko demo Anda…", // PROVISIONAL
+  "C-demo-expired": "Sesi demo Anda sudah berakhir.", // PROVISIONAL
+  "C-demo-restart": "Mulai demo baru", // PROVISIONAL
+  "C-demo-restart-confirm": "Buang toko demo ini dan mulai dari awal? Jawaban dan keputusan Anda di toko ini tidak bisa dibuka lagi.", // PROVISIONAL
+  "C-demo-restart-yes": "Ya, mulai dari awal", // PROVISIONAL
+  "C-demo-restart-keep": "Tetap di demo ini", // PROVISIONAL
+  "C-demo-restarted": "Demo dibersihkan. Pilih peran untuk mulai lagi.", // PROVISIONAL
+  "C-demo-err-limit": "Terlalu banyak sesi demo dari jaringan ini hari ini.", // PROVISIONAL
+  "C-demo-err-cap": "Demo sudah mencapai batas hari ini.", // PROVISIONAL
+  "C-demo-err-busy": "Demo sedang sibuk sebentar.", // PROVISIONAL
+  "C-demo-err-not-ready": "Demo belum siap.", // PROVISIONAL
+  "C-demo-retry-soon": "Coba lagi dalam beberapa detik.", // PROVISIONAL
+  "C-demo-retry-min": "Coba lagi dalam {n} menit.", // PROVISIONAL
+  "C-demo-retry-hr": "Coba lagi dalam sekitar {n} jam.", // PROVISIONAL
+  "C-demo-retry-tomorrow": "Coba lagi besok.", // PROVISIONAL
+  "C-demo-retry-later": "Coba lagi nanti.", // PROVISIONAL
 } as const;
 
 export type DictKey = keyof typeof ID;
@@ -311,6 +669,361 @@ export const EN: Record<DictKey, string> = {
   "C-d-over-one": "Too long. Remove 1 character.",
   "C-d-done-unsent-one": "1 answer is not sent yet.",
   "C-d-done-skip-one": "1 question skipped.",
+
+  // /sign-in (R-06 Task 4.8) — owner/supervisor email + password sign-in.
+  "C-signin-title": "Sign in",
+  "C-signin-help": "For owners and supervisors. Accounts are set up by bee6.",
+  "C-signin-email": "Email",
+  "C-signin-password": "Password",
+  "C-signin-submit": "Sign in",
+  "C-signin-busy": "Signing in…",
+  "C-signin-empty": "Enter your email and password.",
+  "C-signin-bad": "Email or password is wrong.",
+  "C-signin-many": "Too many tries. Wait a few minutes.",
+  "C-signin-denied": "This account has no access to bee6.",
+  "C-signin-net": "No connection. Try again when the signal is stable.",
+  "C-signin-config": "Sign-in is not set up on this server.",
+  // R-18 P1: the official role sign-in and the demo credentials box (kept apart from the R-12 block). All PROVISIONAL.
+  "C-signin-as": "Sign in as", // PROVISIONAL
+  "C-signin-role-staff": "Staff", // PROVISIONAL
+  "C-signin-role-supervisor": "Supervisor", // PROVISIONAL
+  "C-signin-role-owner": "Owner", // PROVISIONAL
+  "C-signin-choose": "Choose who you are to continue.", // PROVISIONAL
+  "C-signin-staff-help": "Enter the 6-digit code from your supervisor to connect this phone.", // PROVISIONAL
+  "C-signin-staff-connected": "This phone is already connected.", // PROVISIONAL
+  "C-demo-cred-title": "Demo access", // PROVISIONAL
+  "C-demo-cred-code": "Staff code", // PROVISIONAL
+  "C-demo-cred-email": "Email", // PROVISIONAL
+  "C-demo-cred-password": "Password", // PROVISIONAL
+  "C-demo-cred-fill": "Fill in", // PROVISIONAL
+  "C-demo-cred-filled": "Filled in. Submit to continue.", // PROVISIONAL
+  "C-demo-cred-private": "Each sign-in opens your own private copy of a fictional shop for 2 hours. Nothing you do affects anyone else.", // PROVISIONAL
+  "C-demo-cred-continuing": "You are continuing your demo (ends {time}).", // PROVISIONAL
+  "C-demo-cred-fresh": "Start a fresh demo", // PROVISIONAL
+  "C-srv-generic": "Something went wrong. Try again.",
+  "C-web-signout": "Sign out",
+
+  // /day (R-06 Task 6) — the day record screen, owner and supervisor.
+  "C-day-title": "Day record",
+  "C-day-prev": "Previous day",
+  "C-day-next": "Next day",
+  "C-day-off-closed": "Off / closed",
+  "C-day-pending": "Not started yet",
+  "C-day-cancelled": "Sessions cancelled: {N}",
+  "C-day-mode-room": "Mode: room",
+  "C-day-mode-wearable": "Mode: wearable",
+  "C-day-mode-none": "Mode: no phone paired",
+  "C-day-counts": "Facts: {facts} · Questions: {questions}",
+  "C-day-counts-owner": "Facts: {facts}",
+  "C-day-filter-group": "Filter by category",
+  "C-day-filter-all": "All ({N})",
+  "C-day-filter-cat": "{label} ({N})",
+  "C-day-empty": "No work notes for this date.",
+  "C-day-empty-2": "Notes appear a few minutes after people speak.",
+  "C-day-empty-owner": "No confirmed facts for this date yet.",
+  "C-day-truncated": "Showing the first {N} notes.",
+  "C-day-time": "{start}–{end}",
+  "C-day-confidence": "Confidence {pct}%",
+  "C-day-no-summary": "No summary.",
+  "C-day-evidence": "Evidence",
+  "C-day-evidence-more": "+{N} more lines",
+  "C-day-ans-yes": "A staff member answered Yes:",
+  "C-day-ans-no": "A staff member answered No:",
+  "C-day-st-fact": "Fact",
+  "C-day-st-fact-staff": "Fact, confirmed by staff",
+  "C-day-st-fact-supervisor": "Fact, confirmed by supervisor",
+  "C-day-st-open": "Question, waiting for the debrief",
+  "C-day-st-answered": "Answered, not a fact yet",
+  "C-day-st-supervisor": "Waiting for supervisor",
+  "C-day-st-rejected": "Rejected by staff",
+  "C-day-st-rejected-supervisor": "Rejected by supervisor",
+  "C-day-st-unverified": "Unverified",
+  "C-day-err": "Could not load the notes.",
+  "C-day-retry": "Try again",
+  "C-day-forbidden": "This account cannot see the day record.",
+  "C-day-invalid": "This date is not available.",
+  "C-day-to-today": "Go to today",
+  "C-day-loading": "Loading…",
+  "C-cat-ROUTINE_OPS": "Routine work",
+  "C-cat-CUSTOMER_SERVICE": "Customer service",
+  "C-cat-TRAINING": "Training",
+  "C-cat-STAFF_CONSULT": "Staff question",
+  "C-cat-CORRECTION": "Correction",
+  "C-cat-PHONE_CALL": "Phone call",
+  "C-cat-EVENT": "Planned event",
+  "C-cat-COMPLAINT": "Customer complaint",
+  "C-cat-SAFETY_INCIDENT": "Safety incident",
+  "C-cat-SECURITY_INCIDENT": "Security incident",
+  "C-cat-DISRUPTION": "Disruption",
+
+  // Runner-up panel (R-06 Task 11), appended to the PR-3 block.
+  "C-day-runnerup": "Second choice: {label}",
+  "C-day-runnerup-none": "No reason given.",
+  "C-cat-NON_WORK": "Not work talk",
+
+  // Supervisor confirm/override (R-06 Task 10), appended to the PR-5 block.
+  "C-act-confirm": "Confirm",
+  "C-act-change": "Change category",
+  "C-act-select": "New category",
+  "C-act-save": "Save",
+  "C-act-cancel": "Cancel",
+  "C-act-busy": "Saving…",
+  "C-act-blocked": "Cannot confirm: no evidence lines.",
+  "C-act-stale": "This note changed. Showing the latest.",
+
+  // Supervisor reject (R-06 Task 15, v4), appended to the Task 10 block.
+  "C-act-reject": "Reject",
+  "C-act-reject-q": "Reject this note? It will not count as evidence.",
+  "C-act-reject-yes": "Yes, reject",
+
+  // /home (R-06 Task 14a) — owner home, "today in 5 lines".
+  "C-home-title": "Today",
+  "C-home-more": "+{N} more in the day record",
+  "C-home-to-day": "Open the day record",
+  "C-day-to-home": "Home",
+
+  // Unlabelled moments (R-06 Task 12, PR-6), appended to the PR-3 block.
+  "C-day-unlabelled": "Not labelled",
+  "C-day-unlabelled-help": "Could not label this. Staff were asked about it.",
+  "C-day-filter-unlabelled": "Not labelled ({N})",
+
+  // /questions (R-06 Task 13) — supervisor review queue.
+  "C-queue-title": "Waiting for review",
+  "C-queue-help": "Staff answers that need a supervisor, last 14 days.",
+  "C-queue-empty": "Nothing is waiting for review.",
+  "C-queue-open-day": "Open this day",
+  "C-queue-to-day": "Day record",
+  "C-day-to-queue": "Waiting for review",
+
+  // /proposals (R-08 Task 7) — Generate proposal screen.
+  "C-prop-title": "Proposals",
+  "C-prop-help": "Generate one SOP change from the facts in a date range.",
+  "C-prop-from": "From",
+  "C-prop-to": "To",
+  "C-prop-generate": "Generate proposal",
+  "C-prop-busy": "Generating… this can take up to a minute.",
+  "C-prop-reused": "A proposal for these dates is already waiting for review.",
+  "C-prop-st-awaiting": "Waiting for supervisor review",
+  "C-prop-st-suppressed": "No proposal",
+  "C-prop-st-blocked": "Blocked by the evidence check",
+  "C-prop-insufficient": "Not enough evidence yet: {facts} fact(s) on {dates} day(s). A proposal needs {needFacts} facts on {needDates} different days.",
+  "C-prop-watch": "Watch for: {categories}",
+  "C-prop-declined-no_clear_pattern": "The facts show no clear repeated problem.",
+  "C-prop-declined-constraints_block": "No change fits all saved constraints.",
+  "C-prop-declined-no_matching_intervention": "No intervention in the library fits.",
+  "C-prop-declined-evidence_conflicts": "The facts point in different directions.",
+  "C-prop-blocked": "The proposal did not pass the evidence check ({rule}). Nothing was sent for review.",
+  "C-prop-intervention": "Intervention",
+  "C-prop-rubric": "Rubric",
+  "C-prop-step": "SOP step",
+  "C-prop-step-new": "New step",
+  "C-prop-why": "Why",
+  "C-prop-evidence": "Evidence",
+  "C-prop-evidence-expired": "(no longer stored)",
+  "C-prop-metric": "Metric: {category} per day should {direction} (now {count} in {days} days)",
+  "C-prop-dir-decrease": "go down",
+  "C-prop-dir-increase": "go up",
+  "C-prop-failure": "Failure condition",
+  "C-prop-review": "Review on {date}",
+  "C-prop-censored": "Unmet requests counted here are a floor: real demand is higher, because not every request is heard or said.",
+  "C-prop-err-progress": "Another proposal is being generated. Try again in a minute.",
+  "C-prop-err-library": "The intervention library is not set up yet.",
+  "C-prop-err-sop": "No SOP is set up for this outlet yet.",
+  "C-prop-err-range": "Check the dates: at most 14 days, not in the future, within the last 14 days.",
+  "C-prop-err-forbidden": "Only the owner or a supervisor can generate proposals.",
+  "C-prop-owner-note": "New proposals go to a supervisor first. You approve them after the supervisor marks them feasible.",
+  // Approval screens (/proposals, R-09 Task 6, PROVISIONAL)
+  "C-prop-st-awaiting-owner": "Waiting for owner approval", // PROVISIONAL
+  "C-prop-st-approved": "Approved", // PROVISIONAL
+  "C-prop-st-rejected": "Rejected", // PROVISIONAL
+  "C-prop-list-open": "Open proposals", // PROVISIONAL
+  "C-prop-list-decided": "Recently decided", // PROVISIONAL
+  "C-prop-list-empty": "No open proposals.", // PROVISIONAL
+  "C-prop-rev-feasible": "The supervisor marked this feasible on {date}.", // PROVISIONAL
+  "C-prop-rev-sup-rejected": "The supervisor rejected this on {date}. Reason:", // PROVISIONAL
+  "C-prop-rev-approved": "The owner approved this on {date}.", // PROVISIONAL
+  "C-prop-rev-owner-rejected": "The owner rejected this on {date}. Reason:", // PROVISIONAL
+  "C-prop-notice-late": "Added after this proposal was made. Check the proposal against it before you decide:", // PROVISIONAL
+  "C-prop-notice-stale": "Some of the evidence no longer holds. Generate again for these dates.", // PROVISIONAL
+  "C-prop-notice-sop": "The SOP has changed since this proposal was made. Generate again.", // PROVISIONAL
+  "C-prop-notice-superseded": "A newer proposal exists for these dates. Decide on that one.", // PROVISIONAL
+  "C-prop-act-feasible": "Feasible", // PROVISIONAL
+  "C-prop-act-approve": "Approve", // PROVISIONAL
+  "C-prop-act-reject": "Reject", // PROVISIONAL
+  "C-prop-reason-label": "Reason (required)", // PROVISIONAL
+  "C-prop-reason-hint-sup": "This reason becomes a permanent constraint for every later proposal. Write a fact about the shop, not a person. No names or phone numbers.", // PROVISIONAL
+  "C-prop-reason-hint-owner": "This reason becomes a permanent constraint for every later proposal. Write a fact about the shop, not a person. No names or phone numbers.", // PROVISIONAL
+  "C-prop-continue": "Continue", // PROVISIONAL
+  "C-prop-confirm-feasible": "Mark this proposal feasible? It goes to the owner for approval.", // PROVISIONAL
+  "C-prop-confirm-approve": "Approve this change? It becomes the next SOP version, in force from tomorrow. The review date is counted from then.", // PROVISIONAL
+  "C-prop-confirm-reject-sup": "Reject this proposal? The reason is saved as a permanent constraint.", // PROVISIONAL
+  "C-prop-confirm-reject-owner": "Reject this proposal? The reason is saved as a permanent constraint.", // PROVISIONAL
+  "C-prop-ack-late": "I checked this proposal against the constraints above.", // PROVISIONAL
+  "C-prop-confirm-yes": "Yes", // PROVISIONAL
+  "C-prop-confirm-no": "Cancel", // PROVISIONAL
+  "C-prop-done-feasible": "Marked feasible. Sent to the owner.", // PROVISIONAL
+  "C-prop-done-rejected-sup": "Rejected. The reason is now a constraint. Generate again for the same dates to get a revised proposal.", // PROVISIONAL
+  "C-prop-done-approved": "Approved. The new SOP version is in force from tomorrow.", // PROVISIONAL
+  "C-prop-done-rejected-owner": "Rejected. The reason is now a constraint. Generate again for the same dates to get a revised proposal.", // PROVISIONAL
+  "C-prop-done-unchanged": "This decision was already saved.", // PROVISIONAL
+  "C-prop-use-dates": "Use these dates", // PROVISIONAL
+  "C-prop-err-decided": "This proposal was already decided. The list is updated.", // PROVISIONAL
+  "C-prop-err-not-yet": "The supervisor has not reviewed this proposal yet.", // PROVISIONAL
+  "C-prop-err-not-reviewable": "This proposal cannot be reviewed.", // PROVISIONAL
+  "C-prop-err-superseded": "A newer proposal exists for these dates. The list is updated.", // PROVISIONAL
+  "C-prop-err-stale": "Some of the evidence no longer holds, so this cannot go ahead. Generate again for these dates.", // PROVISIONAL
+  "C-prop-err-sop-changed": "The SOP has changed, so this cannot go ahead. Generate again.", // PROVISIONAL
+  "C-prop-err-constraint-added": "A constraint was just added. Check it, then decide again.", // PROVISIONAL
+  "C-prop-err-forbidden-decide": "Your role cannot make this decision.", // PROVISIONAL
+  "C-prop-err-sop-limit": "The SOP already has 200 steps, so a new step cannot be added.", // PROVISIONAL
+  "C-prop-err-legacy": "Made by an older version. Reject it and generate again.", // PROVISIONAL
+  "C-prop-err-step-too-long": "This step is too long to change automatically.", // PROVISIONAL
+
+  // Constraints panel (/proposals, R-08 Task 8.6, PROVISIONAL)
+  "C-con-title": "Constraints", // PROVISIONAL
+  "C-con-help": "Rules every future proposal must respect, such as equipment limits. They are permanent.", // PROVISIONAL
+  "C-con-empty": "No constraints yet.", // PROVISIONAL
+  "C-con-src-manual": "Added directly", // PROVISIONAL
+  "C-con-src-rejection": "From a rejected proposal", // PROVISIONAL
+  "C-con-src-owner-rejection": "From a proposal the owner rejected", // PROVISIONAL
+  "C-con-add-label": "New constraint", // PROVISIONAL
+  "C-con-add-hint": "Describe a fact about the shop, not a person. Don't write names or phone numbers.", // PROVISIONAL
+  "C-con-add": "Add constraint", // PROVISIONAL
+  "C-con-confirm": "Constraints are permanent and every future proposal must respect them. Add this one?", // PROVISIONAL
+  "C-con-confirm-yes": "Yes, add it", // PROVISIONAL
+  "C-con-confirm-no": "Cancel", // PROVISIONAL
+  "C-con-added": "Constraint added.", // PROVISIONAL
+  "C-con-duplicate": "This constraint already exists.", // PROVISIONAL
+  "C-con-err-length": "Write between 3 and 300 characters.", // PROVISIONAL
+  "C-con-err-limit": "The constraint limit (200) is reached.", // PROVISIONAL
+  "C-con-count": "{n}/300", // PROVISIONAL
+  // R-10 SOP versions and the plain before/after list
+  "C-sop-title": "SOP", // PROVISIONAL
+  "C-sop-link": "SOP and changes", // PROVISIONAL
+  "C-sop-version-seed": "Version {version}", // PROVISIONAL
+  "C-sop-version-in-force": "Version {version}, in force since {date}", // PROVISIONAL
+  "C-sop-version-pending": "Version {version} starts on {date}. Until then, version {current} applies.", // PROVISIONAL
+  "C-sop-empty": "No SOP is set up for this outlet yet.", // PROVISIONAL
+  "C-sop-changes": "Changes", // PROVISIONAL
+  "C-sop-changes-empty": "No changes yet. The SOP changes only through approved proposals.", // PROVISIONAL
+  "C-sop-change-head": "Version {version}, from {date}", // PROVISIONAL
+  "C-sop-before": "Before (version {version})", // PROVISIONAL
+  "C-sop-after": "After (version {version})", // PROVISIONAL
+  "C-sop-new-step": "New step. Not in version {version}.", // PROVISIONAL
+  "C-sop-step-role": "Done by: {role}", // PROVISIONAL
+  "C-sop-role-staff": "Staff", // PROVISIONAL
+  "C-sop-role-supervisor": "Supervisor", // PROVISIONAL
+  "C-sop-role-owner": "Owner", // PROVISIONAL
+  "C-sop-approved-on": "Approved on {date}", // PROVISIONAL
+  "C-sop-steps": "Steps in version {version}", // PROVISIONAL
+  "C-sop-err-forbidden": "Only the owner or a supervisor can see the SOP changes.", // PROVISIONAL
+  "C-rev-title": "Reviews", // PROVISIONAL
+  "C-rev-link": "Reviews", // PROVISIONAL
+  "C-rev-open": "Waiting for a verdict", // PROVISIONAL
+  "C-rev-decided": "Decided", // PROVISIONAL
+  "C-rev-empty": "No reviews yet. A review starts on the review date of each SOP change.", // PROVISIONAL
+  "C-rev-head": "SOP version {version}: review on {date}", // PROVISIONAL
+  "C-rev-simulated": "Simulated time (demo)", // PROVISIONAL
+  "C-rev-window-before": "Before ({from} to {to}): {count} in {days} captured days, {rate} per day", // PROVISIONAL
+  "C-rev-window-after": "After ({from} to {to}): {count} in {days} captured days, {rate} per day", // PROVISIONAL
+  "C-rev-window-before-none": "Before ({from} to {to}): no captured days", // PROVISIONAL
+  "C-rev-window-after-none": "After ({from} to {to}): no captured days", // PROVISIONAL
+  "C-rev-short-window": "This is a short window, so read the numbers with care.", // PROVISIONAL
+  "C-rev-suggest": "bee6 suggests: {verdict}", // PROVISIONAL
+  "C-rev-suggest-none": "bee6 has no suggestion: {why}", // PROVISIONAL
+  "C-rev-why-not_enough_days": "fewer than 2 captured days in one of the windows", // PROVISIONAL
+  "C-rev-why-no_baseline": "there were none before the change", // PROVISIONAL
+  "C-rev-why-improved": "the count per day moved the right way by {pct}%", // PROVISIONAL
+  "C-rev-why-worsened": "the count per day moved the wrong way by {pct}%", // PROVISIONAL
+  "C-rev-why-no_clear_change": "the count per day changed by less than 20%", // PROVISIONAL
+  "C-rev-v-worked": "Worked", // PROVISIONAL
+  "C-rev-v-revise": "Revise", // PROVISIONAL
+  "C-rev-v-revert": "Revert", // PROVISIONAL
+  "C-rev-notice-overlap": "Another SOP change took effect during the measured period; these numbers may mix both.", // PROVISIONAL
+  "C-rev-notice-truncated": "Too many records to read in full; the counts may be low.", // PROVISIONAL
+  "C-rev-sup-said": "Supervisor's verdict on {date}: {verdict}", // PROVISIONAL
+  "C-rev-owner-said": "Owner's verdict on {date}: {verdict}", // PROVISIONAL
+  "C-rev-reason": "Reason:", // PROVISIONAL
+  "C-rev-st-awaiting-sup": "Waiting for the supervisor's verdict by {date}", // PROVISIONAL
+  "C-rev-st-awaiting-owner": "Waiting for the owner's verdict by {date}", // PROVISIONAL
+  "C-rev-st-confirmed": "Confirmed. Remembered as: {verdict}", // PROVISIONAL
+  "C-rev-st-unknown": "Not confirmed in time. Stored as unknown and not remembered.", // PROVISIONAL
+  "C-rev-revert-note": "Reverting does not change the SOP by itself. To undo the change, generate a new proposal.", // PROVISIONAL
+  "C-rev-reason-label": "Reason (optional)", // PROVISIONAL
+  "C-rev-reason-hint": "No names or phone numbers.", // PROVISIONAL
+  "C-rev-confirm": "Record \"{verdict}\" as your verdict?", // PROVISIONAL
+  "C-rev-yes": "Yes", // PROVISIONAL
+  "C-rev-no": "Cancel", // PROVISIONAL
+  "C-rev-done": "Verdict saved.", // PROVISIONAL
+  "C-rev-done-unchanged": "This verdict was already saved.", // PROVISIONAL
+  "C-rev-err-decided": "A verdict was already recorded. The list is updated.", // PROVISIONAL
+  "C-rev-err-not-yet": "The supervisor has not given a verdict yet.", // PROVISIONAL
+  "C-rev-err-expired": "The time to confirm has passed.", // PROVISIONAL
+  "C-rev-err-length": "A reason must be 3 to 300 characters.", // PROVISIONAL
+  "C-rev-ff": "Fast-forward to the review date (simulated)", // PROVISIONAL
+  "C-rev-ff-done": "Simulated review created.", // PROVISIONAL
+  "C-rev-ff-none": "No SOP change left to review.", // PROVISIONAL
+  "C-rev-err-forbidden": "Only the owner or a supervisor can see reviews.", // PROVISIONAL
+  "C-rev-retry": "Try again", // PROVISIONAL
+  "C-sop-outcome": "Outcome: {verdict}", // PROVISIONAL
+  "C-sop-outcome-unknown": "Outcome: unknown (not confirmed, not remembered)", // PROVISIONAL
+  // R-18 P2: demo script drawer, carried-question chip, debrief refresh. All PROVISIONAL; the ID column is a draft for Tiffany.
+  "C-script-title": "Demo script", // PROVISIONAL
+  "C-script-rules": "Keep this tab open and the screen on. Allow the microphone. Plug in if the battery is low.", // PROVISIONAL
+  "C-script-before": "Tap Start to begin. Nothing is recorded until you do.", // PROVISIONAL
+  "C-script-card": "Card {n} of {total}", // PROVISIONAL
+  "C-script-card-short": "{n}/{total}", // PROVISIONAL
+  "C-script-back": "Back", // PROVISIONAL
+  "C-script-next": "Next", // PROVISIONAL
+  "C-script-finish": "Finish and end the day", // PROVISIONAL
+  "C-script-finishing": "Finishing…", // PROVISIONAL
+  "C-script-ended": "Done. Answer the debrief questions, then switch to Supervisor.", // PROVISIONAL
+  "C-script-countdown": "Demo ends automatically in {time}", // PROVISIONAL
+  "C-script-countdown-short": "Ends in {time}", // PROVISIONAL
+  "C-script-reload": "If this page reloads, tap Start again.", // PROVISIONAL
+  "C-script-cards-label": "Script cards", // PROVISIONAL
+  "C-script-collapse": "Hide script", // PROVISIONAL
+  "C-script-expand": "Show script", // PROVISIONAL
+  "C-script-say": "Say", // PROVISIONAL
+  "C-script-own-words": "In your own words", // PROVISIONAL
+  "C-script-example": "Example", // PROVISIONAL
+  "C-script-intent": "What the app should notice", // PROVISIONAL
+  "C-script-seconds": "About {n} s", // PROVISIONAL
+  "C-script-speaker-you": "You", // PROVISIONAL
+  "C-script-speaker-customer": "Customer", // PROVISIONAL
+  "C-script-speaker-colleague": "Colleague", // PROVISIONAL
+  "C-script-speaker-caller": "Caller", // PROVISIONAL
+  "C-script-end-b": "The 1-hour debrief starts now. This cannot be undone.", // PROVISIONAL
+  "C-script-day-ended": "Demo day finished. Switch to Supervisor to see it.", // PROVISIONAL
+  "C-script-earlier-day": "Earlier day · {date}", // PROVISIONAL
+  "C-script-check-new": "Check for new questions", // PROVISIONAL
+  "C-script-checking": "Checking…", // PROVISIONAL
+  // R-12 PR-B: demo landing, demo bar, sign-in link. All PROVISIONAL (plan copy; UX-03 did not design these screens).
+  "C-demo-title": "bee6: the SOP Improvement Agent", // PROVISIONAL
+  "C-demo-intro": "bee6 listens to a small shop's working day through a paired phone, turns speech into short work notes (audio is never stored), asks staff about unclear moments, and proposes SOP changes that a supervisor checks and the owner approves. This demo shop is fictional. Your visit gets its own copy for 2 hours.", // PROVISIONAL
+  "C-demo-path": "Suggested path: sign in as Staff and speak a short shop day, answer the debrief, then switch to Supervisor and Owner from the bar at the top.", // PROVISIONAL
+  "C-demo-fictional": "Fictional demo data", // PROVISIONAL
+  "C-demo-bar": "Demo · Signed in as {role} · Ends at {time}", // PROVISIONAL
+  "C-demo-switch": "Switch to {role}", // PROVISIONAL
+  "C-demo-role-staff": "Staff", // PROVISIONAL
+  "C-demo-role-supervisor": "Supervisor", // PROVISIONAL
+  "C-demo-role-owner": "Owner", // PROVISIONAL
+  "C-demo-busy": "Preparing your demo shop…", // PROVISIONAL
+  "C-demo-expired": "Your demo session has ended.", // PROVISIONAL
+  "C-demo-restart": "Start a new demo", // PROVISIONAL
+  "C-demo-restart-confirm": "Discard this demo shop and start over? You will not be able to open your answers and decisions in it again.", // PROVISIONAL
+  "C-demo-restart-yes": "Yes, start over", // PROVISIONAL
+  "C-demo-restart-keep": "Stay in this demo", // PROVISIONAL
+  "C-demo-restarted": "Demo cleared. Pick a role to begin again.", // PROVISIONAL
+  "C-demo-err-limit": "Too many demo sessions from this network today.", // PROVISIONAL
+  "C-demo-err-cap": "The demo has reached today's limit.", // PROVISIONAL
+  "C-demo-err-busy": "The demo is busy for a moment.", // PROVISIONAL
+  "C-demo-err-not-ready": "The demo is not ready yet.", // PROVISIONAL
+  "C-demo-retry-soon": "Try again in a few seconds.", // PROVISIONAL
+  "C-demo-retry-min": "Try again in {n} min.", // PROVISIONAL
+  "C-demo-retry-hr": "Try again in about {n} h.", // PROVISIONAL
+  "C-demo-retry-tomorrow": "Try again tomorrow.", // PROVISIONAL
+  "C-demo-retry-later": "Try again later.", // PROVISIONAL
 };
 
 export const DICT: Record<Lang, Record<DictKey, string>> = { id: ID, en: EN };

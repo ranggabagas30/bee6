@@ -54,6 +54,20 @@ function okResponse(status: number): Response {
   return { ok: status >= 200 && status < 300, status } as Response;
 }
 
+/**
+ * A fetch stand-in that behaves like the browser's: called with any `this` other than undefined/globalThis
+ * it throws "Illegal invocation", exactly what `deps.fetchFn(...)` hit with the global fetch in Chromium.
+ */
+function strictFetch(respond: () => Promise<Response>): typeof fetch & { calls: number } {
+  const fn = function (this: unknown): Promise<Response> {
+    if (this !== undefined && this !== globalThis) throw new TypeError("Illegal invocation");
+    fn.calls += 1;
+    return respond();
+  } as unknown as typeof fetch & { calls: number };
+  fn.calls = 0;
+  return fn;
+}
+
 describe("dispositionFor", () => {
   it("removed_ok for 2xx", () => {
     expect(dispositionFor(200)).toBe("removed_ok");
@@ -119,6 +133,17 @@ describe("createAnswerUploader.flush", () => {
     expect(calls[0]).toBe("setItem");
     expect(calls).toContain("fetch");
     expect(calls.indexOf("setItem")).toBeLessThan(calls.indexOf("fetch"));
+  });
+
+  it("calls fetchFn without `this`: a browser fetch throws 'Illegal invocation' when called as a method of the deps", async () => {
+    const storage = new MapStorage();
+    appendAnswer(storage, entry(), NOW);
+    const fetchFn = strictFetch(async () => okResponse(200));
+    const { deps } = makeDeps(fetchFn, storage);
+    const result = await createAnswerUploader(deps).flush();
+    expect(fetchFn.calls).toBe(1);
+    expect(result.last).toBe("removed_ok");
+    expect(readCache(storage)).toEqual([]);
   });
 
   it("removes the entry on 200 and on 200 already_answered", async () => {

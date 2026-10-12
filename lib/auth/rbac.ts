@@ -24,24 +24,38 @@ export type Permission =
   | "proposals:review"
   | "proposals:approve"
   | "proposals:generate"
+  | "proposals:read"
+  | "constraints:read"
+  | "constraints:write"
+  | "reviews:read"
   | "reviews:verdict"
   | "sop:read"
   | "sop:diff"
-  | "questions:read";
+  | "questions:read"
+  | "home:read";
 
 /**
  * The permission table from web spec §2, as a set per principal role.
  * `staff` and `supervisor` both answer debrief questions (staff their own,
  * supervisor any — that own-vs-any narrowing is enforced at the data layer in
  * R-07; here they simply both hold `debrief:answer`).
+ *
+ * v2 (R-08, Rangga 10 Oct): owner may generate proposals; constraints:read
+ * and constraints:write owner+supervisor. Web spec §2 to be updated by the PM.
  */
 const ROLE_PERMISSIONS: Record<PrincipalRole, ReadonlySet<Permission>> = {
   owner: new Set<Permission>([
     "day:read:summary",
     "proposals:approve",
+    "proposals:generate", // R-08 Q-10: owner and supervisor both generate
+    "proposals:read", // R-09: list proposals
+    "constraints:read", // R-08 Q-11 b
+    "constraints:write", // R-08 Q-11 b
+    "reviews:read", // R-11: list reviews
     "reviews:verdict",
     "sop:read",
     "sop:diff",
+    "home:read", // owner home, web spec §4.4
   ]),
   supervisor: new Set<Permission>([
     "day:read:summary",
@@ -50,6 +64,10 @@ const ROLE_PERMISSIONS: Record<PrincipalRole, ReadonlySet<Permission>> = {
     "labels:confirm",
     "proposals:review",
     "proposals:generate",
+    "proposals:read", // R-09: list proposals
+    "constraints:read", // R-08 Q-8/Q-11
+    "constraints:write", // R-08 Q-8/Q-11
+    "reviews:read", // R-11: list reviews
     "reviews:verdict",
     "sop:read",
     "sop:diff",

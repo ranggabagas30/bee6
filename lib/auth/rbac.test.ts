@@ -16,8 +16,23 @@ function claims(overrides: Partial<CustomClaims> = {}): CustomClaims {
 
 // The permission matrix straight from web spec §2 — the source of truth this
 // table-driven test guards against drift.
+// v2 (R-08, Rangga 10 Oct, Q-10 + Q-8 + Q-11 b): owner gains
+// proposals:generate, constraints:read, constraints:write; supervisor gains
+// constraints:read, constraints:write.
 const MATRIX: Record<PrincipalRole, Permission[]> = {
-  owner: ["day:read:summary", "proposals:approve", "reviews:verdict", "sop:read", "sop:diff"],
+  owner: [
+    "day:read:summary",
+    "proposals:approve",
+    "proposals:generate",
+    "proposals:read",
+    "constraints:read",
+    "constraints:write",
+    "reviews:read",
+    "reviews:verdict",
+    "sop:read",
+    "sop:diff",
+    "home:read",
+  ],
   supervisor: [
     "day:read:summary",
     "day:read:evidence",
@@ -25,6 +40,10 @@ const MATRIX: Record<PrincipalRole, Permission[]> = {
     "labels:confirm",
     "proposals:review",
     "proposals:generate",
+    "proposals:read",
+    "constraints:read",
+    "constraints:write",
+    "reviews:read",
     "reviews:verdict",
     "sop:read",
     "sop:diff",
@@ -44,10 +63,15 @@ const ALL_PERMISSIONS: Permission[] = [
   "proposals:review",
   "proposals:approve",
   "proposals:generate",
+  "proposals:read",
+  "constraints:read",
+  "constraints:write",
+  "reviews:read",
   "reviews:verdict",
   "sop:read",
   "sop:diff",
   "questions:read",
+  "home:read",
 ];
 
 describe("permission table matches web spec §2", () => {
@@ -61,6 +85,38 @@ describe("permission table matches web spec §2", () => {
       expect([...permissionsFor(role)].sort()).toEqual([...granted].sort());
     });
   }
+});
+
+describe("R-08 v2: owner generation + constraints widening", () => {
+  it("owner may generate proposals (Q-10)", () => {
+    expect(can("owner", "proposals:generate")).toBe(true);
+  });
+
+  it("owner may write constraints (Q-11 b)", () => {
+    expect(can("owner", "constraints:write")).toBe(true);
+  });
+
+  it("the approval sequence did not widen: owner still cannot mark Feasible", () => {
+    expect(can("owner", "proposals:review")).toBe(false);
+  });
+});
+
+describe("R-09: proposals:read", () => {
+  it("owner and supervisor may list proposals; staff and device may not", () => {
+    expect(can("owner", "proposals:read")).toBe(true);
+    expect(can("supervisor", "proposals:read")).toBe(true);
+    expect(can("staff", "proposals:read")).toBe(false);
+    expect(can("device", "proposals:read")).toBe(false);
+  });
+});
+
+describe("R-11: reviews:read", () => {
+  it("owner and supervisor may list reviews; staff and device may not", () => {
+    expect(can("owner", "reviews:read")).toBe(true);
+    expect(can("supervisor", "reviews:read")).toBe(true);
+    expect(can("staff", "reviews:read")).toBe(false);
+    expect(can("device", "reviews:read")).toBe(false);
+  });
 });
 
 describe("assertPermission", () => {
@@ -88,6 +144,12 @@ describe("assertPermission", () => {
 
   it("rejects a device trying to read the day record", () => {
     expect(() => assertPermission(claims({ role: "device" }), "day:read:summary")).toThrow(
+      ForbiddenError,
+    );
+  });
+
+  it("rejects a supervisor trying to read the owner home (owner-only)", () => {
+    expect(() => assertPermission(claims({ role: "supervisor" }), "home:read")).toThrow(
       ForbiddenError,
     );
   });

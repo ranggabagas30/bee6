@@ -336,3 +336,37 @@ describe("debrief copy keys (R-07 Task 7.4, UX-03 section 6)", () => {
     expect(t("en", "C-d-count-warn", { N: 450, M: 50 })).toBe("450/500 · 50 left");
   });
 });
+
+describe("approval screen copy (R-09 Task 6)", () => {
+  it("carries the status, list, review-line and notice copy", () => {
+    const cases: Array<[DictKey, string, string]> = [
+      ["C-prop-st-awaiting-owner", "Menunggu persetujuan pemilik", "Waiting for owner approval"],
+      ["C-prop-st-approved", "Disetujui", "Approved"],
+      ["C-prop-st-rejected", "Ditolak", "Rejected"],
+      ["C-prop-list-open", "Usulan terbuka", "Open proposals"],
+      ["C-prop-list-decided", "Baru diputuskan", "Recently decided"],
+      ["C-prop-list-empty", "Belum ada usulan terbuka.", "No open proposals."],
+      ["C-prop-rev-feasible", "Supervisor menandai layak pada {date}.", "The supervisor marked this feasible on {date}."],
+      ["C-prop-rev-approved", "Pemilik menyetujui pada {date}.", "The owner approved this on {date}."],
+      ["C-prop-use-dates", "Pakai tanggal ini", "Use these dates"],
+      ["C-con-src-owner-rejection", "Dari usulan yang ditolak pemilik", "From a proposal the owner rejected"],
+    ];
+    for (const [key, id, en] of cases) {
+      expect(ID[key], `ID ${key}`).toBe(id);
+      expect(EN[key], `EN ${key}`).toBe(en);
+    }
+  });
+
+  it("keeps the supervisor and owner reject copy symmetric (Q-1 = yes)", () => {
+    expect(EN["C-prop-reason-hint-owner"]).toBe(EN["C-prop-reason-hint-sup"]);
+    expect(ID["C-prop-reason-hint-owner"]).toBe(ID["C-prop-reason-hint-sup"]);
+    expect(EN["C-prop-confirm-reject-owner"]).toBe(EN["C-prop-confirm-reject-sup"]);
+    expect(EN["C-prop-done-rejected-owner"]).toBe(EN["C-prop-done-rejected-sup"]);
+  });
+
+  it("fills the date placeholders of the review lines", () => {
+    expect(t("en", "C-prop-rev-sup-rejected", { date: "Mon 5 Oct" })).toBe(
+      "The supervisor rejected this on Mon 5 Oct. Reason:",
+    );
+  });
+});

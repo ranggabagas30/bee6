@@ -241,6 +241,29 @@ describe("firestoreTickStore.listActiveDevices", () => {
   });
 });
 
+describe("firestoreTickStore.listActiveDevices: expired demo judge devices (R-12 M6)", () => {
+  const NOW = Date.UTC(2026, 9, 28, 10, 0, 0);
+
+  it("skips a device whose expires_at_ms has passed (<= now): no labelling spend for an expired sandbox", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    try {
+      const { db } = fakeDb({
+        [COLLECTIONS.devices]: {
+          "o1:live": makeDevice({ device_id: "live", expires_at_ms: NOW + 1 }),
+          "o1:edge": makeDevice({ device_id: "edge", expires_at_ms: NOW }),
+          "o1:past": makeDevice({ device_id: "past", expires_at_ms: NOW - 1 }),
+          "o1:shop": makeDevice({ device_id: "shop" }), // a real shop phone has no expiry
+        },
+      });
+      const ids = (await firestoreTickStore(db).listActiveDevices()).map((d) => d.device_id).sort();
+      expect(ids).toEqual(["live", "shop"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("firestoreTickStore.listStaffScrubNames", () => {
   it("returns the full name AND its first token, deduplicated", async () => {
     const { db } = fakeDb({
@@ -754,6 +777,78 @@ describe("firestoreTickStore.writeUnitResult", () => {
     });
   });
 
+  it("R-06 (Task 10.3): a supervisor_confirmed thread keeps its supervisor fields (and status 'fact') on a later continuation", async () => {
+    const existing = asDoc({
+      ...makeThread({ thread_id: "t1", status: "fact" }),
+      label_source: "supervisor_confirmed",
+      confirmed_category: "COMPLAINT",
+      excluded_from_evidence: false,
+    });
+    const { db, collections } = fakeDb({ [COLLECTIONS.threads]: { t1: existing } });
+    const store = firestoreTickStore(db);
+
+    const continuation = makeThread({
+      thread_id: "t1",
+      status: "open", // the tick's own fresh gate call, re-opened by new evidence
+      category: "ROUTINE_OPS", // a later unit's own label — the supervisor decision still stands
+      confidence: 0.5,
+      lines: [{ line_id: "s1#1", start_ms: 3000, end_ms: 6000, text: "more lines" }],
+    });
+
+    await store.writeUnitResult(OUTLET, DEVICE, {
+      threads: [continuation],
+      questions: [],
+      ledger: { outlet_id: OUTLET, device_id: DEVICE, unit_key: "u1", line_ids: [], status: "done", attempts: 1, labelled_at_ms: 2000 },
+      blank_line_ids: [],
+    });
+
+    const stored = collections.get(COLLECTIONS.threads)?.get("t1");
+    expect(stored).toMatchObject({
+      status: "fact",
+      label_source: "supervisor_confirmed",
+      confirmed_category: "COMPLAINT",
+      excluded_from_evidence: false,
+      gate: existing.gate, // the supervisor decision's own gate, not the tick's fresh one
+      // new lines still merge in:
+      lines: continuation.lines,
+      confidence: continuation.confidence,
+    });
+  });
+
+  it("R-06 (Task 15.2): a supervisor_rejected thread keeps status 'open' and the flag on a later continuation, even against a fresh v1 fact", async () => {
+    const existing = asDoc({
+      ...makeThread({ thread_id: "t1", status: "open" }),
+      label_source: "supervisor_rejected",
+      excluded_from_evidence: true,
+    });
+    const { db, collections } = fakeDb({ [COLLECTIONS.threads]: { t1: existing } });
+    const store = firestoreTickStore(db);
+
+    const continuation = makeThread({
+      thread_id: "t1",
+      status: "fact", // the tick's own fresh gate call: a v1 fact
+      confidence: 0.99,
+      lines: [{ line_id: "s1#1", start_ms: 3000, end_ms: 6000, text: "more lines" }],
+    });
+
+    await store.writeUnitResult(OUTLET, DEVICE, {
+      threads: [continuation],
+      questions: [],
+      ledger: { outlet_id: OUTLET, device_id: DEVICE, unit_key: "u1", line_ids: [], status: "done", attempts: 1, labelled_at_ms: 2000 },
+      blank_line_ids: [],
+    });
+
+    const stored = collections.get(COLLECTIONS.threads)?.get("t1");
+    expect(stored).toMatchObject({
+      status: "open", // carried over, never promoted to fact
+      label_source: "supervisor_rejected",
+      excluded_from_evidence: true,
+      gate: existing.gate,
+      lines: continuation.lines,
+      confidence: continuation.confidence,
+    });
+  });
+
   it("R-07 (Task 5.2): a NO-rejected (excluded_from_evidence) thread keeps that flag on a later continuation", async () => {
     const existing = asDoc({
       ...makeThread({ thread_id: "t1", status: "open" }),
@@ -898,5 +993,26 @@ describe("firestoreTickStore.expireOpenQuestions (R-07)", () => {
     // status stays "open" -- expiry only ever applies to a QUESTION the debrief missed,
     // never un-excludes or otherwise touches an already-excluded thread.
     expect(collections.get(COLLECTIONS.threads)?.get("t1")).toMatchObject({ status: "open", excluded_from_evidence: true });
+  });
+
+  it("R-06 (Task 15.2): a supervisor_rejected thread's debrief-end expiry pass leaves it 'open', never 'unverified'", async () => {
+    const { db, collections } = fakeDb({
+      [COLLECTIONS.questions]: {
+        q1: asDoc(makeOpenQuestion({ question_id: "q1", kind: "gate", thread_id: "t1", category: "ROUTINE_OPS" })),
+      },
+      [COLLECTIONS.threads]: {
+        t1: asDoc({
+          ...makeThread({ thread_id: "t1", status: "open" }),
+          label_source: "supervisor_rejected",
+          excluded_from_evidence: true,
+        }),
+      },
+    });
+    await firestoreTickStore(db).expireOpenQuestions(OUTLET, DEVICE, E, E + 1000);
+    expect(collections.get(COLLECTIONS.threads)?.get("t1")).toMatchObject({
+      status: "open",
+      label_source: "supervisor_rejected",
+      excluded_from_evidence: true,
+    });
   });
 });
