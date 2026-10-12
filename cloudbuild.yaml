@@ -16,12 +16,20 @@ substitutions:
   _REGION: asia-southeast2
   _REPOSITORY: bee6
 
-images:
-  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:${SHORT_SHA}"
-
 steps:
   # Build the container image with Cloud Native Buildpacks so we don't
   # need to maintain a hand-written Dockerfile for a standard Next.js app.
+  #
+  # --publish makes the lifecycle exporter write the image straight to
+  # Artifact Registry instead of exporting it into the build worker's Docker
+  # daemon. The daemon export is what failed on every build since 7 Oct
+  # ("failed to export: saving image: failed to fetch base layers ... from the
+  # docker daemon: ... EOF", lifecycle status 62). There is no separate push
+  # step and no top-level `images:` list: that list makes Cloud Build
+  # `docker push` a local image, which does not exist when pack publishes.
+  # --network cloudbuild gives the build containers the Cloud Build network
+  # (metadata-server credentials for the registry), as in Google's buildpacks
+  # guide for Cloud Build.
   - id: build
     name: gcr.io/k8s-skaffold/pack
     entrypoint: pack
@@ -30,12 +38,8 @@ steps:
       - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:${SHORT_SHA}"
       - --builder=gcr.io/buildpacks/builder:google-22
       - --path=.
-
-  - id: push
-    name: gcr.io/cloud-builders/docker
-    args:
-      - push
-      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:${SHORT_SHA}"
+      - --network=cloudbuild
+      - --publish
 
   - id: deploy
     # Google's current maintained Cloud SDK image path (the old
