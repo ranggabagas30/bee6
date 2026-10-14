@@ -1,4 +1,12 @@
 import type { Lang } from "@/lib/i18n/lang";
+import { journeyEN, journeyID } from "@/lib/i18n/v2/journey";
+import { sessionEN, sessionID } from "@/lib/i18n/v2/session";
+import { debriefEN, debriefID } from "@/lib/i18n/v2/debrief";
+import { webEN, webID } from "@/lib/i18n/v2/web";
+import { proposalsEN, proposalsID } from "@/lib/i18n/v2/proposals";
+import { devicesEN, devicesID } from "@/lib/i18n/v2/devices";
+import { sopEN, sopID } from "@/lib/i18n/v2/sop";
+import { homeEN, homeID } from "@/lib/i18n/v2/home";
 
 /**
  * Typed copy dictionary for the shop-phone screens (UX-03 section 6, copy
@@ -526,6 +534,16 @@ export const ID = {
   "C-demo-retry-hr": "Coba lagi dalam sekitar {n} jam.", // PROVISIONAL
   "C-demo-retry-tomorrow": "Coba lagi besok.", // PROVISIONAL
   "C-demo-retry-later": "Coba lagi nanti.", // PROVISIONAL
+
+  // R-19 i18n v2 slices (lib/i18n/v2/*): spread once here; later PRs add keys only in their own slice file.
+  ...journeyID,
+  ...sessionID,
+  ...debriefID,
+  ...webID,
+  ...proposalsID,
+  ...devicesID,
+  ...sopID,
+  ...homeID,
 } as const;
 
 export type DictKey = keyof typeof ID;
@@ -1024,6 +1042,16 @@ export const EN: Record<DictKey, string> = {
   "C-demo-retry-hr": "Try again in about {n} h.", // PROVISIONAL
   "C-demo-retry-tomorrow": "Try again tomorrow.", // PROVISIONAL
   "C-demo-retry-later": "Try again later.", // PROVISIONAL
+
+  // R-19 i18n v2 slices (lib/i18n/v2/*): spread once here; later PRs add keys only in their own slice file.
+  ...journeyEN,
+  ...sessionEN,
+  ...debriefEN,
+  ...webEN,
+  ...proposalsEN,
+  ...devicesEN,
+  ...sopEN,
+  ...homeEN,
 };
 
 export const DICT: Record<Lang, Record<DictKey, string>> = { id: ID, en: EN };
