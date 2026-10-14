@@ -137,6 +137,7 @@ describe("firestoreNextDayStore.readGuardState (read-only, scoped to the outlet 
       proposal_with_content: false,
       proposal_lock_live: false,
       open_questions: 1,
+      open_session: null,
     });
     expect(f.writes).toEqual([]);
     for (const q of f.queries) expect(q.filters.some(([field, , v]) => field === "outlet_id" && v === SBX)).toBe(true);
@@ -159,6 +160,38 @@ describe("firestoreNextDayStore.readGuardState (read-only, scoped to the outlet 
     expect((await firestoreNextDayStore(fakeDb(seed).db).readGuardState(SBX, JDG, T0)).pending_unlabelled_lines).toBe(0);
     delete seed[COLLECTIONS.devices]![deviceDocId(SBX, JDG)];
     expect((await firestoreNextDayStore(fakeDb(seed).db).readGuardState(SBX, JDG, T0)).last_ended).toBeNull();
+  });
+});
+
+describe("firestoreNextDayStore.readGuardState open_session (R-19 PR-4b: the same sessions query, no second one)", () => {
+  const S2 = "22222222-2222-4222-8222-222222222222";
+
+  it("an open session of this device is reported with ids and times only; the other sandbox's open session never is", async () => {
+    const seed = seedSandbox();
+    seed[COLLECTIONS.captureSessions]![`${JDG}:${S2}`] = session(null, SBX, JDG, S2);
+    const state = await firestoreNextDayStore(fakeDb(seed).db).readGuardState(SBX, JDG, T0);
+    expect(state.open_session).toEqual({ session_id: S2, started_at_ms: T0 - 300_000, closing_reached: false, auto_stop_at_ms: T0 + 300_000 });
+    expect(state.session_open).toBe(true);
+  });
+
+  it("closing_reached follows demo_closing_at_ms on the open session", async () => {
+    const seed = seedSandbox();
+    seed[COLLECTIONS.captureSessions]![`${JDG}:${S2}`] = { ...session(null, SBX, JDG, S2), demo_closing_at_ms: T0 - 10_000 };
+    expect((await firestoreNextDayStore(fakeDb(seed).db).readGuardState(SBX, JDG, T0)).open_session?.closing_reached).toBe(true);
+  });
+
+  it("reads the device's sessions ONCE: the open session and the preparing session share one query", async () => {
+    const seed = seedSandbox();
+    seed[COLLECTIONS.captureSessions]![`${JDG}:${S2}`] = session(null, SBX, JDG, S2);
+    const f = fakeDb(seed);
+    await firestoreNextDayStore(f.db).readGuardState(SBX, JDG, T0);
+    expect(f.queries.filter((q) => q.col === COLLECTIONS.captureSessions)).toHaveLength(1);
+  });
+
+  it("a malformed session doc is skipped, never an open session", async () => {
+    const seed = seedSandbox();
+    seed[COLLECTIONS.captureSessions]![`${JDG}:${S2}`] = { ...session(null, SBX, JDG, S2), started_at_ms: "soon" };
+    expect((await firestoreNextDayStore(fakeDb(seed).db).readGuardState(SBX, JDG, T0)).open_session).toBeNull();
   });
 });
 
