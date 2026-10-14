@@ -134,10 +134,19 @@ describe("pilot isolation of the demo sign-in (R-18 P1)", () => {
     expect(offenders.sort()).toEqual(["lib/auth/pairing.ts", "lib/demo/credentials.ts"]);
   });
 
+  it("PairScreen statically imports nothing from app/demo/** or lib/demo/**, and loads DemoAccess only through next/dynamic", () => {
+    const src = read("app/pair/PairScreen.tsx");
+    const staticDemo = importLines(src).filter((l) => /["']@\/(app|lib)\/demo\//.test(l));
+    expect(staticDemo).toEqual([]);
+    expect(src).toMatch(/import dynamic from ["']next\/dynamic["']/);
+    expect(src).toMatch(/dynamic<[^>]*>\(\s*\(\)\s*=>\s*import\(\s*["']@\/app\/demo\/DemoAccess["']\s*\)/);
+    expect(src).not.toMatch(/ssr:\s*false/);
+  });
+
   it("the pages and the sign-in shell import no demo box code (the shell's only demo import is the state module the ended-demo cleanup uses)", () => {
-    for (const rel of ["app/page.tsx", "app/sign-in/page.tsx", "app/sign-in/SignInScreen.tsx", "app/sign-in/EmailSignInForm.tsx", "app/pair/PairForm.tsx"]) {
+    for (const rel of ["app/page.tsx", "app/sign-in/page.tsx", "app/sign-in/SignInScreen.tsx", "app/sign-in/EmailSignInForm.tsx", "app/pair/page.tsx", "app/pair/PairForm.tsx", "app/web/EntryLanding.tsx"]) {
       const demoImports = importLines(read(rel)).filter((l) => /["']@\/(app|lib)\/demo\//.test(l));
-      for (const line of demoImports) expect(line, rel).toMatch(/@\/app\/demo\/(demo-client|DemoIntro)["']/);
+      for (const line of demoImports) expect(line, rel).toMatch(/@\/app\/demo\/demo-client["']/);
       expect(read(rel), rel).not.toMatch(/DemoAccess|credentials/);
     }
   });
