@@ -4,6 +4,7 @@ import { CONSTRAINT_INPUT_MAX, CONSTRAINT_INPUT_MIN } from "@/lib/constraints/co
 import { MAX_CONSTRAINTS } from "@/lib/proposals/constants";
 import { OWNER_DECISIONS, PROPOSAL_STATUSES, SUPERVISOR_DECISIONS } from "@/lib/firestore/schema";
 import { ProposalViewSchema } from "@/lib/proposals/contract";
+import { ProposalsWatchSchema } from "@/lib/contracts/r19";
 
 /** Reject reasons share the constraint bounds: a rejection reason becomes a constraint (createConstraint enforces 3..300). */
 const ReasonSchema = z
@@ -77,10 +78,18 @@ export type ProposalListItem = z.infer<typeof ProposalListItemSchema>;
 
 export const LIST_OPEN_MAX = 20;
 export const LIST_DECIDED_MAX = 10;
+/** The watch panel looks at the last 7 business dates, `[today-6, today]` (R-19 §3.5), the same as the default Generate. */
+export const WATCH_DAYS = 7;
 export const ListProposalsResponseSchema = z
   .object({
     open: z.array(ProposalListItemSchema).max(LIST_OPEN_MAX),
     decided: z.array(ProposalListItemSchema).max(LIST_DECIDED_MAX),
+    /**
+     * R-19 §3.5 "What Bee6 is watching". The server always sets it; optional on the wire type only so the
+     * existing screen fixtures (PR-12a's files) keep compiling until that PR builds the panel and tightens it.
+     */
+    watch: ProposalsWatchSchema.optional(),
   })
   .strict();
+export { ProposalsWatchSchema, WatchRowSchema, type ProposalsWatch, type WatchRow } from "@/lib/contracts/r19";
 export type ListProposalsResponse = z.infer<typeof ListProposalsResponseSchema>;

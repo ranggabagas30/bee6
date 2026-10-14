@@ -24,6 +24,9 @@ import type { DecisionSnapshot } from "@/lib/proposals/review-plan";
 import { seedV1 } from "@/lib/sop/testing/fixtures";
 import { capBeforeRedact } from "@/lib/demo/redact-cap";
 import { LIST_DECIDED_MAX, LIST_OPEN_MAX } from "@/lib/proposals/review-contract";
+import type { AttributionSession } from "@/lib/day/attribution";
+import type { ProposalThreadRow } from "@/lib/proposals/candidates";
+import { addDays } from "@/lib/capture/calendar";
 import type { ApproveBody, ReviewBody } from "@/lib/proposals/review-contract";
 
 const TZ = "Asia/Jakarta";
@@ -333,10 +336,46 @@ function neverLogged(needle: string) {
   }
 }
 
+/** R-19 §3.5 watch fixtures: the outlet's sessions and field-masked thread rows the watch read sees. */
+const sessionOn = (date: string): AttributionSession => ({
+  device_id: DEVICE,
+  local_date: date,
+  started_at_ms: zonedTimeToEpochMs(date, "07:00", TZ),
+  ended_at_ms: zonedTimeToEpochMs(date, "21:45", TZ),
+  auto_stop_at_ms: zonedTimeToEpochMs(date, "22:45", TZ),
+  end_reason: "selesai",
+});
+const factOn = (n: number, date: string, category: ProposalThreadRow["category"] = "CUSTOMER_SERVICE", over: Partial<ProposalThreadRow> = {}): ProposalThreadRow => ({
+  outlet_id: OUTLET_ID,
+  thread_id: `unit_${DEVICE}_w${n}:0`,
+  device_id: DEVICE,
+  category,
+  status: "fact",
+  first_line_start_ms: zonedTimeToEpochMs(date, "10:00", TZ) + n * 60_000,
+  summary: `WATCH-SENTINEL-${n}`,
+  ...over,
+});
+
 function setup() {
   const audits: AuditSink = [];
   const cstore = new FakeConstraintStore(audits);
   const store = new FakeReviewStore(cstore, audits);
+  const watch = {
+    sessions: [] as AttributionSession[],
+    rows: [] as ProposalThreadRow[],
+    sessionCalls: [] as (readonly string[])[],
+    threadCalls: [] as [number, number][],
+  };
+  const evidence = {
+    listSessions: async (dates: readonly string[]) => {
+      watch.sessionCalls.push(dates);
+      return watch.sessions;
+    },
+    listThreadsInRange: async (from: number, to: number) => {
+      watch.threadCalls.push([from, to]);
+      return watch.rows;
+    },
+  };
   const redactCalls: string[][] = [];
   let idCounter = 800;
   const deps: ReviewDeps = {
@@ -347,7 +386,7 @@ function setup() {
     },
     newId: () => uuid(idCounter++),
   };
-  return { audits, cstore, store, deps, redactCalls };
+  return { audits, cstore, store, deps, redactCalls, watch, evidence };
 }
 type Ctx = ReturnType<typeof setup>;
 
@@ -375,7 +414,7 @@ const rejectBody = (reason = "The oven only holds 2.5 kg."): { decision: "reject
 });
 
 const list = (ctx: Ctx, c: CustomClaims = claims("supervisor")) =>
-  listProposals(ctx.store, { loadLibrary: ctx.deps.loadLibrary }, { claims: c });
+  listProposals(ctx.store, { loadLibrary: ctx.deps.loadLibrary, evidence: ctx.evidence }, { claims: c, now_ms: NOW });
 
 describe("listProposals", () => {
   it("5.T1 splits open / decided, sorts newest first, caps, and never reads suppressed or blocked", async () => {
@@ -471,8 +510,9 @@ describe("listProposals", () => {
         loadLibrary: () => {
           throw new LibraryNotReadyError("no library");
         },
+        evidence: ctx.evidence,
       },
-      { claims: claims("owner") },
+      { claims: claims("owner"), now_ms: NOW },
     ).catch((e) => e);
     expect(err).toBeInstanceOf(ConflictError);
     expect((err as ConflictError).code).toBe("LIBRARY_NOT_READY");
@@ -495,6 +535,91 @@ describe("listProposals", () => {
     expect(err).toBeInstanceOf(Error);
     expect(err.constructor.name).toBe("Error");
     expect((err as Error).message).toMatch(/internal schema violation/);
+  });
+});
+
+describe("listProposals: R-19 3.5 watch (\"What Bee6 is watching\")", () => {
+  // NOW is 2026-10-11 12:00 in Jakarta: the watch range is [2026-10-05, 2026-10-11].
+  const FROM = "2026-10-05";
+  const TO = "2026-10-11";
+
+  it("empty outlet -> the 7-day range with no rows; reads exactly the window Generate reads", async () => {
+    const ctx = setup();
+    const res = await list(ctx);
+    expect(res.watch).toEqual({ from_date: FROM, to_date: TO, categories: [] });
+    expect(ctx.watch.sessionCalls[0]).toEqual([-1, 0, 1, 2, 3, 4, 5, 6, 7].map((n) => addDays(FROM, n)));
+    expect(ctx.watch.threadCalls[0]).toEqual([zonedTimeToEpochMs(FROM, "01:00", TZ), zonedTimeToEpochMs(addDays(TO, 1), "03:00", TZ)]);
+  });
+
+  it("one row per category with a fact: ready when 2 facts on 2 dates, needs_more otherwise; need_dates is 2", async () => {
+    const ctx = setup();
+    ctx.watch.sessions = [sessionOn("2026-10-09"), sessionOn("2026-10-10")];
+    ctx.watch.rows = [factOn(1, "2026-10-09"), factOn(2, "2026-10-10"), factOn(3, "2026-10-10", "PHONE_CALL")];
+    const res = await list(ctx);
+    expect(res.watch!.categories).toEqual([
+      { category: "CUSTOMER_SERVICE", facts: 2, dates: 2, need_dates: 2, state: "ready" },
+      { category: "PHONE_CALL", facts: 1, dates: 1, need_dates: 2, state: "needs_more" },
+    ]);
+  });
+
+  it("ROUTINE_OPS, open, unverified, excluded, rejected and NON_WORK threads never produce a row; facts outside the window are ignored", async () => {
+    const ctx = setup();
+    ctx.watch.sessions = [sessionOn("2026-10-03"), sessionOn("2026-10-10")];
+    ctx.watch.rows = [
+      factOn(1, "2026-10-10", "ROUTINE_OPS"),
+      factOn(2, "2026-10-10", "CUSTOMER_SERVICE", { status: "open" }),
+      factOn(3, "2026-10-10", "CUSTOMER_SERVICE", { status: "unverified" }),
+      factOn(4, "2026-10-10", "CUSTOMER_SERVICE", { excluded_from_evidence: true }),
+      factOn(5, "2026-10-10", "CUSTOMER_SERVICE", { label_source: "supervisor_rejected" }),
+      factOn(6, "2026-10-10", "NON_WORK"),
+      factOn(7, "2026-10-03", "CUSTOMER_SERVICE"), // before the window
+    ];
+    const res = await list(ctx);
+    expect(res.watch!.categories).toEqual([]);
+  });
+
+  it("proposed: the focus category of an open or approved proposal whose range overlaps the window", async () => {
+    const ctx = setup();
+    ctx.watch.sessions = [sessionOn("2026-10-09"), sessionOn("2026-10-10")];
+    ctx.watch.rows = [factOn(1, "2026-10-09"), factOn(2, "2026-10-10"), factOn(3, "2026-10-09", "PHONE_CALL"), factOn(4, "2026-10-10", "PHONE_CALL")];
+    // open, CS, overlapping -> CS proposed (even though it is ready)
+    ctx.store.put(proposal(1, { range: { from_date: "2026-10-04", to_date: "2026-10-06" }, focus_category: "CUSTOMER_SERVICE" }));
+    const res = await list(ctx);
+    expect(res.watch!.categories).toEqual([
+      { category: "CUSTOMER_SERVICE", facts: 2, dates: 2, need_dates: 2, state: "proposed" },
+      { category: "PHONE_CALL", facts: 2, dates: 2, need_dates: 2, state: "ready" },
+    ]);
+
+    // approved, PHONE_CALL, overlapping -> PHONE_CALL proposed too
+    ctx.store.put(ProposalSchema.parse({ ...approved(2), range: { from_date: "2026-10-11", to_date: "2026-10-12" }, focus_category: "PHONE_CALL" }));
+    const res2 = await list(ctx);
+    expect(res2.watch!.categories.map((r) => [r.category, r.state])).toEqual([["CUSTOMER_SERVICE", "proposed"], ["PHONE_CALL", "proposed"]]);
+  });
+
+  it("not proposed: a rejected proposal, a legacy proposal without a focus, or a range that does not overlap the window", async () => {
+    const ctx = setup();
+    ctx.watch.sessions = [sessionOn("2026-10-09"), sessionOn("2026-10-10")];
+    ctx.watch.rows = [factOn(1, "2026-10-09"), factOn(2, "2026-10-10")];
+    ctx.store.put(
+      supRejected(1),
+      proposal(2, { range: { from_date: "2026-10-04", to_date: "2026-10-06" } }), // legacy: no focus
+      proposal(3, { range: { from_date: "2026-09-28", to_date: "2026-10-04" }, focus_category: "CUSTOMER_SERVICE" }), // ends before the window
+    );
+    const rejectedWithFocus = ProposalSchema.parse({ ...supRejected(4), range: { from_date: "2026-10-05", to_date: "2026-10-11" }, focus_category: "CUSTOMER_SERVICE" });
+    ctx.store.put(rejectedWithFocus);
+    const res = await list(ctx);
+    expect(res.watch!.categories).toEqual([{ category: "CUSTOMER_SERVICE", facts: 2, dates: 2, need_dates: 2, state: "ready" }]);
+  });
+
+  it("the watch never carries a thread id, a device id or a summary", async () => {
+    const ctx = setup();
+    ctx.watch.sessions = [sessionOn("2026-10-10")];
+    ctx.watch.rows = [factOn(1, "2026-10-10")];
+    const res = await list(ctx);
+    const json = JSON.stringify(res.watch);
+    expect(json).not.toContain(DEVICE);
+    expect(json).not.toContain("unit_");
+    expect(json).not.toContain("WATCH-SENTINEL");
   });
 });
 

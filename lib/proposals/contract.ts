@@ -21,6 +21,8 @@ export const GenerateBodySchema = z
   .object({
     from_date: dateString.refine(isRealDate),
     to_date: dateString.refine(isRealDate),
+    /** R-19 §3.3 "Generate another": skip the reuse of an open proposal for the same range. */
+    another: z.boolean().optional(),
   })
   .strict();
 export type GenerateBody = z.infer<typeof GenerateBodySchema>;
@@ -34,6 +36,12 @@ export const ProposalViewSchema = z
     status: z.enum(PROPOSAL_STATUSES),
     created_at_ms: z.number().int(),
     range: z.object({ from_date: dateString, to_date: dateString }).strict(),
+    /**
+     * R-19 §3.3: the one category this proposal is about; null on a suppressed doc or a pre-R-19 doc. The server
+     * always sets the key; it is optional on the wire type only so existing screen fixtures (PR-12a's files) keep
+     * compiling until that PR tightens it.
+     */
+    focus_category: WorkCategorySchema.nullable().optional(),
     suppression: z
       .object({
         reason: z.enum(SUPPRESSION_REASONS),

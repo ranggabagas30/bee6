@@ -68,6 +68,14 @@ describe("toProposalView", () => {
     expect(view.suppression?.reason).toBe("insufficient_evidence");
   });
 
+  it("R-19 3.3: exposes focus_category; a legacy doc without one reads null", () => {
+    expect(toProposalView(baseProposal(), new Map(), LIBRARY, SOP, TZ).focus_category).toBeNull();
+    expect(toProposalView(baseProposal({ focus_category: null }), new Map(), LIBRARY, SOP, TZ).focus_category).toBeNull();
+    expect(toProposalView(baseProposal({ focus_category: "CUSTOMER_SERVICE" }), new Map(), LIBRARY, SOP, TZ).focus_category).toBe(
+      "CUSTOMER_SERVICE",
+    );
+  });
+
   it("blocked: blocked_rule from gate.fired_rule", () => {
     const view = toProposalView(
       baseProposal({ status: "blocked", suppression: null, gate: { passed: false, fired_rule: "evidence_min", checks: [] } }),

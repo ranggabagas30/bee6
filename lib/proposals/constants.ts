@@ -1,12 +1,24 @@
+import type { WorkCategory } from "@/lib/pipeline/categories";
+
 /**
  * Thresholds and caps for the ProposalAgent (R-08). Plain code, not AI
  * (hard rule #10) — these numbers decide what reaches the model and what
  * the gate accepts, never the model itself.
  */
 
-/** suff-v1 `evidence` rule (technical spec §8.15): >= 2 facts on >= 2 distinct dates. */
+/** `evidence` rule (technical spec §8.15): >= 2 facts on >= 2 distinct dates, inside ONE category (floor-v2). */
 export const MIN_EVIDENCE_FACTS = 2;
 export const MIN_EVIDENCE_DATES = 2;
+
+/**
+ * R-19 D-3 (product rule, pilot and demo alike): categories that never count as proposal evidence.
+ * The evidence gate itself (`lib/pipeline/gate.ts`) is unchanged: a ROUTINE_OPS thread still becomes a
+ * fact or a question by the same rules; it simply never reaches a proposal.
+ */
+export const EVIDENCE_EXCLUDED: ReadonlySet<WorkCategory> = new Set<WorkCategory>(["ROUTINE_OPS"]);
+
+/** The evidence-floor rule written on every proposal doc made after R-19 (`generator.floor_version`). */
+export const FLOOR_VERSION = "floor-v2" as const;
 
 /** suff-v1 `range_valid`: at most 14 days in one generate call. */
 export const MAX_RANGE_DAYS = 14;

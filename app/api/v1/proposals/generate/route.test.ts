@@ -111,6 +111,7 @@ function oneFactStore(): ProposalStore {
     getCurrentSop: async () => SOP,
     listConstraints: async () => [],
     findOpenProposalForRange: async () => null,
+    listOpenProposals: async () => [],
     getThreads: async () => new Map(),
     listStaffScrubNames: async () => [],
     acquireLock: async () => "lease-token",
@@ -249,6 +250,26 @@ describe("POST /api/v1/proposals/generate", () => {
     const body = await res.json();
     expect(body.data.reused).toBe(true);
     expect(modelFn).not.toHaveBeenCalled();
+  });
+
+  it("R-19 3.3: another: true is passed through: the open proposal for the range is not looked up, generation runs (here: suppressed)", async () => {
+    verifyIdToken.mockResolvedValueOnce(claimsFor("1", "supervisor"));
+    const findOpen = vi.fn(async () => null);
+    vi.mocked(firestoreProposalStore).mockReturnValueOnce({ ...oneFactStore(), findOpenProposalForRange: findOpen });
+    const res = await POST(postRequest({ ...VALID_BODY, another: true }, "Bearer t"));
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.data.reused).toBe(false);
+    expect(body.data.proposal.status).toBe("suppressed");
+    expect(body.data.proposal.focus_category).toBeNull();
+    expect(findOpen).not.toHaveBeenCalled();
+    expect(modelFn).not.toHaveBeenCalled();
+  });
+
+  it("R-19 3.3: a non-boolean another -> 422", async () => {
+    verifyIdToken.mockResolvedValueOnce(claimsFor("1", "supervisor"));
+    const res = await POST(postRequest({ ...VALID_BODY, another: "yes" }, "Bearer t"));
+    expect(res.status).toBe(422);
   });
 
   it("NODE_ENV=production with the draft library -> 409 LIBRARY_NOT_READY", async () => {

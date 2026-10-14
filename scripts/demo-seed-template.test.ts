@@ -7,13 +7,13 @@ import {
   PlanSchema,
   TemplateSeedError,
   assertNotPilotProject,
-  checkTemplateReadiness,
+  checkTemplateClean,
   isCheckOnly,
   parseCliArgs,
   runCli,
   runTemplateSeed,
   type ProgressSnapshot,
-  type ReadinessReader,
+  type TemplateReader,
 } from "@/scripts/demo-seed-template";
 import { addDays, zonedTimeToEpochMs } from "@/lib/capture/calendar";
 import type { ProposalThreadRow } from "@/lib/proposals/candidates";
@@ -90,7 +90,7 @@ interface Call {
   redirect?: RequestRedirect;
 }
 
-// ── readiness fixtures (the template's own days; zero answers) ───────────────
+// ── clean-check fixtures (the template's own days; zero answers; routine only) ──
 const DEVICE = "demo-tpl-phone";
 const LAST_DAY = "2026-10-19";
 const dayStart = (date: string) => zonedTimeToEpochMs(date, "07:00", TZ);
@@ -117,7 +117,7 @@ const SESSIONS = ["2026-10-17", "2026-10-18", LAST_DAY].map((d) => sessionOn(d))
 
 function reader(threads: ProposalThreadRow[], lastDay: string | null = LAST_DAY, sessions: AttributionSession[] = SESSIONS) {
   const calls = { sessions: [] as (readonly string[])[], threads: [] as [number, number][] };
-  const r: ReadinessReader = {
+  const r: TemplateReader = {
     lastDay: async () => lastDay,
     listSessions: async (dates) => {
       calls.sessions.push(dates);
@@ -180,7 +180,7 @@ function harness(opts: { pair?: { device_id: string; outlet_id: string }; failAt
     readClip: vi.fn(async () => new Uint8Array([1, 2, 3])),
     randomUUID: () => `00000000-0000-4000-8000-${String(++uuidN).padStart(12, "0")}`,
     readProgress: vi.fn(async () => progress),
-    readiness: reader([threadOn(1, "2026-10-17"), threadOn(2, "2026-10-18")]).r,
+    template: reader([threadOn(1, "2026-10-17"), threadOn(2, "2026-10-18")]).r,
     sleep: vi.fn(async () => undefined),
     log: (line: string) => logs.push(line),
     pollEveryMs: 30_000,
@@ -387,47 +387,80 @@ describe("N-2 redirects are never followed (the token and the single-use code mu
   });
 });
 
-describe("R-18 P0 3.T1-3.T3 readiness check (same candidates and evidence floor as the real proposal path)", () => {
-  it("3.T1 two automatic facts on two dates -> READY facts=2 dates=2", async () => {
+describe("R-19 5.9 inverted check: the template must hold ROUTINE history only (same selection as the real proposal path)", () => {
+  it("two routine facts on two dates -> CLEAN (no evidence category present), routine facts counted", async () => {
     const { r } = reader([threadOn(1, "2026-10-17"), threadOn(2, "2026-10-18")]);
-    const res = await checkTemplateReadiness(r);
-    expect(res).toMatchObject({ ready: true, facts: 2, dates: 2 });
-    expect(res.line).toBe("READY: facts=2 dates=2");
+    const res = await checkTemplateClean(r);
+    expect(res).toMatchObject({ clean: true, routine_facts: 2, evidence: [] });
+    expect(res.line).toBe("CLEAN: routine-only history (routine facts=2)");
   });
 
-  it("3.T2 three facts on one date -> NOT READY with the remedy that works (re-cut clips, delete, re-seed)", async () => {
-    const { r } = reader([threadOn(1, "2026-10-18"), threadOn(2, "2026-10-18"), threadOn(3, "2026-10-18")]);
-    const res = await checkTemplateReadiness(r);
-    expect(res).toMatchObject({ ready: false, facts: 3, dates: 1 });
+  it("one CUSTOMER_SERVICE fact anywhere in the range -> NOT CLEAN: CUSTOMER_SERVICE=1 facts", async () => {
+    const { r } = reader([threadOn(1, "2026-10-17"), threadOn(2, "2026-10-18", { category: "CUSTOMER_SERVICE" })]);
+    const res = await checkTemplateClean(r);
+    expect(res).toMatchObject({ clean: false, routine_facts: 1 });
+    expect(res.evidence).toEqual([{ category: "CUSTOMER_SERVICE", facts: 1, dates: 1, ready: false }]);
     expect(res.line).toBe(
-      "NOT READY: facts=3 dates=1 (need 2 on 2). Re-cut the clips so at least 2 different days each have a clear moment in an automatic-fact category, ask dev-ops to delete the demo-tpl-outlet data, re-seed, then re-run with --check-only",
+      "NOT CLEAN: CUSTOMER_SERVICE=1 facts. A routine clip labelled as an evidence category would pollute the judge's own problem. " +
+        "Swap or re-cut that clip, ask dev-ops to delete the demo-tpl-outlet data, re-seed, then re-run with --check-only",
     );
   });
 
-  it("uses the real selection: open, unverified, excluded, rejected and NON_WORK threads are not facts", async () => {
+  it("NOT CLEAN lists every evidence category in evidenceByCategory order (ready first, then facts desc)", async () => {
     const { r } = reader([
-      threadOn(1, "2026-10-17"),
-      threadOn(2, "2026-10-18", { status: "open" }),
-      threadOn(3, "2026-10-18", { status: "unverified" }),
-      threadOn(4, "2026-10-18", { excluded_from_evidence: true }),
-      threadOn(5, "2026-10-18", { label_source: "supervisor_rejected" }),
-      threadOn(6, "2026-10-18", { category: "NON_WORK" }),
+      threadOn(1, "2026-10-17", { category: "PHONE_CALL" }),
+      threadOn(2, "2026-10-18", { category: "CUSTOMER_SERVICE" }),
+      threadOn(3, "2026-10-19", { category: "CUSTOMER_SERVICE" }),
+      threadOn(4, "2026-10-19", { category: "EVENT" }),
+      threadOn(5, "2026-10-19", { category: "EVENT" }),
     ]);
-    const res = await checkTemplateReadiness(r);
-    expect(res).toMatchObject({ ready: false, facts: 1, dates: 1 });
+    const res = await checkTemplateClean(r);
+    expect(res.clean).toBe(false);
+    expect(res.line).toMatch(/^NOT CLEAN: CUSTOMER_SERVICE=2 facts, EVENT=2 facts, PHONE_CALL=1 facts\./);
   });
 
-  it("a supervisor-confirmed override counts under its confirmed category (gate v3 path)", async () => {
+  it("a ready evidence category (2 facts on 2 dates) is NOT CLEAN even though the old check would have said READY", async () => {
+    const { r } = reader([threadOn(1, "2026-10-17", { category: "CUSTOMER_SERVICE" }), threadOn(2, "2026-10-18", { category: "CUSTOMER_SERVICE" })]);
+    const res = await checkTemplateClean(r);
+    expect(res.clean).toBe(false);
+    expect(res.evidence[0]).toMatchObject({ category: "CUSTOMER_SERVICE", ready: true });
+  });
+
+  it("uses the real selection: open, unverified, excluded, rejected and NON_WORK threads are never facts (CLEAN), and only fact-status routine threads count", async () => {
     const { r } = reader([
-      threadOn(1, "2026-10-17", { category: "COMPLAINT", status: "fact", confirmed_category: "CUSTOMER_SERVICE", label_source: "supervisor_confirmed" }),
-      threadOn(2, "2026-10-18", { category: "CUSTOMER_SERVICE", status: "fact", label_source: "supervisor_confirmed" }),
+      threadOn(1, "2026-10-17"),
+      threadOn(2, "2026-10-18", { status: "open", category: "CUSTOMER_SERVICE" }),
+      threadOn(3, "2026-10-18", { status: "unverified", category: "CUSTOMER_SERVICE" }),
+      threadOn(4, "2026-10-18", { excluded_from_evidence: true, category: "CUSTOMER_SERVICE" }),
+      threadOn(5, "2026-10-18", { label_source: "supervisor_rejected", category: "CUSTOMER_SERVICE" }),
+      threadOn(6, "2026-10-18", { category: "NON_WORK" }),
+      threadOn(7, "2026-10-18", { status: "open" }),
     ]);
-    expect(await checkTemplateReadiness(r)).toMatchObject({ ready: true, facts: 2, dates: 2 });
+    const res = await checkTemplateClean(r);
+    expect(res).toMatchObject({ clean: true, routine_facts: 1 });
+  });
+
+  it("a routine thread relabelled to CUSTOMER_SERVICE counts under its confirmed category -> NOT CLEAN (gate v3 path)", async () => {
+    const { r } = reader([
+      threadOn(1, "2026-10-17", { confirmed_category: "CUSTOMER_SERVICE", label_source: "supervisor_confirmed" }),
+      threadOn(2, "2026-10-18"),
+    ]);
+    const res = await checkTemplateClean(r);
+    expect(res).toMatchObject({ clean: false, routine_facts: 1 });
+    expect(res.line).toMatch(/^NOT CLEAN: CUSTOMER_SERVICE=1 facts/);
+  });
+
+  it("a fact outside the default Generate range [D-6, D] is ignored either way", async () => {
+    const { r } = reader([threadOn(1, "2026-10-17"), threadOn(2, "2026-10-12", { category: "CUSTOMER_SERVICE" })], LAST_DAY, [
+      ...SESSIONS,
+      sessionOn("2026-10-12"),
+    ]);
+    expect(await checkTemplateClean(r)).toMatchObject({ clean: true, routine_facts: 1 });
   });
 
   it("reads exactly the range the real path reads for [D-6, D]: dates D-7..D+1 and 01:00 of D-6 to 03:00 of D+1", async () => {
     const { r, calls } = reader([]);
-    await checkTemplateReadiness(r);
+    await checkTemplateClean(r);
     expect(calls.sessions[0]).toEqual([-7, -6, -5, -4, -3, -2, -1, 0, 1].map((n) => addDays(LAST_DAY, n)));
     expect(calls.threads[0]).toEqual([
       zonedTimeToEpochMs(addDays(LAST_DAY, -6), "01:00", TZ),
@@ -435,29 +468,24 @@ describe("R-18 P0 3.T1-3.T3 readiness check (same candidates and evidence floor 
     ]);
   });
 
-  it("a threshold of 2 facts on 2 dates is never lowered: 1 fact on 2 sessions' dates is NOT READY", async () => {
-    const { r } = reader([threadOn(1, "2026-10-18")]);
-    expect(await checkTemplateReadiness(r)).toMatchObject({ ready: false, facts: 1, dates: 1 });
-  });
-
-  it("no ended template day -> NOT READY (nothing to check), no thread read", async () => {
+  it("no ended template day -> NOT CLEAN (nothing to check), no thread read", async () => {
     const { r, calls } = reader([threadOn(1, "2026-10-17")], null);
-    const res = await checkTemplateReadiness(r);
-    expect(res.ready).toBe(false);
-    expect(res.line).toMatch(/^NOT READY: no template day found/);
+    const res = await checkTemplateClean(r);
+    expect(res.clean).toBe(false);
+    expect(res.line).toMatch(/^NOT CLEAN: no template day found/);
     expect(calls.threads).toEqual([]);
   });
 
-  it("runTemplateSeed ends with the readiness line (after the tick is done) and returns it; NOT READY does not throw", async () => {
+  it("runTemplateSeed ends with the clean line (after the tick is done) and returns it; NOT CLEAN does not throw", async () => {
     const ok = harness();
-    expect(await runTemplateSeed(ok.deps)).toMatchObject({ ready: true });
-    expect(ok.logs.at(-1)).toBe("[demo-seed] READY: facts=2 dates=2");
+    expect(await runTemplateSeed(ok.deps)).toMatchObject({ clean: true });
+    expect(ok.logs.at(-1)).toBe("[demo-seed] CLEAN: routine-only history (routine facts=2)");
 
     const bad = harness();
-    bad.deps.readiness = reader([threadOn(1, "2026-10-17")]).r;
+    bad.deps.template = reader([threadOn(1, "2026-10-17"), threadOn(2, "2026-10-18", { category: "CUSTOMER_SERVICE" })]).r;
     const res = await runTemplateSeed(bad.deps);
-    expect(res.ready).toBe(false);
-    expect(bad.logs.at(-1)).toMatch(/^\[demo-seed\] NOT READY: facts=1 dates=1 \(need 2 on 2\)\. Re-cut the clips so at least 2 different days/);
+    expect(res.clean).toBe(false);
+    expect(bad.logs.at(-1)).toMatch(/^\[demo-seed\] NOT CLEAN: CUSTOMER_SERVICE=1 facts\./);
   });
 
   it("3.T3 --check-only is recognised anywhere on the command line and needs no URL, code or clips", () => {
@@ -466,18 +494,18 @@ describe("R-18 P0 3.T1-3.T3 readiness check (same candidates and evidence floor 
     expect(isCheckOnly(["--base-url", "https://x", "--code", "123456", "--clips-dir", "c"])).toBe(false);
   });
 
-  it("3.T3 the CLI with --check-only reads only: no seed run, no HTTP call, exit 0 when READY and 2 when NOT READY", async () => {
+  it("3.T3 the CLI with --check-only reads only: no seed run, no HTTP call, exit 0 when CLEAN and 2 when NOT CLEAN", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     try {
       const runSeed = vi.fn();
       const logs: string[] = [];
-      const ready = reader([threadOn(1, "2026-10-17"), threadOn(2, "2026-10-18")]).r;
-      expect(await runCli(["--check-only"], { readiness: ready, log: (l) => logs.push(l), runSeed })).toBe(0);
-      expect(logs).toEqual(["[demo-seed] READY: facts=2 dates=2"]);
+      const clean = reader([threadOn(1, "2026-10-17"), threadOn(2, "2026-10-18")]).r;
+      expect(await runCli(["--check-only"], { template: clean, log: (l) => logs.push(l), runSeed })).toBe(0);
+      expect(logs).toEqual(["[demo-seed] CLEAN: routine-only history (routine facts=2)"]);
 
-      const notReady = reader([threadOn(1, "2026-10-17")]).r;
-      expect(await runCli(["--check-only"], { readiness: notReady, log: (l) => logs.push(l), runSeed })).toBe(2);
-      expect(logs.at(-1)).toMatch(/^\[demo-seed\] NOT READY: facts=1 dates=1/);
+      const polluted = reader([threadOn(1, "2026-10-17", { category: "CUSTOMER_SERVICE" })]).r;
+      expect(await runCli(["--check-only"], { template: polluted, log: (l) => logs.push(l), runSeed })).toBe(2);
+      expect(logs.at(-1)).toMatch(/^\[demo-seed\] NOT CLEAN: CUSTOMER_SERVICE=1 facts/);
 
       expect(runSeed).not.toHaveBeenCalled(); // needs no --base-url, --code or --clips-dir, so parseCliArgs is never reached
       expect(fetchSpy).not.toHaveBeenCalled();
@@ -487,8 +515,8 @@ describe("R-18 P0 3.T1-3.T3 readiness check (same candidates and evidence floor 
   });
 
   it("3.T3 without --check-only the CLI takes the seed path: bad flags are refused before the read, and a good run's verdict sets the exit code", async () => {
-    const runSeed = vi.fn(async () => ({ ready: false, facts: 0, dates: 0, line: "NOT READY: x" }));
-    const base = { readiness: reader([]).r, log: () => {}, runSeed };
+    const runSeed = vi.fn(async () => ({ clean: false, routine_facts: 0, evidence: [], line: "NOT CLEAN: x" }));
+    const base = { template: reader([]).r, log: () => {}, runSeed };
     await expect(runCli([], base)).rejects.toThrow(TemplateSeedError);
     expect(runSeed).not.toHaveBeenCalled();
     const argv = ["--base-url", "https://demo.example.run.app", "--code", "123456", "--clips-dir", "clips-here"];

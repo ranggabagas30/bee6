@@ -466,6 +466,51 @@ describe("firestoreProposalStore.findOpenProposalForRange", () => {
   });
 });
 
+describe("firestoreProposalStore.listOpenProposals (R-19 3.3)", () => {
+  it("returns every awaiting_* proposal of the outlet, any range; skips decided, suppressed, blocked, malformed and foreign docs", async () => {
+    const { db, queryLog } = fakeDb({
+      [COLLECTIONS.proposals]: {
+        a: makeProposal({ proposal_id: "22222222-2222-4222-8222-222222222221", created_at_ms: 1 }) as unknown as Record<string, unknown>,
+        b: makeProposal({
+          proposal_id: "22222222-2222-4222-8222-222222222222",
+          status: "awaiting_owner",
+          supervisor_review: { decision: "feasible", reason: null, constraint_id: null, acknowledged_constraint_ids: [], decided_at_ms: 2 },
+          range: { from_date: "2026-09-01", to_date: "2026-09-07" },
+          created_at_ms: 5,
+        }) as unknown as Record<string, unknown>,
+        approved: makeProposal({
+          proposal_id: "22222222-2222-4222-8222-222222222223",
+          status: "approved",
+          supervisor_review: { decision: "feasible", reason: null, constraint_id: null, acknowledged_constraint_ids: [], decided_at_ms: 2 },
+          owner_decision: { decision: "approved", reason: null, constraint_id: null, acknowledged_constraint_ids: [], decided_at_ms: 3 },
+          created_at_ms: 6,
+        }) as unknown as Record<string, unknown>,
+        suppressed: makeProposal({
+          proposal_id: "22222222-2222-4222-8222-222222222224",
+          status: "suppressed",
+          content: null,
+          suppression: { reason: "insufficient_evidence", model_reason: null, followup: { categories: [], have_facts: 1, have_dates: 1, need_facts: 2, need_dates: 2 } },
+          created_at_ms: 10,
+        }) as unknown as Record<string, unknown>,
+        foreign: makeProposal({ proposal_id: "22222222-2222-4222-8222-222222222225", outlet_id: "other-outlet" }) as unknown as Record<string, unknown>,
+        bad: { outlet_id: OUTLET_ID, status: "awaiting_supervisor" },
+      },
+    });
+    const store = firestoreProposalStore(OUTLET_ID, db);
+    const result = await store.listOpenProposals();
+    expect(result.map((p) => p.proposal_id).sort()).toEqual([
+      "22222222-2222-4222-8222-222222222221",
+      "22222222-2222-4222-8222-222222222222",
+    ]);
+    expect(queryLog.some((q) => q.name === COLLECTIONS.proposals)).toBe(true);
+  });
+
+  it("returns [] when the outlet has no open proposal", async () => {
+    const { db } = fakeDb({});
+    expect(await firestoreProposalStore(OUTLET_ID, db).listOpenProposals()).toEqual([]);
+  });
+});
+
 describe("firestoreProposalStore.acquireLock / releaseLock", () => {
   it("acquires when no lock doc exists", async () => {
     const { db } = fakeDb({});
