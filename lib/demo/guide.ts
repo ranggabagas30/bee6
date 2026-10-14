@@ -173,6 +173,35 @@ export const GUIDE: Readonly<Record<GuideKey, GuideCard>> = z
     ]),
   });
 
+/**
+ * The card for a key on a given demo day. Two cards read differently on day 1: day 1 has no phone-order script
+ * card, and after day 1 the stage list sends the judge to the Supervisor screens (stage 2) before day 2. Every
+ * other key, and an unknown day (`null`), returns the base `GUIDE` card.
+ */
+export function guideCard(key: GuideKey, day: number | null): GuideCard {
+  const base = GUIDE[key];
+  if (day === 1 && key === "debrief_question") {
+    return GuideCardSchema.parse({
+      ...base,
+      body: [
+        same("Answer what really happened in today's script. Where a question asks why, type a few words."),
+        base.body[1]!,
+        base.body[2]!,
+      ],
+    });
+  }
+  if (day === 1 && key === "debrief_done") {
+    return GuideCardSchema.parse({
+      ...base,
+      body: [
+        same("Jump to tomorrow to run the next day."),
+        same("After day 1, you can sign out and look around as Supervisor first (Proposals says Waiting for evidence), then pair again and jump to tomorrow."),
+      ],
+    });
+  }
+  return base;
+}
+
 export interface JourneyProgress {
   day: 1 | 2 | 3;
   days_done: number;

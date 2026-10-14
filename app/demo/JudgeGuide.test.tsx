@@ -377,6 +377,26 @@ describe("/capture: the debrief cards and Jump to tomorrow (plan 4.4, 7.2)", () 
     await waitFor(() => expect(postDemoNextDay).toHaveBeenLastCalledWith(expect.anything(), { expected_day: 2, confirm_unanswered: true }));
   });
 
+  it("the debrief cards are day-aware: day 1 says look around as Supervisor first and never mentions the phone order; day 2 keeps the phone-order and after-day-3 wording", () => {
+    pathname = "/capture";
+    act(() => publishCaptureBridge(debrief({ allowed: true, reason: null }, "debrief_done", 1)));
+    renderGuide();
+    openGuide();
+    expect(screen.getByRole("heading", { name: "Today is done" })).toBeTruthy();
+    expect(screen.getByText(/After day 1, you can sign out and look around as Supervisor first/)).toBeTruthy();
+    expect(screen.queryByText(/After day 3, sign out and continue as Supervisor/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Jump to tomorrow" })).toBeTruthy();
+    act(() => publishCaptureBridge(debrief({ allowed: true, reason: null }, "debrief_done", 2)));
+    expect(screen.queryByText(/After day 1/)).toBeNull();
+    expect(screen.getByText(/After day 3, sign out and continue as Supervisor/)).toBeTruthy();
+    act(() => publishCaptureBridge(debrief({ allowed: true, reason: null }, "debrief_question", 1)));
+    openGuide(); // a card change collapses the phone sheet
+    expect(screen.getByRole("heading", { name: "Answer what really happened" })).toBeTruthy();
+    expect(screen.queryByText(/phone order/i)).toBeNull();
+    act(() => publishCaptureBridge(debrief({ allowed: true, reason: null }, "debrief_question", 2)));
+    expect(screen.getByText(/The phone order did happen, so answer Yes/)).toBeTruthy();
+  });
+
   it("a refusal from the route shows its own line (never server text); a double tap makes one request", async () => {
     pathname = "/capture";
     let release: (v: unknown) => void = () => {};

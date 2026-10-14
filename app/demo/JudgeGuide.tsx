@@ -10,7 +10,7 @@ import { DEMO_DAYS_TOTAL } from "@/lib/demo/constants";
 import { DemoProgressResponseSchema, type NextDayRefusal } from "@/lib/demo/contract";
 import { DEMO_STAFF_CODE } from "@/lib/demo/credentials";
 import {
-  GUIDE,
+  guideCard,
   STAGES,
   cardState,
   currentStage,
@@ -199,7 +199,8 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
       ? { kind: "web", role: webRole, progress: progress ? { ...progress, supervisor_visited: visited } : null }
       : null;
   const key = guideKeyFor(pathname, state);
-  const card = GUIDE[key];
+  const day = bridge ? bridge.state.profile.day : null;
+  const card = guideCard(key, day);
 
   const journey: JourneyProgress = useMemo(() => {
     if (bridge) {
@@ -263,6 +264,7 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
       <GuideCardView
         key={key}
         guideKey={key}
+        day={day}
         lang={lang}
         bridge={bridge}
         onAllSpoken={setAllSpokenFor}
@@ -317,14 +319,16 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
 
 interface GuideCardViewProps {
   guideKey: GuideKey;
+  /** The demo day on /capture (the debrief cards read differently on day 1), else null. */
+  day: number | null;
   lang: Lang;
   bridge: CaptureBridge | null;
   /** Called with the session id once every card of the day is marked spoken. */
   onAllSpoken: (sessionId: string) => void;
 }
 
-function GuideCardView({ guideKey, lang, bridge, onAllSpoken }: GuideCardViewProps) {
-  const card = GUIDE[guideKey];
+function GuideCardView({ guideKey, day, lang, bridge, onAllSpoken }: GuideCardViewProps) {
+  const card = guideCard(guideKey, day);
   const action = card.action;
   return (
     <article aria-labelledby={`guide-card-${guideKey}`}>
@@ -395,6 +399,8 @@ function ScriptCard({ lang, bridge, onAllSpoken }: { lang: Lang; bridge: Capture
   // The line count when the active card appeared, so lines heard on the previous card never count for this one.
   // Card 1 became active at Start, when the count was 0; any later active card (a remount of the guide) starts
   // counting from now. Adjusted during render (React's "derive from props" pattern), not in an effect.
+  // Known and accepted: a segment_accepted for card k that arrives after the tap can count toward card k+1. The
+  // 1-line card gate is soft (a nudge, not a check); the server guard `requiredLines` is the real check.
   const [shownAt, setShownAt] = useState(() => ({ index: st.index, lines: st.index === 0 ? 0 : linesThisSession }));
   if (shownAt.index !== st.index) setShownAt({ index: st.index, lines: linesThisSession });
   const linesSinceCardShown = Math.max(0, linesThisSession - shownAt.lines);

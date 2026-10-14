@@ -97,6 +97,7 @@
   --b6-tap: 44px;
   --b6-panel-w: 360px;
   --b6-z-overlay: 40;
+  --b6-z-dialog: 50;
 }
 
 .b6-sr-only {

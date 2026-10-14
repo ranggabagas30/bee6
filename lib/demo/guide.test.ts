@@ -6,6 +6,7 @@ import {
   STAGES,
   cardState,
   currentStage,
+  guideCard,
   guideKeyFor,
   jumpLockText,
   type CaptureGuideState,
@@ -84,11 +85,44 @@ describe("STAGES and GUIDE data", () => {
     expect(text).not.toMatch(/five days later/);
   });
 
-  it("the debrief card tells the judge the phone order did happen: answer Yes and type a few words why", () => {
-    const text = GUIDE.debrief_question.body.map((b) => b.en).join(" ");
-    expect(text).toMatch(/phone order did happen/);
-    expect(text).toMatch(/answer \*?Yes\*?/);
+  it("the debrief card on days 2 and 3 tells the judge the phone order did happen: answer Yes and type a few words why", () => {
+    for (const day of [2, 3] as const) {
+      const text = guideCard("debrief_question", day).body.map((b) => b.en).join(" ");
+      expect(text, `day ${day}`).toMatch(/phone order did happen/);
+      expect(text, `day ${day}`).toMatch(/answer \*?Yes\*?/);
+      expect(text, `day ${day}`).toMatch(/a few words/);
+    }
+  });
+
+  it("the day-1 debrief card never mentions the phone order (day 1 has no phone-order card): answer what really happened", () => {
+    const text = guideCard("debrief_question", 1).body.map((b) => b.en).join(" ");
+    expect(text).not.toMatch(/phone order/i);
+    expect(text).toMatch(/what really happened in today's script/);
     expect(text).toMatch(/a few words/);
+    expect(guideCard("debrief_question", 1).action).toEqual({ kind: "jump_tomorrow" });
+  });
+
+  it("the day-1 Complete card offers the Supervisor look-around before tomorrow (stage 2); days 2-3 keep the jump-to-tomorrow / after-day-3 wording", () => {
+    const day1 = guideCard("debrief_done", 1).body.map((b) => b.en).join(" ");
+    expect(day1).toMatch(/After day 1, you can sign out and look around as Supervisor first \(Proposals says Waiting for evidence\), then pair again and jump to tomorrow\./);
+    expect(day1).toMatch(/Jump to tomorrow/);
+    expect(guideCard("debrief_done", 1).action).toEqual({ kind: "jump_tomorrow" });
+    for (const day of [2, 3] as const) {
+      const text = guideCard("debrief_done", day).body.map((b) => b.en).join(" ");
+      expect(text, `day ${day}`).not.toMatch(/After day 1/);
+      expect(text, `day ${day}`).toMatch(/Jump to tomorrow to run the next day\. After day 3, sign out and continue as Supervisor\./);
+    }
+  });
+
+  it("guideCard: every day variant is valid against the strict schema; an unknown day and every other key fall back to the base card", () => {
+    for (const key of GUIDE_KEYS) {
+      for (const day of [1, 2, 3, null] as const) {
+        expect(() => GuideCardSchema.parse(guideCard(key, day)), `${key} day ${day}`).not.toThrow();
+        expect(guideCard(key, day).body.length, `${key} day ${day}`).toBeLessThanOrEqual(3);
+      }
+      expect(guideCard(key, null), key).toBe(GUIDE[key]);
+      if (key !== "debrief_question" && key !== "debrief_done") expect(guideCard(key, 1), key).toBe(GUIDE[key]);
+    }
   });
 });
 

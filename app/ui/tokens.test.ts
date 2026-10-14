@@ -38,6 +38,12 @@ describe("page-2 design tokens (app/globals.css)", () => {
     }
   });
 
+  it("declares the layer order: a dialog sits above the sheet/panel overlay", () => {
+    expect(tokens["--b6-z-overlay"]).toBe("40");
+    expect(tokens["--b6-z-dialog"]).toBe("50");
+    expect(Number(tokens["--b6-z-dialog"])).toBeGreaterThan(Number(tokens["--b6-z-overlay"]));
+  });
+
   it("only declares custom properties on :root, so no existing page can change", () => {
     const rootRules = parseCss(css).filter((r) => r.prelude === ":root");
     expect(rootRules.length).toBeGreaterThan(0);
