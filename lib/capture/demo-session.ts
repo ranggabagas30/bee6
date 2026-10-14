@@ -1,6 +1,6 @@
 import { autoStopAtMs, businessDateOf, type MulaiAvailability } from "@/lib/capture/calendar";
 import type { WeeklyHours } from "@/lib/firestore/schema";
-import type { CaptureConfigResponse } from "@/lib/capture/contract";
+import type { DemoSessionProfile } from "@/lib/capture/contract";
 
 /**
  * R-18 demo session rules (pure; no I/O, no clock reads). They apply only when the server's capture
@@ -9,7 +9,7 @@ import type { CaptureConfigResponse } from "@/lib/capture/contract";
  * `calendar.ts` stay exactly as they were.
  */
 
-export type DemoSessionProfile = NonNullable<CaptureConfigResponse["demo_session"]>;
+export type { DemoSessionProfile };
 
 export interface DemoLastEnded {
   business_date: string;

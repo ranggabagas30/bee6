@@ -4,6 +4,7 @@ import { MIC_SOURCE_CLASSES } from "@/lib/capture/mic-source";
 import { CategorySchema, WorkCategorySchema } from "@/lib/pipeline/categories";
 import { GateDecisionSchema } from "@/lib/pipeline/gate";
 import { CORRECTION_TEXT_MAX_CHARS } from "@/lib/debrief/constants";
+import { NEXT_DAY_MAX } from "@/lib/demo/constants";
 
 /**
  * Firestore schema v0 (web spec §6.4). zod schemas + inferred TS types for every
@@ -139,6 +140,10 @@ export const OutletSchema = z
         created_at_ms: z.number().int().min(0),
         expires_at_ms: z.number().int().min(0),
         key_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+        /** R-19: how many times the sandbox clock has jumped to the next day (0..NEXT_DAY_MAX); absent = 0. */
+        next_day_count: z.number().int().min(0).max(NEXT_DAY_MAX).optional(),
+        /** R-19: single-flight marker of a running "Jump to tomorrow" shift; non-null while one runs or after a crash. */
+        shift_started_at_ms: z.number().int().min(0).nullable().optional(),
       })
       .strict()
       .optional(),
@@ -250,6 +255,8 @@ export const CaptureSessionSchema = z
     /** Server time the end or discard arrived (ISO); null while open. */
     received_end_at: isoDateTime.nullable(),
     cleanup_done_at_ms: z.number().int().min(0).nullable().optional(),
+    /** R-19, sandbox sessions only: the instant "Jump to closing time" was accepted (POST /api/v1/demo/closing). */
+    demo_closing_at_ms: z.number().int().min(0).optional(),
   })
   .strict()
   .refine((s) => s.ended_at_ms === null || s.ended_at_ms >= s.started_at_ms, {
@@ -302,6 +309,8 @@ export const DEMO_COUNTER_KINDS = [
   "fast_forward_sandbox",
   "redact_sandbox",
   "model_day",
+  "reset_sandbox", // R-19 owner reset
+  "process_now_sandbox", // R-19 fast lane
 ] as const;
 export type DemoCounterKind = (typeof DEMO_COUNTER_KINDS)[number];
 export const DemoCounterSchema = z
@@ -905,6 +914,8 @@ export const ProposalSchema = z
     status: z.enum(PROPOSAL_STATUSES),
     requested_by_role: z.enum(["supervisor", "owner"]), // v2, Q-10: both roles generate; status is NOT derived from it
     range: z.object({ from_date: dateString, to_date: dateString }).strict(),
+    /** R-19: the one category this proposal is about; null on a suppressed doc; absent on older docs. */
+    focus_category: WorkCategorySchema.nullable().optional(),
     generator: z
       .object({
         kind: z.enum(["adk", "direct"]),
@@ -915,6 +926,8 @@ export const ProposalSchema = z
         library_version: z.object({ interventions: z.number().int(), rubric: z.number().int() }).strict(),
         sop_version_id: z.string().min(1),
         attempts: z.number().int().min(0).max(2), // 0 = suppressed before any model call
+        /** R-19: the evidence-floor rule that produced this doc; absent = the old any-category floor. */
+        floor_version: z.literal("floor-v2").optional(),
       })
       .strict(),
     gate: z

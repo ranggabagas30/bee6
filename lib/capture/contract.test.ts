@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CaptureConfigResponseSchema,
+  FRESH_DEMO_SESSION,
   HeartbeatRequestSchema,
   MAX_SEGMENT_BYTES,
   SEGMENT_CONTENT_TYPE,
@@ -11,6 +12,7 @@ import {
   toCaptureConfig,
   toHeartbeat,
 } from "@/lib/capture/contract";
+import { scriptFor } from "@/lib/demo/script";
 import {
   BadRequestError,
   ForbiddenError,
@@ -205,17 +207,74 @@ describe("CaptureConfigResponseSchema", () => {
       expect(toCaptureConfig(sbxOutlet, null, 1, true, {})).not.toHaveProperty("demo_session");
       expect(toCaptureConfig(sbxOutlet, null, 1, true)).not.toHaveProperty("demo_session");
     });
-    it("7.T4 present as exactly { max_ms: 300000, script_id: bakery-v1 } only when all three hold", () => {
-      expect(toCaptureConfig(sbxOutlet, null, 1, true, expiring).demo_session).toEqual({ max_ms: 300_000, script_id: "bakery-v1" });
+    it("7.T4 / R-19 present as the full journey profile (a fresh sandbox: day 1 of 3, nothing run yet) only when all three hold", () => {
+      expect(toCaptureConfig(sbxOutlet, null, 1, true, expiring).demo_session).toEqual({
+        max_ms: 600_000,
+        script_id: "bakery-v1",
+        day: 1,
+        days_total: 3,
+        days_done: 0,
+        closing_reached: false,
+        open_session: null,
+        next_day: { allowed: false, reason: "day_not_ended" },
+      });
     });
     it("the pilot response (no 4th/5th argument) is byte-identical to before", () => {
       expect(Object.keys(toCaptureConfig(outlet, null, 1)).sort()).toEqual(["capture_mode", "last_ended", "timezone", "weekly_hours"]);
     });
-    it("the schema is strict about the profile: another max_ms or an extra key is refused", () => {
+    describe("the profile schema (plan section 2.3)", () => {
       const base = { timezone: "Asia/Jakarta", weekly_hours: weekly, last_ended: null, capture_mode: "room" };
-      expect(() => CaptureConfigResponseSchema.parse({ ...base, demo_session: { max_ms: 1, script_id: "bakery-v1" } })).toThrow();
-      expect(() => CaptureConfigResponseSchema.parse({ ...base, demo_session: { max_ms: 300_000, script_id: "bakery-v1", extra: 1 } })).toThrow();
-      expect(CaptureConfigResponseSchema.parse({ ...base, demo_session: { max_ms: 300_000, script_id: "bakery-v1" } }).demo_session).toBeDefined();
+      const profile = {
+        max_ms: 600_000,
+        script_id: "bakery-v2",
+        day: 2,
+        days_total: 3,
+        days_done: 1,
+        closing_reached: true,
+        open_session: { session_id: "11111111-1111-4111-8111-111111111111", started_at_ms: 1, closing_reached: true, auto_stop_at_ms: 600_001 },
+        next_day: { allowed: true, reason: null },
+      };
+      const parse = (over: Record<string, unknown>) => CaptureConfigResponseSchema.safeParse({ ...base, demo_session: { ...profile, ...over } });
+
+      it("accepts the full profile, with and without an open session", () => {
+        expect(parse({}).success).toBe(true);
+        expect(parse({ open_session: null }).success).toBe(true);
+      });
+      it("accepts both script ids until PR-5 narrows to bakery-v2, and refuses any other", () => {
+        expect(parse({ script_id: "bakery-v1" }).success).toBe(true);
+        expect(parse({ script_id: "bakery-v2" }).success).toBe(true);
+        expect(parse({ script_id: "bakery-v3" }).success).toBe(false);
+      });
+      it("the fresh profile's script id is one the phone's script drawer can render (scriptFor is non-null)", () => {
+        expect(scriptFor(FRESH_DEMO_SESSION.script_id)).not.toBeNull();
+      });
+      it("refuses another max_ms, an extra key and the old two-key profile", () => {
+        expect(parse({ max_ms: 1 }).success).toBe(false);
+        expect(parse({ max_ms: 300_000 }).success).toBe(false);
+        expect(parse({ extra: 1 }).success).toBe(false);
+        expect(CaptureConfigResponseSchema.safeParse({ ...base, demo_session: { max_ms: 600_000, script_id: "bakery-v2" } }).success).toBe(false);
+      });
+      it("day is 1, 2 or 3; days_total is exactly 3; days_done is 0 to 3", () => {
+        for (const day of [1, 2, 3]) expect(parse({ day }).success).toBe(true);
+        for (const day of [0, 4, 1.5]) expect(parse({ day }).success).toBe(false);
+        expect(parse({ days_total: 2 }).success).toBe(false);
+        for (const days_done of [0, 3]) expect(parse({ days_done }).success).toBe(true);
+        for (const days_done of [-1, 4]) expect(parse({ days_done }).success).toBe(false);
+      });
+      it("open_session is strict and needs a uuid session id", () => {
+        const os = profile.open_session;
+        expect(parse({ open_session: { ...os, extra: 1 } }).success).toBe(false);
+        expect(parse({ open_session: { ...os, session_id: "not-a-uuid" } }).success).toBe(false);
+        const { auto_stop_at_ms: _drop, ...partial } = os;
+        expect(parse({ open_session: partial }).success).toBe(false);
+      });
+      it("next_day: a reason must be a NextDayRefusal, and allowed is true exactly when the reason is null", () => {
+        expect(parse({ next_day: { allowed: false, reason: "max_days" } }).success).toBe(true);
+        expect(parse({ next_day: { allowed: false, reason: "made_up" } }).success).toBe(false);
+        expect(parse({ next_day: { allowed: true, reason: "busy" } }).success).toBe(false);
+        expect(parse({ next_day: { allowed: false, reason: null } }).success).toBe(false);
+        expect(parse({ next_day: { allowed: true, reason: null, extra: 1 } }).success).toBe(false);
+      });
     });
   });
 

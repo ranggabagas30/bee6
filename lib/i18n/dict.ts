@@ -1,4 +1,12 @@
 import type { Lang } from "@/lib/i18n/lang";
+import { journeyEN, journeyID } from "@/lib/i18n/v2/journey";
+import { sessionEN, sessionID } from "@/lib/i18n/v2/session";
+import { debriefEN, debriefID } from "@/lib/i18n/v2/debrief";
+import { webEN, webID } from "@/lib/i18n/v2/web";
+import { proposalsEN, proposalsID } from "@/lib/i18n/v2/proposals";
+import { devicesEN, devicesID } from "@/lib/i18n/v2/devices";
+import { sopEN, sopID } from "@/lib/i18n/v2/sop";
+import { homeEN, homeID } from "@/lib/i18n/v2/home";
 
 /**
  * Typed copy dictionary for the shop-phone screens (UX-03 section 6, copy
@@ -14,7 +22,7 @@ import type { Lang } from "@/lib/i18n/lang";
  * as {name} and filled by t(); a missing value throws.
  */
 
-export const ID = {
+export const ID_BASE = {
   // Switch control (shop top bar). Endonyms are the same in both modes.
   "C-lang-group": "Pilih bahasa",
   "C-lang-id": "Bahasa Indonesia",
@@ -528,9 +536,22 @@ export const ID = {
   "C-demo-retry-later": "Coba lagi nanti.", // PROVISIONAL
 } as const;
 
+/** R-19 i18n v2 slices (lib/i18n/v2/*): merged once here; later PRs add keys only in their own slice file. */
+export const ID = {
+  ...ID_BASE,
+  ...journeyID,
+  ...sessionID,
+  ...debriefID,
+  ...webID,
+  ...proposalsID,
+  ...devicesID,
+  ...sopID,
+  ...homeID,
+} as const;
+
 export type DictKey = keyof typeof ID;
 
-export const EN: Record<DictKey, string> = {
+export const EN_BASE: Record<keyof typeof ID_BASE, string> = {
   "C-lang-group": "Choose language",
   "C-lang-id": "Bahasa Indonesia",
   "C-lang-en": "English",
@@ -1024,6 +1045,18 @@ export const EN: Record<DictKey, string> = {
   "C-demo-retry-hr": "Try again in about {n} h.", // PROVISIONAL
   "C-demo-retry-tomorrow": "Try again tomorrow.", // PROVISIONAL
   "C-demo-retry-later": "Try again later.", // PROVISIONAL
+};
+
+export const EN: Record<DictKey, string> = {
+  ...EN_BASE,
+  ...journeyEN,
+  ...sessionEN,
+  ...debriefEN,
+  ...webEN,
+  ...proposalsEN,
+  ...devicesEN,
+  ...sopEN,
+  ...homeEN,
 };
 
 export const DICT: Record<Lang, Record<DictKey, string>> = { id: ID, en: EN };
