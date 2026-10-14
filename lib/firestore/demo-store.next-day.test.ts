@@ -106,12 +106,12 @@ const outlet = (over: Doc = {}) => ({
   outlet_id: SBX, name: "Sandbox", project_kind: "demo", timezone: "Asia/Jakarta", opening_time: "07:00", closing_time: "21:45", created_at: iso(0),
   sandbox: { template_outlet_id: "demo-tpl-outlet", created_at_ms: T0 - 1, expires_at_ms: T0 + 7_200_000, key_sha256: "a".repeat(64), ...over },
 });
-const last = { business_date: "2026-10-14", end_reason: "selesai", ended_at_ms: T0 - 60_000, debrief_ends_at_ms: T0 + 3_540_000 };
+const last = { business_date: "2026-10-14", end_reason: "selesai" as const, ended_at_ms: T0 - 60_000, debrief_ends_at_ms: T0 + 3_540_000 };
 const device = (id = JDG, o = SBX) => ({ outlet_id: o, device_id: id, label: "Judge phone", token_hash: "h", paired_at: iso(0), revoked: false, pairing_code: null, pairing_code_expires_at: null, created_at: iso(0), expires_at_ms: T0 + 7_200_000, last_ended: last });
 const session = (ended: number | null, o = SBX, d = JDG, sid = S1) => ({ outlet_id: o, device_id: d, session_id: sid, started_at_ms: T0 - 300_000, ended_at_ms: ended, end_reason: ended === null ? null : "selesai", local_date: "2026-10-14", auto_stop_at_ms: T0 + 300_000, debrief_ends_at_ms: ended === null ? null : ended + 3_600_000, received_start_at: iso(T0 - 300_000), received_end_at: ended === null ? null : iso(ended) });
 const segment = (segId: string, lines: string[], o = SBX, d = JDG, sid: string | null = S1) => ({ outlet_id: o, device_id: d, seg_id: segId, received_at: iso(T0 - 100_000), device_start: iso(T0 - 115_000), device_end: iso(T0 - 100_000), model: "m", location: "global", lines: lines.map((text) => ({ text, start: 0, end: 1 })), expires_at: { toDate: () => new Date(0) }, session_id: sid });
 
-function seedSandbox() {
+function seedSandbox(): Record<string, Record<string, Doc>> {
   return {
     [COLLECTIONS.outlets]: { [SBX]: outlet(), [OTHER]: { ...outlet(), outlet_id: OTHER } },
     [COLLECTIONS.devices]: { [deviceDocId(SBX, JDG)]: device(), [deviceDocId(OTHER, "jdg-ffffffffffff")]: device("jdg-ffffffffffff", OTHER) },
