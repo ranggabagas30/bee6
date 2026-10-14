@@ -246,6 +246,11 @@ export async function endSession(
     if (base.ended_at_ms !== null || base.end_reason !== null) {
       return { result: undefined };
     }
+    // R-19 (plan 5.5), sandbox only: Selesai is locked until "Jump to closing time" marked the session.
+    // auto_stop and lost are always accepted. The pilot (no demo_max_ms) never sees this rule.
+    if (input.demo_max_ms !== undefined && body.end_reason === "selesai" && base.demo_closing_at_ms === undefined) {
+      throw new ConflictError("closing_not_reached", "closing_not_reached");
+    }
     const endReason: SessionEndReason = body.end_reason;
     // Never before the stored start: a sandbox start is clamped to the server clock, so a phone whose clock
     // runs behind can send an end time earlier than it (the schema forbids that). No-op on the pilot.
@@ -310,6 +315,10 @@ export async function discardSession(
     }
     if (base.end_reason !== null) {
       throw new ConflictError("session_ended", "session_ended");
+    }
+    // R-19 (plan 5.5), sandbox only: once closing time was reached the day can no longer be cancelled.
+    if (input.demo_max_ms !== undefined && base.demo_closing_at_ms !== undefined) {
+      throw new ConflictError("closing_reached", "closing_reached");
     }
     // Never before the stored start (see endSession): the clamped sandbox start can be later than the phone's clock.
     const discardedAt = Math.max(body.discarded_at_ms, base.started_at_ms);
