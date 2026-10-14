@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { isPreparing, listDebriefQuestions, type DebriefStore } from "@/lib/debrief/service";
+import { listDebriefQuestions, type DebriefStore } from "@/lib/debrief/service";
+import { isPreparing } from "@/lib/debrief/preparing";
 import { PREPARING_MAX_MS } from "@/lib/demo/constants";
 import type { LastEnded, Question } from "@/lib/firestore/schema";
 

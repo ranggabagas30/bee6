@@ -16,7 +16,7 @@ import {
   type AnswerWritePlan,
 } from "@/lib/debrief/answer-plan";
 import { businessDateOf, localHmOf, DEBRIEF_DURATION_MS } from "@/lib/capture/calendar";
-import { PREPARING_MAX_MS } from "@/lib/demo/constants";
+import { computePreparing } from "@/lib/debrief/preparing";
 import { AppError, DemoCapError, LockedError, NotFoundError, ServiceUnavailableError } from "@/lib/http/errors";
 import type { LastEnded, Question } from "@/lib/firestore/schema";
 import type { WorkCategory } from "@/lib/pipeline/categories";
@@ -67,25 +67,6 @@ export interface EndedSessionRef {
 export interface SessionLineRef {
   line_id: string;
   has_text: boolean;
-}
-
-/**
- * R-19 §6.2 (plain code): "Preparing your questions" while the ended session still has unlabelled text lines,
- * and never longer than PREPARING_MAX_MS after End (a stuck pipeline must not hold the judge for ever).
- */
-export function isPreparing(input: { pending: number; now_ms: number; ended_at_ms: number }): boolean {
-  return input.pending > 0 && input.now_ms < input.ended_at_ms + PREPARING_MAX_MS;
-}
-
-/** Text lines of the device's latest ended session of the date that no finished label unit covers. */
-async function countPendingLines(store: DebriefStore, device_id: string, business_date: string): Promise<number> {
-  const session = await store.getLatestEndedSession(device_id, business_date);
-  if (!session) return 0;
-  const [lines, labelled] = await Promise.all([
-    store.listSessionLines(device_id, session.session_id),
-    store.listLabelledLineIds(device_id),
-  ]);
-  return lines.filter((l) => l.has_text && !labelled.has(l.line_id)).length;
 }
 
 /** Active iff a debrief has ended for this device, wasn't discarded, and the hour hasn't passed. */
@@ -142,8 +123,7 @@ export async function listDebriefQuestions(
   // R-19 PR-3, sandbox only: a pilot response never carries the key (and costs no extra read).
   let preparingField: { preparing: boolean } | Record<string, never> = {};
   if (calendar.sandbox === true) {
-    const pending = await countPendingLines(store, claims.device_id, last.business_date);
-    const preparing = isPreparing({ pending, now_ms, ended_at_ms: last.ended_at_ms });
+    const { pending, preparing } = await computePreparing(store, claims.device_id, last, now_ms);
     log({ event: "debrief.preparing", pending, preparing });
     preparingField = { preparing };
   }
