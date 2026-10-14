@@ -958,6 +958,37 @@ describe("DebriefFlow: R-19 demo debrief (sandbox only)", () => {
       await waitFor(() => expect(gets(s2.calls)).toBe(1));
     });
 
+    it("reload after skipping q1 with the server still listing q1: q1 is not offered again and skipped stays 1", async () => {
+      pollClock();
+      const storage = new FakeStorage();
+      const endsAtMs = Date.now() + HOUR_MS;
+      const s1 = server([q("q1")], true);
+      const first = render(<Harness fetchFn={s1.fn} storage={storage} endsAtMs={endsAtMs} demo />);
+      await waitFor(() => expect(screen.getByText("Question 1 of 1")).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+      await waitFor(() => expect(screen.getByText("Checking for more questions…")).toBeTruthy());
+      first.unmount();
+
+      const s2 = server([q("q1")], true);
+      render(<Harness fetchFn={s2.fn} storage={storage} endsAtMs={endsAtMs} demo />);
+      await waitFor(() => expect(screen.getByText("Checking for more questions…")).toBeTruthy());
+      expect(screen.queryByText("Question 1 of 1")).toBeNull();
+      s2.state.preparing = false;
+      await vi.advanceTimersByTimeAsync(10_500);
+      await waitFor(() => expect(screen.getByText("Debrief complete")).toBeTruthy());
+      expect(screen.getByText("1 of 1 were not answered and are recorded as unverified.")).toBeTruthy();
+    });
+
+    it("an older progress record without seen is read as empty, the counts still resume", async () => {
+      const storage = new FakeStorage();
+      const endsAtMs = Date.now() + HOUR_MS;
+      storage.setItem("bee6.debrief.progress", JSON.stringify({ ends_at_ms: endsAtMs, answered: 2, skipped: 0 }));
+      const { fn } = server([], false);
+      render(<Harness fetchFn={fn} storage={storage} endsAtMs={endsAtMs} demo />);
+      await waitFor(() => expect(screen.getByText("Debrief complete")).toBeTruthy());
+      expect(screen.getByText("Thank you. All 2 questions are answered and today is closed.")).toBeTruthy();
+    });
+
     it("a progress record of another debrief is ignored", async () => {
       const storage = new FakeStorage();
       storage.setItem("bee6.debrief.progress", JSON.stringify({ ends_at_ms: 1, answered: 4, skipped: 0 }));

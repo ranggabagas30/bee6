@@ -64,10 +64,11 @@ export type DebriefEvent =
       /** R-19 (demo): the server's `preparing`; absent on the pilot (read as false). */
       preparing?: boolean;
       /**
-       * R-19 (demo): counts stored by this phone for this debrief before a reload (answered / skipped so far).
-       * Absent on the pilot and on a first open (read as 0 / 0).
+       * R-19 (demo): counts and acted-on ids stored by this phone for this debrief before a reload. The ids
+       * seed `seen`, so a skipped question is not offered twice and the cap of 5 holds across the reload.
+       * Absent on the pilot and on a first open (read as 0 / 0 / none).
        */
-      progress?: { answered: number; skipped: number };
+      progress?: { answered: number; skipped: number; seen?: readonly string[] };
     }
   | { type: "LOAD_FAILED" }
   /**
@@ -118,6 +119,15 @@ function afterLast(s: DebriefState, answered: number, skipped: number): DebriefV
   return s.demo && s.preparing && s.seen.size < DEBRIEF_SHOW_MAX ? { kind: "waiting_more", answered, skipped } : { kind: "done", answered, skipped };
 }
 
+/**
+ * The ids to persist with the counts: every id in `seen` that this device answered or skipped. Offered questions
+ * not yet touched (the rest of the current list) are left out, so a reload still offers them.
+ */
+export function actedIds(s: DebriefState): string[] {
+  const untouched = new Set(s.view.kind === "question" ? s.view.list.slice(s.view.index).map((item) => item.question_id) : []);
+  return [...s.seen].filter((id) => !untouched.has(id));
+}
+
 export function reduceDebrief(s: DebriefState, e: DebriefEvent): DebriefState {
   switch (e.type) {
     case "OPEN":
@@ -129,24 +139,22 @@ export function reduceDebrief(s: DebriefState, e: DebriefEvent): DebriefState {
       // `timed_out` first) must never replace whatever is on screen now.
       if (s.view.kind !== "loading") return s;
       const preparing = s.demo && e.preparing === true;
+      const stored = new Set<string>(s.demo ? (e.progress?.seen ?? []) : []);
+      const room = Math.max(0, DEBRIEF_SHOW_MAX - stored.size);
       const filtered = e.questions
-        .filter((item) => !e.cached.has(item.question_id))
-        .slice(0, DEBRIEF_SHOW_MAX);
+        .filter((item) => !e.cached.has(item.question_id) && !stored.has(item.question_id))
+        .slice(0, room);
       const answered = s.demo ? (e.progress?.answered ?? 0) : 0;
       const skipped = s.demo ? (e.progress?.skipped ?? 0) : 0;
+      const seen = new Set([...stored, ...filtered.map((item) => item.question_id)]);
       let view: DebriefView;
       if (filtered.length > 0) view = freshQuestion(filtered, 0, answered, skipped);
       else if (!s.demo) view = { kind: "empty" };
-      else if (!preparing) view = { kind: "done", answered, skipped };
+      // Nothing left to offer: the server is done, or the cap of 5 is spent (nothing more can be shown).
+      else if (!preparing || seen.size >= DEBRIEF_SHOW_MAX) view = { kind: "done", answered, skipped };
       // A reload after some answers: the judge was already past "Preparing", so resume at "Checking for more".
       else view = answered + skipped > 0 ? { kind: "waiting_more", answered, skipped } : { kind: "preparing" };
-      return {
-        ...s,
-        business_date: e.business_date,
-        view,
-        seen: new Set(filtered.map((item) => item.question_id)),
-        preparing,
-      };
+      return { ...s, business_date: e.business_date, view, seen, preparing };
     }
 
     case "LOAD_FAILED":

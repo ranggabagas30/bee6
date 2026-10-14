@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
-import { canCommit, reduceDebrief, type DebriefState } from "@/lib/debrief/flow";
+import { actedIds, canCommit, reduceDebrief, type DebriefState } from "@/lib/debrief/flow";
 import { DebriefListResponseSchema } from "@/lib/debrief/contract";
 import { appendAnswer, CacheWriteError, cachedIds, pendingSummary, purgeNow, readCache } from "@/lib/debrief/answer-cache";
 import { createAnswerUploader, type AnswerUploader, type Disposition } from "@/lib/debrief/answer-uploader";
@@ -291,17 +291,26 @@ export function DebriefFlow({
     writeDoneFlag(effectiveStorage, endsAtMs, { answered: doneCounts.answered, skipped: doneCounts.skipped });
   }, [demo, doneCounts, effectiveStorage, endsAtMs]);
 
-  // R-19 (demo): the counts so far, written after every answer or skip, so a reload before `done` resumes with
-  // the right numbers. Counts only; not terminal (the completion flag above is the only terminal marker).
+  // R-19 (demo): the counts and the ids acted on so far, written after every answer or skip, so a reload before
+  // `done` resumes with the right numbers and neither re-offers a skipped question nor lifts the cap of 5. Counts
+  // and opaque question ids only; not terminal (the completion flag above is the only terminal marker).
   const progressCounts =
     state.view.kind === "question" || state.view.kind === "waiting_more" || state.view.kind === "done"
       ? { answered: state.view.answered, skipped: state.view.skipped }
       : null;
   const progressAnswered = progressCounts?.answered ?? null;
   const progressSkipped = progressCounts?.skipped ?? null;
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  });
   useEffect(() => {
     if (!demo || !effectiveStorage || progressAnswered === null || progressSkipped === null) return;
-    writeProgress(effectiveStorage, endsAtMs, { answered: progressAnswered, skipped: progressSkipped });
+    writeProgress(effectiveStorage, endsAtMs, {
+      answered: progressAnswered,
+      skipped: progressSkipped,
+      seen: actedIds(stateRef.current),
+    });
   }, [demo, effectiveStorage, endsAtMs, progressAnswered, progressSkipped]);
 
   function handleRetry() {

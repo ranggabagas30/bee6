@@ -90,16 +90,33 @@ describe("readDoneFlag", () => {
 describe("progress record (reload mid-debrief)", () => {
   it("round-trips the counts for the same endsAtMs; counts only (no ids, no text)", () => {
     const s = new MemStorage();
-    writeProgress(s, ENDS, { answered: 3, skipped: 1 });
-    expect(readProgress(s, ENDS)).toEqual({ answered: 3, skipped: 1 });
+    writeProgress(s, ENDS, { answered: 3, skipped: 1, seen: ["q1", "q2", "q3", "q4"] });
+    expect(readProgress(s, ENDS)).toEqual({ answered: 3, skipped: 1, seen: ["q1", "q2", "q3", "q4"] });
     const raw = s.getItem(DEBRIEF_PROGRESS_KEY) ?? "";
-    expect(Object.keys(JSON.parse(raw)).sort()).toEqual(["answered", "ends_at_ms", "skipped"]);
+    expect(Object.keys(JSON.parse(raw)).sort()).toEqual(["answered", "ends_at_ms", "seen", "skipped"]);
+  });
+
+  it("an older record without seen reads as an empty seen list, never crashes", () => {
+    const s = new MemStorage();
+    s.setItem(DEBRIEF_PROGRESS_KEY, JSON.stringify({ ends_at_ms: ENDS, answered: 2, skipped: 1 }));
+    expect(readProgress(s, ENDS)).toEqual({ answered: 2, skipped: 1, seen: [] });
+  });
+
+  it("refuses more than 5 seen ids, an empty id or a non-string id", () => {
+    const s = new MemStorage();
+    const bad = (seen: unknown) => {
+      s.setItem(DEBRIEF_PROGRESS_KEY, JSON.stringify({ ends_at_ms: ENDS, answered: 0, skipped: 0, seen }));
+      return readProgress(s, ENDS);
+    };
+    expect(bad(["1", "2", "3", "4", "5", "6"])).toBeNull();
+    expect(bad([""])).toBeNull();
+    expect(bad([1])).toBeNull();
   });
 
   it("is null for another debrief's record, no record, a malformed record or a blocked storage", () => {
     const s = new MemStorage();
     expect(readProgress(s, ENDS)).toBeNull();
-    writeProgress(s, ENDS, { answered: 3, skipped: 0 });
+    writeProgress(s, ENDS, { answered: 3, skipped: 0, seen: [] });
     expect(readProgress(s, ENDS + 1)).toBeNull();
     s.setItem(DEBRIEF_PROGRESS_KEY, "not json");
     expect(readProgress(s, ENDS)).toBeNull();
@@ -111,7 +128,7 @@ describe("progress record (reload mid-debrief)", () => {
 
   it("never marks the debrief terminal: the done flag is untouched", () => {
     const s = new MemStorage();
-    writeProgress(s, ENDS, { answered: 3, skipped: 0 });
+    writeProgress(s, ENDS, { answered: 3, skipped: 0, seen: [] });
     expect(readDoneFlag(s, ENDS)).toBeNull();
     expect(s.getItem(DEBRIEF_DONE_FLAG_KEY)).toBeNull();
   });
@@ -119,6 +136,6 @@ describe("progress record (reload mid-debrief)", () => {
   it("a storage that throws never breaks the screen", () => {
     const s = new MemStorage();
     s.throwOnSet = true;
-    expect(() => writeProgress(s, ENDS, { answered: 1, skipped: 0 })).not.toThrow();
+    expect(() => writeProgress(s, ENDS, { answered: 1, skipped: 0, seen: [] })).not.toThrow();
   });
 });

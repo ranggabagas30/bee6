@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { reduceDebrief, type DebriefState, type DebriefView } from "@/lib/debrief/flow";
+import { actedIds, reduceDebrief, type DebriefState, type DebriefView } from "@/lib/debrief/flow";
 import type { DebriefQuestionView } from "@/lib/debrief/contract";
 
 /**
@@ -264,6 +264,79 @@ describe("LOADED (demo) seeded from a stored progress record (reload mid-debrief
     expect(run(pilot, [{ type: "OPEN" }, loadedWith([], false)]).view).toEqual({ kind: "empty" });
     const withQ = run(pilot, [{ type: "OPEN" }, loadedWith([q("a")], false)]);
     expect((withQ.view as QuestionView).answered).toBe(0);
+  });
+});
+
+describe("LOADED (demo): the stored seen ids keep skips and the cap of 5 honest across a reload", () => {
+  const withProgress = (questions: DebriefQuestionView[], preparing: boolean, progress: { answered: number; skipped: number; seen: string[] }) =>
+    ({ ...loaded(questions, preparing), progress }) as const;
+
+  it("(a) reload after skipping q1 with the server still listing q1: q1 is not re-offered and skipped stays 1", () => {
+    const s = run(DEMO_CLOSED, [
+      { type: "OPEN" },
+      withProgress([q("q1")], true, { answered: 0, skipped: 1, seen: ["q1"] }),
+    ]);
+    expect(s.view).toEqual({ kind: "waiting_more", answered: 0, skipped: 1 });
+    expect([...s.seen]).toEqual(["q1"]);
+  });
+
+  it("(a2) a stored seen id is not re-offered but a new id is, and the counts carry on without double counting", () => {
+    const s = run(DEMO_CLOSED, [
+      { type: "OPEN" },
+      withProgress([q("q1"), q("q2")], true, { answered: 0, skipped: 1, seen: ["q1"] }),
+    ]);
+    expect(ids(s)).toEqual(["q2"]);
+    expect((s.view as QuestionView).skipped).toBe(1);
+    expect([...s.seen].sort()).toEqual(["q1", "q2"]);
+  });
+
+  it("(b) reload with 3 seen and 4 new ids from the server: only 2 are offered", () => {
+    const s = run(DEMO_CLOSED, [
+      { type: "OPEN" },
+      withProgress([q("n1"), q("n2"), q("n3"), q("n4")], true, { answered: 2, skipped: 1, seen: ["a", "b", "c"] }),
+    ]);
+    expect(ids(s)).toEqual(["n1", "n2"]);
+    expect(s.seen.size).toBe(5);
+  });
+
+  it("(c) reload with 5 seen and the server still preparing: straight to done with the stored counts", () => {
+    const s = run(DEMO_CLOSED, [
+      { type: "OPEN" },
+      withProgress([q("n1")], true, { answered: 4, skipped: 1, seen: ["a", "b", "c", "d", "e"] }),
+    ]);
+    expect(s.view).toEqual({ kind: "done", answered: 4, skipped: 1 });
+  });
+
+  it("a stored progress without seen (older shape) is read as an empty seen set", () => {
+    const s = run(DEMO_CLOSED, [{ type: "OPEN" }, { ...loaded([q("a")], false), progress: { answered: 1, skipped: 0 } }]);
+    expect(ids(s)).toEqual(["a"]);
+  });
+
+  it("the pilot ignores a stored seen", () => {
+    const pilot: DebriefState = { ...DEMO_CLOSED, demo: false };
+    const s = run(pilot, [{ type: "OPEN" }, withProgress([q("q1")], false, { answered: 0, skipped: 1, seen: ["q1"] })]);
+    expect(ids(s)).toEqual(["q1"]);
+  });
+});
+
+describe("actedIds: the ids to persist with the counts", () => {
+  it("excludes offered-but-untouched questions so a reload still offers them", () => {
+    const s = run(DEMO_CLOSED, [{ type: "OPEN" }, loaded([q("a"), q("b"), q("c")], true), { type: "SKIP" }]);
+    expect(actedIds(s)).toEqual(["a"]);
+  });
+
+  it("is every seen id once the list is exhausted (waiting_more)", () => {
+    const s = run(DEMO_CLOSED, [{ type: "OPEN" }, loaded([q("a")], true), { type: "SKIP" }]);
+    expect(s.view.kind).toBe("waiting_more");
+    expect(actedIds(s)).toEqual(["a"]);
+  });
+
+  it("keeps ids acted on before a reload, which are in seen but not in the current list", () => {
+    const s = run(DEMO_CLOSED, [
+      { type: "OPEN" },
+      { ...loaded([q("n1"), q("n2")], true), progress: { answered: 1, skipped: 0, seen: ["old"] } },
+    ]);
+    expect(actedIds(s)).toEqual(["old"]);
   });
 });
 
