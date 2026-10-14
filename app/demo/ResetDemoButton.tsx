@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/app/ui";
 import { authedPostJson } from "@/lib/auth/client/api";
@@ -244,14 +244,30 @@ function ResetDialog({ lang, busy, failure, onConfirm, onDismiss }: ResetDialogP
  * a refresh does not announce the reset again. Mount it once on the owner Home (PR-8 / the after-merge wiring).
  */
 export function ResetNotice({ lang }: { lang: Lang }) {
-  const [flagged, setFlagged] = useState(false);
+  // A per-mount external store: it latches "the flag was in the URL when we mounted" so the notice outlives the URL clean-up.
+  const [store] = useState(() => {
+    let shown = false;
+    const listeners = new Set<() => void>();
+    return {
+      subscribe: (l: () => void) => {
+        listeners.add(l);
+        return () => void listeners.delete(l);
+      },
+      get: () => shown,
+      show: () => {
+        shown = true;
+        listeners.forEach((l) => l());
+      },
+    };
+  });
+  const flagged = useSyncExternalStore(store.subscribe, store.get, () => false);
   useEffect(() => {
     const url = new URL(window.location.href);
     if (url.searchParams.get(NOTICE_PARAM) !== "1") return;
-    setFlagged(true);
+    store.show();
     url.searchParams.delete(NOTICE_PARAM);
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
-  }, []);
+  }, [store]);
   if (!flagged) return null;
   return (
     <p
