@@ -16,6 +16,7 @@ vi.mock("@/app/ui/fonts", () => ({ fontVariableClassNames: "mock-sans mock-mono"
 
 import RootLayout from "@/app/layout";
 import { DemoBarLoader } from "@/app/demo/DemoBarLoader";
+import { JudgeGuideLoader } from "@/app/demo/JudgeGuideLoader";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
@@ -107,6 +108,44 @@ describe("RootLayout demo bar (R-12 Task 8.4)", () => {
     if (value === undefined) vi.stubEnv("DEMO_MODE", undefined as unknown as string);
     else vi.stubEnv("DEMO_MODE", value);
     expect(containsType(await RootLayout({ children: null }), DemoBarLoader)).toBeNull();
+  });
+});
+
+describe("RootLayout judge guide (R-19 PR-5, plan 7.2)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const read = (rel: string) => readFileSync(join(__dirname, rel), "utf8");
+
+  it("mounts the guide (lazily loaded) with the web config when DEMO_MODE is exactly true, AFTER the page content", async () => {
+    vi.stubEnv("DEMO_MODE", "true");
+    vi.stubEnv("FIREBASE_API_KEY", "k");
+    vi.stubEnv("FIREBASE_AUTH_DOMAIN", "p.firebaseapp.com");
+    vi.stubEnv("FIREBASE_PROJECT_ID", "p");
+    vi.stubEnv("FIREBASE_APP_ID", "1:1:web:a");
+    const tree = await RootLayout({ children: <main id="page" /> });
+    const guide = containsType(tree, JudgeGuideLoader);
+    expect(guide).not.toBeNull();
+    expect(guide!.props.config).toEqual({ apiKey: "k", authDomain: "p.firebaseapp.com", projectId: "p", appId: "1:1:web:a" });
+    const body = (findHtml(tree) as unknown as ReactElement<{ children: ReactElement<{ children: ReactElement<{ children: unknown[] }> }> }>).props.children;
+    const kids = body.props.children.props.children as ReactElement[];
+    expect(kids.at(-1)!.type).toBe(JudgeGuideLoader);
+    expect(kids.findIndex((k) => k.type === JudgeGuideLoader)).toBeGreaterThan(kids.findIndex((k) => (k as ReactElement<{ id?: string }>).props?.id === "page"));
+  });
+
+  it.each([undefined, "", "false", "TRUE", "1"])("renders no guide when DEMO_MODE is %j (pilot)", async (value) => {
+    if (value === undefined) vi.stubEnv("DEMO_MODE", undefined as unknown as string);
+    else vi.stubEnv("DEMO_MODE", value);
+    expect(containsType(await RootLayout({ children: null }), JudgeGuideLoader)).toBeNull();
+  });
+
+  it("the layout and its loader only import the guide lazily (next/dynamic, ssr: false, from a client component), so a pilot page never downloads the script text or the demo credentials", () => {
+    const layout = read("layout.tsx");
+    expect(layout).not.toMatch(/from\s+["']@\/app\/demo\/JudgeGuide["']/);
+    expect(layout).not.toMatch(/@\/lib\/demo\/(script|credentials|guide)/);
+    const loader = read("demo/JudgeGuideLoader.tsx");
+    expect(loader).toMatch(/^"use client";/);
+    expect(loader).not.toMatch(/^import\s[^;]*from\s+["']@\/app\/demo\/JudgeGuide["']/m);
+    expect(loader).toMatch(/import\(\s*["']@\/app\/demo\/JudgeGuide["']\s*\)/);
+    expect(loader).toMatch(/ssr:\s*false/);
   });
 });
 

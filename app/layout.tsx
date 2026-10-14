@@ -5,6 +5,7 @@ import { LangProvider } from "@/lib/i18n/context";
 import { LANG_COOKIE, parseLangCookie } from "@/lib/i18n/lang";
 import { readFirebaseWebConfig } from "@/lib/auth/web-config";
 import { DemoBarLoader } from "@/app/demo/DemoBarLoader";
+import { JudgeGuideLoader } from "@/app/demo/JudgeGuideLoader";
 import { fontVariableClassNames } from "@/app/ui/fonts";
 import "./globals.css";
 
@@ -16,8 +17,9 @@ export const metadata: Metadata = {
 
 // Async so the language cookie is read on the server: <html lang> is right on
 // the first paint. Only the validated value is used; the cookie is never logged.
-// The demo bar (R-12) is mounted only when the server has DEMO_MODE exactly "true"
-// (read per request, never baked in), so the pilot never renders it.
+// The demo bar (R-12) and the judge guide (R-19 PR-5) are mounted only when the server has DEMO_MODE
+// exactly "true" (read per request, never baked in), so the pilot never renders either. The guide comes
+// after the page content: its collapsed phone handle is a fixed bottom sheet that reserves its own space.
 export default async function RootLayout({
   children,
 }: Readonly<{
@@ -26,12 +28,14 @@ export default async function RootLayout({
   const jar = await cookies();
   const lang = parseLangCookie(jar.get(LANG_COOKIE)?.value);
   const demo = process.env.DEMO_MODE === "true";
+  const webConfig = demo ? readFirebaseWebConfig() : null;
   return (
     <html lang={lang} className={fontVariableClassNames}>
       <body>
         <LangProvider initial={lang}>
-          {demo ? <DemoBarLoader config={readFirebaseWebConfig()} /> : null}
+          {demo ? <DemoBarLoader config={webConfig} /> : null}
           {children}
+          {demo ? <JudgeGuideLoader config={webConfig} /> : null}
         </LangProvider>
       </body>
     </html>

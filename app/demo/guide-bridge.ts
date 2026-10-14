@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { DemoSessionProfile } from "@/lib/capture/contract";
+import { DEBRIEF_DONE_FLAG_KEY } from "@/lib/debrief/constants";
 import type { CapturePhase } from "@/lib/demo/guide";
 import type { DictKey } from "@/lib/i18n/dict";
 
@@ -13,8 +14,8 @@ import type { DictKey } from "@/lib/i18n/dict";
  * `demo_session`), so the guide's /capture card exists only there; the pilot never mounts the guide at all.
  */
 
-/** PR-3 (plan 6.3) writes `localStorage[bee6.debrief.done] = String(endsAtMs)` on entering the terminal done screen. */
-export const DEBRIEF_DONE_FLAG_KEY = "bee6.debrief.done";
+/** PR-3 (plan 6.3) writes `localStorage[DEBRIEF_DONE_FLAG_KEY] = String(endsAtMs)` on entering the terminal done screen. */
+export { DEBRIEF_DONE_FLAG_KEY };
 
 export interface CaptureBridgeState {
   profile: DemoSessionProfile;

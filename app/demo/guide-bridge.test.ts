@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FRESH_DEMO_SESSION, type DemoSessionProfile } from "@/lib/capture/contract";
+import { DEBRIEF_DONE_FLAG_KEY as DEBRIEF_CONSTANT } from "@/lib/debrief/constants";
 import {
   DEBRIEF_DONE_FLAG_KEY,
   capturePhaseFor,
@@ -75,7 +76,8 @@ describe("the capture bridge store", () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 
-  it("names the PR-3 done flag key the plan fixes", () => {
+  it("re-exports the PR-3 done flag key (one definition, lib/debrief/constants), so the phase and DebriefFlow read the same flag", () => {
     expect(DEBRIEF_DONE_FLAG_KEY).toBe("bee6.debrief.done");
+    expect(DEBRIEF_DONE_FLAG_KEY).toBe(DEBRIEF_CONSTANT);
   });
 });
