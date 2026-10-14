@@ -241,6 +241,51 @@
   cursor: not-allowed;
 }
 
+/* ---- chip and pill ---- */
+.b6-chip {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: var(--b6-r-chip);
+  background: var(--b6-chip);
+  color: var(--b6-ink);
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-kicker);
+  white-space: nowrap;
+}
+
+.b6-chip--line {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--b6-line-field);
+  color: var(--b6-muted);
+}
+
+.b6-chip--teal {
+  background: var(--b6-teal-bg);
+  color: var(--b6-teal-ink);
+  box-shadow: inset 0 0 0 1px var(--b6-teal-line);
+}
+
+.b6-chip--amber {
+  background: var(--b6-amber-bg);
+  color: var(--b6-amber-ink);
+}
+
+.b6-pill {
+  display: inline-block;
+  padding: 5px 10px;
+  border-radius: var(--b6-r-pill);
+  font-family: var(--b6-font-sans);
+  font-size: var(--b6-fs-kicker);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.b6-pill--neutral { background: var(--b6-chip); color: var(--b6-ink-soft); }
+.b6-pill--teal { background: var(--b6-teal-bg); color: var(--b6-teal-ink); }
+.b6-pill--amber { background: var(--b6-amber-bg); color: var(--b6-amber-ink); }
+.b6-pill--red { background: var(--b6-red-bg); color: var(--b6-red-ink); }
+.b6-pill--green { background: var(--b6-green-bg); color: var(--b6-green-ink); }
+
 /* ---- mist: needs a position:relative parent ---- */
 .b6-mist {
   position: absolute;
