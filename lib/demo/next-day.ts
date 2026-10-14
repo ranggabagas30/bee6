@@ -2,7 +2,8 @@ import { addDays, businessDateOf } from "@/lib/capture/calendar";
 import { COLLECTIONS, type CollectionName } from "@/lib/firestore/collections";
 import type { LastEnded, Outlet } from "@/lib/firestore/schema";
 import { CLONE_DATE_KEYS, CLONE_UNTOUCHED_KEYS, shiftDeep } from "@/lib/demo/clone";
-import { NEXT_DAY_MAX, PREPARING_MAX_MS, TEMPLATE_DOC_MAX } from "@/lib/demo/constants";
+import { NEXT_DAY_MAX, TEMPLATE_DOC_MAX } from "@/lib/demo/constants";
+import { isPreparing } from "@/lib/debrief/preparing";
 import { demoDayOf, demoDaysDone, type DemoDay } from "@/lib/capture/contract";
 import { DemoNextDayResponseSchema, type DemoNextDayBody, type DemoNextDayResponse, type DemoNextDayStatus, type NextDayRefusal } from "@/lib/demo/contract";
 import { AppError, ConflictError, NotFoundError, ValidationError } from "@/lib/http/errors";
@@ -47,11 +48,6 @@ export interface NextDayGuardInput {
   proposal_lock_live: boolean;
   /** `outlet.sandbox.shift_started_at_ms ?? null`: the G7 marker. Judged before G3-G6 (a half-done shift has moved `last_ended`). */
   shift_started_at_ms: number | null;
-}
-
-/** Section 6.2: "Preparing your questions" while unlabelled lines remain, for at most PREPARING_MAX_MS after the end. */
-export function isPreparing(input: { pending: number; ended_at_ms: number; now_ms: number }): boolean {
-  return input.pending > 0 && input.now_ms < input.ended_at_ms + PREPARING_MAX_MS;
 }
 
 const refused = (reason: NextDayRefusal): DemoNextDayStatus => ({ allowed: false, reason });

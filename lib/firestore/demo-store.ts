@@ -25,6 +25,8 @@ import {
 } from "@/lib/demo/constants";
 import { TemplateTooLargeError, type DemoStore } from "@/lib/demo/store-types";
 import { NEXT_DAY_SHIFT_COLLECTIONS, type NextDayGuardState, type NextDayStore, type ShiftDoc } from "@/lib/demo/next-day";
+import { computePreparing } from "@/lib/debrief/preparing";
+import { firestoreDebriefStore } from "@/lib/firestore/debrief-store";
 import { firestoreTickStore } from "@/lib/firestore/tick-store";
 import { LockedError } from "@/lib/http/errors";
 
@@ -382,10 +384,9 @@ export function firestoreNextDayStore(db: Firestore = adminDb()): NextDayStore {
     proposalWithContent: hasProposalWithContent,
 
     async readGuardState(outletId, deviceId, nowMs): Promise<NextDayGuardState> {
-      const [deviceSnap, sessionSnap, labelled, questionSnap, proposal_with_content, lockSnap] = await Promise.all([
+      const [deviceSnap, sessionSnap, questionSnap, proposal_with_content, lockSnap] = await Promise.all([
         db.collection(COLLECTIONS.devices).doc(deviceDocId(outletId, deviceId)).get(),
         forDevice(COLLECTIONS.captureSessions, outletId, deviceId).get(),
-        tick.listLabelledLineIds(outletId, deviceId),
         forDevice(COLLECTIONS.questions, outletId, deviceId).where("status", "==", "open").get(),
         hasProposalWithContent(outletId),
         db.collection(COLLECTIONS.proposalLocks).doc(outletId).get(),
@@ -398,46 +399,29 @@ export function firestoreNextDayStore(db: Firestore = adminDb()): NextDayStore {
         else logSkippedDoc("device", deviceSnap.id);
       }
 
-      // G3 (an open session) and the session `preparing` is about, from the one sessions query. Same selection as
-      // PR-3's `getLatestEndedSession(device, last_ended.business_date)`: ended, local_date == the last end's
-      // business date, end_reason in selesai/auto_stop/lost (a discarded session never counts), latest ended_at_ms.
+      // G3: an open session (the one sessions query). The session `preparing` is about is picked by
+      // `computePreparing` below, with the same selection the questions route uses.
       let session_open = false;
-      let latest: { session_id: string; ended_at_ms: number } | null = null;
       for (const doc of sessionSnap.docs) {
         const parsed = CaptureSessionSchema.safeParse(doc.data());
         if (!parsed.success) {
           logSkippedDoc("capture_session", doc.id);
           continue;
         }
-        const s = parsed.data;
-        if (s.ended_at_ms === null) {
-          session_open = true;
-          continue;
-        }
-        const isEnd = s.end_reason === "selesai" || s.end_reason === "auto_stop" || s.end_reason === "lost";
-        if (isEnd && last_ended !== null && s.local_date === last_ended.business_date && (latest === null || s.ended_at_ms > latest.ended_at_ms)) {
-          latest = { session_id: s.session_id, ended_at_ms: s.ended_at_ms };
-        }
+        if (parsed.data.ended_at_ms === null) session_open = true;
       }
 
-      // Section 6.2: text lines of that one session that no done/failed ledger row covers. ONE RULE, PR-3's
-      // (lib/debrief/service.ts countPendingLines + lib/firestore/debrief-store.ts listSessionLines): a line is
-      // text iff `line.text.trim().length > 0`; line ids are `${seg_id}#${i}`; segments are read per session.
-      // TODO(R-19 PR-3 merge): import PR-3's helper here and delete this copy, so the rule lives in one place.
+      // Section 6.2: text lines of that one session that no done/failed ledger row covers. ONE RULE, shared with
+      // the questions route's `preparing` flag: `computePreparing` over the sandbox outlet's debrief store.
       let pending_unlabelled_lines = 0;
-      if (latest !== null) {
-        const segmentSnap = await forDevice(COLLECTIONS.segments, outletId, deviceId).where("session_id", "==", latest.session_id).get();
-        for (const doc of segmentSnap.docs) {
-          const raw = (doc.data() ?? {}) as { seg_id?: unknown; lines?: unknown };
-          if (typeof raw.seg_id !== "string" || !Array.isArray(raw.lines)) {
-            logSkippedDoc("segment", doc.id);
-            continue;
-          }
-          raw.lines.forEach((line, i) => {
-            const text = (line as { text?: unknown } | null)?.text;
-            if (typeof text === "string" && text.trim().length > 0 && !labelled.has(`${raw.seg_id}#${i}`)) pending_unlabelled_lines += 1;
-          });
-        }
+      if (last_ended !== null) {
+        const { pending } = await computePreparing(
+          firestoreDebriefStore(outletId, db),
+          deviceId,
+          { business_date: last_ended.business_date, ended_at_ms: last_ended.ended_at_ms },
+          nowMs,
+        );
+        pending_unlabelled_lines = pending;
       }
 
       let proposal_lock_live = false;
