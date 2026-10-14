@@ -16,6 +16,9 @@ import { nextDayEligibility } from "@/lib/demo/next-day";
  * device come from the verified principal only. Returns a strict allowlist, never the
  * whole outlet or device doc.
  *
+ * R-19 PR-4b: the same overlay also reports `open_session` (this device's still-open session, ids and times only)
+ * and `closing_reached`, both from the guard-state read, so there is still one session query per GET.
+ *
  * R-19 PR-2: when the response carries `demo_session` (a demo deployment, a sandbox outlet, a judge device:
  * `hasDemoProfile`), `day`, `days_done` and `next_day` are filled from the sandbox's `next_day_count` and the
  * same server-side guards the next-day route applies (read-only). The pilot path never builds the demo store.
@@ -37,6 +40,8 @@ async function withSandboxDay(config: CaptureConfigResponse, claims: { outlet_id
     next_day_count,
     last_ended: guard.last_ended,
     today: businessDateOf(now_ms, config.timezone),
+    // R-19 PR-4b: the device's still-open session comes from the guard read above (one query, no second).
+    open_session: guard.open_session,
     // The marker is part of the verdict: a crashed shift reports `shift_incomplete` (owner-reset copy), a live one `busy`.
     next_day: nextDayEligibility({ ...guard, now_ms, tz: config.timezone, next_day_count: next_day_count ?? 0, shift_started_at_ms: outlet?.sandbox?.shift_started_at_ms ?? null }),
   });

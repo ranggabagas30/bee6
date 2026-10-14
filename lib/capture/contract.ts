@@ -18,7 +18,7 @@ import type { CustomClaims } from "@/lib/auth/roles";
 import { classifyMicSource } from "@/lib/capture/mic-source";
 import { captureMode } from "@/lib/devices/capture-mode";
 import { DEMO_DAYS_TOTAL, DEMO_SESSION_MAX_MS } from "@/lib/demo/constants";
-import { DemoNextDayStatusSchema, DemoOpenSessionSchema, type DemoNextDayStatus } from "@/lib/demo/contract";
+import { DemoNextDayStatusSchema, DemoOpenSessionSchema, type DemoNextDayStatus, type DemoOpenSession } from "@/lib/demo/contract";
 
 /**
  * Shared capture contract (R-03, web spec §4.1/§5). This module is the single
@@ -297,14 +297,16 @@ export function demoDaysDone(input: { next_day_count: number | undefined; last_e
 /**
  * R-19 PR-2 (plan section 4.3): what the sandbox's live profile is computed from. `next_day` is the verdict of
  * the same pure guard function the next-day route runs (`nextDayEligibility`, G3-G6, no writes), so the
- * drawer can show the lock reason without a call. `closing_reached` and `open_session` stay at their fresh
- * values until PR-4 fills them.
+ * drawer can show the lock reason without a call. `open_session` (PR-4b, plan 5.7a) is the device's still-open
+ * session or null; `demo_session.closing_reached` is derived from it right here, so there is one source of truth.
  */
 export interface DemoDayInput {
   next_day_count: number | undefined;
   last_ended: LastEnded | null;
   /** The sandbox's current business date in the outlet's timezone. */
   today: string;
+  /** The device's newest unended session (from the same read as the guards), or null. */
+  open_session: DemoOpenSession | null;
   next_day: DemoNextDayStatus;
 }
 
@@ -313,6 +315,9 @@ export function projectDemoSessionProfile(input: DemoDayInput): DemoSessionProfi
     ...FRESH_DEMO_SESSION,
     day: demoDayOf(input.next_day_count),
     days_done: demoDaysDone({ next_day_count: input.next_day_count, last_ended: input.last_ended, today: input.today }),
+    open_session: input.open_session,
+    // One source of truth: the live phone-local flag is only a shortcut for a session it is running itself.
+    closing_reached: input.open_session?.closing_reached ?? false,
     next_day: input.next_day,
   });
 }
