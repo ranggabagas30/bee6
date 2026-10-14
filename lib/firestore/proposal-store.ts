@@ -12,6 +12,7 @@ import {
   ThreadSchema,
   parseOutletDoc,
   type Proposal,
+  type ProposalStatus,
   type SopVersion,
 } from "@/lib/firestore/schema";
 import type { AttributionSession } from "@/lib/day/attribution";
@@ -85,6 +86,10 @@ const GET_THREADS_SHAPE = ThreadSchema.pick({
 });
 
 const PROPOSAL_LOCK_COLLECTION = COLLECTIONS.proposalLocks;
+
+/** R-19 §3.3 `listOpenProposals`: the two open statuses, read with one `in` query, capped. */
+const OPEN_PROPOSAL_STATUSES: readonly ProposalStatus[] = ["awaiting_supervisor", "awaiting_owner"];
+const OPEN_PROPOSALS_MAX = 50;
 
 export function firestoreProposalStore(outletId: string, db: Firestore = adminDb()): ProposalStore {
   return {
@@ -177,6 +182,27 @@ export function firestoreProposalStore(outletId: string, db: Firestore = adminDb
         if (!newest || result.data.created_at_ms > newest.created_at_ms) newest = result.data;
       }
       return newest;
+    },
+
+    async listOpenProposals() {
+      const snap = await db
+        .collection(COLLECTIONS.proposals)
+        .where("outlet_id", "==", outletId)
+        .where("status", "in", [...OPEN_PROPOSAL_STATUSES])
+        .limit(OPEN_PROPOSALS_MAX)
+        .get();
+      const out: Proposal[] = [];
+      for (const doc of snap.docs) {
+        const result = ProposalSchema.safeParse(doc.data());
+        if (!result.success) {
+          logSkippedDoc("proposal", doc.id);
+          continue;
+        }
+        if (result.data.outlet_id !== outletId) continue;
+        if (!OPEN_PROPOSAL_STATUSES.includes(result.data.status)) continue;
+        out.push(result.data);
+      }
+      return out;
     },
 
     async getThreads(ids) {

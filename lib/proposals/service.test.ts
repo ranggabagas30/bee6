@@ -116,6 +116,8 @@ interface FakeStoreState {
   sop: SopVersion | null;
   constraints: Constraint[];
   openProposal: Proposal | null;
+  /** R-19 §3.3: what `listOpenProposals` returns (cited-thread exclusion and taken focus categories). */
+  openProposals: Proposal[];
   threadSummaries: Map<string, string | null>;
   staffNames: string[];
   lockHeld: boolean;
@@ -135,6 +137,7 @@ function makeFakeStore(state: Partial<FakeStoreState> = {}): { store: ProposalSt
     sop: SOP,
     constraints: [],
     openProposal: null,
+    openProposals: [],
     threadSummaries: new Map(),
     staffNames: [],
     lockHeld: false,
@@ -165,6 +168,9 @@ function makeFakeStore(state: Partial<FakeStoreState> = {}): { store: ProposalSt
     },
     async findOpenProposalForRange() {
       return s.openProposal;
+    },
+    async listOpenProposals() {
+      return s.openProposals;
     },
     async getThreads(ids) {
       const map = new Map<string, { status: "fact" | "open" | "unverified"; excluded_from_evidence?: boolean; label_source?: string; summary: string; first_line_start_ms: number }>();

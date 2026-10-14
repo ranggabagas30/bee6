@@ -111,6 +111,7 @@ function oneFactStore(): ProposalStore {
     getCurrentSop: async () => SOP,
     listConstraints: async () => [],
     findOpenProposalForRange: async () => null,
+    listOpenProposals: async () => [],
     getThreads: async () => new Map(),
     listStaffScrubNames: async () => [],
     acquireLock: async () => "lease-token",

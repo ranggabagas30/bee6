@@ -58,6 +58,8 @@ export interface ProposalStore {
   listConstraints(): Promise<Constraint[]>;
   /** A proposal of this outlet with this exact range and status awaiting_supervisor | awaiting_owner, newest. */
   findOpenProposalForRange(from: string, to: string): Promise<Proposal | null>;
+  /** R-19 §3.3: every awaiting_supervisor | awaiting_owner proposal of this outlet, any range, at most 50, malformed skipped. */
+  listOpenProposals(): Promise<Proposal[]>;
   /** By thread id, outlet-checked, for the result card's live evidence summaries. */
   getThreads(
     ids: readonly string[],
