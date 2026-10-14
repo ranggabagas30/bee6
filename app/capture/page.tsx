@@ -697,16 +697,20 @@ export default function CapturePage() {
     // disabled button exactly as before.
     const startLocked = demoSession !== undefined && !idle.offered;
     const nextDayReason = demoSession?.next_day.reason ?? null;
-    const lockedHintKey: DictKey =
-      nextDayReason === null || nextDayReason === "unanswered_questions"
-        ? "C-sess-start-jump-hint"
-        : NEXT_DAY_REASON_KEY[nextDayReason];
+    // `day_not_ended` can never be true while Start is locked (the day already ended), and the jump is not
+    // allowed either, so it gets no reason line and no jump hint.
+    const lockedHintKey: DictKey | null =
+      nextDayReason === "day_not_ended"
+        ? null
+        : nextDayReason === null || nextDayReason === "unanswered_questions"
+          ? "C-sess-start-jump-hint"
+          : NEXT_DAY_REASON_KEY[nextDayReason];
     const primary = (
       <>
         {startLocked ? (
           <>
             <p style={{ marginTop: 16, fontSize: 16, fontWeight: 700 }}>{t(lang, "C-sess-start-locked")}</p>
-            <p style={{ fontSize: 14 }}>{t(lang, lockedHintKey)}</p>
+            {lockedHintKey ? <p style={{ fontSize: 14 }}>{t(lang, lockedHintKey)}</p> : null}
           </>
         ) : (
           <button
@@ -906,7 +910,7 @@ export default function CapturePage() {
               </p>
             ) : null}
             {selesaiConfirmOpen ? renderSelesaiConfirmPanel() : null}
-            {!selesaiConfirmOpen && !batalkanOpen ? (
+            {!selesaiConfirmOpen && !batalkanOpen && !(config?.demo_session !== undefined && closingReached) ? (
               <button
                 type="button"
                 style={{ ...SECONDARY_BUTTON_STYLE, minHeight: 48 }}

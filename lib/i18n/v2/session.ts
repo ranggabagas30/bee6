@@ -25,6 +25,8 @@ export const sessionID = {
   // 5.4: the closing route's 409 not_enough_speech ({have} of {need} heard lines).
   "C-sess-closing-not-enough":
     "Bee6 belum cukup mendengar ({have} dari {need}). Tunggu beberapa detik sampai kartu terakhir terunggah, lalu coba lagi.", // PROVISIONAL
+  // Backstop: Batalkan refused with 409 closing_reached (the sandbox reached closing time; retrying cannot help).
+  "C-sess-cancel-closed": "Hari ini sudah mencapai jam tutup, jadi sesi tidak bisa dibatalkan. Ketuk Akhiri hari ini.", // PROVISIONAL
   // 4.4: why "Jump to tomorrow" is locked (one line each; `unanswered_questions` is a confirm dialog in PR-2, not a lock line).
   "C-sess-next-day-proposal_exists":
     "Bee6 sudah membuat usulan dari hari-hari ini, jadi jam toko tidak bisa maju ke hari lain. Untuk mengulang, masuk sebagai Pemilik dan atur ulang demo.", // PROVISIONAL
@@ -42,6 +44,7 @@ export const sessionEN: Record<keyof typeof sessionID, string> = {
   "C-sess-end-today": "End today",
   "C-sess-start-locked": "Start unlocks tomorrow from 01:00",
   "C-sess-start-jump-hint": "Use Jump to tomorrow in the judge guide",
+  "C-sess-cancel-closed": "Today has reached closing time, so the session can't be cancelled. Tap End today.",
   "C-sess-closing-not-enough":
     "Bee6 has not heard enough yet ({have} of {need}). Wait a few seconds for the last card to upload, then try again.",
   "C-sess-next-day-proposal_exists":

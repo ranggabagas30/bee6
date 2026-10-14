@@ -546,19 +546,12 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
     expect((screen.getByRole("button", { name: END_LOCKED }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("a new Start after Cancel locks End again (closing is per session)", async () => {
+  it("after Jump to closing time the sandbox no longer offers Cancel session (the server refuses it with 409 closing_reached)", async () => {
     await renderDemoRunning();
+    expect(screen.getByRole("button", { name: "Cancel session" })).toBeTruthy();
     await reachClosing();
-    // Cancel is refused by the server after closing (409 closing_reached, session-service); here the mock
-    // accepts it only to drive the page back to idle and prove the lock resets on the next session.
-    await vi.advanceTimersByTimeAsync(1_000);
-    fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
-    await vi.advanceTimersByTimeAsync(1_000);
-    fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
-    await waitFor(() => expect(postSessionDiscard).toHaveBeenCalledTimes(1));
-    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
-    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
-    expect((screen.getByRole("button", { name: END_LOCKED }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "Cancel session" })).toBeNull();
+    expect(screen.getByRole("button", { name: "End today" })).toBeTruthy();
   });
 
   // Q6: "Day n of 3 · date" on the phone, sandbox only.
@@ -619,7 +612,7 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
   });
 
   // Plan 5.6: Start is hidden (not rendered disabled) on a sandbox while locked; the pilot keeps its disabled button.
-  it("a finished demo day renders no Start button: the unlock line, the next_day reason, and the Supervisor note", async () => {
+  it("a finished demo day renders no Start button: the unlock line and the Supervisor note, with no contradictory reason or hint line", async () => {
     await renderDemoRunning();
     const end = await reachClosing();
     fireEvent.click(end);
@@ -630,7 +623,9 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
     );
     expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
     expect(screen.getByText("Start unlocks tomorrow from 01:00")).toBeTruthy();
-    expect(screen.getByText("Run today first: tap Start, speak the cards, then End.")).toBeTruthy();
+    // Right after End the reason can only be day_not_ended, which cannot be true while Start is locked: no
+    // reason line and no jump hint (the jump is not allowed yet either).
+    expect(screen.queryByText(/Run today first/)).toBeNull();
     expect(screen.queryByText("Use Jump to tomorrow in the judge guide")).toBeNull();
   });
 

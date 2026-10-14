@@ -34,5 +34,6 @@ export function sessionErrorKey(
   code: string | undefined,
 ): DictKey {
   if (status === 409 && code === "session_ended") return "C-c-discard-failed";
+  if (status === 409 && code === "closing_reached") return "C-sess-cancel-closed";
   return "C-sess-err";
 }
