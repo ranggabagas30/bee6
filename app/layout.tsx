@@ -5,6 +5,8 @@ import { LangProvider } from "@/lib/i18n/context";
 import { LANG_COOKIE, parseLangCookie } from "@/lib/i18n/lang";
 import { readFirebaseWebConfig } from "@/lib/auth/web-config";
 import { DemoBarLoader } from "@/app/demo/DemoBarLoader";
+import { fontVariableClassNames } from "@/app/ui/fonts";
+import "./globals.css";
 
 export const metadata: Metadata = {
   title: "bee6 — SOP Improvement Agent",
@@ -25,7 +27,7 @@ export default async function RootLayout({
   const lang = parseLangCookie(jar.get(LANG_COOKIE)?.value);
   const demo = process.env.DEMO_MODE === "true";
   return (
-    <html lang={lang}>
+    <html lang={lang} className={fontVariableClassNames}>
       <body>
         <LangProvider initial={lang}>
           {demo ? <DemoBarLoader config={readFirebaseWebConfig()} /> : null}

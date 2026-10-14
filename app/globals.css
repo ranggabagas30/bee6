@@ -1,0 +1,123 @@
+/*
+ * Bee6 page-2 design tokens and primitive styles (R-19 PR-0b).
+ *
+ * Source of truth: page 2 of the "Bee6 Wireframes" canvas (generated CSS blocks CSS, CSS3, CSS4).
+ *
+ * SCOPE RULE: nothing here may restyle an existing page. Tokens live on :root as --b6-* custom properties
+ * (declaring a variable changes no element). Every other selector starts with .b6- and every keyframe is
+ * b6-prefixed. No element selectors, no resets. app/ui/tokens.test.ts enforces this.
+ */
+
+:root {
+  /* colour: grounds and ink */
+  --b6-ground: #F5F4F1;
+  --b6-surface: #FFFFFF;
+  --b6-surface-soft: #F4F2EE;
+  --b6-ink: #2B2A26;
+  --b6-ink-soft: #3D3B36;
+  --b6-muted: #5F5C55;
+  --b6-faint: #8A867D; /* placeholders and disabled glyphs only; below 4.5:1 on light grounds */
+  --b6-line: #E4E1DA;
+  --b6-line-strong: #D6D2C9;
+  --b6-line-field: #CFCBC2;
+  --b6-chip: #EBE9E4;
+
+  /* colour: teal (brand, live, ready) */
+  --b6-teal: #8AC7BA;
+  --b6-teal-ink: #2F6A5D;
+  --b6-teal-bg: #EEF6F4;
+  --b6-teal-line: #CBE4DD;
+
+  /* colour: amber (needs attention) */
+  --b6-amber-ink: #6E4A00;
+  --b6-amber-bg: #FBF3E2;
+  --b6-amber-line: #F0DFBC;
+
+  /* colour: red (destructive, refused) */
+  --b6-red-ink: #8E3526;
+  --b6-red-bg: #FBEFEB;
+
+  /* colour: green (done, approved) */
+  --b6-green-ink: #2F4A37;
+  --b6-green-bg: #EEF3EF;
+
+  /* primary button gradient (dark pill) */
+  --b6-dark-hi: #45433E;
+  --b6-dark-mid: #2B2A26;
+  --b6-dark-lo: #262521;
+  --b6-on-dark: #F7F6F3;
+
+  /* disabled controls (the CSS3 board revision: readable grey, not faded) */
+  --b6-disabled-bg: #E4E1DA;
+
+  /* focus ring */
+  --b6-focus: #2F6A5D;
+
+  /* soft mint mist (decoration only) */
+  --b6-mist-core: #D3EAE3;
+  --b6-mist-1: rgba(190, 224, 214, 0.55);
+  --b6-mist-2: rgba(255, 255, 255, 0.65);
+  --b6-mist-3: rgba(204, 231, 223, 0.42);
+  --b6-mist-4: rgba(255, 255, 255, 0.5);
+
+  /* radii */
+  --b6-r-card: 18px;
+  --b6-r-glass: 16px;
+  --b6-r-sheet: 24px;
+  --b6-r-btn-lg: 20px;
+  --b6-r-btn: 16px;
+  --b6-r-control: 12px;
+  --b6-r-seg-item: 9px;
+  --b6-r-chip: 8px;
+  --b6-r-pill: 10px;
+
+  /* shadows */
+  --b6-shadow-card: 0 1px 1px rgba(43, 42, 38, 0.04), 0 16px 36px -20px rgba(43, 42, 38, 0.22);
+  --b6-shadow-btn-lg: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 0 0 5px rgba(255, 255, 255, 0.6), 0 16px 34px -16px rgba(43, 42, 38, 0.55);
+  --b6-shadow-btn: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 0 0 4px rgba(255, 255, 255, 0.6), 0 12px 26px -14px rgba(43, 42, 38, 0.55);
+  --b6-shadow-seg-on: 0 1px 2px rgba(43, 42, 38, 0.08);
+  --b6-shadow-sheet: 0 -18px 40px -18px rgba(43, 42, 38, 0.38);
+  --b6-shadow-pop: 0 1px 2px rgba(43, 42, 38, 0.08), 0 12px 28px -14px rgba(43, 42, 38, 0.35), inset 0 0 0 1px #E4E1DA;
+
+  /* type */
+  --b6-font-sans: var(--font-b6-sans, "Plus Jakarta Sans"), system-ui, sans-serif;
+  --b6-font-mono: var(--font-b6-mono, "Geist Mono"), ui-monospace, monospace;
+  --b6-fs-display: 38px;
+  --b6-fs-h1: 34px;
+  --b6-fs-stat: 30px;
+  --b6-fs-title: 18px;
+  --b6-fs-lead: 16px;
+  --b6-fs-body: 15px;
+  --b6-fs-ui: 14px;
+  --b6-fs-small: 13px;
+  --b6-fs-kicker: 12px;
+
+  /* layout */
+  --b6-tap: 44px;
+  --b6-panel-w: 360px;
+  --b6-z-overlay: 40;
+}
+
+.b6-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .b6-btn,
+  .b6-seg__item,
+  .b6-sheet,
+  .b6-panel {
+    transition: none;
+  }
+  .b6-mist__leaf {
+    animation: none;
+  }
+}
