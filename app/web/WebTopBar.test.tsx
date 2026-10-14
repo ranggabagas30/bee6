@@ -50,6 +50,12 @@ describe("WebTopBar (R-19 PR-6 §8.2)", () => {
     expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
   });
 
+  it("the brand is a link to the entry page", () => {
+    signedIn({ role: "supervisor", outlet_id: "o1" });
+    renderBar();
+    expect(screen.getByRole("link", { name: "bee6" }).getAttribute("href")).toBe("/");
+  });
+
   it("a supervisor claim shows the supervisor nav and a Supervisor role chip, no demo chip", async () => {
     signedIn({ role: "supervisor", outlet_id: "o1" });
     renderBar({ current: "day" });

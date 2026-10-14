@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { Auth } from "@/lib/auth/client/firebase-client";
 import { useLang } from "@/lib/i18n/context";
 import { t } from "@/lib/i18n/dict";
@@ -27,7 +28,9 @@ export function WebTopBar({ auth, showSignOut, current }: { auth: Auth | null; s
     <>
       <header className={styles.bar}>
         <div className={styles.brandRow}>
-          <span className={styles.brand}>bee6</span>
+          <Link href="/" className={styles.brand}>
+            bee6
+          </Link>
           {webRole && <Pill tone="neutral">{t(lang, webRole === "owner" ? "C-signin-role-owner" : "C-signin-role-supervisor")}</Pill>}
           {demo && <Chip variant="amber">{t(lang, "C-web-demo-chip")}</Chip>}
         </div>
