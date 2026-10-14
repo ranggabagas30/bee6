@@ -1,4 +1,4 @@
-// Test helpers for reading app/globals.css as text. Never imported by app code.
+// Test helpers for reading app/globals.css as text (test-only, never imported by app code; pure node, no DOM).
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -73,15 +73,16 @@ function channel(c: number): number {
 
 export function luminance(hex: string): number {
   const m = /^#([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) throw new Error(`not a #rrggbb colour: ${hex}`);
+  if (!m || m[1] === undefined) throw new Error(`not a #rrggbb colour: ${hex}`);
   const n = parseInt(m[1], 16);
   return 0.2126 * channel((n >> 16) & 255) + 0.7152 * channel((n >> 8) & 255) + 0.0722 * channel(n & 255);
 }
 
 /** WCAG 2.x contrast ratio between two #rrggbb colours. */
 export function contrast(a: string, b: string): number {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
+  const la = luminance(a);
+  const lb = luminance(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 }
 
 /** Declarations of every top-level rule whose selector list contains exactly `selector`, merged in source order. */
@@ -101,4 +102,11 @@ export function minHeightPx(decls: Record<string, string>, tokens: Record<string
   if (!raw) return 0;
   const v = raw.replace(/var\((--[\w-]+)\)/, (_m, name: string) => tokens[name] ?? "0");
   return parseFloat(v);
+}
+
+/** A token's value; throws when the token is missing so a typo fails loudly instead of as `undefined`. */
+export function tok(tokens: Record<string, string>, name: string): string {
+  const v = tokens[name];
+  if (v === undefined) throw new Error(`missing token ${name}`);
+  return v;
 }

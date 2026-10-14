@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Button, ButtonLink, buttonClassName } from "@/app/ui/Button";
 import { axeViolations } from "@/lib/testing/axe";
-import { minHeightPx, readGlobalsCss, rootTokens, ruleDeclarations } from "@/app/ui/css-helpers";
+import { minHeightPx, readGlobalsCss, rootTokens, ruleDeclarations } from "@/lib/testing/css";
 
 afterEach(() => cleanup());
 const css = readGlobalsCss();

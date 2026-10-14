@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contrast, declarations, parseCss, readGlobalsCss, rootTokens } from "@/app/ui/css-helpers";
+import { contrast, declarations, parseCss, readGlobalsCss, rootTokens, tok } from "@/lib/testing/css";
 
 const css = readGlobalsCss();
 const tokens = rootTokens(css);
@@ -62,7 +62,7 @@ describe("page-2 design tokens (app/globals.css)", () => {
   });
 
   it("text colour pairs meet WCAG AA (4.5:1)", () => {
-    const t = (k: string) => tokens[k];
+    const t = (k: string) => tok(tokens, k);
     const pairs: Array<[string, string]> = [
       ["--b6-ink", "--b6-ground"],
       ["--b6-muted", "--b6-ground"],
@@ -88,10 +88,10 @@ describe("page-2 design tokens (app/globals.css)", () => {
 
   it("the focus ring and tick outlines meet 3:1 against the grounds they sit on", () => {
     for (const bg of ["--b6-ground", "--b6-surface", "--b6-chip"]) {
-      expect(contrast(tokens["--b6-focus"], tokens[bg]), bg).toBeGreaterThanOrEqual(3);
+      expect(contrast(tok(tokens, "--b6-focus"), tok(tokens, bg)), bg).toBeGreaterThanOrEqual(3);
     }
     // the empty "todo" tick ring sits on white
-    expect(contrast(tokens["--b6-faint"], tokens["--b6-surface"])).toBeGreaterThanOrEqual(3);
+    expect(contrast(tok(tokens, "--b6-faint"), tok(tokens, "--b6-surface"))).toBeGreaterThanOrEqual(3);
   });
 
   it("turns transitions off under prefers-reduced-motion", () => {

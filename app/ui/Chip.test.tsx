@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { Chip, Pill } from "@/app/ui/Chip";
 import { axeViolations } from "@/lib/testing/axe";
-import { readGlobalsCss, ruleDeclarations } from "@/app/ui/css-helpers";
+import { readGlobalsCss, ruleDeclarations } from "@/lib/testing/css";
 
 afterEach(() => cleanup());
 const css = readGlobalsCss();

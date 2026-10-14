@@ -7,7 +7,7 @@ export interface ChipProps extends HTMLAttributes<HTMLSpanElement> {
   variant?: ChipVariant;
 }
 
-/** Small mono tag ("DEMO DATA", "STAGE 2 OF 5"). Static: not a control. */
+/** Small mono tag ("STAGE 2 OF 5", "BETA"). Static: not a control. */
 export function Chip({ variant = "default", className, ...rest }: ChipProps) {
   return <span {...rest} className={cx("b6-chip", variant !== "default" && `b6-chip--${variant}`, className)} />;
 }

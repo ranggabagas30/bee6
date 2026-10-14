@@ -6,7 +6,7 @@ import { Tile } from "@/app/ui/Tile";
 import { Mist } from "@/app/ui/Mist";
 import { Kicker } from "@/app/ui/Kicker";
 import { axeViolations } from "@/lib/testing/axe";
-import { readGlobalsCss, rootTokens, ruleDeclarations } from "@/app/ui/css-helpers";
+import { readGlobalsCss, rootTokens, ruleDeclarations } from "@/lib/testing/css";
 
 afterEach(() => cleanup());
 const css = readGlobalsCss();
