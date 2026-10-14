@@ -1,0 +1,555 @@
+/*
+ * Bee6 page-2 design tokens and primitive styles (R-19 PR-0b).
+ *
+ * Source of truth: page 2 of the "Bee6 Wireframes" canvas (generated CSS blocks CSS, CSS3, CSS4).
+ *
+ * SCOPE RULE: nothing here may restyle an existing page. Tokens live on :root as --b6-* custom properties
+ * (declaring a variable changes no element). Every other selector starts with .b6- and every keyframe is
+ * b6-prefixed. No element selectors, no resets. app/ui/tokens.test.ts enforces this.
+ */
+
+:root {
+  /* colour: grounds and ink */
+  --b6-ground: #F5F4F1;
+  --b6-surface: #FFFFFF;
+  --b6-surface-soft: #F4F2EE;
+  --b6-ink: #2B2A26;
+  --b6-ink-soft: #3D3B36;
+  --b6-muted: #5F5C55;
+  --b6-faint: #8A867D; /* placeholders and disabled glyphs only; below 4.5:1 on light grounds */
+  --b6-line: #E4E1DA;
+  --b6-line-strong: #D6D2C9;
+  --b6-line-field: #CFCBC2;
+  --b6-line-soft: #E9E6DF;
+  --b6-chip: #EBE9E4;
+
+  /* colour: teal (brand, live, ready) */
+  --b6-teal: #8AC7BA;
+  --b6-teal-ink: #2F6A5D;
+  --b6-teal-bg: #EEF6F4;
+  --b6-teal-line: #CBE4DD;
+
+  /* colour: amber (needs attention) */
+  --b6-amber-ink: #6E4A00;
+  --b6-amber-bg: #FBF3E2;
+  --b6-amber-line: #F0DFBC;
+
+  /* colour: red (destructive, refused) */
+  --b6-red-ink: #8E3526;
+  --b6-red-bg: #FBEFEB;
+
+  /* colour: green (done, approved) */
+  --b6-green-ink: #2F4A37;
+  --b6-green-bg: #EEF3EF;
+
+  /* primary button gradient (dark pill) */
+  --b6-dark-hi: #45433E;
+  --b6-dark-mid: #2B2A26;
+  --b6-dark-lo: #262521;
+  --b6-on-dark: #F7F6F3;
+
+  /* disabled controls (the CSS3 board revision: readable grey, not faded) */
+  --b6-disabled-bg: #E4E1DA;
+
+  /* focus ring */
+  --b6-focus: #2F6A5D;
+
+  /* soft mint mist (decoration only) */
+  --b6-mist-core: #D3EAE3;
+  --b6-mist-1: rgba(190, 224, 214, 0.55);
+  --b6-mist-2: rgba(255, 255, 255, 0.65);
+  --b6-mist-3: rgba(204, 231, 223, 0.42);
+  --b6-mist-4: rgba(255, 255, 255, 0.5);
+
+  /* radii */
+  --b6-r-card: 18px;
+  --b6-r-glass: 16px;
+  --b6-r-sheet: 24px;
+  --b6-r-btn-lg: 20px;
+  --b6-r-btn: 16px;
+  --b6-r-control: 12px;
+  --b6-r-seg-item: 9px;
+  --b6-r-chip: 8px;
+  --b6-r-pill: 10px;
+
+  /* shadows */
+  --b6-shadow-card: 0 1px 1px rgba(43, 42, 38, 0.04), 0 16px 36px -20px rgba(43, 42, 38, 0.22);
+  --b6-shadow-btn-lg: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 0 0 5px rgba(255, 255, 255, 0.6), 0 16px 34px -16px rgba(43, 42, 38, 0.55);
+  --b6-shadow-btn: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 0 0 4px rgba(255, 255, 255, 0.6), 0 12px 26px -14px rgba(43, 42, 38, 0.55);
+  --b6-shadow-seg-on: 0 1px 2px rgba(43, 42, 38, 0.08);
+  --b6-shadow-sheet: 0 -18px 40px -18px rgba(43, 42, 38, 0.38);
+  --b6-shadow-pop: 0 1px 2px rgba(43, 42, 38, 0.08), 0 12px 28px -14px rgba(43, 42, 38, 0.35), inset 0 0 0 1px #E4E1DA;
+
+  /* type */
+  --b6-font-sans: var(--font-b6-sans, "Plus Jakarta Sans"), system-ui, sans-serif;
+  --b6-font-mono: var(--font-b6-mono, "Geist Mono"), ui-monospace, monospace;
+  --b6-fs-display: 38px;
+  --b6-fs-h1: 34px;
+  --b6-fs-stat: 30px;
+  --b6-fs-title: 18px;
+  --b6-fs-lead: 16px;
+  --b6-fs-body: 15px;
+  --b6-fs-ui: 14px;
+  --b6-fs-small: 13px;
+  --b6-fs-kicker: 12px;
+
+  /* layout */
+  --b6-tap: 44px;
+  --b6-panel-w: 360px;
+  --b6-z-overlay: 40;
+}
+
+.b6-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- surfaces ---- */
+.b6-card {
+  border-radius: var(--b6-r-card);
+  background: var(--b6-surface);
+  box-shadow: var(--b6-shadow-card);
+  color: var(--b6-ink);
+  font-family: var(--b6-font-sans);
+}
+
+.b6-glass {
+  border-radius: var(--b6-r-glass);
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: inset 0 0 0 1px var(--b6-line);
+  color: var(--b6-ink);
+  font-family: var(--b6-font-sans);
+}
+
+.b6-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 20px;
+}
+
+.b6-tile__value {
+  font-size: var(--b6-fs-stat);
+  font-weight: 300;
+  letter-spacing: -0.4px;
+}
+
+.b6-tile__detail {
+  font-size: var(--b6-fs-small);
+  color: var(--b6-muted);
+}
+
+.b6-tile--amber {
+  background: var(--b6-amber-bg);
+  box-shadow: inset 0 0 0 1px var(--b6-amber-line);
+  color: var(--b6-amber-ink);
+}
+
+.b6-tile--amber .b6-kicker,
+.b6-tile--amber .b6-tile__detail {
+  color: var(--b6-amber-ink);
+}
+
+/* ---- text ---- */
+.b6-kicker {
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-kicker);
+  letter-spacing: 0.3px;
+  color: var(--b6-muted);
+}
+
+/* ---- focus: one visible ring for every .b6 control ---- */
+.b6-btn:focus-visible,
+.b6-seg__item:focus-visible,
+.b6-handle:focus-visible,
+.b6-panel__close:focus-visible,
+.b6-panel-pill:focus-visible {
+  outline: 2px solid var(--b6-focus);
+  outline-offset: 2px;
+}
+
+/* The sheet handle spans the full viewport width, so an outset ring would be clipped at the screen edge: draw it inside. */
+.b6-handle:focus-visible {
+  outline-offset: -2px;
+}
+
+/* ---- button ---- */
+.b6-btn {
+  box-sizing: border-box;
+  min-height: var(--b6-tap);
+  padding: 0 18px;
+  border: 0;
+  border-radius: var(--b6-r-btn);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: var(--b6-font-sans);
+  font-size: var(--b6-fs-ui);
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 120ms ease, transform 80ms ease;
+}
+
+.b6-btn:active:not(:disabled):not([aria-disabled="true"]) {
+  transform: translateY(1px);
+}
+
+.b6-btn--lg {
+  min-height: 56px;
+  border-radius: var(--b6-r-btn-lg);
+  font-size: var(--b6-fs-lead);
+}
+
+.b6-btn--block {
+  display: flex;
+  width: 100%;
+}
+
+.b6-btn--primary {
+  background: linear-gradient(180deg, var(--b6-dark-hi) 0%, var(--b6-dark-mid) 55%, var(--b6-dark-lo) 100%);
+  color: var(--b6-on-dark);
+  box-shadow: var(--b6-shadow-btn);
+}
+
+.b6-btn--primary.b6-btn--lg {
+  box-shadow: var(--b6-shadow-btn-lg);
+}
+
+.b6-btn--secondary {
+  background: rgba(255, 255, 255, 0.65);
+  color: var(--b6-ink);
+  box-shadow: inset 0 0 0 1px var(--b6-line);
+}
+
+.b6-btn--destructive {
+  background: var(--b6-red-ink);
+  color: var(--b6-surface);
+}
+
+.b6-btn--primary:disabled,
+.b6-btn--secondary:disabled,
+.b6-btn--destructive:disabled,
+.b6-btn--primary[aria-disabled="true"],
+.b6-btn--secondary[aria-disabled="true"],
+.b6-btn--destructive[aria-disabled="true"] {
+  background: var(--b6-disabled-bg);
+  color: var(--b6-muted);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* ---- chip and pill ---- */
+.b6-chip {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: var(--b6-r-chip);
+  background: var(--b6-chip);
+  color: var(--b6-ink);
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-kicker);
+  white-space: nowrap;
+}
+
+.b6-chip--line {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--b6-line-field);
+  color: var(--b6-muted);
+}
+
+.b6-chip--teal {
+  background: var(--b6-teal-bg);
+  color: var(--b6-teal-ink);
+  box-shadow: inset 0 0 0 1px var(--b6-teal-line);
+}
+
+.b6-chip--amber {
+  background: var(--b6-amber-bg);
+  color: var(--b6-amber-ink);
+}
+
+.b6-pill {
+  display: inline-block;
+  padding: 5px 10px;
+  border-radius: var(--b6-r-pill);
+  font-family: var(--b6-font-sans);
+  font-size: var(--b6-fs-kicker);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.b6-pill--neutral { background: var(--b6-chip); color: var(--b6-ink-soft); }
+.b6-pill--teal { background: var(--b6-teal-bg); color: var(--b6-teal-ink); }
+.b6-pill--amber { background: var(--b6-amber-bg); color: var(--b6-amber-ink); }
+.b6-pill--red { background: var(--b6-red-bg); color: var(--b6-red-ink); }
+.b6-pill--green { background: var(--b6-green-bg); color: var(--b6-green-ink); }
+
+/* ---- segmented ---- */
+.b6-seg {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: var(--b6-r-control);
+  background: var(--b6-chip);
+}
+
+.b6-seg--mono {
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-kicker);
+}
+
+.b6-seg__item {
+  box-sizing: border-box;
+  min-height: var(--b6-tap);
+  min-width: var(--b6-tap);
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--b6-r-seg-item);
+  background: transparent;
+  color: var(--b6-muted);
+  font: inherit;
+  font-size: var(--b6-fs-ui);
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.b6-seg--mono .b6-seg__item {
+  font-size: var(--b6-fs-kicker);
+}
+
+.b6-seg__item[aria-pressed="true"] {
+  background: var(--b6-surface);
+  color: var(--b6-ink);
+  font-weight: 500;
+  box-shadow: var(--b6-shadow-seg-on);
+}
+
+/* Disabled text is faint, not a faded copy. Inactive controls are exempt from WCAG 1.4.3 (contrast minimum). */
+.b6-seg__item:disabled {
+  color: var(--b6-faint);
+  cursor: not-allowed;
+}
+
+/* ---- step tick ---- */
+.b6-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-family: var(--b6-font-sans);
+  font-size: var(--b6-fs-ui);
+  line-height: 1.4;
+  color: var(--b6-ink);
+}
+
+.b6-step--now { font-weight: 500; }
+.b6-step--todo { color: var(--b6-muted); }
+
+.b6-tick {
+  flex: none;
+  box-sizing: border-box;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+}
+
+.b6-tick--done { background: var(--b6-teal-ink); color: var(--b6-surface); }
+.b6-tick--now { background: var(--b6-surface); box-shadow: inset 0 0 0 2px var(--b6-teal-ink); color: var(--b6-teal-ink); }
+.b6-tick--todo { background: var(--b6-surface); box-shadow: inset 0 0 0 1px var(--b6-faint); color: var(--b6-faint); }
+
+/* ---- sheet (phone) ---- */
+.b6-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: var(--b6-z-overlay);
+  display: flex;
+  flex-direction: column;
+  max-height: 70vh;
+  max-height: 70dvh;
+  padding-bottom: env(safe-area-inset-bottom);
+  border-radius: var(--b6-r-sheet) var(--b6-r-sheet) 0 0;
+  background: var(--b6-surface);
+  box-shadow: var(--b6-shadow-sheet);
+  color: var(--b6-ink);
+  font-family: var(--b6-font-sans);
+}
+
+.b6-handle {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 48px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.b6-sheet__grip {
+  display: block;
+  width: 40px;
+  height: 4px;
+  margin: 8px auto 0;
+  border-radius: 2px;
+  background: #D9D5CC;
+}
+
+.b6-sheet__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 18px;
+}
+
+.b6-sheet__handle-content {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.b6-sheet__chev {
+  font-size: var(--b6-fs-title);
+  color: var(--b6-muted);
+}
+
+.b6-sheet__body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  padding: 0 18px 22px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.b6-sheet__body[hidden] {
+  display: none;
+}
+
+/* ---- side panel (laptop) ---- */
+.b6-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: var(--b6-z-overlay);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: var(--b6-panel-w);
+  max-width: 100vw;
+  padding: 16px 18px 24px;
+  border-left: 1px solid var(--b6-line-soft);
+  background: var(--b6-surface);
+  color: var(--b6-ink);
+  font-family: var(--b6-font-sans);
+}
+
+.b6-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.b6-panel__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.b6-panel__close {
+  flex: none;
+  box-sizing: border-box;
+  min-width: var(--b6-tap);
+  min-height: var(--b6-tap);
+  border: 0;
+  border-radius: var(--b6-r-control);
+  background: var(--b6-surface-soft);
+  color: var(--b6-muted);
+  font: inherit;
+  font-size: var(--b6-fs-lead);
+  cursor: pointer;
+}
+
+.b6-panel__body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.b6-panel-pill {
+  position: fixed;
+  top: 14px;
+  right: 20px;
+  z-index: var(--b6-z-overlay);
+  width: auto;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-radius: 14px;
+  background: var(--b6-surface);
+  box-shadow: var(--b6-shadow-pop);
+  color: var(--b6-ink);
+  font-family: var(--b6-font-sans);
+}
+
+/* ---- mist: needs a position:relative parent ---- */
+.b6-mist {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse min(1100px, 150%) min(700px, 70%) at 96% 0%,
+    var(--b6-mist-core) 0%,
+    rgba(211, 234, 227, 0.5) 34%,
+    rgba(245, 244, 241, 0) 66%
+  );
+}
+
+.b6-mist__leaf {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(38px);
+}
+
+.b6-mist__leaf--1 { top: -140px; right: -60px; width: 520px; height: 300px; background: var(--b6-mist-1); }
+.b6-mist__leaf--2 { top: 60px; right: 220px; width: 300px; height: 180px; background: var(--b6-mist-2); }
+.b6-mist__leaf--3 { top: -40px; right: 360px; width: 360px; height: 200px; background: var(--b6-mist-3); }
+.b6-mist__leaf--4 { top: 150px; right: 40px; width: 240px; height: 150px; background: var(--b6-mist-4); }
+
+@media (prefers-reduced-motion: reduce) {
+  .b6-btn,
+  .b6-seg__item,
+  .b6-sheet,
+  .b6-panel {
+    transition: none;
+  }
+}

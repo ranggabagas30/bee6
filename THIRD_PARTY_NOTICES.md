@@ -90,6 +90,24 @@ each segment matches the `audio/webm;codecs=opus` contract the segment route
 accepts.
 Project: https://github.com/Vanilagy/webm-muxer
 
+## Fonts self-hosted by `next/font` at build time
+
+`app/ui/fonts.ts` loads these two families through `next/font/google`. At
+`next build` the font files are downloaded from Google Fonts once and served from
+our own origin (`/_next/static/media/`); the browser makes no request to Google
+Fonts. Neither font file is committed to the repository, and neither is a
+package dependency. Both are used on the page-2 `.b6-*` surfaces only.
+
+| Font | Copyright | Licence | Source |
+| --- | --- | --- | --- |
+| Plus Jakarta Sans (Tokotype) | Copyright 2020 The Plus Jakarta Sans Project Authors | SIL Open Font License 1.1 | https://github.com/tokotype/PlusJakartaSans |
+| Geist Mono (Vercel) | Copyright (c) 2023 Vercel, in collaboration with basement.studio | SIL Open Font License 1.1 | https://github.com/vercel/geist-font |
+
+The OFL 1.1 permits use, embedding and redistribution of the fonts (including
+in a web app) provided the fonts are not sold on their own and the copyright
+notice and licence travel with any redistributed font files. Licence text:
+https://openfontlicense.org. The fonts are served unmodified.
+
 ## Assets copied into `public/vendor/capture/` at build time
 
 `scripts/vendor-capture-assets.mjs` (run as `npm run vendor:capture` and before

@@ -11,9 +11,12 @@ vi.mock("next/headers", () => ({
   }),
 }));
 
+// next/font/google only works through the Next compiler; the real module is covered by the production build.
+vi.mock("@/app/ui/fonts", () => ({ fontVariableClassNames: "mock-sans mock-mono" }));
+
 import RootLayout from "@/app/layout";
 import { DemoBarLoader } from "@/app/demo/DemoBarLoader";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 function findHtml(node: unknown): ReactElement<{ lang: string }> | null {
@@ -104,5 +107,30 @@ describe("RootLayout demo bar (R-12 Task 8.4)", () => {
     if (value === undefined) vi.stubEnv("DEMO_MODE", undefined as unknown as string);
     else vi.stubEnv("DEMO_MODE", value);
     expect(containsType(await RootLayout({ children: null }), DemoBarLoader)).toBeNull();
+  });
+});
+
+describe("RootLayout page-2 design system (R-19 PR-0b)", () => {
+  const read = (rel: string) => readFileSync(join(__dirname, rel), "utf8");
+
+  it("puts the font variable classes on <html>, which only defines CSS variables and restyles nothing", async () => {
+    const html = findHtml(await RootLayout({ children: null })) as unknown as ReactElement<{ className?: string }>;
+    expect(html.props.className).toBe("mock-sans mock-mono");
+  });
+
+  it("imports globals.css once, from the root layout, and nowhere else in app/", () => {
+    expect(read("layout.tsx").match(/import\s+["']\.\/globals\.css["']/g)).toHaveLength(1);
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of readdirSync(join(__dirname, dir), { withFileTypes: true })) {
+        const rel = join(dir, e.name);
+        if (e.isDirectory()) walk(rel);
+        else if (/\.(tsx?|css)$/.test(e.name) && !e.name.endsWith(".test.tsx") && !e.name.endsWith(".test.ts") && rel !== "layout.tsx") {
+          if (/^\s*import\s+(?:[^;]*\sfrom\s+)?["'][^"']*globals\.css["']/m.test(read(rel))) offenders.push(rel);
+        }
+      }
+    };
+    walk(".");
+    expect(offenders).toEqual([]);
   });
 });
