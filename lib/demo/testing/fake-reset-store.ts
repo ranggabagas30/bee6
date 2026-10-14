@@ -5,6 +5,7 @@ import type { Outlet } from "@/lib/firestore/schema";
 import type { ClonedDoc, TemplateSet } from "@/lib/demo/clone";
 import { SANDBOX_OUTLET_PREFIX } from "@/lib/demo/constants";
 import { TemplateTooLargeError } from "@/lib/demo/store-types";
+import { SHIFT_MARKER_STALE_MS } from "@/lib/demo/next-day";
 import type { ResetStore } from "@/lib/demo/service";
 import { templateSet } from "@/lib/demo/testing/fixtures";
 
@@ -37,6 +38,12 @@ export function fakeResetStore(seed: FakeResetSeed) {
     failBump: false,
     failRead: false,
     failRelease: false,
+    /** The counter pre-check passes but the charge is refused (another reset spent the last slot in between). */
+    bumpRefused: false,
+    /** A proposal lock that appears only after the lease is taken (a generate that started in the gap). */
+    lockAppearsAfterLease: false,
+    /** Awaited at the start of `deleteSandbox`, after the lease doc is gone: lets a test hold a reset mid-wipe. */
+    deleteGate: null as Promise<void> | null,
     tokenHashOverride: undefined as string | null | undefined,
   };
   const outletDoc = (id: string): Outlet | null => (world.get(`${COLLECTIONS.outlets}/${id}`)?.data as unknown as Outlet | undefined) ?? null;
@@ -62,7 +69,7 @@ export function fakeResetStore(seed: FakeResetSeed) {
       bumps.push({ id, kind, limit });
       if (state.failBump) throw new Error("counter unavailable");
       const n = counters.get(id) ?? 0;
-      if (n >= limit) return false;
+      if (state.bumpRefused || n >= limit) return false;
       counters.set(id, n + 1);
       return true;
     },
@@ -74,7 +81,26 @@ export function fakeResetStore(seed: FakeResetSeed) {
     },
     async proposalLockLive(_outletId, nowMs) {
       calls.push("proposalLockLive");
+      if (state.lockAppearsAfterLease && calls.includes("acquireLease")) return true;
       return state.proposalLockExpiresAtMs !== null && state.proposalLockExpiresAtMs > nowMs;
+    },
+    async takeResetMarker(outletId, nowMs) {
+      calls.push("takeResetMarker"); // one atomic step, like the Firestore transaction
+      const doc = world.get(`${COLLECTIONS.outlets}/${outletId}`);
+      const outlet = doc?.data as unknown as Outlet | undefined;
+      if (!doc || !outlet?.sandbox) throw new Error("not a sandbox outlet");
+      const prior = outlet.sandbox.shift_started_at_ms ?? null;
+      if (prior !== null && nowMs - prior <= SHIFT_MARKER_STALE_MS) return { taken: false as const };
+      world.set(`${COLLECTIONS.outlets}/${outletId}`, { ...doc, data: { ...doc.data, sandbox: { ...outlet.sandbox, shift_started_at_ms: nowMs } } });
+      return { taken: true as const, prior };
+    },
+    async restoreResetMarker(outletId, ours, prior) {
+      calls.push("restoreResetMarker");
+      const doc = world.get(`${COLLECTIONS.outlets}/${outletId}`);
+      const outlet = doc?.data as unknown as Outlet | undefined;
+      if (!doc || !outlet?.sandbox) return;
+      if ((outlet.sandbox.shift_started_at_ms ?? null) !== ours) return;
+      world.set(`${COLLECTIONS.outlets}/${outletId}`, { ...doc, data: { ...doc.data, sandbox: { ...outlet.sandbox, shift_started_at_ms: prior } } });
     },
     async acquireLease(outletId, deviceId, nowMs, ttlMs) {
       calls.push("acquireLease");
@@ -93,7 +119,12 @@ export function fakeResetStore(seed: FakeResetSeed) {
       calls.push("deleteSandbox");
       if (!outletId.startsWith(SANDBOX_OUTLET_PREFIX)) throw new Error("refusing to delete a non-sandbox outlet");
       if (state.failDelete) throw new Error("delete failed");
-      for (const [k, d] of [...world]) if (outletIdOf(d) === outletId) world.delete(k);
+      state.leaseHeld = false; // the lease doc lives in the sandbox's collections: the wipe removes it (the M1 hazard)
+      if (state.deleteGate) await state.deleteGate;
+      // The outlet doc goes last, so its marker covers the whole wipe (as the Firestore store does).
+      const entries = [...world].filter(([, d]) => outletIdOf(d) === outletId);
+      for (const [k, d] of entries) if (d.collection !== COLLECTIONS.outlets) world.delete(k);
+      for (const [k, d] of entries) if (d.collection === COLLECTIONS.outlets) world.delete(k);
     },
     async writeSandbox(docs) {
       calls.push("writeSandbox");

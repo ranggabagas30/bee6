@@ -353,3 +353,141 @@ describe("resetSandbox: failure after the wipe started", () => {
     expect(bad.logs.find((l) => l.event === "reset_failed")!.fields).toEqual({ sandbox: IDS.outlet_id, stage: "write", error_class: "Error" });
   });
 });
+
+describe("resetSandbox: the shift marker is the lock (M1, M2)", () => {
+  const markerOf = (f: ReturnType<typeof setup>["f"]) => (sandboxOf(f).sandbox as { shift_started_at_ms?: number | null }).shift_started_at_ms;
+  const withMarker = (startedAt: number | null) => {
+    const docs = dirtyDocs();
+    const outlet = docs.find((d) => d.collection === COLLECTIONS.outlets)!;
+    const sandbox = (outlet.data as unknown as Outlet).sandbox!;
+    outlet.data = { ...outlet.data, sandbox: { ...sandbox, shift_started_at_ms: startedAt } };
+    return docs;
+  };
+
+  it("takes the marker after building the clone and before the lease; the lease before the cap charge; the outlet doc is deleted last", async () => {
+    const s = setup();
+    await s.run();
+    const order = ["readTemplate", "takeResetMarker", "acquireLease", "proposalLockLive", "bumpCounter", "deleteSandbox", "writeSandbox"];
+    const at = order.map((c) => s.f.calls.lastIndexOf(c));
+    expect(at.every((i) => i >= 0)).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+    expect(s.f.calls).not.toContain("restoreResetMarker");
+  });
+
+  it("the marker is the authority: if it is fresh at the take (a shift or reset won the race) -> 409 busy, nothing deleted, no lease, no cap slot", async () => {
+    const s = setup();
+    // The pre-check saw no marker; one appears in the gap before the take.
+    const realTake = s.f.store.takeResetMarker;
+    s.f.store.takeResetMarker = async (id, now) => {
+      const doc = s.f.world.get(`${COLLECTIONS.outlets}/${id}`)!;
+      const sb = (doc.data as unknown as Outlet).sandbox!;
+      s.f.world.set(`${COLLECTIONS.outlets}/${id}`, { ...doc, data: { ...doc.data, sandbox: { ...sb, shift_started_at_ms: now - 1_000 } } });
+      return realTake(id, now);
+    };
+    const err = await rejects(s.run());
+    expect(err).toBeInstanceOf(ConflictError);
+    expect(err!.code).toBe("busy");
+    for (const c of ["deleteSandbox", "acquireLease", "bumpCounter"]) expect(s.f.calls).not.toContain(c);
+    expect(docsOf(s.f).length).toBeGreaterThan(5);
+  });
+
+  it("while the reset runs the marker is ours (a next-day shift is refused by the same field); after it the fresh sandbox has none", async () => {
+    const s = setup();
+    let during: number | null | undefined;
+    const realDelete = s.f.store.deleteSandbox;
+    s.f.store.deleteSandbox = async (id) => {
+      during = markerOf(s.f);
+      await realDelete(id);
+    };
+    await s.run();
+    expect(during).toBe(NOW);
+    expect("shift_started_at_ms" in (sandboxOf(s.f).sandbox as object)).toBe(false);
+  });
+
+  it("the lease being held restores the PRIOR marker (a stale one stays, null goes back to null) and spends nothing", async () => {
+    const stale = NOW - SHIFT_MARKER_STALE_MS - 1;
+    const withStale = setup({ docs: withMarker(stale), seed: { leaseHeld: true } });
+    expect((await rejects(withStale.run()))!.code).toBe("busy");
+    expect(markerOf(withStale.f)).toBe(stale);
+    expect(withStale.f.calls).not.toContain("bumpCounter");
+    expect(withStale.f.calls).not.toContain("deleteSandbox");
+
+    const withNull = setup({ seed: { leaseHeld: true } });
+    await rejects(withNull.run());
+    expect(markerOf(withNull.f) ?? null).toBeNull();
+  });
+
+  it("a cap refused at the charge (the pre-check passed) restores the prior marker and releases the lease; nothing is deleted", async () => {
+    const stale = NOW - SHIFT_MARKER_STALE_MS - 1;
+    const s = setup({ docs: withMarker(stale) });
+    s.f.state.bumpRefused = true;
+    const err = await rejects(s.run());
+    expect(err).toBeInstanceOf(LockedError);
+    expect(markerOf(s.f)).toBe(stale);
+    expect(s.f.state.leaseHeld).toBe(false);
+    expect(s.f.state.released).toHaveLength(1);
+    expect(s.f.calls).not.toContain("deleteSandbox");
+  });
+
+  it("M2: a proposal lock that went live after the marker and lease -> 409 busy, marker restored, lease released, nothing deleted or charged", async () => {
+    const s = setup();
+    s.f.state.lockAppearsAfterLease = true;
+    const err = await rejects(s.run());
+    expect(err).toBeInstanceOf(ConflictError);
+    expect(err!.code).toBe("busy");
+    expect(markerOf(s.f) ?? null).toBeNull();
+    expect(s.f.state.leaseHeld).toBe(false);
+    expect(s.f.state.released).toHaveLength(1);
+    for (const c of ["bumpCounter", "deleteSandbox"]) expect(s.f.calls).not.toContain(c);
+  });
+
+  it("a restore that fails never masks the busy refusal", async () => {
+    const s = setup({ seed: { leaseHeld: true } });
+    s.f.store.restoreResetMarker = async () => {
+      throw new Error("restore failed");
+    };
+    expect((await rejects(s.run()))!.code).toBe("busy");
+    expect(s.logs.some((l) => l.event === "reset_marker_restore_failed")).toBe(true);
+  });
+
+  it("two resets at once: exactly one wins, the other is busy and deletes nothing (barrier: both pass the pre-check)", async () => {
+    const s = setup();
+    const results = await Promise.all([rejects(s.run()), rejects(s.run())]);
+    expect(results.filter((r) => r === null)).toHaveLength(1);
+    const loser = results.find((r) => r !== null)!;
+    expect(loser.code).toBe("busy");
+    expect(s.f.calls.filter((c) => c === "deleteSandbox")).toHaveLength(1);
+    expect(s.f.calls.filter((c) => c === "writeSandbox")).toHaveLength(1);
+    expect(s.f.bumps).toHaveLength(1);
+  });
+
+  it("a second reset that starts while the first is mid-wipe (its lease doc already gone) is busy and cannot delete the first's fresh docs", async () => {
+    const s = setup();
+    let release!: () => void;
+    s.f.state.deleteGate = new Promise<void>((r) => (release = r));
+    const first = rejects(s.run());
+    await vi.waitFor(() => expect(s.f.calls).toContain("deleteSandbox"));
+    expect(s.f.state.leaseHeld).toBe(false); // the wipe already removed the lease doc: the lease alone no longer protects it
+    const second = await rejects(s.run());
+    expect(second!.code).toBe("busy");
+    release();
+    expect(await first).toBeNull();
+    expect(s.f.calls.filter((c) => c === "deleteSandbox")).toHaveLength(1);
+    expect(docsOf(s.f).some((d) => d.collection === COLLECTIONS.devices)).toBe(true);
+  });
+
+  it("a crashed reset leaves its marker, which blocks for 120 s and then goes stale: a later reset recovers", async () => {
+    const s = setup();
+    s.f.state.failDelete = true;
+    expect((await rejects(s.run()))!.code).toBe("reset_failed");
+    expect(markerOf(s.f)).toBe(NOW);
+    s.f.state.failDelete = false;
+
+    const soon = resetSandbox(s.f.store, { log: () => {} }, { claims: ownerClaims(), now_ms: NOW + 10_000, demoMode: true, body: async () => ({ confirm: "reset" }) });
+    expect((await rejects(soon))!.code).toBe("busy");
+
+    const later = await resetSandbox(s.f.store, { log: () => {} }, { claims: ownerClaims(), now_ms: NOW + SHIFT_MARKER_STALE_MS + 1, demoMode: true, body: async () => ({ confirm: "reset" }) });
+    expect(later).toEqual({ reset: true });
+    expect("shift_started_at_ms" in (sandboxOf(s.f).sandbox as object)).toBe(false);
+  });
+});

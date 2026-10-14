@@ -3,6 +3,8 @@ import type { Firestore } from "firebase-admin/firestore";
 import { COLLECTIONS } from "@/lib/firestore/collections";
 import { firestoreResetStore } from "@/lib/firestore/demo-reset-store";
 import { deviceDocId } from "@/lib/firestore/stores";
+import { firestoreNextDayStore } from "@/lib/firestore/demo-store";
+import { SHIFT_MARKER_STALE_MS } from "@/lib/demo/next-day";
 
 /**
  * R-19 PR-7: the two reads the Firestore ResetStore adds on top of the demo and tick stores. A minimal fake
@@ -11,19 +13,36 @@ import { deviceDocId } from "@/lib/firestore/stores";
 type Doc = Record<string, unknown>;
 function fakeDb(seed: Record<string, Record<string, Doc>>) {
   const reads: string[] = [];
+  const writes: string[] = [];
+  const ref = (c: string, id: string) => ({
+    id,
+    async get() {
+      reads.push(`${c}/${id}`);
+      const d = seed[c]?.[id];
+      return { id, exists: d !== undefined, data: () => d };
+    },
+  });
+  type Ref = ReturnType<typeof ref>;
   const db = {
-    collection: (c: string) => ({
-      doc: (id: string) => ({
-        id,
-        async get() {
-          reads.push(`${c}/${id}`);
-          const d = seed[c]?.[id];
-          return { id, exists: d !== undefined, data: () => d };
+    collection: (c: string) => ({ doc: (id: string) => ref(c, id) }),
+    // The transaction body reads synchronously-consistent state and applies its staged updates on commit.
+    async runTransaction(fn: (tx: unknown) => Promise<unknown>) {
+      const staged: (() => void)[] = [];
+      const tx = {
+        get: (r: Ref) => r.get(),
+        update: (r: Ref & { col?: string }, patch: Doc) => {
+          staged.push(() => {
+            for (const c of Object.keys(seed)) if (seed[c]![r.id]) seed[c]![r.id] = { ...seed[c]![r.id]!, ...patch };
+            writes.push(`update ${r.id}`);
+          });
         },
-      }),
-    }),
+      };
+      const out = await fn(tx);
+      staged.forEach((f) => f());
+      return out;
+    },
   };
-  return { db: db as unknown as Firestore, reads };
+  return { db: db as unknown as Firestore, reads, writes };
 }
 
 const OUTLET = "sbx-aaaaaaaaaaaa";
@@ -86,5 +105,78 @@ describe("firestoreResetStore.proposalLockLive", () => {
     expect(await firestoreResetStore(fakeDb({}).db).proposalLockLive(OUTLET, 1)).toBe(false);
     const { db } = fakeDb({ [COLLECTIONS.proposalLocks]: { [OUTLET]: { nonsense: 1 } } });
     expect(await firestoreResetStore(db).proposalLockLive(OUTLET, 1)).toBe(false);
+  });
+});
+
+describe("firestoreResetStore reset marker (the reset's lock)", () => {
+  const NOW = 1_800_000_000_000;
+  const outlet = (sandbox: Doc = {}): Doc => ({
+    outlet_id: OUTLET, name: "Sandbox", project_kind: "demo", timezone: "Asia/Jakarta", opening_time: "07:00", closing_time: "21:45", created_at: "2026-10-28T03:00:00.000Z",
+    sandbox: { template_outlet_id: "demo-tpl-outlet", created_at_ms: NOW - 1, expires_at_ms: NOW + 7_200_000, key_sha256: "a".repeat(64), ...sandbox },
+  });
+  const seedOutlet = (sandbox: Doc = {}) => ({ [COLLECTIONS.outlets]: { [OUTLET]: outlet(sandbox) } });
+  const markerIn = (seed: Record<string, Record<string, Doc>>) => (seed[COLLECTIONS.outlets]![OUTLET]!.sandbox as Doc).shift_started_at_ms;
+
+  it("takes the marker when there is none or a stale one, and reports the prior value", async () => {
+    for (const prior of [undefined, null, NOW - SHIFT_MARKER_STALE_MS - 1]) {
+      const seed = seedOutlet(prior === undefined ? {} : { shift_started_at_ms: prior });
+      const { db } = fakeDb(seed);
+      expect(await firestoreResetStore(db).takeResetMarker(OUTLET, NOW)).toEqual({ taken: true, prior: prior ?? null });
+      expect(markerIn(seed)).toBe(NOW);
+    }
+  });
+
+  it("refuses a fresh marker, at the boundary and in the future, and writes nothing", async () => {
+    for (const marker of [NOW - 5_000, NOW - SHIFT_MARKER_STALE_MS, NOW + 60_000]) {
+      const seed = seedOutlet({ shift_started_at_ms: marker });
+      const { db, writes } = fakeDb(seed);
+      expect(await firestoreResetStore(db).takeResetMarker(OUTLET, NOW)).toEqual({ taken: false });
+      expect(writes).toEqual([]);
+      expect(markerIn(seed)).toBe(marker);
+    }
+  });
+
+  it("refuses a non-sandbox outlet or a missing one, writing nothing", async () => {
+    const { db, writes } = fakeDb({ [COLLECTIONS.outlets]: { [OUTLET]: { ...outlet(), sandbox: undefined } } });
+    await expect(firestoreResetStore(db).takeResetMarker(OUTLET, NOW)).rejects.toThrow(/not a sandbox/);
+    await expect(firestoreResetStore(fakeDb({}).db).takeResetMarker(OUTLET, NOW)).rejects.toThrow(/not a sandbox/);
+    await expect(firestoreResetStore(db).takeResetMarker("pilot-outlet", NOW)).rejects.toThrow(/not a sandbox/);
+    expect(writes).toEqual([]);
+  });
+
+  it("keeps the rest of the sandbox object (key hash, expiry, next_day_count) when it takes or restores", async () => {
+    const seed = seedOutlet({ next_day_count: 2 });
+    const { db } = fakeDb(seed);
+    const store = firestoreResetStore(db);
+    await store.takeResetMarker(OUTLET, NOW);
+    expect(seed[COLLECTIONS.outlets]![OUTLET]!.sandbox).toMatchObject({ next_day_count: 2, key_sha256: "a".repeat(64), shift_started_at_ms: NOW });
+    await store.restoreResetMarker(OUTLET, NOW, null);
+    expect(seed[COLLECTIONS.outlets]![OUTLET]!.sandbox).toMatchObject({ next_day_count: 2, key_sha256: "a".repeat(64), shift_started_at_ms: null });
+  });
+
+  it("restore puts the prior back only while the marker still equals ours", async () => {
+    const stale = NOW - SHIFT_MARKER_STALE_MS - 1;
+    const seed = seedOutlet({ shift_started_at_ms: stale });
+    const { db } = fakeDb(seed);
+    const store = firestoreResetStore(db);
+    await store.takeResetMarker(OUTLET, NOW);
+    await store.restoreResetMarker(OUTLET, NOW, stale);
+    expect(markerIn(seed)).toBe(stale);
+
+    // Someone else's marker (a different value) is never clobbered, and a gone outlet doc is not an error.
+    const other = seedOutlet({ shift_started_at_ms: NOW + 5 });
+    const f = fakeDb(other);
+    await firestoreResetStore(f.db).restoreResetMarker(OUTLET, NOW, null);
+    expect(markerIn(other)).toBe(NOW + 5);
+    expect(f.writes).toEqual([]);
+    await expect(firestoreResetStore(fakeDb({}).db).restoreResetMarker(OUTLET, NOW, null)).resolves.toBeUndefined();
+  });
+
+  it("PR-2's takeShiftMarker refuses while a reset marker is on the outlet doc (fresh or stale), so no jump can start mid-reset", async () => {
+    const seed = seedOutlet();
+    const { db } = fakeDb(seed);
+    await firestoreResetStore(db).takeResetMarker(OUTLET, NOW);
+    expect(await firestoreNextDayStore(db).takeShiftMarker(OUTLET, NOW + 1_000, 0)).toEqual({ taken: false, started_at_ms: NOW });
+    expect(await firestoreNextDayStore(db).takeShiftMarker(OUTLET, NOW + SHIFT_MARKER_STALE_MS + 1, 0)).toEqual({ taken: false, started_at_ms: NOW });
   });
 });
