@@ -90,6 +90,8 @@ describe("page-2 design tokens (app/globals.css)", () => {
     for (const bg of ["--b6-ground", "--b6-surface", "--b6-chip"]) {
       expect(contrast(tokens["--b6-focus"], tokens[bg]), bg).toBeGreaterThanOrEqual(3);
     }
+    // the empty "todo" tick ring sits on white
+    expect(contrast(tokens["--b6-faint"], tokens["--b6-surface"])).toBeGreaterThanOrEqual(3);
   });
 
   it("turns transitions off under prefers-reduced-motion", () => {

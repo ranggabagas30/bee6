@@ -286,6 +286,81 @@
 .b6-pill--red { background: var(--b6-red-bg); color: var(--b6-red-ink); }
 .b6-pill--green { background: var(--b6-green-bg); color: var(--b6-green-ink); }
 
+/* ---- segmented ---- */
+.b6-seg {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: var(--b6-r-control);
+  background: var(--b6-chip);
+}
+
+.b6-seg--mono {
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-kicker);
+}
+
+.b6-seg__item {
+  box-sizing: border-box;
+  min-height: var(--b6-tap);
+  min-width: var(--b6-tap);
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--b6-r-seg-item);
+  background: transparent;
+  color: var(--b6-muted);
+  font: inherit;
+  font-size: var(--b6-fs-ui);
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.b6-seg--mono .b6-seg__item {
+  font-size: var(--b6-fs-kicker);
+}
+
+.b6-seg__item[aria-pressed="true"] {
+  background: var(--b6-surface);
+  color: var(--b6-ink);
+  font-weight: 500;
+  box-shadow: var(--b6-shadow-seg-on);
+}
+
+.b6-seg__item:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* ---- step tick ---- */
+.b6-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-family: var(--b6-font-sans);
+  font-size: var(--b6-fs-ui);
+  line-height: 1.4;
+  color: var(--b6-ink);
+}
+
+.b6-step--now { font-weight: 500; }
+.b6-step--todo { color: var(--b6-muted); }
+
+.b6-tick {
+  flex: none;
+  box-sizing: border-box;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+}
+
+.b6-tick--done { background: var(--b6-teal-ink); color: var(--b6-surface); }
+.b6-tick--now { background: var(--b6-surface); box-shadow: inset 0 0 0 2px var(--b6-teal-ink); color: var(--b6-teal-ink); }
+.b6-tick--todo { background: var(--b6-surface); box-shadow: inset 0 0 0 1px var(--b6-faint); color: var(--b6-faint); }
+
 /* ---- mist: needs a position:relative parent ---- */
 .b6-mist {
   position: absolute;
