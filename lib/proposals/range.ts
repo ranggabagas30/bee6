@@ -1,23 +1,4 @@
 import { addDays, zonedTimeToEpochMs } from "@/lib/capture/calendar";
-
-/**
- * The one read window every evidence reader shares (Generate step 8a, the R-19 watch panel, the demo
- * template check): sessions for `from-1 .. to+1` (a session may straddle midnight) and threads whose first
- * line starts between 01:00 of `from` and 03:00 of `to+1` in the outlet zone, so that `attributedBusinessDate`
- * can date every candidate and `selectCandidates` then keeps the ones inside `[from, to]`.
- */
-export function evidenceReadWindow(
-  range: { from_date: string; to_date: string },
-  tz: string,
-): { dates: string[]; fromMs: number; toMs: number } {
-  const dates: string[] = [];
-  for (let d = addDays(range.from_date, -1); d <= addDays(range.to_date, 1); d = addDays(d, 1)) dates.push(d);
-  return {
-    dates,
-    fromMs: zonedTimeToEpochMs(range.from_date, "01:00", tz),
-    toMs: zonedTimeToEpochMs(addDays(range.to_date, 1), "03:00", tz),
-  };
-}
 import { MAX_RANGE_DAYS } from "@/lib/proposals/constants";
 
 /**
@@ -53,4 +34,23 @@ export function validateRange(
   const oldestAllowed = addDays(today, -(retentionDays - 1));
   if (r.from_date < oldestAllowed) return { ok: false, code: "range_too_old" };
   return { ok: true };
+}
+
+/**
+ * The one read window every evidence reader shares (Generate step 8a, the R-19 watch panel, the demo
+ * template check): sessions for `from-1 .. to+1` (a session may straddle midnight) and threads whose first
+ * line starts between 01:00 of `from` and 03:00 of `to+1` in the outlet zone, so that `attributedBusinessDate`
+ * can date every candidate and `selectCandidates` then keeps the ones inside `[from, to]`.
+ */
+export function evidenceReadWindow(
+  range: { from_date: string; to_date: string },
+  tz: string,
+): { dates: string[]; fromMs: number; toMs: number } {
+  const dates: string[] = [];
+  for (let d = addDays(range.from_date, -1); d <= addDays(range.to_date, 1); d = addDays(d, 1)) dates.push(d);
+  return {
+    dates,
+    fromMs: zonedTimeToEpochMs(range.from_date, "01:00", tz),
+    toMs: zonedTimeToEpochMs(addDays(range.to_date, 1), "03:00", tz),
+  };
 }
