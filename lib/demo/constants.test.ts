@@ -42,6 +42,7 @@ describe("demo constants (R-12 Task 4.1)", () => {
     expect(C.PREPARING_MAX_MS).toBe(6 * 60_000);
     expect(C.PROCESS_NOW_MIN_INTERVAL_MS).toBe(20_000);
     expect(C.PROCESS_NOW_PER_SANDBOX).toBe(40);
+    expect(C.NEXT_DAY_PER_SANDBOX).toBe(20);
   });
 
   it("R-19: three days means at most two jumps", () => {

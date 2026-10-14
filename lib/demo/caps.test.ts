@@ -111,6 +111,10 @@ describe("capSpec / modelDailyLimit: defaults and env overrides", () => {
     expect(capSpec("fast_forward", {}).daily).toBeUndefined();
     expect(capSpec("generate", {})).toMatchObject({ sandboxKind: "generate_sandbox", sandboxLimit: 8, daily: { kind: "generate_day", limit: 300 }, model: true });
     expect(capSpec("redact", {})).toMatchObject({ sandboxKind: "redact_sandbox", model: true });
+    expect(capSpec("next_day", {})).toMatchObject({ sandboxKind: "next_day_sandbox", sandboxLimit: 20, code: "demo_next_day_cap", model: false });
+    expect(capSpec("next_day", {}).daily).toBeUndefined();
+    expect(capSpec("next_day", { DEMO_NEXT_DAY_SANDBOX_CAP: "0" }).sandboxLimit).toBe(20); // not a kill switch (no model spend)
+    expect(capSpec("next_day", { DEMO_NEXT_DAY_SANDBOX_CAP: "5" }).sandboxLimit).toBe(5);
     expect(modelDailyLimit({})).toBe(5000);
   });
 

@@ -18,7 +18,7 @@ import type { CustomClaims } from "@/lib/auth/roles";
 import { classifyMicSource } from "@/lib/capture/mic-source";
 import { captureMode } from "@/lib/devices/capture-mode";
 import { DEMO_DAYS_TOTAL, DEMO_SESSION_MAX_MS } from "@/lib/demo/constants";
-import { DemoNextDayStatusSchema, DemoOpenSessionSchema } from "@/lib/demo/contract";
+import { DemoNextDayStatusSchema, DemoOpenSessionSchema, type DemoNextDayStatus } from "@/lib/demo/contract";
 
 /**
  * Shared capture contract (R-03, web spec §4.1/§5). This module is the single
@@ -276,16 +276,65 @@ export function hasDemoProfile(input: {
   return input.demoMode && input.outlet.sandbox !== undefined && input.device?.expires_at_ms !== undefined;
 }
 
+// ── R-19 PR-2 (plan section 4.3): the sandbox's day counters ─────────────────────────────────────────────
+// Defined HERE (not in lib/demo/next-day.ts) because this module is bundled into the browser capture client:
+// the next-day module reaches firebase-admin through the clone/store imports and must stay server-only.
+
+export type DemoDay = 1 | 2 | 3;
+
+/** `day = next_day_count + 1`, capped at DEMO_DAYS_TOTAL. */
+export function demoDayOf(nextDayCount: number | undefined): DemoDay {
+  return Math.min(DEMO_DAYS_TOTAL, (nextDayCount ?? 0) + 1) as DemoDay;
+}
+
+/** `days_done = next_day_count + (today's non-discarded ended day ? 1 : 0)`, capped at DEMO_DAYS_TOTAL. */
+export function demoDaysDone(input: { next_day_count: number | undefined; last_ended: LastEnded | null; today: string }): number {
+  const last = input.last_ended;
+  const todayDone = last !== null && last.end_reason !== "discarded" && last.business_date === input.today ? 1 : 0;
+  return Math.min(DEMO_DAYS_TOTAL, (input.next_day_count ?? 0) + todayDone);
+}
+
+/**
+ * R-19 PR-2 (plan section 4.3): what the sandbox's live profile is computed from. `next_day` is the verdict of
+ * the same pure guard function the next-day route runs (`nextDayEligibility`, G3-G6, no writes), so the
+ * drawer can show the lock reason without a call. `closing_reached` and `open_session` stay at their fresh
+ * values until PR-4 fills them.
+ */
+export interface DemoDayInput {
+  next_day_count: number | undefined;
+  last_ended: LastEnded | null;
+  /** The sandbox's current business date in the outlet's timezone. */
+  today: string;
+  next_day: DemoNextDayStatus;
+}
+
+export function projectDemoSessionProfile(input: DemoDayInput): DemoSessionProfile {
+  return DemoSessionProfileSchema.parse({
+    ...FRESH_DEMO_SESSION,
+    day: demoDayOf(input.next_day_count),
+    days_done: demoDaysDone({ next_day_count: input.next_day_count, last_ended: input.last_ended, today: input.today }),
+    next_day: input.next_day,
+  });
+}
+
+/** The config route's overlay: a response that carries `demo_session` gets the live profile; any other response is returned as is. */
+export function withDemoDay(config: CaptureConfigResponse, input: DemoDayInput): CaptureConfigResponse {
+  if (config.demo_session === undefined) return config;
+  return CaptureConfigResponseSchema.parse({ ...config, demo_session: projectDemoSessionProfile(input) });
+}
+
 export function toCaptureConfig(
   outlet: Outlet,
   lastEnded: LastEnded | null,
   pairedDeviceCount: number,
   demoMode = false,
   device?: Pick<Device, "expires_at_ms">,
+  /** R-19 PR-2: when given, the sandbox profile is the live one instead of FRESH_DEMO_SESSION. */
+  demoDay?: DemoDayInput,
 ): CaptureConfigResponse {
   const demoSession =
     hasDemoProfile({ demoMode, outlet, device })
-      ? { demo_session: FRESH_DEMO_SESSION }
+      ? { demo_session: demoDay ? projectDemoSessionProfile(demoDay) : FRESH_DEMO_SESSION }
       : {};
   return CaptureConfigResponseSchema.parse({
     timezone: outlet.timezone,
