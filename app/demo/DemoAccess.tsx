@@ -94,7 +94,8 @@ export function DemoAccess({ config, role, onFill, onStarted, children }: DemoAc
     statusText = [t(lang, lines.message), lines.hint ? t(lang, lines.hint.key, lines.hint.vars) : ""].filter(Boolean).join(" ");
   } else if (filledFor !== null && filledFor === role) {
     statusText = t(lang, "C-demo-cred-filled");
-  } else if (earlier?.expired) {
+  } else if (earlier?.expired && role !== "staff") {
+    // /pair (staff): the DemoBar is visible there and already says the session ended; /sign-in hides it once ended.
     statusText = t(lang, "C-demo-expired");
   }
 

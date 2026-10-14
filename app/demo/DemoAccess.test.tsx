@@ -298,10 +298,17 @@ describe("DemoAccess intercepts", () => {
 });
 
 describe("DemoAccess with an earlier visit in this browser", () => {
-  it("says the session ended when the stored sandbox is past its expiry", () => {
+  it("on /sign-in (the web roles) says the session ended when the stored sandbox is past its expiry: the DemoBar is hidden there", () => {
     window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: 1_000, role: "owner" }));
-    renderAccess();
+    renderAccess({ role: "owner" });
     expect(status().textContent).toContain("Your demo session has ended.");
+  });
+
+  it("on /pair (staff) does not repeat the ended sentence: the DemoBar already shows it", () => {
+    window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: 1_000, role: "staff" }));
+    renderAccess({ role: "staff" });
+    expect(screen.queryByText("Your demo session has ended.")).toBeNull();
+    expect(status().textContent).toBe("");
   });
 
   it("says nothing of an ending, and nothing about continuing, on a fresh browser", () => {
