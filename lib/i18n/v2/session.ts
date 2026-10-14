@@ -11,6 +11,9 @@
  *
  * PR-4a keys (plan sections 4.4, 5.4, 5.5, 5.6; Q6). EN is final per the plan; every ID line is PROVISIONAL
  * until Tiffany reviews it. All of them are sandbox-only on screen (the pilot never renders them).
+ *
+ * PR-4b keys (plan sections 5.7, 5.7a): the demo staff sign-out button and its two dialogs (P2-07a/b), and the
+ * "session still open" view (P2-07c). Same rules; sandbox-only on screen.
  */
 
 export const sessionID = {
@@ -36,6 +39,25 @@ export const sessionID = {
   "C-sess-next-day-preparing": "Bee6 masih menyiapkan pertanyaan hari ini. Coba lagi sebentar lagi.", // PROVISIONAL
   "C-sess-next-day-shift_incomplete": "Demo tidak bisa maju ke hari berikutnya. Masuk sebagai Pemilik dan atur ulang demo.", // PROVISIONAL
   "C-sess-next-day-busy": "Bee6 sedang memproses catatan hari ini. Coba lagi beberapa detik lagi.", // PROVISIONAL
+  // 5.7: staff sign-out (demo only). Local: no session is deleted by it, apart from the cancel in the first dialog.
+  "C-sess-signout": "Keluar", // PROVISIONAL
+  "C-sess-signout-finishing": "Menyelesaikan unggahan…", // PROVISIONAL
+  "C-sess-signout-running-h": "Keluar dan batalkan hari ini?", // PROVISIONAL
+  "C-sess-signout-running-b":
+    "Sesi hari ini masih berjalan. Jika Anda keluar sekarang, sesi dibatalkan: catatan hari ini dihapus dan hari ini tidak dihitung.", // PROVISIONAL
+  "C-sess-signout-keep": "Tetap mendengarkan", // PROVISIONAL
+  "C-sess-signout-cancel": "Keluar dan batalkan", // PROVISIONAL
+  "C-sess-signout-closed-h": "Keluar?", // PROVISIONAL
+  "C-sess-signout-closed-b":
+    "Jam tutup sudah lewat, jadi sesi hari ini tidak bisa dibatalkan lagi. Sesi tetap terbuka sampai Anda mengetuk Selesai, lalu debrief berjalan selama 60 menit. Pertanyaan yang tidak dijawab dicatat sebagai belum terverifikasi.", // PROVISIONAL
+  "C-sess-signout-stay": "Tetap di sini", // PROVISIONAL
+  "C-sess-signout-anyway": "Tetap keluar", // PROVISIONAL
+  // 5.7a: the still-open session found again on return (the phone never resumes listening into it).
+  "C-sess-open-reached-h": "Sesi hari ini masih terbuka.", // PROVISIONAL
+  "C-sess-open-reached-b": "Jam tutup sudah lewat. Ketuk Selesai untuk memulai debrief.", // PROVISIONAL
+  "C-sess-open-interrupted-h": "Sesi hari ini terputus.", // PROVISIONAL
+  "C-sess-open-interrupted-b": "Batalkan sesi ini dan mulai hari ini lagi.", // PROVISIONAL
+  "C-sess-open-cancel": "Batalkan hari ini", // PROVISIONAL
 } as const satisfies Record<string, string>;
 
 export const sessionEN: Record<keyof typeof sessionID, string> = {
@@ -55,4 +77,21 @@ export const sessionEN: Record<keyof typeof sessionID, string> = {
   "C-sess-next-day-preparing": "Bee6 is still preparing today's questions. Try again in a minute.",
   "C-sess-next-day-shift_incomplete": "The demo could not move to the next day. Sign in as Owner and reset the demo.",
   "C-sess-next-day-busy": "Bee6 is busy with today's notes. Try again in a few seconds.",
+  "C-sess-signout": "Sign out",
+  "C-sess-signout-finishing": "Finishing uploads…",
+  "C-sess-signout-running-h": "Sign out and cancel today?",
+  "C-sess-signout-running-b":
+    "Today's session is still running. If you sign out now it is cancelled: the notes from today are deleted and today does not count.",
+  "C-sess-signout-keep": "Keep listening",
+  "C-sess-signout-cancel": "Sign out and cancel",
+  "C-sess-signout-closed-h": "Sign out?",
+  "C-sess-signout-closed-b":
+    "Closing time has passed, so today's session can no longer be cancelled. It stays open until you tap End, then the debrief runs for 60 minutes. Questions left unanswered are recorded as unverified.",
+  "C-sess-signout-stay": "Stay",
+  "C-sess-signout-anyway": "Sign out anyway",
+  "C-sess-open-reached-h": "Today's session is still open.",
+  "C-sess-open-reached-b": "Closing time has passed. Tap End to start the debrief.",
+  "C-sess-open-interrupted-h": "Today's session was interrupted.",
+  "C-sess-open-interrupted-b": "Cancel it and start today again.",
+  "C-sess-open-cancel": "Cancel today",
 };
