@@ -113,8 +113,11 @@ describe("nextDayDecision (the route's full decision before any write)", () => {
       open_questions: 0,
     });
     expect(d).toEqual({ kind: "stale", day: 2 });
-    expect(nextDayDecision({ ...okInput({ next_day_count: 2, last_ended: null }), expected_day: 2, confirm_unanswered: false, open_questions: 0 })).toEqual({ kind: "stale", day: 3 });
-    expect(nextDayDecision({ ...okInput({ next_day_count: 2, last_ended: null }), expected_day: 1, confirm_unanswered: false, open_questions: 0 })).toEqual({ kind: "stale", day: 3 });
+  });
+
+  it("on day 3 every tap is max_days (the contract allows expected_day 1 | 2 only, so none can be current), before the stale check", () => {
+    expect(nextDayDecision({ ...okInput({ next_day_count: 2, last_ended: null }), expected_day: 2, confirm_unanswered: false, open_questions: 0 })).toEqual({ kind: "refuse", reason: "max_days" });
+    expect(nextDayDecision({ ...okInput({ next_day_count: 2, last_ended: null }), expected_day: 1, confirm_unanswered: false, open_questions: 0 })).toEqual({ kind: "refuse", reason: "max_days" });
   });
 
   it("an expected_day AHEAD of the server is a client error, never a shift", () => {
@@ -289,5 +292,176 @@ describe("shiftLastEnded (devices: only last_ended moves)", () => {
     const q = shiftDocForNextDay(COLLECTIONS.questions, { status: "open", created_at_ms: T0 + 60_000 }) as { status: "open"; created_at_ms: number };
     expect(expireAtDebriefEnd(q, last.debrief_ends_at_ms, T0)).toBeNull(); // before the shift: the debrief is still running
     expect(expireAtDebriefEnd(q, shifted.debrief_ends_at_ms, T0)).toEqual({ status: "unverified", expired_by_debrief_end_ms: shifted.debrief_ends_at_ms });
+  });
+});
+
+// ── runNextDay: the orchestration over an injected store (section 4.1 G1/G7, 4.2 order) ─────────────────────
+import { AppError } from "@/lib/http/errors";
+import { SHIFT_MARKER_STALE_MS, runNextDay, type NextDayInput } from "@/lib/demo/next-day";
+import { fakeNextDayStore } from "@/lib/demo/testing/fake-next-day-store";
+import { TEMPLATE_DOC_MAX } from "@/lib/demo/constants";
+import type { Outlet } from "@/lib/firestore/schema";
+
+const sbxOutlet = (over: Partial<NonNullable<Outlet["sandbox"]>> = {}): Outlet => ({
+  outlet_id: SBX, name: "Sandbox", project_kind: "demo", timezone: TZ, opening_time: "07:00", closing_time: "21:45", created_at: iso(0),
+  sandbox: { template_outlet_id: "demo-tpl-outlet", created_at_ms: T0 - 3_600_000, expires_at_ms: T0 + 3_600_000, key_sha256: "a".repeat(64), ...over },
+});
+const endedLast = (): LastEndedT => ({ business_date: TODAY, end_reason: "selesai", ended_at_ms: T0 - 10 * 60_000, debrief_ends_at_ms: T0 + 50 * 60_000 });
+type LastEndedT = NonNullable<NextDayGuardInput["last_ended"]>;
+
+/** A sandbox after day 1: one ended session, two threads, one open gate question, a suppressed proposal. */
+function dayOneDocs() {
+  const ended = T0 - 10 * 60_000;
+  return {
+    [COLLECTIONS.captureSessions]: {
+      [`${JDG}:${S1}`]: { outlet_id: SBX, device_id: JDG, session_id: S1, started_at_ms: ended - 300_000, ended_at_ms: ended, end_reason: "selesai", local_date: TODAY, auto_stop_at_ms: ended + 300_000, debrief_ends_at_ms: ended + 3_600_000, received_start_at: iso(ended - 300_000), received_end_at: iso(ended) },
+    },
+    [COLLECTIONS.segments]: {
+      [`${SBX}:${JDG}:seg1`]: { outlet_id: SBX, device_id: JDG, seg_id: "seg1", received_at: iso(ended - 100_000), device_start: iso(ended - 115_000), device_end: iso(ended - 100_000), model: "m", location: "global", lines: [{ text: "Roti habis.", start: 0, end: 2 }], expires_at: { toDate: () => new Date(0) }, session_id: S1 },
+    },
+    [COLLECTIONS.labelUnits]: { u1: { outlet_id: SBX, device_id: JDG, unit_key: "u1", line_ids: ["seg1#0"], status: "done", attempts: 1, labelled_at_ms: ended - 60_000 } },
+    [COLLECTIONS.threads]: { th1: { outlet_id: SBX, device_id: JDG, thread_id: "th1", summary: "Sold out.", lines: [{ line_id: "seg1#0", start_ms: ended - 115_000, end_ms: ended - 100_000, text: "Roti habis." }], first_line_start_ms: ended - 115_000, last_line_end_ms: ended - 100_000, status: "open", gate: { verdict: "question" }, created_at_ms: ended - 60_000, updated_at_ms: ended - 60_000 } },
+    [COLLECTIONS.questions]: { q1: { outlet_id: SBX, device_id: JDG, question_id: "q1", thread_id: "th1", kind: "gate", status: "open", category: "CUSTOMER_SERVICE", window_start_ms: ended - 115_000, window_end_ms: ended - 100_000, created_at_ms: ended - 60_000 } },
+    [COLLECTIONS.proposals]: { p1: { outlet_id: SBX, proposal_id: S1, status: "suppressed", range: { from_date: "2026-10-12", to_date: TODAY }, content: null, created_at_ms: ended, updated_at_ms: ended } },
+  };
+}
+
+function input(over: Partial<NextDayInput> = {}): NextDayInput {
+  return { outlet_id: SBX, device_id: JDG, now_ms: T0, demoMode: true, body: { expected_day: 1, confirm_unanswered: true }, log: () => undefined, ...over };
+}
+const codeOf = async (p: Promise<unknown>) => {
+  try {
+    await p;
+    return "no error";
+  } catch (e) {
+    return e instanceof AppError ? `${e.statusCode}:${e.code}${e.details ? ":" + JSON.stringify(e.details) : ""}` : String(e);
+  }
+};
+
+describe("runNextDay", () => {
+  it("G1: off demo mode, a missing outlet, a pilot outlet or an outlet without a sandbox is 404 before any other read", async () => {
+    const pilot = { ...sbxOutlet(), project_kind: "pilot" as const };
+    for (const [name, f, inp] of [
+      ["demoMode off", fakeNextDayStore({ outlet: sbxOutlet() }), input({ demoMode: false })],
+      ["missing outlet", fakeNextDayStore({ outlet: null }), input()],
+      ["pilot kind", fakeNextDayStore({ outlet: pilot }), input()],
+      ["no sandbox", fakeNextDayStore({ outlet: { ...sbxOutlet(), sandbox: undefined } }), input()],
+    ] as const) {
+      expect(await codeOf(runNextDay(f.store, inp)), name).toBe("404:NOT_FOUND");
+      expect(f.calls.filter((c) => !c.startsWith("getOutlet")), name).toEqual([]);
+    }
+  });
+
+  it("each refusal is a 409 with the NextDayRefusal code and nothing written", async () => {
+    const cases: [string, ReturnType<typeof fakeNextDayStore>, Partial<NextDayInput>][] = [
+      ["session_open", fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast(), docs: { [COLLECTIONS.captureSessions]: { open: { outlet_id: SBX, device_id: JDG, session_id: S1, ended_at_ms: null } } } }), {}],
+      ["day_not_ended", fakeNextDayStore({ outlet: sbxOutlet(), last_ended: null }), {}],
+      ["preparing", fakeNextDayStore({ outlet: sbxOutlet(), last_ended: { ...endedLast(), ended_at_ms: T0 - 60_000 }, docs: { ...dayOneDocs(), [COLLECTIONS.labelUnits]: {} } }), {}],
+      ["max_days", fakeNextDayStore({ outlet: sbxOutlet({ next_day_count: 2 }), last_ended: endedLast() }), { body: { expected_day: 2, confirm_unanswered: true } }],
+      ["proposal_exists", fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast(), docs: { [COLLECTIONS.proposals]: { p: { outlet_id: SBX, content: { x: 1 } } } } }), {}],
+      ["busy", fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast(), proposal_lock_expires_at_ms: T0 + 1 }), {}],
+    ];
+    for (const [code, f, over] of cases) {
+      expect(await codeOf(runNextDay(f.store, input(over))), code).toBe(`409:${code}`);
+      expect(f.calls, code).not.toContain("takeShiftMarker");
+      expect(f.state.written, code).toEqual([]);
+    }
+  });
+
+  it("unanswered_questions carries the count in details and writes nothing", async () => {
+    const f = fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast(), docs: dayOneDocs() });
+    expect(await codeOf(runNextDay(f.store, input({ body: { expected_day: 1, confirm_unanswered: false } })))).toBe('409:unanswered_questions:{"unanswered":1}');
+    expect(f.calls).not.toContain("takeShiftMarker");
+  });
+
+  it("a stale expected_day answers 200 with the current day and writes nothing", async () => {
+    const f = fakeNextDayStore({ outlet: sbxOutlet({ next_day_count: 1 }), last_ended: null });
+    expect(await runNextDay(f.store, input({ body: { expected_day: 1, confirm_unanswered: false } }))).toEqual({ day: 2 });
+    expect(f.calls).not.toContain("takeShiftMarker");
+  });
+
+  it("an expected_day ahead of the server is a 422", async () => {
+    const f = fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast() });
+    expect(await codeOf(runNextDay(f.store, input({ body: { expected_day: 2, confirm_unanswered: true } })))).toMatch(/^422:VALIDATION_ERROR/);
+  });
+
+  it("success: marker, lease, every doc shifted one day back, day-1 questions expired, count + 1, marker cleared, lease released", async () => {
+    const f = fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast(), docs: dayOneDocs() });
+    const log: unknown[] = [];
+    expect(await runNextDay(f.store, input({ log: (e, fields) => log.push([e, fields]) }))).toEqual({ day: 2 });
+
+    expect(f.calls).toEqual(["getOutlet:" + SBX, "readGuardState", "takeShiftMarker", "acquireLease", "readShiftDocs", "writeShift", "expireOpenQuestions", "completeShift", "releaseLease"]);
+    expect(f.state.outlet?.sandbox).toMatchObject({ next_day_count: 1, shift_started_at_ms: null });
+    expect(f.state.leaseHeld).toBe(false);
+
+    const session = f.cols.get(COLLECTIONS.captureSessions)!.get(`${JDG}:${S1}`)!;
+    expect(session.local_date).toBe("2026-10-13");
+    expect(session.ended_at_ms).toBe(T0 - 10 * 60_000 - DAY);
+    expect(f.state.last_ended).toEqual({ business_date: "2026-10-13", end_reason: "selesai", ended_at_ms: T0 - 10 * 60_000 - DAY, debrief_ends_at_ms: T0 + 50 * 60_000 - DAY });
+    const seg = f.cols.get(COLLECTIONS.segments)!.get(`${SBX}:${JDG}:seg1`)!;
+    expect(seg.device_start).toBe(iso(T0 - 10 * 60_000 - 115_000 - DAY));
+    expect((seg.lines as { text: string }[])[0]!.text).toBe("Roti habis.");
+    expect(seg.expires_at).toBe(dayOneDocs()[COLLECTIONS.segments]![`${SBX}:${JDG}:seg1`]!.expires_at === undefined ? undefined : seg.expires_at); // reference kept (checked in the shift tests)
+    const thread = f.cols.get(COLLECTIONS.threads)!.get("th1")!;
+    expect(thread.summary).toBe("Sold out.");
+    expect(thread.status).toBe("open");
+    expect(thread.created_at_ms).toBe(T0 - 10 * 60_000 - 60_000 - DAY);
+    // The open day-1 question expired at the SHIFTED debrief end (yesterday), so day 2's debrief never shows it.
+    expect(f.state.expired).toEqual([{ debrief_ends_at_ms: T0 + 50 * 60_000 - DAY, now_ms: T0 }]);
+    expect(f.cols.get(COLLECTIONS.questions)!.get("q1")).toMatchObject({ status: "unverified", expired_by_debrief_end_ms: T0 + 50 * 60_000 - DAY });
+    const proposal = f.cols.get(COLLECTIONS.proposals)!.get("p1")!;
+    expect(proposal.range).toEqual({ from_date: "2026-10-11", to_date: "2026-10-13" });
+    // Log: counts only, no text, no device id.
+    expect(JSON.stringify(log)).not.toContain("Roti");
+    expect(JSON.stringify(log)).not.toContain(JDG);
+  });
+
+  it("the second jump (day 2 -> 3) works the same and the third is max_days", async () => {
+    const f = fakeNextDayStore({ outlet: sbxOutlet({ next_day_count: 1 }), last_ended: endedLast(), docs: dayOneDocs() });
+    expect(await runNextDay(f.store, input({ body: { expected_day: 2, confirm_unanswered: true } }))).toEqual({ day: 3 });
+    f.state.last_ended = endedLast(); // day 3 ended
+    expect(await codeOf(runNextDay(f.store, input({ body: { expected_day: 2, confirm_unanswered: true } })))).toBe("409:max_days");
+  });
+
+  it("G7 marker: a marker newer than SHIFT_MARKER_STALE_MS is busy; an older one is shift_incomplete; nothing written either way", async () => {
+    const fresh = fakeNextDayStore({ outlet: sbxOutlet({ shift_started_at_ms: T0 - SHIFT_MARKER_STALE_MS + 1 }), last_ended: endedLast() });
+    expect(await codeOf(runNextDay(fresh.store, input()))).toBe("409:busy");
+    const stale = fakeNextDayStore({ outlet: sbxOutlet({ shift_started_at_ms: T0 - SHIFT_MARKER_STALE_MS - 1 }), last_ended: endedLast() });
+    expect(await codeOf(runNextDay(stale.store, input()))).toBe("409:shift_incomplete");
+    for (const f of [fresh, stale]) {
+      expect(f.calls).not.toContain("acquireLease");
+      expect(f.state.written).toEqual([]);
+      expect(f.state.outlet?.sandbox?.shift_started_at_ms).not.toBeNull(); // not ours to clear
+    }
+  });
+
+  it("G7 lease held by the tick: busy, and OUR marker is cleared again so the next tap is not stuck", async () => {
+    const f = fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast(), lease_held: true });
+    expect(await codeOf(runNextDay(f.store, input()))).toBe("409:busy");
+    expect(f.calls).toContain("abortShift");
+    expect(f.state.outlet?.sandbox?.shift_started_at_ms).toBeNull();
+    expect(f.state.written).toEqual([]);
+  });
+
+  it("too many docs: 503 template_too_large before any write, marker cleared, lease released", async () => {
+    const docs = dayOneDocs();
+    const many: Record<string, Record<string, unknown>> = {};
+    for (let i = 0; i < TEMPLATE_DOC_MAX * 3 + 1; i += 1) many[`u${i}`] = { outlet_id: SBX, device_id: JDG, unit_key: `u${i}`, line_ids: [], status: "done", attempts: 1, labelled_at_ms: null };
+    const f = fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast(), docs: { ...docs, [COLLECTIONS.labelUnits]: many } });
+    expect(await codeOf(runNextDay(f.store, input()))).toBe("503:template_too_large");
+    expect(f.state.written).toEqual([]);
+    expect(f.state.outlet?.sandbox?.shift_started_at_ms).toBeNull();
+    expect(f.state.leaseHeld).toBe(false);
+  });
+
+  it("a crash mid-write leaves the marker set (owner reset is the recovery) and releases the lease; later taps get shift_incomplete", async () => {
+    const f = fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast(), docs: dayOneDocs() });
+    f.state.failWriteAfter = 2;
+    await expect(runNextDay(f.store, input())).rejects.toThrow("fake: write crashed");
+    expect(f.state.outlet?.sandbox).toMatchObject({ shift_started_at_ms: T0 });
+    expect(f.state.outlet?.sandbox?.next_day_count ?? 0).toBe(0);
+    expect(f.state.leaseHeld).toBe(false);
+    f.state.failWriteAfter = null;
+    expect(await codeOf(runNextDay(f.store, input({ now_ms: T0 + SHIFT_MARKER_STALE_MS + 1 })))).toBe("409:shift_incomplete");
   });
 });
