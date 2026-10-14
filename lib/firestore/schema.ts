@@ -311,6 +311,7 @@ export const DEMO_COUNTER_KINDS = [
   "model_day",
   "reset_sandbox", // R-19 owner reset
   "process_now_sandbox", // R-19 fast lane
+  "next_day_sandbox", // R-19 PR-2 jump-to-tomorrow calls
 ] as const;
 export type DemoCounterKind = (typeof DEMO_COUNTER_KINDS)[number];
 export const DemoCounterSchema = z

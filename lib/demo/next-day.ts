@@ -6,6 +6,9 @@ import { NEXT_DAY_MAX, PREPARING_MAX_MS, TEMPLATE_DOC_MAX } from "@/lib/demo/con
 import { demoDayOf, demoDaysDone, type DemoDay } from "@/lib/capture/contract";
 import { DemoNextDayResponseSchema, type DemoNextDayBody, type DemoNextDayResponse, type DemoNextDayStatus, type NextDayRefusal } from "@/lib/demo/contract";
 import { AppError, ConflictError, NotFoundError, ValidationError } from "@/lib/http/errors";
+import { enforceDemoCaps } from "@/lib/demo/caps";
+import { runCheck } from "@/lib/demo/redact-cap";
+import type { DemoStore } from "@/lib/demo/store-types";
 
 /**
  * "Jump to tomorrow" (R-19 PR-2, docs/tasks/R-19-demo-v2.md section 4). Demo project, sandbox outlets only.
@@ -199,6 +202,9 @@ export interface NextDayGuardState {
 export interface NextDayStore {
   /** Plain outlet read (null when missing or malformed). */
   getOutlet(outletId: string): Promise<Outlet | null>;
+  /** The demo counters (`demo_counters`), same contract as `DemoStore`: the per-sandbox call cap of this route. */
+  bumpCounter: DemoStore["bumpCounter"];
+  readCounter: DemoStore["readCounter"];
   /** Read-only inputs of G3-G6 and the unanswered check, for this outlet and device only. */
   readGuardState(outletId: string, deviceId: string, nowMs: number): Promise<NextDayGuardState>;
   /** Any proposal of the outlet with `content !== null` (G6, re-checked after the marker is taken). */
@@ -246,8 +252,9 @@ const refuse = (reason: NextDayRefusal, details?: { unanswered: number }) => new
 const defaultLog = (event: string, fields: Record<string, unknown>) => console.info(`[demo] ${event}`, fields);
 
 /**
- * `POST /api/v1/demo/next-day`. Order: G1 (404 before any other read) -> guard reads -> decision (stale 200,
- * ahead 422, refusals 409, unanswered 409) -> G7 marker -> G7 lease -> bounded read -> shift -> write ->
+ * `POST /api/v1/demo/next-day`. Order: G1 (404 before any other read) -> per-sandbox call cap (429, counts every
+ * call that reached a sandbox, stale ones too) -> cheap stale short-circuit (outlet doc only) -> guard reads ->
+ * decision (stale 200, ahead 422, refusals 409, unanswered 409) -> G7 marker -> G7 lease -> bounded read -> shift -> write ->
  * expire the ended day's open questions at the shifted debrief end -> count + 1 and marker null -> lease
  * released in `finally`. A failure before the first write clears the marker; a crash after it leaves the
  * marker set (later calls: `shift_incomplete`; the recovery is the owner reset).
@@ -258,8 +265,17 @@ export async function runNextDay(store: NextDayStore, input: NextDayInput): Prom
   const outlet = await store.getOutlet(input.outlet_id);
   if (!outlet || outlet.project_kind !== "demo" || !outlet.sandbox) throw new NotFoundError("route", "route");
 
-  const guard = await store.readGuardState(input.outlet_id, input.device_id, input.now_ms);
+  // The call cap comes before the guard reads: a client looping with a stale expected_day costs one counter
+  // transaction per call, never the guard queries. Fail closed (503 demo_cap_unavailable) like every other cap.
+  await runCheck(() => enforceDemoCaps(store, { outlet, now_ms: input.now_ms, key: "next_day" }));
+
+  // Cheap stale short-circuit: the phone is behind the server (a double tap after a finished shift). The
+  // outlet doc already holds the answer, so skip the guard reads (the same rule `nextDayDecision` applies).
   const nextDayCount = outlet.sandbox.next_day_count ?? 0;
+  const currentDay = demoDayOf(nextDayCount);
+  if (input.body.expected_day < currentDay) return DemoNextDayResponseSchema.parse({ day: currentDay });
+
+  const guard = await store.readGuardState(input.outlet_id, input.device_id, input.now_ms);
   const decision = nextDayDecision({
     ...guard,
     now_ms: input.now_ms,

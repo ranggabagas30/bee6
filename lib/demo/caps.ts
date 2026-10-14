@@ -6,6 +6,7 @@ import {
   GENERATE_DAILY,
   GENERATE_PER_SANDBOX,
   MODEL_DAILY,
+  NEXT_DAY_PER_SANDBOX,
   REDACT_PER_SANDBOX,
   SEGMENT_DAILY,
   SANDBOX_DAILY,
@@ -32,7 +33,7 @@ import { OUTLETS_READ_MAX } from "@/lib/reviews/constants";
  * authorised, well-formed request spends a cap and a capped one spends nothing downstream.
  */
 
-export type DemoCapKey = "segment" | "generate" | "fast_forward" | "redact";
+export type DemoCapKey = "segment" | "generate" | "fast_forward" | "redact" | "next_day";
 
 export interface DemoCapSpec {
   /** Per-sandbox counter kind. */
@@ -87,8 +88,8 @@ export function capFromEnv(value: string | undefined, fallback: number): number 
  *
  * Killable (a value of 0 refuses): DEMO_MODEL_DAILY_CAP, DEMO_SEGMENT_SANDBOX_CAP, DEMO_SEGMENT_DAILY_CAP,
  * DEMO_GENERATE_SANDBOX_CAP, DEMO_GENERATE_DAILY_CAP, DEMO_REDACT_SANDBOX_CAP.
- * NOT killable (0 falls back to the default, they use capFromEnv): DEMO_FAST_FORWARD_SANDBOX_CAP (no model
- * spend), DEMO_SANDBOX_DAILY_CAP (sandbox creation, bounded by the outlet-read rule below) and
+ * NOT killable (0 falls back to the default, they use capFromEnv): DEMO_FAST_FORWARD_SANDBOX_CAP and
+ * DEMO_NEXT_DAY_SANDBOX_CAP (no model spend), DEMO_SANDBOX_DAILY_CAP (sandbox creation, bounded by the outlet-read rule below) and
  * DEMO_SWITCH_IP_CAP (the per-IP switch limit). To stop the demo, turn DEMO_MODE off instead.
  */
 export function killableCapFromEnv(value: string | undefined, fallback: number): number {
@@ -121,6 +122,14 @@ export function capSpec(key: DemoCapKey, env: CapEnv = process.env): DemoCapSpec
         sandboxLimit: capFromEnv(env.DEMO_FAST_FORWARD_SANDBOX_CAP, FAST_FORWARD_PER_SANDBOX),
         code: "demo_fast_forward_cap",
         message: "This demo shop has reached its time-skip limit",
+        model: false,
+      };
+    case "next_day":
+      return {
+        sandboxKind: "next_day_sandbox",
+        sandboxLimit: capFromEnv(env.DEMO_NEXT_DAY_SANDBOX_CAP, NEXT_DAY_PER_SANDBOX),
+        code: "demo_next_day_cap",
+        message: "This demo shop has reached its next-day limit",
         model: false,
       };
     case "redact":
@@ -168,7 +177,7 @@ export function modelDailyLimit(env: CapEnv = process.env): number {
 export type CapMode = "charge" | "check";
 
 export async function enforceDemoCaps(
-  store: DemoStore,
+  store: Pick<DemoStore, "bumpCounter" | "readCounter">,
   input: { outlet: Outlet; now_ms: number; key: DemoCapKey; env?: CapEnv; mode?: CapMode },
 ): Promise<void> {
   const { outlet, now_ms } = input;

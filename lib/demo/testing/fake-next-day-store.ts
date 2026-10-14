@@ -12,6 +12,8 @@ export function fakeNextDayStore(seed: {
   docs?: Partial<Record<CollectionName, Record<string, Doc>>>;
   proposal_lock_expires_at_ms?: number | null;
   lease_held?: boolean;
+  /** Pre-seeded demo counters (`<kind>:<sandbox id>` -> count). */
+  counters?: Record<string, number>;
 }) {
   const calls: string[] = [];
   const cols = new Map<CollectionName, Map<string, Doc>>();
@@ -27,6 +29,7 @@ export function fakeNextDayStore(seed: {
     lockExpires: seed.proposal_lock_expires_at_ms ?? null,
     leaseHeld: seed.lease_held ?? false,
     leaseToken: null as number | null,
+    counters: new Map<string, number>(Object.entries(seed.counters ?? {})),
     /** Throw after this many docs were written (simulates a crash mid-batch). */
     failWriteAfter: null as number | null,
     written: [] as ShiftDoc[],
@@ -73,6 +76,17 @@ export function fakeNextDayStore(seed: {
         proposal_lock_live: state.lockExpires !== null && state.lockExpires > nowMs,
         open_questions: mine(COLLECTIONS.questions).filter((q) => q.status === "open").length,
       };
+    },
+    async bumpCounter(counterId, _kind, _day, limit) {
+      calls.push("bumpCounter");
+      const n = state.counters.get(counterId) ?? 0;
+      if (n >= limit) return false;
+      state.counters.set(counterId, n + 1);
+      return true;
+    },
+    async readCounter(counterId) {
+      calls.push("readCounter");
+      return state.counters.get(counterId) ?? 0;
     },
     async proposalWithContent(outletId) {
       calls.push("proposalWithContent");

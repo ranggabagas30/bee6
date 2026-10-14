@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { shiftDeep } from "@/lib/demo/clone";
 
 const DAY = 86_400_000;
@@ -301,10 +301,10 @@ describe("shiftLastEnded (devices: only last_ended moves)", () => {
 });
 
 // ── runNextDay: the orchestration over an injected store (section 4.1 G1/G7, 4.2 order) ─────────────────────
-import { AppError } from "@/lib/http/errors";
+import { AppError, LockedError } from "@/lib/http/errors";
 import { SHIFT_MARKER_STALE_MS, runNextDay, type NextDayInput } from "@/lib/demo/next-day";
 import { fakeNextDayStore } from "@/lib/demo/testing/fake-next-day-store";
-import { TEMPLATE_DOC_MAX } from "@/lib/demo/constants";
+import { NEXT_DAY_PER_SANDBOX, TEMPLATE_DOC_MAX } from "@/lib/demo/constants";
 import type { Outlet } from "@/lib/firestore/schema";
 
 const sbxOutlet = (over: Partial<NonNullable<Outlet["sandbox"]>> = {}): Outlet => ({
@@ -384,6 +384,51 @@ describe("runNextDay", () => {
     expect(f.calls).not.toContain("takeShiftMarker");
   });
 
+  it("a stale expected_day is answered after ONE outlet read and one counter bump: no guard-state read at all", async () => {
+    const f = fakeNextDayStore({ outlet: sbxOutlet({ next_day_count: 1 }), last_ended: null });
+    expect(await runNextDay(f.store, input({ body: { expected_day: 1, confirm_unanswered: false } }))).toEqual({ day: 2 });
+    expect(f.calls).toEqual([`getOutlet:${SBX}`, "bumpCounter"]);
+    const f3 = fakeNextDayStore({ outlet: sbxOutlet({ next_day_count: 2 }), last_ended: null });
+    expect(await runNextDay(f3.store, input({ body: { expected_day: 2, confirm_unanswered: false } }))).toEqual({ day: 3 });
+    expect(f3.calls).toEqual([`getOutlet:${SBX}`, "bumpCounter"]);
+  });
+
+  it("per-sandbox call cap: NEXT_DAY_PER_SANDBOX calls pass (stale ones too), the next is a 429 with a stable code and Retry-After, before any guard read", async () => {
+    expect(NEXT_DAY_PER_SANDBOX).toBe(20);
+    const f = fakeNextDayStore({ outlet: sbxOutlet({ next_day_count: 1 }), last_ended: null });
+    const stale = input({ body: { expected_day: 1, confirm_unanswered: false } });
+    for (let i = 0; i < NEXT_DAY_PER_SANDBOX; i += 1) expect(await runNextDay(f.store, stale)).toEqual({ day: 2 });
+    f.calls.length = 0;
+    const err = await runNextDay(f.store, stale).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(LockedError);
+    expect(err).toMatchObject({ statusCode: 429, code: "demo_next_day_cap", retryAfterSeconds: 3600 });
+    expect(f.calls).toEqual([`getOutlet:${SBX}`, "bumpCounter"]);
+    expect(f.state.counters.get(`next_day_sandbox:${SBX}`)).toBe(NEXT_DAY_PER_SANDBOX);
+  });
+
+  it("a capped real jump writes nothing (no marker, no lease, no shift)", async () => {
+    const f = fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast(), docs: dayOneDocs(), counters: { [`next_day_sandbox:${SBX}`]: NEXT_DAY_PER_SANDBOX } });
+    expect(await codeOf(runNextDay(f.store, input()))).toBe("429:demo_next_day_cap");
+    expect(f.calls).toEqual([`getOutlet:${SBX}`, "bumpCounter"]);
+    expect(f.state.written).toEqual([]);
+  });
+
+  it("within the cap a real jump behaves as before and counts once", async () => {
+    const f = fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast(), docs: dayOneDocs() });
+    expect(await runNextDay(f.store, input())).toEqual({ day: 2 });
+    expect(f.state.counters.get(`next_day_sandbox:${SBX}`)).toBe(1);
+  });
+
+  it("a failing counter transaction fails closed: 503 demo_cap_unavailable, nothing else read", async () => {
+    const f = fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast() });
+    f.store.bumpCounter = async () => {
+      throw new Error("firestore down");
+    };
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    expect(await codeOf(runNextDay(f.store, input()))).toBe("503:demo_cap_unavailable");
+    expect(f.calls).toEqual([`getOutlet:${SBX}`]);
+  });
+
   it("an expected_day ahead of the server is a 422", async () => {
     const f = fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast() });
     expect(await codeOf(runNextDay(f.store, input({ body: { expected_day: 2, confirm_unanswered: true } })))).toMatch(/^422:VALIDATION_ERROR/);
@@ -394,7 +439,7 @@ describe("runNextDay", () => {
     const log: unknown[] = [];
     expect(await runNextDay(f.store, input({ log: (e, fields) => log.push([e, fields]) }))).toEqual({ day: 2 });
 
-    expect(f.calls).toEqual(["getOutlet:" + SBX, "readGuardState", "takeShiftMarker", "proposalWithContent", "acquireLease", "readShiftDocs", "writeShift", "expireOpenQuestions", "completeShift", "releaseLease"]);
+    expect(f.calls).toEqual(["getOutlet:" + SBX, "bumpCounter", "readGuardState", "takeShiftMarker", "proposalWithContent", "acquireLease", "readShiftDocs", "writeShift", "expireOpenQuestions", "completeShift", "releaseLease"]);
     expect(f.state.outlet?.sandbox).toMatchObject({ next_day_count: 1, shift_started_at_ms: null });
     expect(f.state.leaseHeld).toBe(false);
 

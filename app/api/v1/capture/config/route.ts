@@ -27,6 +27,8 @@ export const dynamic = "force-dynamic";
 async function withSandboxDay(config: CaptureConfigResponse, claims: { outlet_id: string; device_id: string }): Promise<CaptureConfigResponse> {
   if (config.demo_session === undefined) return config;
   const now_ms = Date.now();
+  // NOT counted against the next-day call cap (NEXT_DAY_PER_SANDBOX): this overlay costs one extra guard-state read
+  // per GET and is bounded by the phone's own config poll rate; only POST /api/v1/demo/next-day is capped.
   const store = firestoreNextDayStore();
   const outlet = await store.getOutlet(claims.outlet_id);
   const guard = await store.readGuardState(claims.outlet_id, claims.device_id, now_ms);

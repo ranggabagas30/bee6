@@ -61,6 +61,11 @@ export const PREPARING_MAX_MS = 6 * 60_000;
 /** R-19 fast lane (Task D3): minimum gap between two process-now calls of one device, and the cap per sandbox. */
 export const PROCESS_NOW_MIN_INTERVAL_MS = 20_000;
 export const PROCESS_NOW_PER_SANDBOX = 40;
+/**
+ * R-19 PR-2: calls to POST /api/v1/demo/next-day per sandbox (counter `next_day_sandbox`), stale taps included. A judge
+ * needs 2 jumps; the rest is room for double taps and retries. It bounds the Firestore reads a looping client costs.
+ */
+export const NEXT_DAY_PER_SANDBOX = 20;
 
 /** Lazy cleanup: at most this many expired sandboxes are deleted per new-sandbox request. */
 export const CLEANUP_PER_CREATE = 2;

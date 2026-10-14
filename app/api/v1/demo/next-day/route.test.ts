@@ -9,6 +9,7 @@ import { fakeNextDayStore } from "@/lib/demo/testing/fake-next-day-store";
 import { NEXT_DAY_REFUSALS } from "@/lib/demo/contract";
 import { businessDateOf } from "@/lib/capture/calendar";
 import type { Outlet } from "@/lib/firestore/schema";
+import { NEXT_DAY_PER_SANDBOX } from "@/lib/demo/constants";
 
 vi.mock("@/lib/auth/services");
 vi.mock("@/lib/firestore/stores", () => ({ firestoreDeviceStore: () => ({}) }));
@@ -178,5 +179,35 @@ describe("POST /api/v1/demo/next-day on demo", () => {
     expect(await again.json()).toEqual({ data: { day: 2 } });
     expect(f.state.written).toHaveLength(writesBefore);
     expect(f.state.outlet?.sandbox?.next_day_count).toBe(1);
+  });
+
+  it("stale tap: 200 {day} after one outlet read, with no guard-state read; stale taps count against the per-sandbox cap", async () => {
+    const f = fakeNextDayStore({ outlet: outlet({ sandbox: { ...outlet().sandbox!, next_day_count: 1 } }), last_ended: endedToday });
+    wire(f);
+    const res = await POST(req({ expected_day: 1, confirm_unanswered: false }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: { day: 2 } });
+    expect(f.calls).toEqual([`getOutlet:${SBX}`, "bumpCounter"]);
+  });
+
+  it("429 demo_next_day_cap with Retry-After once the sandbox used its calls; nothing else is read or written", async () => {
+    const f = fakeNextDayStore({ outlet: outlet(), last_ended: endedToday, counters: { [`next_day_sandbox:${SBX}`]: NEXT_DAY_PER_SANDBOX } });
+    wire(f);
+    const res = await POST(req({ expected_day: 1, confirm_unanswered: true }));
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("7200");
+    const json = (await res.json()) as { error: { code: string; message: string } };
+    expect(json.error.code).toBe("demo_next_day_cap");
+    expect(typeof json.error.message).toBe("string");
+    noStore(res);
+    expect(f.calls).toEqual([`getOutlet:${SBX}`, "bumpCounter"]);
+    expect(f.state.written).toEqual([]);
+  });
+
+  it("the cap is checked after auth and body validation: a bad body at the cap is still 422 and spends nothing", async () => {
+    const f = fakeNextDayStore({ outlet: outlet(), last_ended: endedToday, counters: { [`next_day_sandbox:${SBX}`]: NEXT_DAY_PER_SANDBOX } });
+    wire(f);
+    expect((await POST(req({ expected_day: 3, confirm_unanswered: true }))).status).toBe(422);
+    expect(f.calls).toEqual([]);
   });
 });

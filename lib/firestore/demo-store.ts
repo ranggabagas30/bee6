@@ -361,6 +361,8 @@ export function firestoreNextDayStore(db: Firestore = adminDb()): NextDayStore {
     return snap.docs.some((d) => (d.data() as { content?: unknown } | undefined)?.content != null);
   }
 
+  const counters = firestoreDemoStore(db);
+
   return {
     async getOutlet(outletId) {
       const doc = await outletsCol().doc(outletId).get();
@@ -372,6 +374,10 @@ export function firestoreNextDayStore(db: Firestore = adminDb()): NextDayStore {
         return null;
       }
     },
+
+    // The per-sandbox call cap uses the demo store's own counter transaction (same fail-closed rules).
+    bumpCounter: (...args) => counters.bumpCounter(...args),
+    readCounter: (counterId) => counters.readCounter(counterId),
 
     proposalWithContent: hasProposalWithContent,
 
