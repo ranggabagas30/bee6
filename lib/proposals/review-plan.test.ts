@@ -314,6 +314,71 @@ describe("classifyDecision", () => {
     expect(isSuperseded(base, [base])).toBe(false);
   });
 
+  describe("R-19 3.4 supersede only by the same problem (focus category, else evidence overlap)", () => {
+    const newerAt = 1_700_000_001_000;
+    const otherEvidence = ["x", "y"].map((x, i) => ({
+      thread_id: `unit_DEVSENTINEL_${x}:0`,
+      local_date: `2026-10-0${i + 1}`,
+      category: "PHONE_CALL" as const,
+      first_line_start_ms: 1_700_000_000_500 + i,
+    }));
+
+    it("same range, both with a focus, different focus -> NOT superseded (two proposals for two problems coexist)", () => {
+      const a = makeProposal({ focus_category: "CUSTOMER_SERVICE" });
+      const b = makeProposal({ proposal_id: P2, created_at_ms: newerAt, focus_category: "PHONE_CALL", content: { ...makeProposal().content!, evidence: otherEvidence } });
+      expect(isSuperseded(a, [b])).toBe(false);
+      expect(supersededIds([a, b]).size).toBe(0);
+    });
+
+    it("same range, same focus -> superseded, even when the evidence sets are disjoint", () => {
+      const a = makeProposal({ focus_category: "CUSTOMER_SERVICE" });
+      const b = makeProposal({ proposal_id: P2, created_at_ms: newerAt, focus_category: "CUSTOMER_SERVICE", content: { ...makeProposal().content!, evidence: otherEvidence } });
+      expect(isSuperseded(a, [b])).toBe(true);
+      expect([...supersededIds([a, b])]).toEqual([P1]);
+    });
+
+    it("legacy (no focus on either): overlapping evidence -> superseded", () => {
+      const a = makeProposal();
+      const b = makeProposal({ proposal_id: P2, created_at_ms: newerAt });
+      expect(a.focus_category).toBeUndefined();
+      expect(isSuperseded(a, [b])).toBe(true);
+    });
+
+    it("legacy (no focus on either): disjoint evidence -> NOT superseded", () => {
+      const a = makeProposal();
+      const b = makeProposal({ proposal_id: P2, created_at_ms: newerAt, content: { ...makeProposal().content!, evidence: otherEvidence } });
+      expect(isSuperseded(a, [b])).toBe(false);
+    });
+
+    it("mixed (only one has a focus): falls back to evidence overlap", () => {
+      const legacy = makeProposal();
+      const focusedOverlap = makeProposal({ proposal_id: P2, created_at_ms: newerAt, focus_category: "CUSTOMER_SERVICE" });
+      expect(isSuperseded(legacy, [focusedOverlap])).toBe(true);
+      const focusedDisjoint = makeProposal({ proposal_id: P2, created_at_ms: newerAt, focus_category: "PHONE_CALL", content: { ...makeProposal().content!, evidence: otherEvidence } });
+      expect(isSuperseded(legacy, [focusedDisjoint])).toBe(false);
+    });
+
+    it("a newer proposal with no content (suppressed/blocked) never supersedes, and null content never overlaps", () => {
+      const a = makeProposal();
+      const b = makeProposal({
+        proposal_id: P2,
+        created_at_ms: newerAt,
+        status: "blocked",
+        content: null,
+        gate: { passed: false, fired_rule: "evidence_min", checks: [] },
+      });
+      expect(isSuperseded(a, [b])).toBe(false);
+    });
+
+    it("the newer same-focus rule still needs the identical range and an open/approved newer doc", () => {
+      const a = makeProposal({ focus_category: "CUSTOMER_SERVICE" });
+      const otherRange = makeProposal({ proposal_id: P2, created_at_ms: newerAt, focus_category: "CUSTOMER_SERVICE", range: { from_date: "2026-10-01", to_date: "2026-10-04" } });
+      expect(isSuperseded(a, [otherRange])).toBe(false);
+      const older = makeProposal({ proposal_id: P2, created_at_ms: 1_699_999_999_000, focus_category: "CUSTOMER_SERVICE" });
+      expect(isSuperseded(a, [older])).toBe(false);
+    });
+  });
+
   it("4.T9 supersededIds over a mixed list", () => {
     const older = makeProposal();
     const newer = makeProposal({ proposal_id: P2, created_at_ms: 1_700_000_001_000 });

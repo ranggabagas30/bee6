@@ -40,11 +40,29 @@ export type DecisionCheck =
 const OPEN_STATUSES: readonly ProposalStatus[] = ["awaiting_supervisor", "awaiting_owner"];
 const SUPERSEDING_STATUSES: readonly ProposalStatus[] = ["awaiting_supervisor", "awaiting_owner", "approved"];
 
+/** True when the two proposals cite at least one common thread. A null `content` never overlaps. */
+function evidenceIntersects(p: Proposal, q: Proposal): boolean {
+  if (!p.content || !q.content) return false;
+  const ids = new Set(p.content.evidence.map((e) => e.thread_id));
+  return q.content.evidence.some((e) => ids.has(e.thread_id));
+}
+
+/**
+ * R-19 §3.4: a newer proposal supersedes only when it is about the SAME
+ * problem. With a focus on both sides that is the same `focus_category`;
+ * otherwise (legacy docs without a focus) the two evidence sets must share a
+ * thread.
+ */
+function sameProblem(p: Proposal, q: Proposal): boolean {
+  if (p.focus_category && q.focus_category) return p.focus_category === q.focus_category;
+  return evidenceIntersects(p, q);
+}
+
 /**
  * An open proposal is superseded when a newer proposal for the IDENTICAL range
- * is open or approved (R-09 §0 item 5). Newer = later created_at_ms, ties
- * broken by the larger proposal_id. A newer rejected / suppressed / blocked
- * proposal never supersedes.
+ * and the same problem (`sameProblem`, R-19 §3.4) is open or approved (R-09 §0
+ * item 5). Newer = later created_at_ms, ties broken by the larger proposal_id.
+ * A newer rejected / suppressed / blocked proposal never supersedes.
  */
 export function isSuperseded(p: Proposal, sameRange: readonly Proposal[]): boolean {
   if (!OPEN_STATUSES.includes(p.status)) return false;
@@ -54,7 +72,8 @@ export function isSuperseded(p: Proposal, sameRange: readonly Proposal[]): boole
       q.range.from_date === p.range.from_date &&
       q.range.to_date === p.range.to_date &&
       SUPERSEDING_STATUSES.includes(q.status) &&
-      (q.created_at_ms > p.created_at_ms || (q.created_at_ms === p.created_at_ms && q.proposal_id > p.proposal_id)),
+      (q.created_at_ms > p.created_at_ms || (q.created_at_ms === p.created_at_ms && q.proposal_id > p.proposal_id)) &&
+      sameProblem(p, q),
   );
 }
 
