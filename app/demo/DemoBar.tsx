@@ -1,25 +1,26 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
-import Link from "next/link";
+import { useEffect, useSyncExternalStore, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import type { DemoRole } from "@/lib/demo/contract";
 import { useLang } from "@/lib/i18n/context";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import { closeEndedDemo, demoSnapshot, notifyDemoChange, subscribeDemoState, viewFromSnapshot } from "@/app/demo/demo-client";
-import { refusalLines } from "@/app/demo/demo-errors";
-import { authOrNull, useDemoStart } from "@/app/demo/useDemoStart";
+import { authOrNull } from "@/app/demo/useDemoStart";
 
 /**
- * The demo bar (R-12 Task 8.4, copy reworked in R-18 P1). Mounted by the root layout only when the server has DEMO_MODE on, and shown
- * only while this browser holds a demo state (localStorage, shared by its tabs). It names the role, says when the 2 h session
- * ends (device-local HH:MM), and switches to the other two roles inside the same sandbox. Past the end it
- * says so and offers "Start a new demo" (a link to `/`, where the sign-in with the demo access box lives). Hidden on `/`
- * (the home page has its own controls) and, once ended, on `/sign-in` (which carries the same demo access box).
+ * The demo bar (R-12 Task 8.4, copy reworked in R-18 P1, cut down in R-19 PR-5 per plan D-8 / 7.2). Mounted by
+ * the root layout only when the server has DEMO_MODE on, and shown only while this browser holds a demo state
+ * (localStorage, shared by its tabs). It names the role and says when the 2 h session ends (device-local
+ * HH:MM); past the end it says so. Nothing else: the Switch row and the "start a new demo" link are gone (the
+ * judge changes role by signing out and picking again on the entry page, as the judge guide says), and the bar
+ * never calls a demo route. Hidden on `/` (the entry page has its own controls) and, once ended, on `/sign-in`
+ * (which carries the same ended line).
  *
- * The switch uses `onExpired: "stop"`: if the server says the sandbox is gone it shows the ended state; it
- * never quietly builds a new sandbox behind the visitor's back.
+ * The ended-sandbox handling stays: once the demo has ended its credentials are of no use any more, so the judge
+ * phone's device keys are removed (so /capture does not keep a dead credential) and the Firebase web user is
+ * signed out. The expired record stays, so /sign-in can say the session ended.
  */
 
 const BAR_STYLE: CSSProperties = {
@@ -31,33 +32,14 @@ const BAR_STYLE: CSSProperties = {
   borderBottom: "2px solid #8a6d00",
   fontSize: 16,
 };
-const LINE_STYLE: CSSProperties = { margin: "0 0 8px 0", overflowWrap: "anywhere", fontWeight: 700 };
-const ROW_STYLE: CSSProperties = { display: "flex", flexWrap: "wrap", gap: 8 };
-const BUTTON_STYLE: CSSProperties = {
-  minHeight: 48,
-  minWidth: 48,
-  padding: "0 16px",
-  fontSize: 16,
-  cursor: "pointer",
-  flex: "1 1 140px",
-};
-const LINK_STYLE: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  minHeight: 48,
-  padding: "0 16px",
-  color: "#1f1300",
-  fontWeight: 700,
-  textDecoration: "underline",
-};
-const STATUS_STYLE: CSSProperties = { margin: "8px 0 0 0", overflowWrap: "anywhere", minHeight: 0 };
+const LINE_STYLE: CSSProperties = { margin: 0, overflowWrap: "anywhere", fontWeight: 700 };
+const STATUS_STYLE: CSSProperties = { margin: 0, overflowWrap: "anywhere", minHeight: 0 };
 
 const ROLE_KEY: Record<DemoRole, DictKey> = {
   staff: "C-demo-role-staff",
   supervisor: "C-demo-role-supervisor",
   owner: "C-demo-role-owner",
 };
-const ALL_ROLES: readonly DemoRole[] = ["staff", "supervisor", "owner"];
 const MAX_TIMEOUT_MS = 2_147_483_647;
 
 /** Device-local HH:MM; an em-dash, never the text "NaN", when the instant is not a valid date. */
@@ -70,29 +52,15 @@ export function hhmm(ms: number): string {
 export function DemoBar({ config }: { config: FirebaseWebConfig | null }) {
   const { lang } = useLang();
   const pathname = usePathname();
-  const { busy, refusal, start } = useDemoStart(config, "stop");
-  const [endedHere, setEndedHere] = useState(false);
-  const lineRef = useRef<HTMLParagraphElement>(null);
-  const statusRef = useRef<HTMLParagraphElement>(null);
 
   const snapshot = useSyncExternalStore(subscribeDemoState, () => demoSnapshot(), () => "");
   const view = viewFromSnapshot(snapshot);
   const expiresAt = view && !view.expired ? view.state.expires_at_ms : null;
-  const ended = endedHere || view?.expired === true;
+  const ended = view?.expired === true;
 
-  // Once the demo has ended (timer, or a switch that learned the sandbox is gone) its credentials are of no
-  // use any more: remove the judge phone's device keys so /capture does not keep a dead credential, and sign
-  // the Firebase web user out. The expired record stays, so /sign-in can say the session ended.
   useEffect(() => {
     if (ended) void closeEndedDemo(authOrNull(config));
   }, [ended, config]);
-
-  // The switch button the visitor just tapped is gone once the end is noticed: put keyboard and screen-reader
-  // focus on the status line, which now says the demo ended. (A timer-driven end does not move focus; the
-  // line is a live region and is announced.)
-  useEffect(() => {
-    if (endedHere) statusRef.current?.focus();
-  }, [endedHere]);
 
   // Re-read the snapshot at the expiry instant so a bar left open flips to "ended" without a tap.
   useEffect(() => {
@@ -101,75 +69,25 @@ export function DemoBar({ config }: { config: FirebaseWebConfig | null }) {
     return () => clearTimeout(id);
   }, [expiresAt]);
 
-  async function onSwitch(role: DemoRole) {
-    const result = await start(role);
-    if (result === null) return;
-    if (result.kind === "started") {
-      lineRef.current?.focus(); // the line now names the new role
-    } else if (result.kind === "sandbox_expired") {
-      setEndedHere(true);
-    } else {
-      statusRef.current?.focus();
-    }
-  }
-
-  if (pathname === "/") {
-    // Back at the landing page the visitor is starting over: forget a stale "ended here" (the bar lives
-    // across soft navigations, so it would otherwise greet the next sandbox as ended).
-    if (endedHere) setEndedHere(false);
-    return null;
-  }
-  if (!view && !endedHere) return null;
+  if (pathname === "/") return null;
+  if (!view) return null;
   if (ended && pathname === "/sign-in") return null;
 
-  const live = view?.state ?? null;
+  const live = view.state;
 
   // ONE live region (the status line) stays mounted for the bar's whole life, empty at first, so the end of
   // the demo is announced when its text lands in it; a separate element that appears with its text already
   // in it is not reliably announced.
-  let statusText = "";
-  if (ended) {
-    statusText = t(lang, "C-demo-expired");
-  } else if (busy) {
-    statusText = t(lang, "C-demo-busy");
-  } else if (refusal && refusal.kind !== "sandbox_expired") {
-    // "Sandbox gone" is shown by the ended state above, not as a leftover line under a later live session.
-    const lines = refusalLines(refusal);
-    statusText = [t(lang, lines.message), lines.hint ? t(lang, lines.hint.key, lines.hint.vars) : ""].filter(Boolean).join(" ");
-  }
-
   return (
-    <aside aria-labelledby={live && !ended ? "demo-bar-line" : "demo-bar-status-line"} style={BAR_STYLE}>
-      {live && !ended && (
-        <p id="demo-bar-line" ref={lineRef} tabIndex={-1} style={LINE_STYLE}>
+    <aside aria-labelledby={ended ? "demo-bar-status-line" : "demo-bar-line"} style={BAR_STYLE}>
+      {!ended && (
+        <p id="demo-bar-line" style={LINE_STYLE}>
           {t(lang, "C-demo-bar", { role: t(lang, ROLE_KEY[live.role]), time: hhmm(live.expires_at_ms) })}
         </p>
       )}
-      {live && !ended && (
-        <div style={ROW_STYLE}>
-          {ALL_ROLES.filter((role) => role !== live.role).map((role) => (
-            <button key={role} type="button" disabled={busy} onClick={() => void onSwitch(role)} style={BUTTON_STYLE}>
-              {t(lang, "C-demo-switch", { role: t(lang, ROLE_KEY[role]) })}
-            </button>
-          ))}
-        </div>
-      )}
-      <p
-        id="demo-bar-status-line"
-        ref={statusRef}
-        tabIndex={-1}
-        role="status"
-        aria-live="polite"
-        data-testid="demo-bar-status"
-        style={ended ? { ...LINE_STYLE, margin: 0 } : STATUS_STYLE}
-      >
-        {statusText}
+      <p id="demo-bar-status-line" role="status" aria-live="polite" data-testid="demo-bar-status" style={ended ? LINE_STYLE : STATUS_STYLE}>
+        {ended ? t(lang, "C-demo-expired") : ""}
       </p>
-      {ended && (
-        <Link href="/" style={LINK_STYLE}>
-          {t(lang, "C-demo-restart")}
-        </Link>
-      )}
     </aside>
   );
 }

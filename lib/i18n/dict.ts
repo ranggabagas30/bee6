@@ -489,13 +489,11 @@ export const ID_BASE = {
   "C-demo-path": "Jalur yang disarankan: masuk sebagai Staf dan ucapkan satu hari kerja singkat, jawab debrief, lalu ganti ke Supervisor dan Pemilik lewat bar di atas.", // PROVISIONAL
   "C-demo-fictional": "Data demo fiktif", // PROVISIONAL
   "C-demo-bar": "Demo · Masuk sebagai {role} · Berakhir pukul {time}", // PROVISIONAL
-  "C-demo-switch": "Ganti ke {role}", // PROVISIONAL
   "C-demo-role-staff": "Staf", // PROVISIONAL
   "C-demo-role-supervisor": "Supervisor", // PROVISIONAL
   "C-demo-role-owner": "Pemilik", // PROVISIONAL
   "C-demo-busy": "Menyiapkan toko demo Anda…", // PROVISIONAL
   "C-demo-expired": "Sesi demo Anda sudah berakhir.", // PROVISIONAL
-  "C-demo-restart": "Mulai demo baru", // PROVISIONAL
   "C-demo-restart-confirm": "Buang toko demo ini dan mulai dari awal? Jawaban dan keputusan Anda di toko ini tidak bisa dibuka lagi.", // PROVISIONAL
   "C-demo-restart-yes": "Ya, mulai dari awal", // PROVISIONAL
   "C-demo-restart-keep": "Tetap di demo ini", // PROVISIONAL
@@ -975,13 +973,11 @@ export const EN_BASE: Record<keyof typeof ID_BASE, string> = {
   "C-demo-path": "Suggested path: sign in as Staff and speak a short shop day, answer the debrief, then switch to Supervisor and Owner from the bar at the top.", // PROVISIONAL
   "C-demo-fictional": "Fictional demo data", // PROVISIONAL
   "C-demo-bar": "Demo · Signed in as {role} · Ends at {time}", // PROVISIONAL
-  "C-demo-switch": "Switch to {role}", // PROVISIONAL
   "C-demo-role-staff": "Staff", // PROVISIONAL
   "C-demo-role-supervisor": "Supervisor", // PROVISIONAL
   "C-demo-role-owner": "Owner", // PROVISIONAL
   "C-demo-busy": "Preparing your demo shop…", // PROVISIONAL
   "C-demo-expired": "Your demo session has ended.", // PROVISIONAL
-  "C-demo-restart": "Start a new demo", // PROVISIONAL
   "C-demo-restart-confirm": "Discard this demo shop and start over? You will not be able to open your answers and decisions in it again.", // PROVISIONAL
   "C-demo-restart-yes": "Yes, start over", // PROVISIONAL
   "C-demo-restart-keep": "Stay in this demo", // PROVISIONAL
