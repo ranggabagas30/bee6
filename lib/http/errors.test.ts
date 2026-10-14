@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AppError,
+  ConflictError,
   LockedError,
   ServiceUnavailableError,
   UnauthorizedError,
@@ -58,5 +59,25 @@ describe("LockedError code (R-12)", () => {
     expect(res.status).toBe(429);
     expect(res.headers.get("Retry-After")).toBe("120");
     expect((await res.json()).error.code).toBe("rate_limited");
+  });
+});
+
+describe("ConflictError details (R-19)", () => {
+  it("defaults to CONFLICT, 409, and no details (existing callers unchanged)", async () => {
+    const err = new ConflictError();
+    expect(err.statusCode).toBe(409);
+    expect(err.code).toBe("CONFLICT");
+    expect(err.details).toBeUndefined();
+    expect(await handleApiError(new ConflictError("Already paired", "ALREADY_PAIRED")).json()).toEqual({
+      error: { code: "ALREADY_PAIRED", message: "Already paired" },
+    });
+  });
+
+  it("carries optional details into the error envelope", async () => {
+    const res = handleApiError(new ConflictError("Not enough speech", "not_enough_speech", { have: 2, need: 5 }));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: { code: "not_enough_speech", message: "Not enough speech", details: { have: 2, need: 5 } },
+    });
   });
 });

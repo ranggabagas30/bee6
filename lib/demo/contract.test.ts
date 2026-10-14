@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ClosingRefusalDetailsSchema,
   ClosingRefusalSchema,
   DemoClosingBodySchema,
   DemoClosingResponseSchema,
@@ -13,7 +14,7 @@ import {
   DemoSessionBodySchema,
   DemoSessionResponseSchema,
   NEXT_DAY_REFUSALS,
-  NextDayRefusalBodySchema,
+  NextDayRefusalDetailsSchema,
   NextDayRefusalSchema,
 } from "@/lib/demo/contract";
 
@@ -82,13 +83,17 @@ describe("R-19 POST /api/v1/demo/closing", () => {
     expect(DemoClosingResponseSchema.safeParse({ closing_reached: false }).success).toBe(false);
     expect(DemoClosingResponseSchema.safeParse({ closing_reached: true, x: 1 }).success).toBe(false);
   });
-  it("409: not_enough_speech carries have/need counts, session_not_open carries nothing", () => {
-    expect(ClosingRefusalSchema.safeParse({ code: "not_enough_speech", have: 3, need: 5 }).success).toBe(true);
-    expect(ClosingRefusalSchema.safeParse({ code: "not_enough_speech", have: 3 }).success).toBe(false);
-    expect(ClosingRefusalSchema.safeParse({ code: "not_enough_speech", have: -1, need: 5 }).success).toBe(false);
-    expect(ClosingRefusalSchema.safeParse({ code: "session_not_open" }).success).toBe(true);
-    expect(ClosingRefusalSchema.safeParse({ code: "session_not_open", have: 1 }).success).toBe(false);
-    expect(ClosingRefusalSchema.safeParse({ code: "other" }).success).toBe(false);
+  it("409 error.code is one of the two closing refusals", () => {
+    expect(ClosingRefusalSchema.safeParse("not_enough_speech").success).toBe(true);
+    expect(ClosingRefusalSchema.safeParse("session_not_open").success).toBe(true);
+    expect(ClosingRefusalSchema.safeParse("other").success).toBe(false);
+  });
+  it("409 error.details of not_enough_speech: strict { have >= 0, need >= 1 } counts", () => {
+    expect(ClosingRefusalDetailsSchema.safeParse({ have: 3, need: 5 }).success).toBe(true);
+    expect(ClosingRefusalDetailsSchema.safeParse({ have: 3 }).success).toBe(false);
+    expect(ClosingRefusalDetailsSchema.safeParse({ have: -1, need: 5 }).success).toBe(false);
+    expect(ClosingRefusalDetailsSchema.safeParse({ have: 0, need: 0 }).success).toBe(false);
+    expect(ClosingRefusalDetailsSchema.safeParse({ have: 1, need: 5, text: "x" }).success).toBe(false);
   });
 });
 
@@ -110,12 +115,12 @@ describe("R-19 POST /api/v1/demo/next-day", () => {
     expect(DemoNextDayResponseSchema.safeParse({ day: 1 }).success).toBe(false);
     expect(DemoNextDayResponseSchema.safeParse({ day: 4 }).success).toBe(false);
   });
-  it("409: { code, unanswered? } with a NextDayRefusal code", () => {
-    expect(NextDayRefusalBodySchema.safeParse({ code: "max_days" }).success).toBe(true);
-    expect(NextDayRefusalBodySchema.safeParse({ code: "unanswered_questions", unanswered: 2 }).success).toBe(true);
-    expect(NextDayRefusalBodySchema.safeParse({ code: "unanswered_questions", unanswered: -1 }).success).toBe(false);
-    expect(NextDayRefusalBodySchema.safeParse({ code: "bad" }).success).toBe(false);
-    expect(NextDayRefusalBodySchema.safeParse({ code: "busy", extra: 1 }).success).toBe(false);
+  it("409 error.details: { unanswered? } only; the code is a NextDayRefusal in error.code", () => {
+    expect(NextDayRefusalDetailsSchema.safeParse({}).success).toBe(true);
+    expect(NextDayRefusalDetailsSchema.safeParse({ unanswered: 2 }).success).toBe(true);
+    expect(NextDayRefusalDetailsSchema.safeParse({ unanswered: -1 }).success).toBe(false);
+    expect(NextDayRefusalDetailsSchema.safeParse({ code: "max_days" }).success).toBe(false);
+    expect(NextDayRefusalDetailsSchema.safeParse({ unanswered: 1, extra: 1 }).success).toBe(false);
   });
 });
 

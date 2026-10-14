@@ -47,7 +47,7 @@ export type DemoSessionResponse = z.infer<typeof DemoSessionResponseSchema>;
 // Types and zod schemas only; no route reads them yet. Every `/api/v1/demo/*` route is demo-project only:
 // off a sandbox outlet it answers 404 before any other read, so none of the shapes below exists on the pilot.
 
-/** Why "Jump to tomorrow" is refused (409 body `code`; also `demo_session.next_day.reason` on the capture config). */
+/** Why "Jump to tomorrow" is refused (409 `error.code`; also `demo_session.next_day.reason` on the capture config). */
 export const NEXT_DAY_REFUSALS = [
   "session_open",
   "day_not_ended",
@@ -86,12 +86,18 @@ export const DemoClosingBodySchema = z.object({ session_id: z.string().uuid() })
 export type DemoClosingBody = z.infer<typeof DemoClosingBodySchema>;
 export const DemoClosingResponseSchema = z.object({ closing_reached: z.literal(true) }).strict();
 export type DemoClosingResponse = z.infer<typeof DemoClosingResponseSchema>;
-/** The two 409 bodies (`not_enough_speech {have, need}`, `session_not_open`): counts only, never a transcript. */
-export const ClosingRefusalSchema = z.discriminatedUnion("code", [
-  z.object({ code: z.literal("not_enough_speech"), have: z.number().int().min(0), need: z.number().int().min(1) }).strict(),
-  z.object({ code: z.literal("session_not_open") }).strict(),
-]);
+/**
+ * The two 409 refusals. They travel in the standard error envelope `{ error: { code, message, details? } }`
+ * (lib/http/errors.ts): `ClosingRefusalSchema` is the allowed `error.code`, and `not_enough_speech` carries
+ * `error.details` of shape `ClosingRefusalDetailsSchema` (counts only, never a transcript). `session_not_open`
+ * carries no details.
+ */
+export const ClosingRefusalSchema = z.enum(["not_enough_speech", "session_not_open"]);
 export type ClosingRefusal = z.infer<typeof ClosingRefusalSchema>;
+export const ClosingRefusalDetailsSchema = z
+  .object({ have: z.number().int().min(0), need: z.number().int().min(1) })
+  .strict();
+export type ClosingRefusalDetails = z.infer<typeof ClosingRefusalDetailsSchema>;
 
 /** `POST /api/v1/demo/next-day` (device, sandbox): "Jump to tomorrow". */
 export const DemoNextDayBodySchema = z
@@ -104,10 +110,12 @@ export const DemoNextDayBodySchema = z
 export type DemoNextDayBody = z.infer<typeof DemoNextDayBodySchema>;
 export const DemoNextDayResponseSchema = z.object({ day: z.union([z.literal(2), z.literal(3)]) }).strict();
 export type DemoNextDayResponse = z.infer<typeof DemoNextDayResponseSchema>;
-export const NextDayRefusalBodySchema = z
-  .object({ code: NextDayRefusalSchema, unanswered: z.number().int().min(0).optional() })
-  .strict();
-export type NextDayRefusalBody = z.infer<typeof NextDayRefusalBodySchema>;
+/**
+ * The 409 refusal travels in the standard error envelope: `error.code` is a `NextDayRefusalSchema` value and
+ * `error.details` (only for `unanswered_questions`) has the shape below.
+ */
+export const NextDayRefusalDetailsSchema = z.object({ unanswered: z.number().int().min(0).optional() }).strict();
+export type NextDayRefusalDetails = z.infer<typeof NextDayRefusalDetailsSchema>;
 
 /** `POST /api/v1/demo/process-now` (device, sandbox; fast lane, Task D3): no body, no input from the client. */
 export const DemoProcessNowBodySchema = z.object({}).strict();
