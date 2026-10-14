@@ -56,6 +56,7 @@ import type { WorkCategory } from "@/lib/pipeline/categories";
 import { selectCandidates, type ProposalThreadRow } from "@/lib/proposals/candidates";
 import { EVIDENCE_EXCLUDED } from "@/lib/proposals/constants";
 import { evidenceByCategory, type CategoryEvidence } from "@/lib/proposals/precheck";
+import { evidenceReadWindow } from "@/lib/proposals/range";
 import { MAX_SEGMENT_BYTES, SEGMENT_CONTENT_TYPE } from "@/lib/capture/contract";
 import { deviceAuthHeaders, type DeviceAuth } from "@/lib/capture/browser/client";
 import { TEMPLATE_DEVICE_ID, TEMPLATE_OUTLET_ID } from "@/lib/demo/constants";
@@ -176,11 +177,8 @@ export async function checkTemplateClean(reader: TemplateReader, tz: string = TZ
     };
   }
   const range = { from_date: addDays(lastDay, -6), to_date: lastDay };
-  const dates: string[] = [];
-  for (let d = addDays(range.from_date, -1); d <= addDays(range.to_date, 1); d = addDays(d, 1)) dates.push(d);
-  const fromMs = zonedTimeToEpochMs(range.from_date, "01:00", tz);
-  const toMs = zonedTimeToEpochMs(addDays(range.to_date, 1), "03:00", tz);
-  const [sessions, rows] = await Promise.all([reader.listSessions(dates), reader.listThreadsInRange(fromMs, toMs)]);
+  const window = evidenceReadWindow(range, tz);
+  const [sessions, rows] = await Promise.all([reader.listSessions(window.dates), reader.listThreadsInRange(window.fromMs, window.toMs)]);
 
   const candidates = selectCandidates(rows, sessions, tz, range);
   const evidence = evidenceByCategory(candidates);

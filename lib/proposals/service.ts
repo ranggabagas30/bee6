@@ -1,4 +1,4 @@
-import { addDays, businessDateOf, zonedTimeToEpochMs } from "@/lib/capture/calendar";
+import { businessDateOf } from "@/lib/capture/calendar";
 import { assertOutlet, assertPermission } from "@/lib/auth/rbac";
 import type { CustomClaims } from "@/lib/auth/roles";
 import {
@@ -23,7 +23,7 @@ import {
 import { LibraryNotReadyError, type ProposalLibrary } from "@/config/proposal-library";
 import { PROPOSAL_AGENT_VERSION, PROPOSAL_MODEL, type ProposalModel } from "@/lib/agents/proposal-agent";
 import { FLOOR_VERSION, MODEL_TIMEOUT_MS, PROPOSAL_GATE_VERSION, PROPOSAL_LEASE_MS } from "@/lib/proposals/constants";
-import { validateRange } from "@/lib/proposals/range";
+import { evidenceReadWindow, validateRange } from "@/lib/proposals/range";
 import { aliasCandidates, selectCandidates, type Candidate, type ProposalThreadRow } from "@/lib/proposals/candidates";
 import { checkEvidenceFloor, evidenceByCategory, followupFor } from "@/lib/proposals/precheck";
 import { metricBaseline, reviewDate } from "@/lib/proposals/baseline";
@@ -220,16 +220,11 @@ async function generateProposalCore(
   if (!token) throw new ConflictError("Generation in progress", "GENERATION_IN_PROGRESS");
 
   try {
-    // 8a. candidates.
-    const dates: string[] = [];
-    for (let d = addDays(range.from_date, -1); d <= addDays(range.to_date, 1); d = addDays(d, 1)) {
-      dates.push(d);
-    }
-    const fromMs = zonedTimeToEpochMs(range.from_date, "01:00", tz);
-    const toMs = zonedTimeToEpochMs(addDays(range.to_date, 1), "03:00", tz);
+    // 8a. candidates (the read window is shared with the watch panel and the template check).
+    const window = evidenceReadWindow(range, tz);
     const [sessions, rows] = await Promise.all([
-      store.listSessions(dates),
-      store.listThreadsInRange(fromMs, toMs),
+      store.listSessions(window.dates),
+      store.listThreadsInRange(window.fromMs, window.toMs),
     ]);
     const all = selectCandidates(rows, sessions, tz, range);
 
