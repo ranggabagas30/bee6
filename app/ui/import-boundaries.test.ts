@@ -53,6 +53,14 @@ describe("app/ui and app/globals.css boundaries", () => {
     }
   });
 
+  it("any component that creates an event handler or uses a hook is a client component, so server pages can render it", () => {
+    for (const s of sources.filter((x) => x.name.endsWith(".tsx"))) {
+      const interactive = /\bon(Click|KeyDown|Change)\b|\buse(State|Effect|Ref|Id)\(/.test(s.text);
+      const isClient = /^\s*(?:\/\*[\s\S]*?\*\/\s*)?["']use client["'];?/.test(s.text);
+      if (interactive) expect(isClient, `${s.name} needs "use client"`).toBe(true);
+    }
+  });
+
   it("carries no demo, pilot or shop copy", () => {
     for (const s of sources) {
       expect(s.text, s.name).not.toMatch(/\b(demo|pilot|judge|proofed|bakery|bee6 demo)\b/i);

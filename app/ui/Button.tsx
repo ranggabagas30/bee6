@@ -1,3 +1,5 @@
+"use client";
+
 import type { ComponentPropsWithRef, MouseEvent } from "react";
 import { cx } from "@/app/ui/cx";
 
