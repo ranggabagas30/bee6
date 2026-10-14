@@ -1123,6 +1123,17 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       expect(screen.getByText("Listening")).toBeTruthy();
     });
 
+    it("the dialog takes focus on open and gives it back to the top-bar Sign out button on dismiss (a11y)", async () => {
+      await startDemoSession();
+      const signOut = screen.getByRole("button", { name: "Sign out" });
+      signOut.focus();
+      fireEvent.click(signOut);
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Keep listening" }));
+      fireEvent.keyDown(document.body, { key: "Escape" }); // Escape works anywhere while the dialog is open
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Sign out" }));
+    });
+
     it("before closing: Sign out and cancel calls the existing discard route, stops the engine, THEN clears the device and leaves", async () => {
       await startDemoSession();
       const sessionId = startCaptureSession.mock.calls[0]![3];

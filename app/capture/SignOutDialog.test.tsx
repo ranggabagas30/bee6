@@ -67,6 +67,59 @@ describe("SignOutDialog: before closing (P2-07a)", () => {
   });
 });
 
+describe("SignOutDialog: keyboard and focus (tech-lead round 1, a11y)", () => {
+  it("Escape works anywhere while open, not only inside the dialog", () => {
+    const { onDismiss } = setup();
+    document.body.focus();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it("Escape anywhere does nothing while busy", () => {
+    const { onDismiss } = setup({ busy: true });
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(onDismiss).not.toHaveBeenCalled();
+  });
+
+  it("Tab from the last button wraps to the first; Shift+Tab from the first wraps to the last", () => {
+    setup();
+    const keep = screen.getByRole("button", { name: "Keep listening" });
+    const cancel = screen.getByRole("button", { name: "Sign out and cancel" });
+    cancel.focus();
+    fireEvent.keyDown(cancel, { key: "Tab" });
+    expect(document.activeElement).toBe(keep);
+    fireEvent.keyDown(keep, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(cancel);
+  });
+
+  it("Tab with focus outside the dialog brings it back inside (the page behind is never reachable)", () => {
+    render(<button type="button">Behind</button>);
+    const behind = screen.getByRole("button", { name: "Behind" });
+    setup();
+    behind.focus();
+    fireEvent.keyDown(behind, { key: "Tab" });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Keep listening" }));
+  });
+
+  it("Tab while busy (both buttons disabled) keeps focus on the dialog itself rather than leaving it", () => {
+    render(<button type="button">Behind</button>);
+    setup({ busy: true });
+    fireEvent.keyDown(document.body, { key: "Tab" });
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  });
+
+  it("focus returns to the element that opened it when the dialog goes away", () => {
+    render(<button type="button">Sign out</button>);
+    const opener = screen.getByRole("button", { name: "Sign out" });
+    opener.focus();
+    const { unmount } = setup();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Keep listening" }));
+    unmount();
+    expect(document.activeElement).toBe(opener);
+  });
+});
+
 describe("SignOutDialog: after closing (P2-07b)", () => {
   it("says the session stays open, with the exact copy, and offers Stay / Sign out anyway", () => {
     setup({ kind: "closed" });
