@@ -180,12 +180,26 @@ describe("firestoreNextDayStore.readGuardState open_session (R-19 PR-4b: the sam
     expect((await firestoreNextDayStore(fakeDb(seed).db).readGuardState(SBX, JDG, T0)).open_session?.closing_reached).toBe(true);
   });
 
-  it("reads the device's sessions ONCE: the open session and the preparing session share one query", async () => {
+  it("open_session adds no query: ONE device-wide sessions read (shared with session_open), and none at all besides it when nothing ended", async () => {
+    const seed = seedSandbox();
+    seed[COLLECTIONS.captureSessions]![`${JDG}:${S2}`] = session(null, SBX, JDG, S2);
+    // Nothing ended yet: `computePreparing` (PR-3) is not asked, so the single read is the only sessions query.
+    delete seed[COLLECTIONS.devices]![deviceDocId(SBX, JDG)];
+    const f = fakeDb(seed);
+    const state = await firestoreNextDayStore(f.db).readGuardState(SBX, JDG, T0);
+    expect(state.open_session?.session_id).toBe(S2);
+    expect(f.queries.filter((q) => q.col === COLLECTIONS.captureSessions)).toHaveLength(1);
+  });
+
+  it("with a last_ended the only other sessions query is PR-3's date-scoped one inside computePreparing; open_session still rides the device-wide read", async () => {
     const seed = seedSandbox();
     seed[COLLECTIONS.captureSessions]![`${JDG}:${S2}`] = session(null, SBX, JDG, S2);
     const f = fakeDb(seed);
-    await firestoreNextDayStore(f.db).readGuardState(SBX, JDG, T0);
-    expect(f.queries.filter((q) => q.col === COLLECTIONS.captureSessions)).toHaveLength(1);
+    const state = await firestoreNextDayStore(f.db).readGuardState(SBX, JDG, T0);
+    expect(state.open_session?.session_id).toBe(S2);
+    const sessionQueries = f.queries.filter((q) => q.col === COLLECTIONS.captureSessions);
+    expect(sessionQueries.filter((q) => !q.filters.some(([field]) => field === "local_date"))).toHaveLength(1);
+    expect(sessionQueries.filter((q) => q.filters.some(([field]) => field === "local_date"))).toHaveLength(1);
   });
 
   it("a malformed session doc is skipped, never an open session", async () => {
