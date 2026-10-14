@@ -5,12 +5,12 @@ import { canCommit, reduceDebrief, type DebriefState } from "@/lib/debrief/flow"
 import { DebriefListResponseSchema } from "@/lib/debrief/contract";
 import { appendAnswer, CacheWriteError, cachedIds, pendingSummary, purgeNow, readCache } from "@/lib/debrief/answer-cache";
 import { createAnswerUploader, type AnswerUploader, type Disposition } from "@/lib/debrief/answer-uploader";
+import { readDoneFlag, writeDoneFlag, type DoneSummary } from "@/lib/debrief/done-flag";
 import {
   ANSWER_PURGE_INTERVAL_MS,
   ANSWER_RETRY_MS,
   REFRESH_MIN_INTERVAL_MS,
-  REFRESH_POLL_MAX_MS,
-  REFRESH_POLL_MS,
+  REFRESH_POLL_MS_DEMO,
 } from "@/lib/debrief/constants";
 import { deviceAuthHeaders, type DeviceAuth } from "@/lib/capture/browser/client";
 import { t } from "@/lib/i18n/dict";
@@ -18,6 +18,7 @@ import { useLang } from "@/lib/i18n/context";
 import { QuestionScreen } from "@/app/capture/debrief/QuestionScreen";
 import { DebriefEntryCard } from "@/app/capture/debrief/DebriefEntryCard";
 import { DebriefDone, DebriefEmpty } from "@/app/capture/debrief/DebriefDone";
+import { DebriefPreparing, DebriefWaitingMore } from "@/app/capture/debrief/DebriefPreparing";
 import { DebriefTimeout } from "@/app/capture/debrief/DebriefTimeout";
 
 /**
@@ -27,6 +28,13 @@ import { DebriefTimeout } from "@/app/capture/debrief/DebriefTimeout";
  * The caller (`/capture`) mounts one of these per debrief — give it a fresh
  * `key={endsAtMs}` so a later debrief on the same page gets a clean state
  * machine instead of reusing a finished one.
+ *
+ * R-19 PR-3 (`docs/tasks/R-19-demo-v2.md` §6.3), sandbox judge devices only (`demo`): the server labels the
+ * judge's moments 2-4 min after End, so the debrief opens itself on mount, shows "Preparing your questions"
+ * while the server says `preparing`, re-fetches every REFRESH_POLL_MS_DEMO until the debrief's end, never ends
+ * on a Yes (`waiting_more`), and its done screen is terminal: no Back, and a completion flag in localStorage
+ * (`lib/debrief/done-flag.ts`) restores the summary after a reload inside the hour. A pilot phone never
+ * passes `demo`: one fetch per tap on the entry card, no poll, no flag, every screen as before.
  */
 
 export interface DebriefFlowProps {
@@ -44,14 +52,16 @@ export interface DebriefFlowProps {
    * question).
    */
   headline?: ReactNode;
-  /** The Mulai button + its help line + any Mulai error, rendered below the card or the timeout block only (see `headline`). */
+  /**
+   * The Mulai button + its help line + any Mulai error, rendered below the card or the timeout block only (see
+   * `headline`). On a sandbox it is also rendered under the terminal done summary (the Start-locked line, §5.6).
+   */
   primary?: ReactNode;
   /**
-   * R-18, sandbox judge devices only (the page passes the capture config's `demo_session`): shows a
-   * "Check for new questions" button and re-fetches the list every 20 s while it is on screen (until the
-   * debrief ends or 10 minutes). Absent on the pilot: no button, no poll, one fetch per open.
+   * R-19, sandbox judge devices only (the page passes the capture config's `demo_session`). Absent on the
+   * pilot: no auto-open, no poll, no preparing/waiting screens, no completion flag.
    */
-  refresh?: boolean;
+  demo?: boolean;
   /** Test seam only; defaults to the global fetch. */
   fetchFn?: typeof fetch;
   /** Test seam only; defaults to window.localStorage. */
@@ -72,7 +82,7 @@ export function DebriefFlow({
   nextMulaiText,
   headline,
   primary,
-  refresh = false,
+  demo = false,
   fetchFn,
   storage,
 }: DebriefFlowProps) {
@@ -84,7 +94,14 @@ export function DebriefFlow({
 
   const [state, dispatch] = useReducer(
     reduceDebrief,
-    { view: { kind: "closed" }, ends_at_ms: endsAtMs, business_date: null, seen: new Set() } satisfies DebriefState,
+    {
+      view: { kind: "closed" },
+      ends_at_ms: endsAtMs,
+      business_date: null,
+      seen: new Set(),
+      demo,
+      preparing: false,
+    } satisfies DebriefState,
   );
   const [uploadNote, setUploadNote] = useState<"offline" | "refused" | null>(null);
   // The done screen's unsent-answer count. Seeded in `handleLanjut` right
@@ -93,6 +110,12 @@ export function DebriefFlow({
   // read on entry to "done", or a later flush finishing online would leave
   // a stale "N answers not sent yet." showing forever.
   const [pendingCount, setPendingCount] = useState(0);
+
+  // R-19 (demo): this debrief's completion flag, read once at mount. Non-null means the done screen was already
+  // reached (a reload inside the hour): the summary shows instead of the entry card and nothing auto-opens.
+  const [restoredDone] = useState<DoneSummary | null>(() =>
+    demo && effectiveStorage ? readDoneFlag(effectiveStorage, endsAtMs) : null,
+  );
 
   // Created once per mount (a stable singleton, not recreated on a prop
   // change this component never expects mid-debrief), via a lazy useState
@@ -186,7 +209,7 @@ export function DebriefFlow({
       const parsed = DebriefListResponseSchema.safeParse((payload as { data?: unknown } | null)?.data);
       if (!parsed.success || parsed.data.debrief === null) return;
       const cached = effectiveStorage ? cachedIds(effectiveStorage, Date.now()) : new Set<string>();
-      dispatch({ type: "REFRESHED", questions: parsed.data.questions, cached });
+      dispatch({ type: "REFRESHED", questions: parsed.data.questions, cached, preparing: parsed.data.preparing });
     } catch {
       // network failure: keep the screen as it is
     } finally {
@@ -195,27 +218,25 @@ export function DebriefFlow({
     }
   }
 
-  // The poll runs only on a sandbox device, only while a list screen is showing, and stops at the debrief's
-  // end or REFRESH_POLL_MAX_MS after it began. The latest closure is read through a ref so the interval is
-  // created once per "list is showing" span.
+  // R-19 (demo): the poll runs only on a sandbox device, only while `preparing`, `waiting_more` or a question is
+  // on screen, and stops at the debrief's end. The latest closure is read through a ref so the interval is
+  // created once per "polling view" span.
   const refreshRef = useRef(refreshQuestions);
   useEffect(() => {
     refreshRef.current = refreshQuestions;
   });
-  const listShown = state.view.kind === "empty" || state.view.kind === "question" || state.view.kind === "done";
+  const polling = state.view.kind === "preparing" || state.view.kind === "waiting_more" || state.view.kind === "question";
   useEffect(() => {
-    if (!refresh || !listShown) return;
-    const startedAt = Date.now();
+    if (!demo || !polling) return;
     const id = setInterval(() => {
-      const now = Date.now();
-      if (now >= endsAtMs || now - startedAt >= REFRESH_POLL_MAX_MS) {
+      if (Date.now() >= endsAtMs) {
         clearInterval(id);
         return;
       }
       void refreshRef.current(false);
-    }, REFRESH_POLL_MS);
+    }, REFRESH_POLL_MS_DEMO);
     return () => clearInterval(id);
-  }, [refresh, listShown, endsAtMs]);
+  }, [demo, polling, endsAtMs]);
 
   async function loadQuestions() {
     try {
@@ -236,6 +257,7 @@ export function DebriefFlow({
         questions: parsed.data.questions,
         business_date: parsed.data.debrief.business_date,
         cached,
+        preparing: parsed.data.preparing,
       });
     } catch {
       dispatch({ type: "LOAD_FAILED" });
@@ -247,6 +269,21 @@ export function DebriefFlow({
     dispatch({ type: "OPEN" });
     void loadQuestions();
   }
+
+  // R-19 (demo): the entry card never shows on a sandbox. The debrief opens itself once at mount, unless this
+  // debrief's done screen was already reached (the flag) or its hour is already over.
+  useEffect(() => {
+    if (!demo || restoredDone !== null || Date.now() >= endsAtMs) return;
+    handleOpen();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-once auto-open
+  }, []);
+
+  // R-19 (demo): entering `done` writes the completion flag, so a reload inside the hour restores this summary.
+  const doneCounts = state.view.kind === "done" ? state.view : null;
+  useEffect(() => {
+    if (!demo || !doneCounts || !effectiveStorage) return;
+    writeDoneFlag(effectiveStorage, endsAtMs, { answered: doneCounts.answered, skipped: doneCounts.skipped });
+  }, [demo, doneCounts, effectiveStorage, endsAtMs]);
 
   function handleRetry() {
     dispatch({ type: "RETRY" });
@@ -298,12 +335,39 @@ export function DebriefFlow({
     dispatch({ type: "SKIP" });
   }
 
+  function demoDone(answered: number, skipped: number, pending: number) {
+    return (
+      <>
+        <DebriefDone
+          demo
+          pending={pending}
+          answered={answered}
+          skipped={skipped}
+          endsAtMs={endsAtMs}
+          tz={tz}
+          nextMulaiText={nextMulaiText}
+          onBack={handleBack}
+        />
+        {primary}
+      </>
+    );
+  }
+
   switch (state.view.kind) {
     case "closed": {
       // Past `endsAtMs` with the flow never opened: the card itself
       // disappears silently (there is nothing to resume), but the headline
       // and the Mulai section are not this component's to hide — they stay.
       const expired = nowMs >= endsAtMs;
+      if (demo && restoredDone) return demoDone(restoredDone.answered, restoredDone.skipped, pendingCount);
+      if (demo && !expired) {
+        // The auto-open effect is about to dispatch OPEN; never flash the entry card on a sandbox.
+        return (
+          <section aria-busy="true">
+            <p style={{ margin: 0 }}>{t(lang, "C-d-load")}</p>
+          </section>
+        );
+      }
       return (
         <>
           {headline}
@@ -335,13 +399,13 @@ export function DebriefFlow({
       );
 
     case "empty":
-      return (
-        <DebriefEmpty
-          onBack={handleBack}
-          onCheck={refresh ? () => void refreshQuestions(true) : undefined}
-          checking={checking}
-        />
-      );
+      return <DebriefEmpty onBack={handleBack} />;
+
+    case "preparing":
+      return <DebriefPreparing />;
+
+    case "waiting_more":
+      return <DebriefWaitingMore />;
 
     case "question":
       return (
@@ -353,13 +417,14 @@ export function DebriefFlow({
           onTypeReason={(reason) => dispatch({ type: "TYPE", reason })}
           onLanjut={handleLanjut}
           onLewati={handleLewati}
-          onCheck={refresh ? () => void refreshQuestions(true) : undefined}
+          onCheck={demo ? () => void refreshQuestions(true) : undefined}
           checking={checking}
           debriefDate={state.business_date}
         />
       );
 
     case "done":
+      if (demo) return demoDone(state.view.answered, state.view.skipped, pendingCount);
       return (
         <DebriefDone
           pending={pendingCount}
@@ -368,8 +433,6 @@ export function DebriefFlow({
           tz={tz}
           nextMulaiText={nextMulaiText}
           onBack={handleBack}
-          onCheck={refresh ? () => void refreshQuestions(true) : undefined}
-          checking={checking}
         />
       );
 
@@ -380,7 +443,7 @@ export function DebriefFlow({
       return (
         <>
           {headline}
-          <DebriefTimeout endedAtMs={state.view.ended_at_ms} tz={tz} onBack={handleBack} />
+          <DebriefTimeout endedAtMs={state.view.ended_at_ms} tz={tz} onBack={handleBack} demo={demo} />
           {primary}
         </>
       );
