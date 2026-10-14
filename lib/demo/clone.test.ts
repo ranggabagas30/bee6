@@ -569,7 +569,8 @@ describe("R-18 P0 whole-day time shift", () => {
       range(anchor),
     );
     expect(after).toHaveLength(before.length);
-    expect(before.length).toBeGreaterThanOrEqual(3);
+    // R-19 D-3: the template's ROUTINE_OPS fact is no longer a candidate; the two CUSTOMER_SERVICE facts remain.
+    expect(before.length).toBeGreaterThanOrEqual(2);
     expect(after.map((c) => c.start_hm)).toEqual(before.map((c) => c.start_hm)); // local times unchanged
     expect(after.map((c) => c.local_date)).toEqual(before.map((c) => addDays(c.local_date, K)));
     const floor = checkEvidenceFloor(after);

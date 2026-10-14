@@ -60,6 +60,30 @@ describe("selectCandidates", () => {
     expect(result).toHaveLength(0);
   });
 
+  describe("R-19 3.1 ROUTINE_OPS is never proposal evidence (D-3, product rule, pilot too)", () => {
+    it("drops a ROUTINE_OPS fact", () => {
+      const rows = [row({ category: "ROUTINE_OPS" })];
+      expect(selectCandidates(rows, [session()], TZ, RANGE)).toHaveLength(0);
+    });
+
+    it("keeps a ROUTINE_OPS thread the supervisor relabelled to CUSTOMER_SERVICE (effective category counts)", () => {
+      const rows = [row({ category: "ROUTINE_OPS", confirmed_category: "CUSTOMER_SERVICE", label_source: "supervisor_confirmed" })];
+      const result = selectCandidates(rows, [session()], TZ, RANGE);
+      expect(result).toHaveLength(1);
+      expect(result[0]?.category).toBe("CUSTOMER_SERVICE");
+    });
+
+    it("drops a CUSTOMER_SERVICE thread the supervisor relabelled to ROUTINE_OPS", () => {
+      const rows = [row({ category: "CUSTOMER_SERVICE", confirmed_category: "ROUTINE_OPS", label_source: "supervisor_confirmed" })];
+      expect(selectCandidates(rows, [session()], TZ, RANGE)).toHaveLength(0);
+    });
+
+    it("still drops NON_WORK", () => {
+      const rows = [row({ category: "NON_WORK" as never }), row({ thread_id: "t2", category: "CUSTOMER_SERVICE", confirmed_category: "NON_WORK" as never })];
+      expect(selectCandidates(rows, [session()], TZ, RANGE)).toHaveLength(0);
+    });
+  });
+
   it("a fact at Thu 01:30 inside Wed's session is dated Wed: kept for [Wed,Wed], dropped for [Thu,Thu]", () => {
     const factMs = zonedTimeToEpochMs("2026-10-08", "01:30", TZ);
     const rows = [row({ first_line_start_ms: factMs })];

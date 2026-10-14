@@ -1,7 +1,7 @@
 import { attributedBusinessDate, type AttributionSession } from "@/lib/day/attribution";
 import { localHmOf } from "@/lib/capture/calendar";
 import type { Category, WorkCategory } from "@/lib/pipeline/categories";
-import { MAX_CANDIDATES_IN_PROMPT } from "@/lib/proposals/constants";
+import { EVIDENCE_EXCLUDED, MAX_CANDIDATES_IN_PROMPT } from "@/lib/proposals/constants";
 
 /** The store's field-masked read of one thread for the generate range. */
 export interface ProposalThreadRow {
@@ -32,8 +32,9 @@ export interface Candidate {
 /**
  * Keeps a row only if ALL hold: `status === "fact"`;
  * `excluded_from_evidence !== true`; `label_source !== "supervisor_rejected"`;
- * the effective category (`confirmed_category ?? category`) is not
- * "NON_WORK"; and its attributed business date is non-null and within
+ * the effective category (`confirmed_category ?? category`) is neither
+ * "NON_WORK" nor in `EVIDENCE_EXCLUDED` (ROUTINE_OPS, R-19 D-3); and its
+ * attributed business date is non-null and within
  * `range`. Sorted by `first_line_start_ms`, then `thread_id`. Returns ALL
  * kept rows, uncapped — the floor and the baseline need the true count,
  * only the prompt is capped (`aliasCandidates`).
@@ -51,6 +52,7 @@ export function selectCandidates(
     if (row.label_source === "supervisor_rejected") continue;
     const effective = (row.confirmed_category ?? row.category) as WorkCategory | "NON_WORK";
     if (effective === "NON_WORK") continue;
+    if (EVIDENCE_EXCLUDED.has(effective)) continue; // R-19 D-3: ROUTINE_OPS is never proposal evidence
     const localDate = attributedBusinessDate(row.first_line_start_ms, sessions, tz, row.device_id);
     if (localDate === null) continue;
     if (localDate < range.from_date || localDate > range.to_date) continue;
