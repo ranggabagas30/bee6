@@ -171,6 +171,17 @@ describe("ResetNotice", () => {
     expect(screen.getByRole("status").textContent).toContain("Demo reset to day 1");
   });
 
+  it("drops the flag from the URL once shown (a refresh must not announce the reset again), keeping other params and the hash", async () => {
+    window.history.replaceState(null, "", "/home?demo_reset=1&tab=a#top");
+    const first = render(<ResetNotice lang="en" />);
+    await screen.findByRole("status"); // still shown after the URL was cleaned
+    expect(window.location.search).toBe("?tab=a");
+    expect(window.location.hash).toBe("#top");
+    first.unmount();
+    const refreshed = render(<ResetNotice lang="en" />); // a refresh: the param is gone
+    expect(refreshed.container.innerHTML).toBe("");
+  });
+
   it("renders nothing on a plain /home, or with any other value", () => {
     window.history.replaceState(null, "", "/home");
     const a = render(<ResetNotice lang="en" />);

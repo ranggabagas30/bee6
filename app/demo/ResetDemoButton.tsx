@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/app/ui";
 import { authedPostJson } from "@/lib/auth/client/api";
@@ -238,15 +238,20 @@ function ResetDialog({ lang, busy, failure, onConfirm, onDismiss }: ResetDialogP
   );
 }
 
-const subscribeNone = () => () => {};
-const noticeFlag = () => new URLSearchParams(window.location.search).get(NOTICE_PARAM) === "1";
-
 /**
  * The owner Home notice after a reset. Reads only the flag the button put in the URL (a plain `1`, no data); renders
- * nothing otherwise and on the server. Mount it once on the owner Home (PR-8 / the after-merge wiring).
+ * nothing otherwise and on the server. Once shown it removes the flag from the URL (other params and the hash stay), so
+ * a refresh does not announce the reset again. Mount it once on the owner Home (PR-8 / the after-merge wiring).
  */
 export function ResetNotice({ lang }: { lang: Lang }) {
-  const flagged = useSyncExternalStore(subscribeNone, noticeFlag, () => false);
+  const [flagged, setFlagged] = useState(false);
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get(NOTICE_PARAM) !== "1") return;
+    setFlagged(true);
+    url.searchParams.delete(NOTICE_PARAM);
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
   if (!flagged) return null;
   return (
     <p
