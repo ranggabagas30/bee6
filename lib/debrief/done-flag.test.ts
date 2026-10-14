@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DEBRIEF_DONE_FLAG_KEY, DEBRIEF_DONE_SUMMARY_KEY } from "@/lib/debrief/constants";
-import { readDoneFlag, writeDoneFlag } from "@/lib/debrief/done-flag";
+import { DEBRIEF_DONE_FLAG_KEY, DEBRIEF_DONE_SUMMARY_KEY, DEBRIEF_PROGRESS_KEY } from "@/lib/debrief/constants";
+import { readDoneFlag, readProgress, writeDoneFlag, writeProgress } from "@/lib/debrief/done-flag";
 
 /**
  * R-19 PR-3 (`docs/tasks/R-19-demo-v2.md` §6.3, terminal done): the completion flag a sandbox judge device
@@ -84,5 +84,41 @@ describe("readDoneFlag", () => {
       throw new Error("blocked");
     };
     expect(readDoneFlag(s, ENDS)).toBeNull();
+  });
+});
+
+describe("progress record (reload mid-debrief)", () => {
+  it("round-trips the counts for the same endsAtMs; counts only (no ids, no text)", () => {
+    const s = new MemStorage();
+    writeProgress(s, ENDS, { answered: 3, skipped: 1 });
+    expect(readProgress(s, ENDS)).toEqual({ answered: 3, skipped: 1 });
+    const raw = s.getItem(DEBRIEF_PROGRESS_KEY) ?? "";
+    expect(Object.keys(JSON.parse(raw)).sort()).toEqual(["answered", "ends_at_ms", "skipped"]);
+  });
+
+  it("is null for another debrief's record, no record, a malformed record or a blocked storage", () => {
+    const s = new MemStorage();
+    expect(readProgress(s, ENDS)).toBeNull();
+    writeProgress(s, ENDS, { answered: 3, skipped: 0 });
+    expect(readProgress(s, ENDS + 1)).toBeNull();
+    s.setItem(DEBRIEF_PROGRESS_KEY, "not json");
+    expect(readProgress(s, ENDS)).toBeNull();
+    s.setItem(DEBRIEF_PROGRESS_KEY, JSON.stringify({ ends_at_ms: ENDS, answered: -1, skipped: 0 }));
+    expect(readProgress(s, ENDS)).toBeNull();
+    s.setItem(DEBRIEF_PROGRESS_KEY, JSON.stringify({ ends_at_ms: ENDS, answered: 1, skipped: 0, reason: "x" }));
+    expect(readProgress(s, ENDS)).toBeNull();
+  });
+
+  it("never marks the debrief terminal: the done flag is untouched", () => {
+    const s = new MemStorage();
+    writeProgress(s, ENDS, { answered: 3, skipped: 0 });
+    expect(readDoneFlag(s, ENDS)).toBeNull();
+    expect(s.getItem(DEBRIEF_DONE_FLAG_KEY)).toBeNull();
+  });
+
+  it("a storage that throws never breaks the screen", () => {
+    const s = new MemStorage();
+    s.throwOnSet = true;
+    expect(() => writeProgress(s, ENDS, { answered: 1, skipped: 0 })).not.toThrow();
   });
 });

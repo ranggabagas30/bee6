@@ -50,3 +50,8 @@ export const REFRESH_MIN_INTERVAL_MS = 5_000;
 export const DEBRIEF_DONE_FLAG_KEY = "bee6.debrief.done";
 /** Beside the flag: `{"answered":n,"skipped":k}` so the restored done summary can state its counts. */
 export const DEBRIEF_DONE_SUMMARY_KEY = "bee6.debrief.done.summary";
+/**
+ * Beside the flag, but NOT terminal: `{"ends_at_ms":n,"answered":n,"skipped":k}` written on every answer or skip of a
+ * sandbox debrief, so a reload before `done` resumes with the right counts. Only the done flag marks terminal.
+ */
+export const DEBRIEF_PROGRESS_KEY = "bee6.debrief.progress";
