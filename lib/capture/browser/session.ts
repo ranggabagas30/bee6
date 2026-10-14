@@ -78,6 +78,8 @@ export interface CaptureStopOptions {
 export interface CaptureStopResult {
   /** The engine's dropped-segment count at the end of the drain. A number only; never a line or an id. */
   droppedCount: number;
+  /** Segments still queued or in flight (the queue head stays queued until its upload is confirmed) when the drain ended. */
+  queuedCount: number;
 }
 
 export interface CaptureSession {
@@ -355,7 +357,10 @@ export async function startCaptureSession(
         .then(() => {
           cb.onEvent?.({ type: "wake_lock_changed", held: wakeLock.held });
         });
-      stopping = Promise.all([drained, released]).then(() => ({ droppedCount: engine.status.droppedCount }));
+      stopping = Promise.all([drained, released]).then(() => {
+        const { droppedCount, queuedCount } = engine.status;
+        return { droppedCount, queuedCount };
+      });
       return stopping;
     },
   };

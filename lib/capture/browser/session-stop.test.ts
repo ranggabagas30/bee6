@@ -164,7 +164,22 @@ describe("startCaptureSession stop() with a held segment upload (defect 2)", () 
     });
     const stopped = session!.stop();
     await vi.advanceTimersByTimeAsync(6_000);
-    await expect(stopped).resolves.toEqual({ droppedCount: 0 });
+    await expect(stopped).resolves.toEqual({ droppedCount: 0, queuedCount: 0 });
+  });
+
+  it("stop() also reports how many segments are still queued or in flight when the drain ends (numbers only)", async () => {
+    const session = await startCaptureSession(AUTH, CONFIG, {
+      onStatus: () => {},
+      onMicSource: () => {},
+      onUnsupported: () => {},
+      onSampleRateRejected: () => {},
+    });
+    pushSpeech(5);
+    await vi.advanceTimersByTimeAsync(0);
+    const stopped = session!.stop();
+    await vi.advanceTimersByTimeAsync(6_000);
+    // The segment PUT never answers, so the closed segment is still the queue head after the 5 s drain.
+    await expect(stopped).resolves.toEqual({ droppedCount: 0, queuedCount: 1 });
   });
 
   it("releases the mic track synchronously at stop(), before any upload settles", async () => {

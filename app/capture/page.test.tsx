@@ -68,6 +68,8 @@ let lastCallbacks: FakeCallbacks | null = null;
 let holdStops = false;
 /** The engine's dropped count the fake stop() reports (a number only). */
 let fakeDroppedCount = 0;
+/** The segments the fake stop() reports as still queued or in flight at the end of the drain (a number only). */
+let fakeQueuedCount = 0;
 const startCaptureSession = vi.fn(
   async (
     _auth: unknown,
@@ -78,10 +80,13 @@ const startCaptureSession = vi.fn(
     const session: FakeSession = {
       stop: vi.fn((options?: { drainMs?: number }) =>
         holdStops
-          ? new Promise<{ droppedCount: number }>((resolve) => {
-              setTimeout(() => resolve({ droppedCount: fakeDroppedCount }), options?.drainMs ?? 5_000);
+          ? new Promise<{ droppedCount: number; queuedCount: number }>((resolve) => {
+              setTimeout(
+                () => resolve({ droppedCount: fakeDroppedCount, queuedCount: fakeQueuedCount }),
+                options?.drainMs ?? 5_000,
+              );
             })
-          : Promise.resolve({ droppedCount: fakeDroppedCount }),
+          : Promise.resolve({ droppedCount: fakeDroppedCount, queuedCount: fakeQueuedCount }),
       ),
     };
     fakeSessions.push(session);
@@ -120,6 +125,7 @@ afterEach(() => {
   lastCallbacks = null;
   holdStops = false;
   fakeDroppedCount = 0;
+  fakeQueuedCount = 0;
   uuidCounter = 0;
   postDemoClosing.mockImplementation(async () => ({ ok: true, data: { closing_reached: true } }) as never);
 });
@@ -1235,11 +1241,12 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       expect(postSessionEnd).not.toHaveBeenCalled();
     });
 
-    it("uploads: logs the engine's dropped count at sign-out, a number only (no text, no ids)", async () => {
+    it("uploads: logs the engine's dropped count AND what is still queued or in flight at sign-out, numbers only (no text, no ids)", async () => {
       await reachClosingUnderFakeTimers();
       const info = vi.spyOn(console, "info").mockImplementation(() => {});
       try {
         fakeDroppedCount = 3;
+        fakeQueuedCount = 2;
         fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
         fireEvent.click(screen.getByRole("button", { name: "Sign out anyway" }));
         await settle();
@@ -1247,6 +1254,8 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
         expect(info).toHaveBeenCalledTimes(1);
         const args = info.mock.calls[0]!;
         expect(args).toContain(3);
+        expect(args).toContain(2); // still queued or in flight when the drain ended: the line no longer undercounts
+        expect(args.filter((a) => typeof a !== "string" && typeof a !== "number")).toEqual([]);
         const printed = args.map(String).join(" ");
         expect(printed).not.toContain("deviceId");
         expect(printed).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/); // no session or device id
@@ -1327,7 +1336,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       expect(signOut.disabled).toBe(true);
       fireEvent.click(signOut);
       expect(clearDeviceAuth).not.toHaveBeenCalled();
-      const session: FakeSession = { stop: vi.fn(() => Promise.resolve({ droppedCount: 0 })) };
+      const session: FakeSession = { stop: vi.fn(() => Promise.resolve({ droppedCount: 0, queuedCount: 0 })) };
       resolveEngine(session);
       await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
       expect(session.stop).not.toHaveBeenCalled();
@@ -1339,7 +1348,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       fireEvent.click(await renderIdleSandbox());
       await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
       cleanup(); // the page is gone (a sign-out from another path, or navigation)
-      const session: FakeSession = { stop: vi.fn(() => Promise.resolve({ droppedCount: 0 })) };
+      const session: FakeSession = { stop: vi.fn(() => Promise.resolve({ droppedCount: 0, queuedCount: 0 })) };
       await act(async () => {
         resolveEngine(session);
       });

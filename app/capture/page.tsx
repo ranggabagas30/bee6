@@ -872,7 +872,14 @@ export default function CapturePage() {
       ]);
       clearTimeout(timer);
       // Observability for the judge run: a COUNT only (hard rule #7: no text, no session or device id).
-      console.info("[capture] demo sign-out after closing: segments dropped by the engine:", result?.droppedCount ?? 0);
+      // `droppedCount` alone undercounts (queue overflow and pump give-ups only); the segments still queued or in
+      // flight when the drain ended are the other half.
+      console.info(
+        "[capture] demo sign-out after closing: segments dropped by the engine:",
+        result?.droppedCount ?? 0,
+        "still queued or in flight:",
+        result?.queuedCount ?? 0,
+      );
     }
     finishSignOut();
   }
