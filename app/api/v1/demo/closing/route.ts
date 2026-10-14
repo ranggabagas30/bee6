@@ -8,6 +8,7 @@ import { firestoreClosingStore } from "@/lib/firestore/closing-store";
 import { DemoClosingBodySchema, DemoClosingResponseSchema } from "@/lib/demo/contract";
 import { SANDBOX_OUTLET_PREFIX } from "@/lib/demo/constants";
 import { jumpToClosing } from "@/lib/demo/closing";
+import { demoDayOf } from "@/lib/capture/contract";
 
 /**
  * POST /api/v1/demo/closing (R-19 PR-4a; plan sections 2.3 and 5.4): "Jump to closing time" for a sandbox
@@ -83,6 +84,7 @@ export async function POST(req: NextRequest) {
       device_id: claims.device_id,
       session_id: body.data.session_id,
       now_ms: Date.now(),
+      day: demoDayOf(outlet.sandbox.next_day_count),
     });
     return noStore(jsonOk(DemoClosingResponseSchema.parse(data), 200));
   } catch (error) {

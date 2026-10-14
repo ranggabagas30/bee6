@@ -3,7 +3,7 @@
 import { useId, useState } from "react";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import type { Lang } from "@/lib/i18n/lang";
-import { scriptFor, type ScriptCard } from "@/lib/demo/script";
+import { legacyScriptFor as scriptFor, type ScriptCard } from "@/lib/demo/script";
 import { HANDLE_HEIGHT_PX, PANEL_WIDTH_PX, SHEET_MAX_DVH, sidePanelBoxStyle, type DrawerState } from "@/app/capture/drawer-layout";
 
 /**

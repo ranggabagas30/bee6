@@ -185,6 +185,14 @@ describe("POST /api/v1/demo/closing on the demo (DEMO_MODE=true)", () => {
     noStore(res);
   });
 
+  it("the need is requiredLines(day) for the sandbox's current day (next_day_count 2 = day 3): still 5", async () => {
+    demo();
+    wire({ lines: 4, outlet: { ...sandboxOutlet, sandbox: { ...sandboxOutlet.sandbox!, next_day_count: 2 } } });
+    const res = await POST(req());
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.details).toEqual({ have: 4, need: 5 });
+  });
+
   it("409 session_not_open for a missing or ended session, with no details", async () => {
     demo();
     wire({ session: null });

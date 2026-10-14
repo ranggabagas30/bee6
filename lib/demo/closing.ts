@@ -6,16 +6,15 @@ import {
 } from "@/lib/demo/contract";
 import type { CaptureSession } from "@/lib/firestore/schema";
 import { ConflictError } from "@/lib/http/errors";
+import { requiredLines, type ScriptDay } from "@/lib/demo/script";
 
 /**
  * "Jump to closing time" (R-19 PR-4a, plan section 5.4). Demo sandbox only; the route 404s elsewhere. Plain code,
  * no model (hard rule #10): the caller's own open session gets `demo_closing_at_ms = now` once Bee6 has heard at
- * least CLOSING_REQUIRED_LINES transcribed lines in it. It counts captured speech only and never measures elapsed
- * time. The service reads counts, never a transcript, and nothing here can carry audio or text.
- *
- * Until PR-5 lands `requiredLines(day)` (script v2: 5 cards x CARD_MIN_LINES = 5), the need is this constant.
+ * least `requiredLines(day)` transcribed lines in it (script v2: 5 cards x CARD_MIN_LINES = 5, PR-5). It counts
+ * captured speech only and never measures elapsed time. The service reads counts, never a transcript, and nothing
+ * here can carry audio or text.
  */
-export const CLOSING_REQUIRED_LINES = 5;
 
 export interface ClosingSessionKey {
   device_id: string;
@@ -37,6 +36,8 @@ export interface JumpToClosingInput {
   device_id: string;
   session_id: string;
   now_ms: number;
+  /** The sandbox's current demo day (`demoDayOf(outlet.sandbox.next_day_count)`): decides the heard-line need. */
+  day: ScriptDay;
 }
 
 function isOpenOwnSession(session: CaptureSession | null, input: JumpToClosingInput): session is CaptureSession {
@@ -61,7 +62,7 @@ export async function jumpToClosing(store: ClosingStore, input: JumpToClosingInp
   if (session.demo_closing_at_ms !== undefined) return reached;
 
   const have = await store.countLines({ ...key, outlet_id: input.outlet_id });
-  const need = CLOSING_REQUIRED_LINES;
+  const need = requiredLines(input.day);
   if (have < need) {
     throw new ConflictError("not_enough_speech", "not_enough_speech", ClosingRefusalDetailsSchema.parse({ have, need }));
   }

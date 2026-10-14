@@ -208,8 +208,8 @@ export const CaptureModeSchema = z.enum(["none", "room", "wearable"]);
 export const DemoSessionProfileSchema = z
   .object({
     max_ms: z.literal(DEMO_SESSION_MAX_MS),
-    // PR-5 flips the fresh profile to "bakery-v2" and narrows this to the literal; until then the phone only knows v1.
-    script_id: z.enum(["bakery-v1", "bakery-v2"]),
+    // R-19 PR-5: the 3-day judge script (lib/demo/script.ts); v1 is gone.
+    script_id: z.literal("bakery-v2"),
     day: z.union([z.literal(1), z.literal(2), z.literal(3)]),
     days_total: z.literal(DEMO_DAYS_TOTAL),
     days_done: z.number().int().min(0).max(DEMO_DAYS_TOTAL),
@@ -226,7 +226,7 @@ export type DemoSessionProfile = z.infer<typeof DemoSessionProfileSchema>;
  */
 export const FRESH_DEMO_SESSION: DemoSessionProfile = Object.freeze({
   max_ms: DEMO_SESSION_MAX_MS,
-  script_id: "bakery-v1",
+  script_id: "bakery-v2",
   day: 1,
   days_total: DEMO_DAYS_TOTAL,
   days_done: 0,

@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { CaptureSession } from "@/lib/firestore/schema";
-import { CLOSING_REQUIRED_LINES, jumpToClosing, type ClosingStore } from "@/lib/demo/closing";
+import { jumpToClosing, type ClosingStore } from "@/lib/demo/closing";
+import { requiredLines } from "@/lib/demo/script";
 
 /**
  * R-19 PR-4a (plan section 5.4): "Jump to closing time" on a sandbox. Plain code, no model: the session must be
- * open and the caller's own, and Bee6 must have heard at least CLOSING_REQUIRED_LINES transcribed lines in it.
- * The service never sees a transcript, only counts.
+ * open and the caller's own, and Bee6 must have heard at least `requiredLines(day)` transcribed lines in it
+ * (PR-5: 5 cards x 1 line per card = 5, for every day). The service never sees a transcript, only counts.
  */
 const SID = "11111111-1111-4111-8111-111111111111";
 const NOW = Date.parse("2026-10-14T05:00:00Z");
@@ -49,11 +50,15 @@ function fakeStore(seed: { session?: CaptureSession | null; lines?: number }) {
   return { store, calls, get session() { return session; } };
 }
 
-const input = { outlet_id: OUTLET, device_id: DEVICE, session_id: SID, now_ms: NOW };
+const input = { outlet_id: OUTLET, device_id: DEVICE, session_id: SID, now_ms: NOW, day: 1 as const };
 
 describe("jumpToClosing", () => {
-  it("needs 5 lines (1 heard line per card, 5 cards per day; speech, never time)", () => {
-    expect(CLOSING_REQUIRED_LINES).toBe(5);
+  it("needs requiredLines(day) = 5 lines on every day (1 heard line per card, 5 cards per day; speech, never time)", async () => {
+    for (const day of [1, 2, 3] as const) {
+      expect(requiredLines(day)).toBe(5);
+      const f = fakeStore({ session: openSession(), lines: 4 });
+      await expect(jumpToClosing(f.store, { ...input, day })).rejects.toMatchObject({ details: { have: 4, need: 5 } });
+    }
   });
 
   it("open own session with enough lines: marks demo_closing_at_ms = now and answers closing_reached", async () => {
