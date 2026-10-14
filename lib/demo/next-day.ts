@@ -5,7 +5,7 @@ import { CLONE_DATE_KEYS, CLONE_UNTOUCHED_KEYS, shiftDeep } from "@/lib/demo/clo
 import { NEXT_DAY_MAX, TEMPLATE_DOC_MAX } from "@/lib/demo/constants";
 import { isPreparing } from "@/lib/debrief/preparing";
 import { demoDayOf, demoDaysDone, type DemoDay } from "@/lib/capture/contract";
-import { DemoNextDayResponseSchema, type DemoNextDayBody, type DemoNextDayResponse, type DemoNextDayStatus, type NextDayRefusal } from "@/lib/demo/contract";
+import { DemoNextDayResponseSchema, type DemoNextDayBody, type DemoNextDayResponse, type DemoNextDayStatus, type DemoOpenSession, type NextDayRefusal } from "@/lib/demo/contract";
 import { AppError, ConflictError, NotFoundError, ValidationError } from "@/lib/http/errors";
 import { enforceDemoCaps } from "@/lib/demo/caps";
 import { runCheck } from "@/lib/demo/redact-cap";
@@ -214,6 +214,11 @@ export interface NextDayGuardState {
   proposal_with_content: boolean;
   proposal_lock_live: boolean;
   open_questions: number;
+  /**
+   * R-19 PR-4b (plan 5.7a): this device's newest still-open session (null when none), from the SAME sessions
+   * read as `session_open`. The capture config projects it as `demo_session.open_session`; the guards ignore it.
+   */
+  open_session: DemoOpenSession | null;
 }
 
 /** The store seam; Firestore implementation `firestoreNextDayStore` in lib/firestore/demo-store.ts. Every method is scoped to one outlet. */

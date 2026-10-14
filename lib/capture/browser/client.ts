@@ -37,6 +37,21 @@ export function readDeviceAuth(): DeviceAuth | null {
   return { deviceToken, deviceId };
 }
 
+/**
+ * Staff sign-out on a demo sandbox (R-19 PR-4b, plan 5.7): removes the device pair only. The sandbox key
+ * (`bee6.demo`) stays so pairing again in this browser returns to the same sandbox. No server call, and never
+ * a session delete. Best effort when storage is blocked.
+ */
+export function clearDeviceAuth(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(DEVICE_TOKEN_KEY);
+    window.localStorage.removeItem(DEVICE_ID_KEY);
+  } catch {
+    // Storage blocked: nothing to clear.
+  }
+}
+
 export function deviceAuthHeaders(auth: DeviceAuth): Record<string, string> {
   return {
     Authorization: `Bearer ${auth.deviceToken}`,

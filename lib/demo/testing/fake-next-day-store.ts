@@ -1,6 +1,7 @@
 // Test-only in-memory NextDayStore (R-19 PR-2): docs per collection, one outlet, one device; call tracking.
 import { COLLECTIONS, type CollectionName } from "@/lib/firestore/collections";
-import type { LastEnded, Outlet } from "@/lib/firestore/schema";
+import type { CaptureSession, LastEnded, Outlet } from "@/lib/firestore/schema";
+import { pickOpenSession } from "@/lib/capture/open-session";
 import { expireAtDebriefEnd } from "@/lib/pipeline/gate";
 import type { NextDayGuardState, NextDayStore, ShiftDoc } from "@/lib/demo/next-day";
 
@@ -70,6 +71,7 @@ export function fakeNextDayStore(seed: {
       }
       return {
         session_open: sessions.some((s) => s.ended_at_ms === null),
+        open_session: pickOpenSession(sessions.filter((s) => s.ended_at_ms === null) as unknown as CaptureSession[]),
         last_ended: last,
         pending_unlabelled_lines: pending,
         proposal_with_content: [...col(COLLECTIONS.proposals).values()].some((p) => p.outlet_id === outletId && p.content !== null),

@@ -115,6 +115,73 @@ describe("startCaptureSession stop() with a held segment upload (defect 2)", () 
     void stopped;
   });
 
+  it("waits at most 5 s by default: not settled at 4 s, settled by 6 s", async () => {
+    const session = await startCaptureSession(AUTH, CONFIG, {
+      onStatus: () => {},
+      onMicSource: () => {},
+      onUnsupported: () => {},
+      onSampleRateRejected: () => {},
+    });
+    pushSpeech(5);
+    await vi.advanceTimersByTimeAsync(0);
+
+    let settled = false;
+    void session!.stop().then(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(settled).toBe(true);
+  });
+
+  it("stop({ drainMs: 15_000 }) keeps waiting past the 5 s default and settles by 15 s (R-19 PR-4b sign-out)", async () => {
+    const session = await startCaptureSession(AUTH, CONFIG, {
+      onStatus: () => {},
+      onMicSource: () => {},
+      onUnsupported: () => {},
+      onSampleRateRejected: () => {},
+    });
+    pushSpeech(5);
+    await vi.advanceTimersByTimeAsync(0);
+
+    let settled = false;
+    void session!.stop({ drainMs: 15_000 }).then(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(14_000);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(settled).toBe(true);
+  });
+
+  it("stop() resolves with the engine's dropped count (a number only)", async () => {
+    const session = await startCaptureSession(AUTH, CONFIG, {
+      onStatus: () => {},
+      onMicSource: () => {},
+      onUnsupported: () => {},
+      onSampleRateRejected: () => {},
+    });
+    const stopped = session!.stop();
+    await vi.advanceTimersByTimeAsync(6_000);
+    await expect(stopped).resolves.toEqual({ droppedCount: 0, queuedCount: 0 });
+  });
+
+  it("stop() also reports how many segments are still queued or in flight when the drain ends (numbers only)", async () => {
+    const session = await startCaptureSession(AUTH, CONFIG, {
+      onStatus: () => {},
+      onMicSource: () => {},
+      onUnsupported: () => {},
+      onSampleRateRejected: () => {},
+    });
+    pushSpeech(5);
+    await vi.advanceTimersByTimeAsync(0);
+    const stopped = session!.stop();
+    await vi.advanceTimersByTimeAsync(6_000);
+    // The segment PUT never answers, so the closed segment is still the queue head after the 5 s drain.
+    await expect(stopped).resolves.toEqual({ droppedCount: 0, queuedCount: 1 });
+  });
+
   it("releases the mic track synchronously at stop(), before any upload settles", async () => {
     const session = await startCaptureSession(AUTH, CONFIG, {
       onStatus: () => {},

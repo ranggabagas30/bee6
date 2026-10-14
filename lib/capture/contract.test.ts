@@ -332,18 +332,40 @@ import { projectDemoSessionProfile, withDemoDay, type DemoDayInput } from "@/lib
 describe("projectDemoSessionProfile", () => {
   const T0 = Date.UTC(2026, 9, 14, 3, 0, 0);
   const last = { business_date: "2026-10-14", end_reason: "selesai" as const, ended_at_ms: T0 - 60_000, debrief_ends_at_ms: T0 + 3_540_000 };
-  const base: DemoDayInput = { next_day_count: undefined, last_ended: null, today: "2026-10-14", next_day: { allowed: false, reason: "day_not_ended" } };
+  const base: DemoDayInput = { next_day_count: undefined, last_ended: null, today: "2026-10-14", open_session: null, next_day: { allowed: false, reason: "day_not_ended" } };
 
   it("a fresh sandbox is exactly FRESH_DEMO_SESSION", () => {
     expect(projectDemoSessionProfile(base)).toEqual(FRESH_DEMO_SESSION);
   });
 
   it("day = next_day_count + 1, days_done counts today's ended day, next_day is the guard's verdict; script stays bakery-v1 until PR-5", () => {
-    expect(projectDemoSessionProfile({ next_day_count: 0, last_ended: last, today: "2026-10-14", next_day: { allowed: true, reason: null } })).toEqual({
+    expect(projectDemoSessionProfile({ next_day_count: 0, last_ended: last, today: "2026-10-14", open_session: null, next_day: { allowed: true, reason: null } })).toEqual({
       max_ms: DEMO_SESSION_MAX_MS, script_id: "bakery-v1", day: 1, days_total: 3, days_done: 1, closing_reached: false, open_session: null, next_day: { allowed: true, reason: null },
     });
-    expect(projectDemoSessionProfile({ next_day_count: 1, last_ended: { ...last, business_date: "2026-10-13" }, today: "2026-10-14", next_day: { allowed: false, reason: "day_not_ended" } })).toMatchObject({ day: 2, days_done: 1 });
-    expect(projectDemoSessionProfile({ next_day_count: 2, last_ended: last, today: "2026-10-14", next_day: { allowed: false, reason: "max_days" } })).toMatchObject({ day: 3, days_done: 3, next_day: { allowed: false, reason: "max_days" } });
+    expect(projectDemoSessionProfile({ next_day_count: 1, last_ended: { ...last, business_date: "2026-10-13" }, today: "2026-10-14", open_session: null, next_day: { allowed: false, reason: "day_not_ended" } })).toMatchObject({ day: 2, days_done: 1 });
+    expect(projectDemoSessionProfile({ next_day_count: 2, last_ended: last, today: "2026-10-14", open_session: null, next_day: { allowed: false, reason: "max_days" } })).toMatchObject({ day: 3, days_done: 3, next_day: { allowed: false, reason: "max_days" } });
+  });
+
+  describe("R-19 PR-4b: open_session and closing_reached (one source of truth)", () => {
+    const open = { session_id: "00000000-0000-4000-8000-000000000001", started_at_ms: T0 - 120_000, closing_reached: false, auto_stop_at_ms: T0 + 480_000 };
+
+    it("no open session: open_session null and closing_reached false", () => {
+      expect(projectDemoSessionProfile(base)).toMatchObject({ open_session: null, closing_reached: false });
+    });
+
+    it("an open session is projected as is, and demo_session.closing_reached is derived from it (false)", () => {
+      expect(projectDemoSessionProfile({ ...base, open_session: open })).toMatchObject({ open_session: open, closing_reached: false });
+    });
+
+    it("demo_session.closing_reached = open_session.closing_reached (true), never set on its own", () => {
+      const reached = { ...open, closing_reached: true };
+      expect(projectDemoSessionProfile({ ...base, open_session: reached })).toMatchObject({ open_session: reached, closing_reached: true });
+    });
+
+    it("an open_session with an unknown key or a bad id is refused (strict)", () => {
+      expect(() => projectDemoSessionProfile({ ...base, open_session: { ...open, device_id: "d" } as never })).toThrow();
+      expect(() => projectDemoSessionProfile({ ...base, open_session: { ...open, session_id: "nope" } })).toThrow();
+    });
   });
 
   it("validates strictly: an inconsistent next_day is refused", () => {
@@ -353,7 +375,7 @@ describe("projectDemoSessionProfile", () => {
 
 describe("withDemoDay (the config route's overlay)", () => {
   const pilotConfig = { timezone: "Asia/Jakarta", weekly_hours: { mon: { open: "07:00", close: "21:45" }, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null }, last_ended: null, capture_mode: "none" as const };
-  const demoDay: DemoDayInput = { next_day_count: 1, last_ended: null, today: "2026-10-14", next_day: { allowed: false, reason: "day_not_ended" } };
+  const demoDay: DemoDayInput = { next_day_count: 1, last_ended: null, today: "2026-10-14", open_session: null, next_day: { allowed: false, reason: "day_not_ended" } };
 
   it("leaves a config without demo_session untouched (the pilot never gains the key)", () => {
     expect(withDemoDay(pilotConfig, demoDay)).toEqual(pilotConfig);

@@ -12,6 +12,7 @@ import {
   StaffSchema,
   ThreadSchema,
   parseOutletDoc,
+  type CaptureSession,
   type Outlet,
 } from "@/lib/firestore/schema";
 import type { ClonedDoc, TemplateSet } from "@/lib/demo/clone";
@@ -28,6 +29,7 @@ import { NEXT_DAY_SHIFT_COLLECTIONS, type NextDayGuardState, type NextDayStore, 
 import { computePreparing } from "@/lib/debrief/preparing";
 import { firestoreDebriefStore } from "@/lib/firestore/debrief-store";
 import { firestoreTickStore } from "@/lib/firestore/tick-store";
+import { pickOpenSession } from "@/lib/capture/open-session";
 import { LockedError } from "@/lib/http/errors";
 
 /**
@@ -401,14 +403,15 @@ export function firestoreNextDayStore(db: Firestore = adminDb()): NextDayStore {
 
       // G3: an open session (the one sessions query). The session `preparing` is about is picked by
       // `computePreparing` below, with the same selection the questions route uses.
-      let session_open = false;
+      // R-19 PR-4b: the capture config's `open_session` comes from this same read (`pickOpenSession`), never a second query.
+      const openSessions: CaptureSession[] = [];
       for (const doc of sessionSnap.docs) {
         const parsed = CaptureSessionSchema.safeParse(doc.data());
         if (!parsed.success) {
           logSkippedDoc("capture_session", doc.id);
           continue;
         }
-        if (parsed.data.ended_at_ms === null) session_open = true;
+        if (parsed.data.ended_at_ms === null) openSessions.push(parsed.data);
       }
 
       // Section 6.2: text lines of that one session that no done/failed ledger row covers. ONE RULE, shared with
@@ -431,8 +434,10 @@ export function firestoreNextDayStore(db: Firestore = adminDb()): NextDayStore {
         else logSkippedDoc("proposal_lock", lockSnap.id);
       }
 
+      const open_session = pickOpenSession(openSessions);
       return {
-        session_open,
+        session_open: openSessions.length > 0,
+        open_session,
         last_ended,
         pending_unlabelled_lines,
         proposal_with_content,

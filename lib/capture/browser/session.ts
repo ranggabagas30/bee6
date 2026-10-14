@@ -66,14 +66,31 @@ export interface CaptureSessionCallbacks {
   onEvent?: (event: CaptureEvent) => void;
 }
 
+export interface CaptureStopOptions {
+  /**
+   * Longest wait for the in-flight upload to drain before the promise resolves anyway. Defaults to
+   * STOP_DRAIN_TIMEOUT_MS (5 s). The R-19 PR-4b demo sign-out (after closing) passes 15 s so the last
+   * segments have a real chance to ship before the device pair is cleared.
+   */
+  drainMs?: number;
+}
+
+export interface CaptureStopResult {
+  /** The engine's dropped-segment count at the end of the drain. A number only; never a line or an id. */
+  droppedCount: number;
+  /** Segments still queued or in flight (the queue head stays queued until its upload is confirmed) when the drain ended. */
+  queuedCount: number;
+}
+
 export interface CaptureSession {
   /**
    * Releases the mic, VAD and wake lock synchronously, before it returns. The
    * returned promise settles once the pending upload has drained or after
-   * STOP_DRAIN_TIMEOUT_MS, whichever comes first. Callers need not await it to
-   * start a new session.
+   * `drainMs` (default STOP_DRAIN_TIMEOUT_MS), whichever comes first. Callers
+   * need not await it to start a new session. A second call returns the first
+   * call's promise (its options win).
    */
-  stop: () => Promise<void>;
+  stop: (options?: CaptureStopOptions) => Promise<CaptureStopResult>;
 }
 
 /** Resolves when `p` settles or after `ms`, whichever comes first. */
@@ -306,11 +323,12 @@ export async function startCaptureSession(
   document.addEventListener("visibilitychange", onVisibility);
   navigator.mediaDevices.addEventListener?.("devicechange", onDeviceChange);
 
-  let stopping: Promise<void> | null = null;
+  let stopping: Promise<CaptureStopResult> | null = null;
 
   return {
-    stop: () => {
+    stop: (options?: CaptureStopOptions) => {
       if (stopping) return stopping;
+      const drainMs = options?.drainMs ?? STOP_DRAIN_TIMEOUT_MS;
       stopped = true;
       clearInterval(heartbeatTimer);
       document.removeEventListener("visibilitychange", onVisibility);
@@ -330,7 +348,7 @@ export async function startCaptureSession(
       engine.flush();
       // abort() stops the upload pump even mid-backoff. Its drain is bounded so
       // stop() settles even while a PUT is still pending (finding #3).
-      const drained = waitAtMost(engine.abort(), STOP_DRAIN_TIMEOUT_MS);
+      const drained = waitAtMost(engine.abort(), drainMs);
       const released = wakeLock
         .release()
         .catch(() => {
@@ -339,7 +357,10 @@ export async function startCaptureSession(
         .then(() => {
           cb.onEvent?.({ type: "wake_lock_changed", held: wakeLock.held });
         });
-      stopping = Promise.all([drained, released]).then(() => undefined);
+      stopping = Promise.all([drained, released]).then(() => {
+        const { droppedCount, queuedCount } = engine.status;
+        return { droppedCount, queuedCount };
+      });
       return stopping;
     },
   };

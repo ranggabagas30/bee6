@@ -194,6 +194,49 @@ describe("GET /api/v1/capture/config", () => {
       }
     });
 
+    describe("R-19 PR-4b: open_session (the still-open session of this device) and closing_reached", () => {
+      const NOW = Date.parse("2026-10-14T03:00:00.000Z");
+      const SID = "00000000-0000-4000-8000-000000000001";
+      const openDoc = (over: Record<string, unknown> = {}) => ({
+        outlet_id: "outlet-1", device_id: "dev-1", session_id: SID, started_at_ms: NOW - 120_000, ended_at_ms: null, end_reason: null,
+        local_date: "2026-10-14", auto_stop_at_ms: NOW + 480_000, debrief_ends_at_ms: null,
+        received_start_at: "2026-10-14T02:58:00.000Z", received_end_at: null, ...over,
+      });
+      const wire = (docs: Record<string, unknown>) => {
+        vi.stubEnv("DEMO_MODE", "true");
+        vi.spyOn(Date, "now").mockReturnValue(NOW);
+        wireDevice(judge({ last_ended: undefined }), 1, sbxOutlet);
+        const fake = fakeNextDayStore({ outlet: sbxOutlet, last_ended: null, docs: { capture_sessions: docs as never } });
+        vi.mocked(demoStoreModule.firestoreNextDayStore).mockReturnValue(fake.store);
+        return fake;
+      };
+
+      it("an open session is reported with ids and times only, and closing_reached is false before closing", async () => {
+        const fake = wire({ "dev-1:s1": openDoc() });
+        const body = (await (await GET(req())).json()) as { data: { demo_session: Record<string, unknown> } };
+        expect(body.data.demo_session).toMatchObject({
+          closing_reached: false,
+          open_session: { session_id: SID, started_at_ms: NOW - 120_000, closing_reached: false, auto_stop_at_ms: NOW + 480_000 },
+          next_day: { allowed: false, reason: "session_open" },
+        });
+        expect(Object.keys(body.data.demo_session.open_session as object).sort()).toEqual(["auto_stop_at_ms", "closing_reached", "session_id", "started_at_ms"]);
+        expect(fake.calls).toEqual(["getOutlet:outlet-1", "readGuardState"]); // the one existing guard-state read, no extra query
+        expect(JSON.stringify(body)).not.toContain("dev-1");
+      });
+
+      it("after Jump to closing time the open session and demo_session.closing_reached are both true", async () => {
+        wire({ "dev-1:s1": openDoc({ demo_closing_at_ms: NOW - 30_000 }) });
+        const body = (await (await GET(req())).json()) as { data: { demo_session: Record<string, unknown> } };
+        expect(body.data.demo_session).toMatchObject({ closing_reached: true, open_session: { closing_reached: true } });
+      });
+
+      it("an ended session is not an open session", async () => {
+        wire({ "dev-1:s1": openDoc({ ended_at_ms: NOW - 1000, end_reason: "selesai", debrief_ends_at_ms: NOW + 3_000_000 }) });
+        const body = (await (await GET(req())).json()) as { data: { demo_session: Record<string, unknown> } };
+        expect(body.data.demo_session).toMatchObject({ open_session: null, closing_reached: false });
+      });
+    });
+
     it("DEMO_MODE unset (the pilot): never present, whatever the docs say; keys are exactly the pilot four; no demo store is built", async () => {
       vi.stubEnv("DEMO_MODE", "");
       wireDevice(judge(), 1, sbxOutlet);
