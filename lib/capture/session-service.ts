@@ -23,7 +23,7 @@ import { ConflictError, ValidationError } from "@/lib/http/errors";
 
 const START_FUTURE_TOLERANCE_MS = 5 * 60_000;
 const START_MAX_AGE_MS = 7 * 86_400_000;
-/** R-18: a sandbox session's start is clamped to the server clock +/- this, so a client cannot shift its 5 min stop. */
+/** R-18: a sandbox session's start is clamped to the server clock +/- this, so a client cannot shift its auto-stop. */
 const DEMO_START_CLAMP_MS = 10_000;
 const DISCARD_MAX_AGE_MS = 8 * 86_400_000;
 
