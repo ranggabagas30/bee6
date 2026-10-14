@@ -99,6 +99,8 @@ export interface DevPanelProps {
   captureMode?: CaptureMode;
   /** This device's id, already truncated by the caller (first 6 chars) — DevPanel never sees the rest of it. */
   deviceIdShort?: string;
+  /** R-19 PR-4a: the page's `linesThisSession` (sum of `segment_accepted` counts). A number only, never a line. */
+  linesHeard?: number;
 }
 
 const READOUTS_STYLE: React.CSSProperties = {
@@ -116,7 +118,8 @@ function hasAnyReadout(props: DevPanelProps): boolean {
     props.oldestPendingAgeMinutes !== undefined ||
     props.onPurgeNow !== undefined ||
     props.captureMode !== undefined ||
-    props.deviceIdShort !== undefined
+    props.deviceIdShort !== undefined ||
+    props.linesHeard !== undefined
   );
 }
 
@@ -143,6 +146,7 @@ export function DevPanel(props: DevPanelProps) {
     onPurgeNow,
     captureMode,
     deviceIdShort,
+    linesHeard,
   } = props;
   // "Now" for the relative-time column, ticking once a second — read from
   // state (updated in an effect), never from Date.now() during render, so
@@ -195,6 +199,7 @@ export function DevPanel(props: DevPanelProps) {
           )}
           {captureMode !== undefined && <span>Mode: {captureMode}</span>}
           {deviceIdShort !== undefined && <span>Device: {deviceIdShort}</span>}
+          {linesHeard !== undefined && <span>Lines heard: {linesHeard}</span>}
         </div>
       )}
     </section>

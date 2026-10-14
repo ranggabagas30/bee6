@@ -124,6 +124,12 @@ describe("DevPanel", () => {
       );
     });
 
+    // R-19 PR-4a (plan 5.2): the page's `linesThisSession` count, a number only, as a dev readout.
+    it("shows the lines-heard count when provided, and opens the readout block by itself", () => {
+      const { container } = render(<DevPanel {...BASE_PROPS} linesHeard={7} />);
+      expect(container.querySelector('[data-testid="dev-readouts"]')?.textContent).toMatch(/Lines heard: 7/);
+    });
+
     it("shows exactly the caller-truncated device id, never a longer string", () => {
       const { container } = render(<DevPanel {...BASE_PROPS} deviceIdShort="ab12cd" />);
       const text = container.querySelector('[data-testid="dev-readouts"]')?.textContent ?? "";
