@@ -926,6 +926,7 @@ describe("CapturePage judge-guide bridge (R-19 PR-5, sandbox only)", () => {
     await waitFor(() => expect(bridge().state.phase).toBe("debrief_question"));
     expect(bridge().state.sessionId).toBeNull();
     expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+    const callsBefore = fetchCaptureConfig.mock.calls.length; // mount, plus the page's own re-read after End (PR-4b)
     // The judge jumped to tomorrow (PR-2): the server now says day 2 and yesterday's day is the last ended one.
     fetchCaptureConfig.mockResolvedValue(
       demoConfig({
@@ -936,7 +937,7 @@ describe("CapturePage judge-guide bridge (R-19 PR-5, sandbox only)", () => {
     await act(async () => {
       await bridge().actions.refetchConfig();
     });
-    expect(fetchCaptureConfig).toHaveBeenCalledTimes(2);
+    expect(fetchCaptureConfig).toHaveBeenCalledTimes(callsBefore + 1);
     const start = await screen.findByRole("button", { name: "Start" });
     expect(screen.getByText("Day 2 of 3 · Mon 12 Oct")).toBeTruthy();
     await waitFor(() => expect(bridge().state.phase).toBe("ready"));
@@ -1062,10 +1063,10 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Start" }));
     await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
   }
+  /** "Jump to closing time" now lives in the judge guide (PR-5): the test calls the action the guide calls. */
   async function reachClosing() {
-    await screen.findByRole("region", { name: "Demo script" });
-    for (let i = 0; i < 9; i += 1) fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    fireEvent.click(screen.getByRole("button", { name: "Finish and end the day" }));
+    await waitFor(() => expect(readCaptureBridge()?.state.phase).toBe("listening"));
+    act(() => readCaptureBridge()!.actions.jumpToClosing());
     await screen.findByRole("button", { name: "End today" });
   }
   /** Lets the page's awaited steps (the engine stop, then the sign-out) settle under the faked intervals. */
@@ -1196,10 +1197,8 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       await settle();
       fireEvent.click(screen.getByRole("button", { name: "Start" }));
       await settle();
-      await vi.dynamicImportSettled(); // the lazily loaded script drawer
-      await settle();
-      for (let i = 0; i < 9; i += 1) fireEvent.click(screen.getByRole("button", { name: "Next" }));
-      fireEvent.click(screen.getByRole("button", { name: "Finish and end the day" }));
+      expect(readCaptureBridge()?.state.phase).toBe("listening");
+      act(() => readCaptureBridge()!.actions.jumpToClosing());
       await settle();
       expect(screen.getByRole("button", { name: "End today" })).toBeTruthy(); // closing reached
     }
