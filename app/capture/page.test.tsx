@@ -1409,6 +1409,16 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
     });
 
+    it("closing reached: End today hands over to the debrief by itself (PR-3 auto-open): Preparing your questions, no entry card", async () => {
+      stubPreparingQuestions();
+      await renderWithOpen(open({ closing_reached: true }));
+      fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+      await waitFor(() => expect(screen.getByText("Preparing your questions")).toBeTruthy());
+      expect(screen.queryByRole("button", { name: "Answer questions" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+      expect(screen.queryByText("Debrief running")).toBeNull();
+    });
+
     it("not reached: Cancel today discards THAT session via the existing route, then Start is offered again", async () => {
       await renderWithOpen(open());
       fireEvent.click(await screen.findByRole("button", { name: "Cancel today" }));
