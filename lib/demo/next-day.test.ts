@@ -115,9 +115,14 @@ describe("nextDayDecision (the route's full decision before any write)", () => {
     expect(d).toEqual({ kind: "stale", day: 2 });
   });
 
-  it("on day 3 every tap is max_days (the contract allows expected_day 1 | 2 only, so none can be current), before the stale check", () => {
-    expect(nextDayDecision({ ...okInput({ next_day_count: 2, last_ended: null }), expected_day: 2, confirm_unanswered: false, open_questions: 0 })).toEqual({ kind: "refuse", reason: "max_days" });
-    expect(nextDayDecision({ ...okInput({ next_day_count: 2, last_ended: null }), expected_day: 1, confirm_unanswered: false, open_questions: 0 })).toEqual({ kind: "refuse", reason: "max_days" });
+  it("on day 3 every tap the contract allows (expected_day 1 | 2) is stale: 200 {day:3}, never max_days (a lost 200 on the 2nd jump must not show 'all done' before day 3 runs)", () => {
+    expect(nextDayDecision({ ...okInput({ next_day_count: 2, last_ended: null }), expected_day: 2, confirm_unanswered: false, open_questions: 0 })).toEqual({ kind: "stale", day: 3 });
+    expect(nextDayDecision({ ...okInput({ next_day_count: 2, last_ended: null }), expected_day: 1, confirm_unanswered: false, open_questions: 0 })).toEqual({ kind: "stale", day: 3 });
+  });
+
+  it("max_days stays as a defence after the stale and ahead checks (unreachable through the 1 | 2 contract)", () => {
+    const beyondContract = { ...okInput({ next_day_count: 2 }), expected_day: 3 as never, confirm_unanswered: false, open_questions: 0 };
+    expect(nextDayDecision(beyondContract)).toEqual({ kind: "refuse", reason: "max_days" });
   });
 
   it("an expected_day AHEAD of the server is a client error, never a shift", () => {
@@ -357,7 +362,6 @@ describe("runNextDay", () => {
       ["session_open", fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast(), docs: { [COLLECTIONS.captureSessions]: { open: { outlet_id: SBX, device_id: JDG, session_id: S1, ended_at_ms: null } } } }), {}],
       ["day_not_ended", fakeNextDayStore({ outlet: sbxOutlet(), last_ended: null }), {}],
       ["preparing", fakeNextDayStore({ outlet: sbxOutlet(), last_ended: { ...endedLast(), ended_at_ms: T0 - 60_000 }, docs: { ...dayOneDocs(), [COLLECTIONS.labelUnits]: {} } }), {}],
-      ["max_days", fakeNextDayStore({ outlet: sbxOutlet({ next_day_count: 2 }), last_ended: endedLast() }), { body: { expected_day: 2, confirm_unanswered: true } }],
       ["proposal_exists", fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast(), docs: { [COLLECTIONS.proposals]: { p: { outlet_id: SBX, content: { x: 1 } } } } }), {}],
       ["busy", fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast(), proposal_lock_expires_at_ms: T0 + 1 }), {}],
     ];
@@ -390,7 +394,7 @@ describe("runNextDay", () => {
     const log: unknown[] = [];
     expect(await runNextDay(f.store, input({ log: (e, fields) => log.push([e, fields]) }))).toEqual({ day: 2 });
 
-    expect(f.calls).toEqual(["getOutlet:" + SBX, "readGuardState", "takeShiftMarker", "acquireLease", "readShiftDocs", "writeShift", "expireOpenQuestions", "completeShift", "releaseLease"]);
+    expect(f.calls).toEqual(["getOutlet:" + SBX, "readGuardState", "takeShiftMarker", "proposalWithContent", "acquireLease", "readShiftDocs", "writeShift", "expireOpenQuestions", "completeShift", "releaseLease"]);
     expect(f.state.outlet?.sandbox).toMatchObject({ next_day_count: 1, shift_started_at_ms: null });
     expect(f.state.leaseHeld).toBe(false);
 
@@ -416,11 +420,59 @@ describe("runNextDay", () => {
     expect(JSON.stringify(log)).not.toContain(JDG);
   });
 
-  it("the second jump (day 2 -> 3) works the same and the third is max_days", async () => {
+  it("the second jump (day 2 -> 3) works the same; a tap after it answers 200 {day:3} and writes nothing", async () => {
     const f = fakeNextDayStore({ outlet: sbxOutlet({ next_day_count: 1 }), last_ended: endedLast(), docs: dayOneDocs() });
     expect(await runNextDay(f.store, input({ body: { expected_day: 2, confirm_unanswered: true } }))).toEqual({ day: 3 });
     f.state.last_ended = endedLast(); // day 3 ended
-    expect(await codeOf(runNextDay(f.store, input({ body: { expected_day: 2, confirm_unanswered: true } })))).toBe("409:max_days");
+    const writtenBefore = f.state.written.length;
+    const callsBefore = f.calls.length;
+    expect(await runNextDay(f.store, input({ body: { expected_day: 2, confirm_unanswered: true } }))).toEqual({ day: 3 });
+    expect(f.state.written).toHaveLength(writtenBefore);
+    expect(f.calls.slice(callsBefore)).not.toContain("takeShiftMarker");
+    expect(f.state.outlet?.sandbox?.next_day_count).toBe(2);
+  });
+
+  it("a proposal with content that appears after the guard read (before the marker) is refused proposal_exists, marker cleared, nothing written, no lease", async () => {
+    const f = fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast(), docs: dayOneDocs() });
+    const store = {
+      ...f.store,
+      async takeShiftMarker(o: string, n: number) {
+        const r = await f.store.takeShiftMarker(o, n);
+        f.cols.get(COLLECTIONS.proposals)!.set("late", { outlet_id: SBX, content: { change_title: "x" } });
+        return r;
+      },
+    };
+    expect(await codeOf(runNextDay(store, input()))).toBe("409:proposal_exists");
+    expect(f.calls).toContain("abortShift");
+    expect(f.calls).not.toContain("acquireLease");
+    expect(f.state.outlet?.sandbox?.shift_started_at_ms).toBeNull();
+    expect(f.state.written).toEqual([]);
+  });
+
+  it("a throwing acquireLease clears our marker and rethrows", async () => {
+    const f = fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast(), docs: dayOneDocs() });
+    const store = { ...f.store, async acquireLease(): Promise<number | null> { throw new Error("lease boom"); } };
+    await expect(runNextDay(store, input())).rejects.toThrow("lease boom");
+    expect(f.calls).toContain("abortShift");
+    expect(f.state.outlet?.sandbox?.shift_started_at_ms).toBeNull();
+    expect(f.state.written).toEqual([]);
+  });
+
+  it("a throwing releaseLease is logged with the error class only and never changes the result", async () => {
+    const f = fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast(), docs: dayOneDocs() });
+    const store = { ...f.store, async releaseLease(): Promise<void> { throw new TypeError("secret detail"); } };
+    const log: [string, Record<string, unknown>][] = [];
+    expect(await runNextDay(store, input({ log: (e, fields) => log.push([e, fields]) }))).toEqual({ day: 2 });
+    const failed = log.find(([e]) => e === "next_day_release_failed");
+    expect(failed?.[1]).toEqual({ error_class: "TypeError" });
+    expect(JSON.stringify(log)).not.toContain("secret detail");
+  });
+
+  it("a throwing releaseLease after a failed shift does not mask the shift's own error", async () => {
+    const f = fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast(), docs: dayOneDocs() });
+    f.state.failWriteAfter = 1;
+    const store = { ...f.store, async releaseLease(): Promise<void> { throw new TypeError("release boom"); } };
+    await expect(runNextDay(store, input())).rejects.toThrow("fake: write crashed");
   });
 
   it("G7 marker: a marker newer than SHIFT_MARKER_STALE_MS is busy; an older one is shift_incomplete; nothing written either way", async () => {

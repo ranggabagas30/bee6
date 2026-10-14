@@ -162,6 +162,47 @@ describe("firestoreNextDayStore.readGuardState (read-only, scoped to the outlet 
   });
 });
 
+describe("firestoreNextDayStore.readGuardState pending lines (one rule, same as PR-3's `preparing`)", () => {
+  it("a whitespace-only line is not text; only trimmed-non-empty lines count", async () => {
+    const seed = seedSandbox();
+    seed[COLLECTIONS.segments]!.a = segment("seg1", ["Roti habis.", "   ", "\t\n", "Oke."]);
+    seed[COLLECTIONS.labelUnits]!.u1 = { ...seed[COLLECTIONS.labelUnits]!.u1!, line_ids: ["seg1#0", "seg1#3"] };
+    expect((await firestoreNextDayStore(fakeDb(seed).db).readGuardState(SBX, JDG, T0)).pending_unlabelled_lines).toBe(0);
+    seed[COLLECTIONS.labelUnits]!.u1 = { ...seed[COLLECTIONS.labelUnits]!.u1!, line_ids: ["seg1#0"] };
+    expect((await firestoreNextDayStore(fakeDb(seed).db).readGuardState(SBX, JDG, T0)).pending_unlabelled_lines).toBe(1); // only "Oke."
+  });
+
+  it("reads the segments of the ONE session via a session_id query, not every segment of the device", async () => {
+    const f = fakeDb(seedSandbox());
+    await firestoreNextDayStore(f.db).readGuardState(SBX, JDG, T0);
+    const segQueries = f.queries.filter((q) => q.col === COLLECTIONS.segments);
+    expect(segQueries).toHaveLength(1);
+    expect(segQueries[0]!.filters).toContainEqual(["session_id", "==", S1]);
+  });
+
+  it("the session is the latest ended one OF last_ended.business_date with a selesai/auto_stop/lost end; a discarded or other-date session counts nothing", async () => {
+    const other = "44444444-4444-4444-8444-444444444444";
+    const seed = seedSandbox();
+    // A newer discarded session of the same date with a pending line must not be picked.
+    seed[COLLECTIONS.captureSessions]![`${JDG}:${other}`] = { ...session(T0 - 30_000, SBX, JDG, other), end_reason: "discarded" };
+    seed[COLLECTIONS.segments]!.z = segment("segZ", ["Buang."], SBX, JDG, other);
+    expect((await firestoreNextDayStore(fakeDb(seed).db).readGuardState(SBX, JDG, T0)).pending_unlabelled_lines).toBe(1);
+    // last_ended on another date than the only session: no session of that date, nothing pending.
+    const seed2 = seedSandbox();
+    seed2[COLLECTIONS.devices]![deviceDocId(SBX, JDG)] = { ...device(), last_ended: { ...last, business_date: "2026-10-13" } };
+    expect((await firestoreNextDayStore(fakeDb(seed2).db).readGuardState(SBX, JDG, T0)).pending_unlabelled_lines).toBe(0);
+  });
+});
+
+describe("firestoreNextDayStore.proposalWithContent", () => {
+  it("is true only for a proposal of THIS outlet with content, whatever its status", async () => {
+    const seed = seedSandbox();
+    expect(await firestoreNextDayStore(fakeDb(seed).db).proposalWithContent(SBX)).toBe(false); // p2 (other outlet) has content
+    seed[COLLECTIONS.proposals]!.p1 = { outlet_id: SBX, content: { change_title: "y" }, status: "suppressed" };
+    expect(await firestoreNextDayStore(fakeDb(seed).db).proposalWithContent(SBX)).toBe(true);
+  });
+});
+
 describe("firestoreNextDayStore marker (G7) and completion", () => {
   it("takeShiftMarker sets the marker only when it is null/absent; a second take reports the existing one", async () => {
     const f = fakeDb(seedSandbox());

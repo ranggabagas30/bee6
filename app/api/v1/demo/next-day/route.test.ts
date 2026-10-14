@@ -126,7 +126,6 @@ describe("POST /api/v1/demo/next-day on demo", () => {
       ["day_not_ended", fakeNextDayStore({ outlet: outlet(), last_ended: null }), { expected_day: 1, confirm_unanswered: true }],
       ["preparing", fakeNextDayStore({ outlet: outlet(), last_ended: { ...endedToday, ended_at_ms: T0 - 1000 }, docs: { [COLLECTIONS.captureSessions]: { s: { outlet_id: SBX, device_id: JDG, session_id: S1, ended_at_ms: T0 - 1000, end_reason: "selesai" } }, [COLLECTIONS.segments]: { a: { outlet_id: SBX, device_id: JDG, seg_id: "seg1", session_id: S1, lines: [{ text: "x" }] } } } }), { expected_day: 1, confirm_unanswered: true }],
       ["unanswered_questions", fakeNextDayStore({ outlet: outlet(), last_ended: endedToday, docs: { [COLLECTIONS.questions]: { q: { outlet_id: SBX, device_id: JDG, status: "open", created_at_ms: T0 } } } }), { expected_day: 1, confirm_unanswered: false }],
-      ["max_days", fakeNextDayStore({ outlet: outlet({ sandbox: { ...outlet().sandbox!, next_day_count: 2 } }), last_ended: endedToday }), { expected_day: 2, confirm_unanswered: true }],
       ["proposal_exists", fakeNextDayStore({ outlet: outlet(), last_ended: endedToday, docs: { [COLLECTIONS.proposals]: { p: { outlet_id: SBX, content: {} } } } }), { expected_day: 1, confirm_unanswered: true }],
       ["shift_incomplete", fakeNextDayStore({ outlet: outlet({ sandbox: { ...outlet().sandbox!, shift_started_at_ms: T0 - 600_000 } }), last_ended: endedToday }), { expected_day: 1, confirm_unanswered: true }],
       ["busy", fakeNextDayStore({ outlet: outlet(), last_ended: endedToday, proposal_lock_expires_at_ms: T0 + 1 }), { expected_day: 1, confirm_unanswered: true }],
@@ -144,7 +143,18 @@ describe("POST /api/v1/demo/next-day on demo", () => {
       expect(JSON.stringify(json)).not.toContain(JDG);
       seen.add(code);
     }
-    expect([...seen].sort()).toEqual([...NEXT_DAY_REFUSALS].sort());
+    // max_days is unreachable through the 1 | 2 contract (day 3 taps are stale 200s, tested below); the copy key stays as a defence.
+    expect([...seen].sort()).toEqual(NEXT_DAY_REFUSALS.filter((c) => c !== "max_days").sort());
+  });
+
+  it("on day 3 a tap (expected_day 2, e.g. a retry after a lost 200) is 200 {day: 3}, not max_days, and writes nothing", async () => {
+    const f = fakeNextDayStore({ outlet: outlet({ sandbox: { ...outlet().sandbox!, next_day_count: 2 } }), last_ended: endedToday });
+    wire(f);
+    const res = await POST(req({ expected_day: 2, confirm_unanswered: true }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: { day: 3 } });
+    expect(f.state.written).toEqual([]);
+    expect(f.calls).not.toContain("takeShiftMarker");
   });
 
   it("200 {day: 2}: the sandbox's next_day_count is written, the day's docs move back a day; a double tap is 200 {day: 2} with no second shift", async () => {

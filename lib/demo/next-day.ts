@@ -80,17 +80,18 @@ export type NextDayDecision =
   | { kind: "proceed" };
 
 /**
- * The full decision the route takes before G7 writes anything. Two checks run BEFORE G3-G6:
- * - `max_days` (G5's first half): on day 3 no `expected_day` the contract allows (1 | 2) can match, so without
- *   this a day-3 tap would read as "stale" and answer 200 instead of the plan's 409 `max_days`;
- * - the stale check: after a finished shift `last_ended` sits on yesterday, so G4 would otherwise refuse the
- *   second tap of a double tap with `day_not_ended` instead of the idempotent 200 the plan asks for.
+ * The full decision the route takes before G7 writes anything. The stale and ahead checks run BEFORE G3-G6:
+ * after a finished shift `last_ended` sits on yesterday, so G4 would otherwise refuse the second tap of a
+ * double tap with `day_not_ended` instead of the idempotent 200 the plan asks for. Stale also comes BEFORE
+ * `max_days`: on day 3 every `expected_day` the contract allows (1 | 2) is stale, so a lost 200 on the 2nd
+ * jump, retried with `expected_day` 2, gets `{day:3}` and the phone shows day 3 instead of "all done".
+ * `max_days` is only a defence for a count/expected_day pair the contract cannot produce.
  */
 export function nextDayDecision(input: NextDayRequestInput): NextDayDecision {
-  if (input.next_day_count >= NEXT_DAY_MAX) return { kind: "refuse", reason: "max_days" };
   const day = demoDayOf(input.next_day_count);
   if (input.expected_day < day) return { kind: "stale", day: day as 2 | 3 };
   if (input.expected_day > day) return { kind: "ahead", day };
+  if (input.next_day_count >= NEXT_DAY_MAX) return { kind: "refuse", reason: "max_days" };
   const eligibility = nextDayEligibility(input);
   if (!eligibility.allowed) return { kind: "refuse", reason: eligibility.reason as NextDayRefusal };
   const last = input.last_ended;
@@ -200,6 +201,8 @@ export interface NextDayStore {
   getOutlet(outletId: string): Promise<Outlet | null>;
   /** Read-only inputs of G3-G6 and the unanswered check, for this outlet and device only. */
   readGuardState(outletId: string, deviceId: string, nowMs: number): Promise<NextDayGuardState>;
+  /** Any proposal of the outlet with `content !== null` (G6, re-checked after the marker is taken). */
+  proposalWithContent(outletId: string): Promise<boolean>;
   /** G7 transaction: sets `sandbox.shift_started_at_ms = nowMs` only if it is null/absent; else reports the existing marker. */
   takeShiftMarker(outletId: string, nowMs: number): Promise<{ taken: true } | { taken: false; started_at_ms: number }>;
   /** Clears OUR marker after a failure before the first write (count unchanged). */
@@ -276,10 +279,24 @@ export async function runNextDay(store: NextDayStore, input: NextDayInput): Prom
   // G7: single flight. The marker first (a crashed shift must never be repeated on top of half-moved data).
   const marker = await store.takeShiftMarker(input.outlet_id, input.now_ms);
   if (!marker.taken) throw refuse(input.now_ms - marker.started_at_ms > SHIFT_MARKER_STALE_MS ? "shift_incomplete" : "busy");
-  const lease = await store.acquireLease(input.outlet_id, input.device_id, input.now_ms, SHIFT_LEASE_MS);
-  if (lease === null) {
+
+  // With our marker held: G6 once more (a proposal can appear between the guard read and the marker), then the lease.
+  // Any throw here, or a refusal, clears OUR marker first (count unchanged).
+  let lease: number | null = null;
+  let blocked: NextDayRefusal | null = null;
+  try {
+    if (await store.proposalWithContent(input.outlet_id)) blocked = "proposal_exists";
+    else {
+      lease = await store.acquireLease(input.outlet_id, input.device_id, input.now_ms, SHIFT_LEASE_MS);
+      if (lease === null) blocked = "busy";
+    }
+  } catch (error) {
+    await abortQuietly(store, input.outlet_id, log);
+    throw error;
+  }
+  if (blocked !== null || lease === null) {
     await store.abortShift(input.outlet_id);
-    throw refuse("busy");
+    throw refuse(blocked ?? "busy");
   }
 
   let written = false;
@@ -307,6 +324,22 @@ export async function runNextDay(store: NextDayStore, input: NextDayInput): Prom
     if (!written) await store.abortShift(input.outlet_id);
     throw error;
   } finally {
-    await store.releaseLease(input.outlet_id, input.device_id, lease);
+    // Never rethrow from here: the lease is a TTL lock and must not mask the shift's result or its own error.
+    try {
+      await store.releaseLease(input.outlet_id, input.device_id, lease);
+    } catch (error) {
+      log("next_day_release_failed", { error_class: errorClass(error) });
+    }
+  }
+}
+
+const errorClass = (error: unknown): string => (error instanceof Error ? error.constructor.name : typeof error);
+
+/** Clears our marker while another error is already on its way out: a failing clear is logged, never masks the original. */
+async function abortQuietly(store: NextDayStore, outletId: string, log: (event: string, fields: Record<string, unknown>) => void): Promise<void> {
+  try {
+    await store.abortShift(outletId);
+  } catch (error) {
+    log("next_day_abort_failed", { error_class: errorClass(error) });
   }
 }

@@ -61,7 +61,7 @@ export function fakeNextDayStore(seed: {
         for (const seg of mine(COLLECTIONS.segments)) {
           if (ended === undefined || seg.session_id !== ended.session_id) continue;
           (seg.lines as { text: string }[]).forEach((l, i) => {
-            if (l.text !== "" && !labelled.has(`${seg.seg_id}#${i}`)) pending += 1;
+            if (l.text.trim().length > 0 && !labelled.has(`${seg.seg_id}#${i}`)) pending += 1;
           });
         }
       }
@@ -73,6 +73,10 @@ export function fakeNextDayStore(seed: {
         proposal_lock_live: state.lockExpires !== null && state.lockExpires > nowMs,
         open_questions: mine(COLLECTIONS.questions).filter((q) => q.status === "open").length,
       };
+    },
+    async proposalWithContent(outletId) {
+      calls.push("proposalWithContent");
+      return [...col(COLLECTIONS.proposals).values()].some((p) => p.outlet_id === outletId && p.content != null);
     },
     async takeShiftMarker(_outletId, nowMs) {
       calls.push("takeShiftMarker");
