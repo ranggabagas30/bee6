@@ -326,9 +326,14 @@ export interface ResetStore extends Pick<DemoStore, "readTemplate" | "writeSandb
   /**
    * The reset's mutual exclusion: one transaction on the outlet doc that sets `sandbox.shift_started_at_ms = nowMs`
    * unless the existing marker is fresh (`nowMs - marker <= SHIFT_MARKER_STALE_MS`; a future marker is fresh).
-   * `prior` is the marker it replaced (null or a stale one), for `restoreResetMarker`.
+   * `prior` is the marker it replaced (null or a stale one), for `restoreResetMarker`. Not taken: `busy` (a fresh marker)
+   * or `gone` (the outlet doc is missing or has no sandbox object: another reset's wipe got there after our early look);
+   * the caller answers both with 409 busy.
    */
-  takeResetMarker(outletId: string, nowMs: number): Promise<{ taken: true; prior: number | null } | { taken: false }>;
+  takeResetMarker(
+    outletId: string,
+    nowMs: number,
+  ): Promise<{ taken: true; prior: number | null } | { taken: false; reason: "busy" | "gone" }>;
   /** Puts `prior` back, only if the marker still equals `ours` (never clobbers someone else's marker). */
   restoreResetMarker(outletId: string, ours: number, prior: number | null): Promise<void>;
 }
@@ -368,8 +373,13 @@ const busy = () => new ConflictError("The demo is busy, try again shortly", "bus
  *  prior marker (compare-and-set on ours) and releases the lease.
  *  10. `deleteSandbox` (the outlet doc last, so the marker covers the whole wipe), then `writeSandbox` of the re-clone
  *  with the SAME ids, key hash, token hash and expiry; the re-clone carries no marker.
- * A failure from step 10 on is a 503 `reset_failed`: the marker is left behind and goes stale after 120 s (a later reset
- * recovers), and the half-built sandbox expires and is cleaned up like any other.
+ * A failure from step 10 on is a 503 `reset_failed`, and it costs a cap slot (the charge happens before the wipe). The
+ * marker is left behind and goes stale after 120 s; a later reset recovers it only when the delete failed BEFORE the
+ * judge device doc was removed (the outlet doc goes last, so the early look, the token hash and the marker are all
+ * still there). Once the device docs are deleted, or the write failed and the outlet doc is gone, the retry is
+ * 503 demo_not_ready (device doc gone) or the 404 of the early look (outlet doc gone) and the owner must start a new
+ * demo (the spec copy covers it). The half-built sandbox expires and is cleaned up like any other.
+ * A reset that finds the outlet doc gone at the marker take (another reset's wipe straddled its early look) is 409 busy.
  * A next-day shift that was in flight cannot finish against the new sandbox: it needs the lease or the marker count, and
  * PR-2's `takeShiftMarker` refuses while any marker is on the outlet doc.
  *
@@ -445,7 +455,7 @@ export async function resetSandbox(store: ResetStore, deps: ResetDeps, input: Re
   // The shift marker is the lock for the whole reset: the wipe deletes the lease doc, so the lease alone cannot stop a
   // second reset. Taking it is one transaction (compare-and-set on a fresh marker); the outlet doc is deleted last.
   const took = await store.takeResetMarker(outletId, now_ms);
-  if (!took.taken) throw busy();
+  if (!took.taken) throw busy(); // busy (a fresh marker) or gone (a racing reset's wipe): nothing restored, deleted or charged
   const restoreMarker = async () => {
     try {
       await store.restoreResetMarker(outletId, now_ms, took.prior);

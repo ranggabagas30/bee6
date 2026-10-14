@@ -391,6 +391,52 @@ describe("resetSandbox: the shift marker is the lock (M1, M2)", () => {
     expect(docsOf(s.f).length).toBeGreaterThan(5);
   });
 
+  it("the outlet doc gone at the take (the race loser straddles another reset's wipe) -> 409 busy like a fresh marker: nothing restored, deleted or charged", async () => {
+    const s = setup();
+    let looked!: () => void;
+    const lookedP = new Promise<void>((r) => (looked = r));
+    let go!: () => void;
+    const goP = new Promise<void>((r) => (go = r));
+    let stalled!: () => void;
+    const stalledP = new Promise<void>((r) => (stalled = r));
+    let release!: () => void;
+    s.f.state.afterDeleteGate = new Promise<void>((r) => (release = r));
+    s.f.state.onOutletDeleted = () => stalled();
+    // Reset #2 passes every look (outlet, lock, token hash, template, clone), then waits at readTemplate's return.
+    const realTemplate = s.f.store.readTemplate;
+    let templateReads = 0;
+    s.f.store.readTemplate = async () => {
+      const tpl = await realTemplate();
+      if (++templateReads === 1) {
+        looked();
+        await goP;
+      }
+      return tpl;
+    };
+    const second = rejects(s.run());
+    await lookedP;
+    const first = s.run(); // reset #1 runs through the delete and stalls right after the outlet doc is gone
+    await stalledP;
+    go();
+    const err = await second;
+    expect(err).toBeInstanceOf(ConflictError);
+    expect(err!.code).toBe("busy");
+    release();
+    await first; // reset #1 still completes
+    expect(s.f.calls.filter((c) => c === "deleteSandbox")).toHaveLength(1);
+    expect(s.f.calls.filter((c) => c === "bumpCounter")).toHaveLength(1);
+    expect(s.f.calls.filter((c) => c === "acquireLease")).toHaveLength(1);
+    expect(s.f.calls).not.toContain("restoreResetMarker");
+    expect(s.f.counters.get(`reset_sandbox:${IDS.outlet_id}`)).toBe(1);
+  });
+
+  it("an outlet that is gone for good (no reset in flight) is still the normal 404 from the early look", async () => {
+    const s = setup({ docs: dirtyDocs().filter((d) => d.collection !== COLLECTIONS.outlets) });
+    const err = await rejects(s.run());
+    expect(err).toBeInstanceOf(NotFoundError);
+    expect(s.f.calls).not.toContain("takeResetMarker");
+  });
+
   it("while the reset runs the marker is ours (a next-day shift is refused by the same field); after it the fresh sandbox has none", async () => {
     const s = setup();
     let during: number | null | undefined;

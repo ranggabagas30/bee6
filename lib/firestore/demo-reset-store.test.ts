@@ -84,6 +84,16 @@ describe("firestoreResetStore.readJudgeTokenHash", () => {
     expect(reads).toEqual([]);
   });
 
+  it("logs only a fixed code and the error class for a malformed doc: no device id, outlet id or doc id", async () => {
+    consoleError.mockClear();
+    const { db } = fakeDb({ [COLLECTIONS.devices]: { [deviceDocId(OUTLET, DEVICE)]: { broken: true } } });
+    await firestoreResetStore(db).readJudgeTokenHash(OUTLET, DEVICE);
+    expect(consoleError).toHaveBeenCalled();
+    const logged = JSON.stringify(consoleError.mock.calls);
+    expect(logged).not.toMatch(/jdg-|sbx-|aaaaaaaaaaaa/);
+    expect(logged).toContain("ZodError");
+  });
+
   it("never logs the hash", async () => {
     const { db } = fakeDb({ [COLLECTIONS.devices]: { [deviceDocId(OUTLET, DEVICE)]: { broken: true, token_hash: "$2a$10$judgehashjudgehashjudge" } } });
     await firestoreResetStore(db).readJudgeTokenHash(OUTLET, DEVICE);
@@ -99,6 +109,14 @@ describe("firestoreResetStore.proposalLockLive", () => {
     const store = firestoreResetStore(db);
     expect(await store.proposalLockLive(OUTLET, 1_999)).toBe(true);
     expect(await store.proposalLockLive(OUTLET, 2_000)).toBe(false);
+  });
+
+  it("a malformed lock logs no outlet or doc id", async () => {
+    consoleError.mockClear();
+    const { db } = fakeDb({ [COLLECTIONS.proposalLocks]: { [OUTLET]: { nonsense: 1 } } });
+    await firestoreResetStore(db).proposalLockLive(OUTLET, 1);
+    expect(consoleError).toHaveBeenCalled();
+    expect(JSON.stringify(consoleError.mock.calls)).not.toMatch(/sbx-|aaaaaaaaaaaa/);
   });
 
   it("false when there is no lock; a malformed lock is not live (the wipe deletes it)", async () => {
@@ -130,16 +148,21 @@ describe("firestoreResetStore reset marker (the reset's lock)", () => {
     for (const marker of [NOW - 5_000, NOW - SHIFT_MARKER_STALE_MS, NOW + 60_000]) {
       const seed = seedOutlet({ shift_started_at_ms: marker });
       const { db, writes } = fakeDb(seed);
-      expect(await firestoreResetStore(db).takeResetMarker(OUTLET, NOW)).toEqual({ taken: false });
+      expect(await firestoreResetStore(db).takeResetMarker(OUTLET, NOW)).toEqual({ taken: false, reason: "busy" });
       expect(writes).toEqual([]);
       expect(markerIn(seed)).toBe(marker);
     }
   });
 
-  it("refuses a non-sandbox outlet or a missing one, writing nothing", async () => {
+  it("a missing outlet doc or one without a sandbox object is reported as gone (not thrown): the loser of a reset race that straddles the wipe", async () => {
     const { db, writes } = fakeDb({ [COLLECTIONS.outlets]: { [OUTLET]: { ...outlet(), sandbox: undefined } } });
-    await expect(firestoreResetStore(db).takeResetMarker(OUTLET, NOW)).rejects.toThrow(/not a sandbox/);
-    await expect(firestoreResetStore(fakeDb({}).db).takeResetMarker(OUTLET, NOW)).rejects.toThrow(/not a sandbox/);
+    expect(await firestoreResetStore(db).takeResetMarker(OUTLET, NOW)).toEqual({ taken: false, reason: "gone" });
+    expect(await firestoreResetStore(fakeDb({}).db).takeResetMarker(OUTLET, NOW)).toEqual({ taken: false, reason: "gone" });
+    expect(writes).toEqual([]);
+  });
+
+  it("never takes a marker for an id that is not a sandbox id (a programming error, still thrown), writing nothing", async () => {
+    const { db, writes } = fakeDb({ [COLLECTIONS.outlets]: { "pilot-outlet": outlet() } });
     await expect(firestoreResetStore(db).takeResetMarker("pilot-outlet", NOW)).rejects.toThrow(/not a sandbox/);
     expect(writes).toEqual([]);
   });

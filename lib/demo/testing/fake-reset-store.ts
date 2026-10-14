@@ -44,6 +44,10 @@ export function fakeResetStore(seed: FakeResetSeed) {
     lockAppearsAfterLease: false,
     /** Awaited at the start of `deleteSandbox`, after the lease doc is gone: lets a test hold a reset mid-wipe. */
     deleteGate: null as Promise<void> | null,
+    /** Awaited at the end of `deleteSandbox`, after the outlet doc is gone (the window between the wipe and the re-clone). */
+    afterDeleteGate: null as Promise<void> | null,
+    /** Called once the outlet doc is deleted, just before `afterDeleteGate` is awaited. */
+    onOutletDeleted: null as (() => void) | null,
     tokenHashOverride: undefined as string | null | undefined,
   };
   const outletDoc = (id: string): Outlet | null => (world.get(`${COLLECTIONS.outlets}/${id}`)?.data as unknown as Outlet | undefined) ?? null;
@@ -88,9 +92,9 @@ export function fakeResetStore(seed: FakeResetSeed) {
       calls.push("takeResetMarker"); // one atomic step, like the Firestore transaction
       const doc = world.get(`${COLLECTIONS.outlets}/${outletId}`);
       const outlet = doc?.data as unknown as Outlet | undefined;
-      if (!doc || !outlet?.sandbox) throw new Error("not a sandbox outlet");
+      if (!doc || !outlet?.sandbox) return { taken: false as const, reason: "gone" as const };
       const prior = outlet.sandbox.shift_started_at_ms ?? null;
-      if (prior !== null && nowMs - prior <= SHIFT_MARKER_STALE_MS) return { taken: false as const };
+      if (prior !== null && nowMs - prior <= SHIFT_MARKER_STALE_MS) return { taken: false as const, reason: "busy" as const };
       world.set(`${COLLECTIONS.outlets}/${outletId}`, { ...doc, data: { ...doc.data, sandbox: { ...outlet.sandbox, shift_started_at_ms: nowMs } } });
       return { taken: true as const, prior };
     },
@@ -125,6 +129,8 @@ export function fakeResetStore(seed: FakeResetSeed) {
       const entries = [...world].filter(([, d]) => outletIdOf(d) === outletId);
       for (const [k, d] of entries) if (d.collection !== COLLECTIONS.outlets) world.delete(k);
       for (const [k, d] of entries) if (d.collection === COLLECTIONS.outlets) world.delete(k);
+      state.onOutletDeleted?.();
+      if (state.afterDeleteGate) await state.afterDeleteGate;
     },
     async writeSandbox(docs) {
       calls.push("writeSandbox");

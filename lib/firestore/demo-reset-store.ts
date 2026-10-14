@@ -14,20 +14,20 @@ import type { ResetStore } from "@/lib/demo/service";
  * only (the route 404s first). The wipe, the re-clone write, the counters and the template read are the demo store's;
  * the pipeline lease is the tick store's, so a tick, a next-day shift and a reset can never run on the same device at
  * once. The only reads added here are the judge device's token hash and the proposal lock. Nothing here reads a name,
- * a transcript or audio, and nothing logs a hash: a malformed doc is reported by its id and the error class only.
+ * a transcript or audio, and nothing logs a hash: a malformed doc is reported by a fixed context and the error class only, never an id.
  */
-function logSkippedDoc(context: string, docId: string): void {
-  console.error(`[demo-reset-store] skipping malformed ${context} doc`, { doc_id: docId, error_class: "ZodError" });
+function logSkippedDoc(context: string): void {
+  // The doc ids name the sandbox and its judge device, so only the fixed context and the error class are logged.
+  console.error(`[demo-reset-store] skipping malformed ${context} doc`, { error_class: "ZodError" });
 }
 
 export function firestoreResetStore(db: Firestore = adminDb()): ResetStore {
   const outlets = () => db.collection(COLLECTIONS.outlets);
-  /** The sandbox outlet or a throw: a marker is never written on a pilot outlet, a missing doc or a non-sandbox doc. */
-  const requireSandbox = (raw: unknown, outletId: string) => {
-    if (!outletId.startsWith(SANDBOX_OUTLET_PREFIX) || raw === undefined) throw new Error("demo-reset-store: not a sandbox outlet");
-    const outlet = parseOutletDoc(raw);
-    if (!outlet.sandbox) throw new Error("demo-reset-store: not a sandbox outlet");
-    return outlet.sandbox;
+  /** The sandbox object of the outlet doc, or null when the doc is missing or has no sandbox object (gone). A non-sandbox id is a programming error and throws. */
+  const sandboxOf = (raw: unknown, outletId: string) => {
+    if (!outletId.startsWith(SANDBOX_OUTLET_PREFIX)) throw new Error("demo-reset-store: not a sandbox outlet");
+    if (raw === undefined) return null;
+    return parseOutletDoc(raw).sandbox ?? null;
   };
   const demo = firestoreDemoStore(db);
   const tick = firestoreTickStore(db);
@@ -45,7 +45,7 @@ export function firestoreResetStore(db: Firestore = adminDb()): ResetStore {
       if (!snap.exists) return null;
       const parsed = DeviceSchema.safeParse(snap.data());
       if (!parsed.success) {
-        logSkippedDoc("device", snap.id);
+        logSkippedDoc("device");
         return null;
       }
       // The doc id names the outlet and device; the fields must agree (a doc under another outlet is never trusted).
@@ -58,7 +58,7 @@ export function firestoreResetStore(db: Firestore = adminDb()): ResetStore {
       if (!snap.exists) return false;
       const lock = ProposalLockSchema.safeParse(snap.data());
       if (!lock.success) {
-        logSkippedDoc("proposal_lock", snap.id);
+        logSkippedDoc("proposal_lock");
         return false; // the wipe deletes it
       }
       return lock.data.expires_at_ms > nowMs;
@@ -68,10 +68,12 @@ export function firestoreResetStore(db: Firestore = adminDb()): ResetStore {
       const ref = outlets().doc(outletId);
       return db.runTransaction(async (tx) => {
         const snap = await tx.get(ref);
-        const sandbox = requireSandbox(snap.exists ? snap.data() : undefined, outletId);
+        const sandbox = sandboxOf(snap.exists ? snap.data() : undefined, outletId);
+        // Gone: another reset's wipe deleted the outlet doc after this one's early look. The caller treats it as busy.
+        if (!sandbox) return { taken: false as const, reason: "gone" as const };
         const prior = sandbox.shift_started_at_ms ?? null;
         // A fresh marker (a shift or another reset in flight; a future one counts) wins; a stale one is a crash.
-        if (prior !== null && nowMs - prior <= SHIFT_MARKER_STALE_MS) return { taken: false as const };
+        if (prior !== null && nowMs - prior <= SHIFT_MARKER_STALE_MS) return { taken: false as const, reason: "busy" as const };
         tx.update(ref, { sandbox: { ...sandbox, shift_started_at_ms: nowMs } });
         return { taken: true as const, prior };
       });
@@ -82,7 +84,8 @@ export function firestoreResetStore(db: Firestore = adminDb()): ResetStore {
       await db.runTransaction(async (tx) => {
         const snap = await tx.get(ref);
         if (!snap.exists) return; // the wipe got there first: nothing to restore
-        const sandbox = requireSandbox(snap.data(), outletId);
+        const sandbox = sandboxOf(snap.data(), outletId);
+        if (!sandbox) return;
         if ((sandbox.shift_started_at_ms ?? null) !== ours) return; // not ours any more: never clobber it
         tx.update(ref, { sandbox: { ...sandbox, shift_started_at_ms: prior } });
       });
