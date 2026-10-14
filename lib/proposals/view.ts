@@ -30,6 +30,7 @@ export function toProposalView(
     status: stored.status,
     created_at_ms: stored.created_at_ms,
     range: { from_date: stored.range.from_date, to_date: stored.range.to_date },
+    focus_category: stored.focus_category ?? null, // R-19 §3.3; absent on a pre-R-19 doc reads null
     suppression: stored.suppression
       ? {
           reason: stored.suppression.reason,
