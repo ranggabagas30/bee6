@@ -277,7 +277,9 @@ describe("/capture: the script card (plan 5.3-5.4)", () => {
         state: { ...listening(5).state, closingError: { key: "C-sess-closing-not-enough", vars: { have: 3, need: 5 } } },
       }),
     );
-    expect(screen.getByRole("alert").textContent).toBe("Bee6 has not heard enough yet (3 of 5). Wait a few seconds for the last card to upload, then try again.");
+    // The page already announces this failure (one role=alert under End); the guide's copy is visible but silent.
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByText("Bee6 has not heard enough yet (3 of 5). Wait a few seconds for the last card to upload, then try again.")).toBeTruthy();
     act(() => publishCaptureBridge(bridge({ phase: "closing", sessionId: "s1", linesThisSession: 5 })));
     expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("Tap End today");
     // a later session (day 2) starts at card 1: the all-spoken state belongs to the session that spoke the cards
@@ -458,5 +460,94 @@ describe("web routes: progress and the supervisor-visited flag", () => {
     await waitFor(() => expect(fetch).toHaveBeenCalled());
     expect(screen.getByRole("heading", { name: "Waiting for evidence" })).toBeTruthy();
     expect(document.body.textContent).not.toContain("oops");
+  });
+});
+
+describe("R-19 PR-5 QA fixes: scroll body, 48 px controls, open-session card, busy jump", () => {
+  it("D3: the sheet's scroll body is a keyboard-focusable named region (axe scrollable-region-focusable), even when nothing inside is focusable", () => {
+    pathname = "/capture";
+    act(() => publishCaptureBridge(bridge({ phase: "listening", sessionId: "s1", linesThisSession: 0 })));
+    renderGuide();
+    openGuide();
+    const body = document.querySelector(".b6-sheet__body") as HTMLElement;
+    expect(body.getAttribute("tabindex")).toBe("0");
+    expect(body.getAttribute("role")).toBe("region");
+    // named by the card heading, so a screen reader says which card it is scrolling
+    expect(screen.getByRole("region", { name: "Read this card aloud" })).toBe(body);
+  });
+
+  it("D3: the laptop panel's scroll body is focusable and named the same way", () => {
+    wide = true;
+    renderGuide();
+    openGuide();
+    const body = document.querySelector(".b6-panel__body") as HTMLElement;
+    expect(body.getAttribute("tabindex")).toBe("0");
+    expect(screen.getByRole("region", { name: "Welcome, judge" })).toBe(body);
+  });
+
+  it("D4: every guide control is at least 48 px high: I have spoken this, Previous card, Jump, Fill in, and the panel close", () => {
+    pathname = "/capture";
+    window.sessionStorage.setItem(scriptStorageKey("s1"), JSON.stringify({ spoken: ["d1-c1"] }));
+    act(() => publishCaptureBridge(bridge({ phase: "listening", sessionId: "s1", linesThisSession: 0 })));
+    renderGuide();
+    openGuide();
+    const body = document.querySelector(".b6-sheet__body") as HTMLElement;
+    const controls = Array.from(body.querySelectorAll<HTMLElement>("button"));
+    expect(controls.map((c) => c.textContent)).toEqual(expect.arrayContaining(["I have spoken this", "‹ Previous card (re-read only)"]));
+    for (const c of controls) expect(parseFloat(c.style.minHeight), c.textContent ?? "").toBeGreaterThanOrEqual(48);
+    cleanup();
+    pathname = "/pair";
+    renderGuide();
+    openGuide();
+    expect(parseFloat((screen.getByRole("button", { name: "Fill in 000000" }) as HTMLElement).style.minHeight)).toBeGreaterThanOrEqual(48);
+  });
+
+  it("D6: a POST 409 busy on Jump to tomorrow disables the button, shows the transient line (no alert), and re-polls the config until the reason clears", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+    pathname = "/capture";
+    postDemoNextDay.mockResolvedValueOnce({ ok: false, status: 409, code: "busy", details: null });
+    act(() => publishCaptureBridge(bridge({ phase: "debrief_question", profile: profile({ day: 1, next_day: { allowed: true, reason: null } }) })));
+    renderGuide();
+    openGuide();
+    const refetchesBefore = refetchConfig.mock.calls.length;
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Jump to tomorrow" }));
+    });
+    expect(screen.getByText("Bee6 is busy with today's notes. Try again in a few seconds.")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+    const btn = screen.getByRole("button", { name: "Jump to tomorrow" }) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    fireEvent.click(btn);
+    expect(postDemoNextDay).toHaveBeenCalledTimes(1); // no retry tap
+    expect(refetchConfig.mock.calls.length).toBe(refetchesBefore);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(refetchConfig.mock.calls.length).toBe(refetchesBefore + 1); // re-polled by itself
+    // the re-read says the jump is allowed again: the button is back, the busy line is gone
+    expect((screen.getByRole("button", { name: "Jump to tomorrow" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByText("Bee6 is busy with today's notes. Try again in a few seconds.")).toBeNull();
+  });
+
+  describe("the open-session card matches the page's OpenSessionView", () => {
+    const open = (closing_reached: boolean) => ({ session_id: "00000000-0000-4000-8000-000000000001", started_at_ms: 1, closing_reached, auto_stop_at_ms: 2 });
+    it("closing reached: End today, no Cancel", () => {
+      pathname = "/capture";
+      act(() => publishCaptureBridge(bridge({ phase: "open_session", profile: profile({ open_session: open(true), closing_reached: true }) })));
+      renderGuide();
+      openGuide();
+      expect(screen.getByRole("heading", { name: "Tap End today" })).toBeTruthy();
+      expect(document.body.textContent).toMatch(/Tap End today on the screen/);
+      expect(document.body.textContent).not.toMatch(/Cancel today/);
+    });
+    it("not reached: Cancel today, no End", () => {
+      pathname = "/capture";
+      act(() => publishCaptureBridge(bridge({ phase: "open_session", profile: profile({ open_session: open(false) }) })));
+      renderGuide();
+      openGuide();
+      expect(screen.getByRole("heading", { name: "Today's session was interrupted" })).toBeTruthy();
+      expect(document.body.textContent).toMatch(/Tap Cancel today on the screen/);
+      expect(document.body.textContent).not.toMatch(/End today/);
+    });
   });
 });

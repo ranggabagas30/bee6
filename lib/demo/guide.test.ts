@@ -107,11 +107,32 @@ describe("STAGES and GUIDE data", () => {
     expect(day1).toMatch(/After day 1, you can sign out and look around as Supervisor first \(Proposals says Waiting for evidence\), then pair again and jump to tomorrow\./);
     expect(day1).toMatch(/Jump to tomorrow/);
     expect(guideCard("debrief_done", 1).action).toEqual({ kind: "jump_tomorrow" });
-    for (const day of [2, 3] as const) {
-      const text = guideCard("debrief_done", day).body.map((b) => b.en).join(" ");
-      expect(text, `day ${day}`).not.toMatch(/After day 1/);
-      expect(text, `day ${day}`).toMatch(/Jump to tomorrow to run the next day\. After day 3, sign out and continue as Supervisor\./);
+    const day2 = guideCard("debrief_done", 2).body.map((b) => b.en).join(" ");
+    expect(day2).not.toMatch(/After day 1/);
+    expect(day2).toMatch(/Jump to tomorrow to run the next day\./);
+  });
+
+  it("day 3 is the last day: neither debrief card tells the judge to jump to tomorrow (the max_days line sits next to it); both say sign out and continue as Supervisor", () => {
+    for (const key of ["debrief_question", "debrief_done"] as const) {
+      const text = guideCard(key, 3).body.map((b) => b.en).join(" ");
+      expect(text, key).not.toMatch(/jump to tomorrow|run the next day/i);
+      expect(text, key).toMatch(/Supervisor/);
     }
+    // days 1 and 2 keep the jump wording
+    for (const day of [1, 2] as const) {
+      expect(guideCard("debrief_question", day).body.map((b) => b.en).join(" "), `day ${day}`).toMatch(/jump to tomorrow to run the next day/);
+    }
+  });
+
+  it("the open-session card matches the page: End today when closing is reached, Cancel today otherwise (never both)", () => {
+    const reached = guideCard("capture_open_session", 1, { openClosingReached: true }).body.map((b) => b.en).join(" ");
+    expect(reached).toMatch(/End today/);
+    expect(reached).not.toMatch(/Cancel/);
+    const interrupted = guideCard("capture_open_session", 1, { openClosingReached: false }).body.map((b) => b.en).join(" ");
+    expect(interrupted).toMatch(/Cancel today/);
+    expect(interrupted).not.toMatch(/End today/);
+    expect(guideCard("capture_open_session", 1, { openClosingReached: false }).title.en).not.toBe(guideCard("capture_open_session", 1, { openClosingReached: true }).title.en);
+    for (const o of [true, false]) expect(() => GuideCardSchema.parse(guideCard("capture_open_session", 2, { openClosingReached: o }))).not.toThrow();
   });
 
   it("guideCard: every day variant is valid against the strict schema; an unknown day and every other key fall back to the base card", () => {

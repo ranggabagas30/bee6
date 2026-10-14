@@ -87,7 +87,9 @@ const MUTED_LINE: CSSProperties = { margin: "8px 0 0", fontSize: 14, color: "var
 const SCRIPT_BOX: CSSProperties = { maxHeight: "50vh", overflowY: "auto", margin: "8px 0 0", padding: "10px 12px", borderRadius: 12, background: "var(--b6-surface-soft)" };
 const SPEAKER_TAG: CSSProperties = { display: "block", fontSize: 11, letterSpacing: 0.6, textTransform: "uppercase", color: "var(--b6-muted)", margin: "10px 0 2px" };
 const LINE_TEXT: CSSProperties = { margin: 0, fontSize: 18, lineHeight: 1.4 };
-const LINK_BUTTON: CSSProperties = { background: "none", border: 0, padding: "12px 0", minHeight: 44, font: "inherit", fontSize: 14, color: "var(--b6-teal-ink)", textDecoration: "underline", cursor: "pointer" };
+/** Every guide control is at least 48 px high (plan 7.2); the Button look alone is 44. */
+const GUIDE_BUTTON: CSSProperties = { minHeight: 48 };
+const LINK_BUTTON: CSSProperties = { background: "none", border: 0, padding: "12px 0", minHeight: 48, font: "inherit", fontSize: 14, color: "var(--b6-teal-ink)", textDecoration: "underline", cursor: "pointer" };
 
 function useWide(): boolean {
   const subscribe = useCallback((onChange: () => void) => {
@@ -200,7 +202,8 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
       : null;
   const key = guideKeyFor(pathname, state);
   const day = bridge ? bridge.state.profile.day : null;
-  const card = guideCard(key, day);
+  const openClosingReached = bridge?.state.profile.open_session?.closing_reached;
+  const card = guideCard(key, day, { openClosingReached });
 
   const journey: JourneyProgress = useMemo(() => {
     if (bridge) {
@@ -265,6 +268,7 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
         key={key}
         guideKey={key}
         day={day}
+        openClosingReached={openClosingReached}
         lang={lang}
         bridge={bridge}
         onAllSpoken={setAllSpokenFor}
@@ -281,6 +285,7 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
         openLabel={t(lang, "C-journey-guide-open")}
         closeLabel={t(lang, "C-journey-guide-close")}
         pill={<span>{t(lang, "C-journey-guide-pill", { n: stageN, total: STAGE_TOTAL })}</span>}
+        bodyLabelledBy={`guide-card-${key}`}
         header={
           <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
             <Kicker>{t(lang, "C-journey-guide-handle", { n: stageN, total: STAGE_TOTAL })}</Kicker>
@@ -302,6 +307,7 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
         onOpenChange={setOpen}
         openLabel={t(lang, "C-journey-guide-open")}
         closeLabel={t(lang, "C-journey-guide-close")}
+        bodyLabelledBy={`guide-card-${key}`}
         handle={
           <>
             <Kicker>{t(lang, "C-journey-guide-handle", { n: stageN, total: STAGE_TOTAL })}</Kicker>
@@ -321,14 +327,16 @@ interface GuideCardViewProps {
   guideKey: GuideKey;
   /** The demo day on /capture (the debrief cards read differently on day 1), else null. */
   day: number | null;
+  /** The open session's closing flag on /capture (the open-session card says End today or Cancel today), else undefined. */
+  openClosingReached: boolean | undefined;
   lang: Lang;
   bridge: CaptureBridge | null;
   /** Called with the session id once every card of the day is marked spoken. */
   onAllSpoken: (sessionId: string) => void;
 }
 
-function GuideCardView({ guideKey, day, lang, bridge, onAllSpoken }: GuideCardViewProps) {
-  const card = guideCard(guideKey, day);
+function GuideCardView({ guideKey, day, openClosingReached, lang, bridge, onAllSpoken }: GuideCardViewProps) {
+  const card = guideCard(guideKey, day, { openClosingReached });
   const action = card.action;
   return (
     <article aria-labelledby={`guide-card-${guideKey}`}>
@@ -369,7 +377,7 @@ function FillCode({ lang }: { lang: Lang }) {
   }
   return (
     <div style={{ marginTop: 12 }}>
-      <Button variant="secondary" onClick={onFill}>
+      <Button variant="secondary" style={GUIDE_BUTTON} onClick={onFill}>
         {t(lang, "C-journey-fill-code", { code: DEMO_STAFF_CODE })}
       </Button>
       <p role="status" aria-live="polite" style={filled ? MUTED_LINE : SR_ONLY}>
@@ -457,7 +465,7 @@ function ScriptCard({ lang, bridge, onAllSpoken }: { lang: Lang; bridge: Capture
       ) : (
         <>
           <div style={{ marginTop: 10 }}>
-            <Button variant="primary" block disabled={!live.canMarkSpoken} onClick={markSpoken}>
+            <Button variant="primary" block style={GUIDE_BUTTON} disabled={!live.canMarkSpoken} onClick={markSpoken}>
               {t(lang, "C-journey-spoken")}
             </Button>
           </div>
@@ -489,11 +497,13 @@ function JumpClosing({ lang, bridge }: { lang: Lang; bridge: CaptureBridge }) {
   const { closingBusy, closingError } = bridge.state;
   return (
     <div style={{ marginTop: 12 }}>
-      <Button variant="primary" block disabled={closingBusy} onClick={bridge.actions.jumpToClosing}>
+      <Button variant="primary" block style={GUIDE_BUTTON} disabled={closingBusy} onClick={bridge.actions.jumpToClosing}>
         {closingBusy ? t(lang, "C-journey-jump-closing-busy") : t(lang, "C-journey-jump-closing")}
       </Button>
       {closingError ? (
-        <p role="alert" style={ERROR_LINE}>
+        // Not an alert: the page already announces this same failure (one role=alert under End), and two
+        // alerts would read it twice. The guide's copy is for sighted users reading the card.
+        <p style={ERROR_LINE}>
           {t(lang, closingError.key, closingError.vars)}
         </p>
       ) : null}
@@ -510,6 +520,20 @@ function JumpTomorrow({ lang, bridge }: { lang: Lang; bridge: CaptureBridge }) {
   const [confirm, setConfirm] = useState<number | null>(null);
   const [errorKey, setErrorKey] = useState<DictKey | null>(null);
   const [jumpedTo, setJumpedTo] = useState<number | null>(null);
+  // The route itself answered 409 `busy` / `preparing` (a lock the config did not show yet): the same transient
+  // state as a config-driven busy. The button stays disabled with the transient line, the config is re-read on its
+  // own after CONFIG_REPOLL_MS (no retry tap), and the button is back only once that re-read no longer blocks it.
+  const [postReason, setPostReason] = useState<"busy" | "preparing" | null>(null);
+  useEffect(() => {
+    if (postReason === null) return;
+    const id = setTimeout(() => {
+      void (async () => {
+        await refetchConfig();
+        setPostReason(null);
+      })();
+    }, CONFIG_REPOLL_MS);
+    return () => clearTimeout(id);
+  }, [postReason, refetchConfig]);
 
   const reason = profile.next_day.reason;
   const allowed = profile.next_day.allowed;
@@ -522,6 +546,7 @@ function JumpTomorrow({ lang, bridge }: { lang: Lang; bridge: CaptureBridge }) {
     setBusy(true);
     setErrorKey(null);
     setConfirm(null);
+    setPostReason(null);
     const result = await postDemoNextDay(auth, { expected_day: profile.day, confirm_unanswered: confirmUnanswered });
     busyRef.current = false;
     setBusy(false);
@@ -532,6 +557,10 @@ function JumpTomorrow({ lang, bridge }: { lang: Lang; bridge: CaptureBridge }) {
     }
     if (result.status === 409 && result.code === "unanswered_questions" && result.details?.unanswered !== undefined) {
       setConfirm(result.details.unanswered);
+      return;
+    }
+    if (result.status === 409 && (result.code === "busy" || result.code === "preparing")) {
+      setPostReason(result.code);
       return;
     }
     const code = result.code as NextDayRefusal | undefined;
@@ -547,10 +576,10 @@ function JumpTomorrow({ lang, bridge }: { lang: Lang; bridge: CaptureBridge }) {
         </p>
         <p style={BODY_LINE}>{t(lang, "C-journey-next-day-unanswered-body")}</p>
         <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-          <Button variant="primary" onClick={() => setConfirm(null)}>
+          <Button variant="primary" style={GUIDE_BUTTON} onClick={() => setConfirm(null)}>
             {t(lang, "C-journey-next-day-unanswered-answer-first")}
           </Button>
-          <Button variant="secondary" disabled={busy} onClick={() => void jump(true)}>
+          <Button variant="secondary" style={GUIDE_BUTTON} disabled={busy} onClick={() => void jump(true)}>
             {t(lang, "C-journey-next-day-unanswered-jump-anyway")}
           </Button>
         </div>
@@ -559,9 +588,10 @@ function JumpTomorrow({ lang, bridge }: { lang: Lang; bridge: CaptureBridge }) {
   } else if (allowed && profile.day !== 3) {
     content = (
       <div style={{ marginTop: 12 }}>
-        <Button variant="primary" block disabled={busy} onClick={() => void jump(false)}>
+        <Button variant="primary" block style={GUIDE_BUTTON} disabled={busy || postReason !== null} onClick={() => void jump(false)}>
           {busy ? t(lang, "C-journey-jump-tomorrow-busy") : t(lang, "C-journey-jump-tomorrow")}
         </Button>
+        {postReason !== null ? <p style={MUTED_LINE}>{t(lang, NEXT_DAY_REASON_KEY[postReason])}</p> : null}
       </div>
     );
   } else if (reason !== null && reason !== "unanswered_questions") {

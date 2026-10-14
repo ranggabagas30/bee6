@@ -173,13 +173,28 @@ export const GUIDE: Readonly<Record<GuideKey, GuideCard>> = z
     ]),
   });
 
+/** What the page knows about the device's still-open server session (`profile.open_session`), for its one card. */
+export interface GuideCardContext {
+  /** Set only for `capture_open_session`: true when the open session is past closing time (the page offers End today), false otherwise (Cancel today). */
+  openClosingReached?: boolean;
+}
+
 /**
- * The card for a key on a given demo day. Two cards read differently on day 1: day 1 has no phone-order script
- * card, and after day 1 the stage list sends the judge to the Supervisor screens (stage 2) before day 2. Every
- * other key, and an unknown day (`null`), returns the base `GUIDE` card.
+ * The card for a key on a given demo day. A few cards read differently by day: day 1 has no phone-order script
+ * card, and after day 1 the stage list sends the judge to the Supervisor screens (stage 2) before day 2; day 3 is
+ * the last day, so its debrief cards never offer "jump to tomorrow" (the guide shows the max_days line instead).
+ * The open-session card follows the page's own view (`OpenSessionView`): End today when closing is reached,
+ * Cancel today otherwise. Every other key, and an unknown day (`null`), returns the base `GUIDE` card.
  */
-export function guideCard(key: GuideKey, day: number | null): GuideCard {
+export function guideCard(key: GuideKey, day: number | null, ctx: GuideCardContext = {}): GuideCard {
   const base = GUIDE[key];
+  if (key === "capture_open_session" && ctx.openClosingReached !== undefined) {
+    return GuideCardSchema.parse(
+      ctx.openClosingReached
+        ? { ...base, title: same("Tap End today"), body: [same("Today's session is still open and closing time has passed. Tap End today on the screen to start the debrief.")] }
+        : { ...base, title: same("Today's session was interrupted"), body: [same("The session stopped before closing time. Tap Cancel today on the screen, then Start today again.")] },
+    );
+  }
   if (day === 1 && key === "debrief_question") {
     return GuideCardSchema.parse({
       ...base,
@@ -190,6 +205,12 @@ export function guideCard(key: GuideKey, day: number | null): GuideCard {
       ],
     });
   }
+  if (day === 3 && key === "debrief_question") {
+    return GuideCardSchema.parse({
+      ...base,
+      body: [base.body[0]!, base.body[1]!, same("When your questions are answered, sign out and continue as Supervisor.")],
+    });
+  }
   if (day === 1 && key === "debrief_done") {
     return GuideCardSchema.parse({
       ...base,
@@ -198,6 +219,9 @@ export function guideCard(key: GuideKey, day: number | null): GuideCard {
         same("After day 1, you can sign out and look around as Supervisor first (Proposals says Waiting for evidence), then pair again and jump to tomorrow."),
       ],
     });
+  }
+  if (day === 3 && key === "debrief_done") {
+    return GuideCardSchema.parse({ ...base, body: [same("That was the last of the 3 demo days. Next, sign out and continue as Supervisor.")] });
   }
   return base;
 }
