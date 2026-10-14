@@ -2,7 +2,7 @@ import { z } from "zod";
 import { LibraryNotReadyError, type ProposalLibrary } from "@/config/proposal-library";
 import { assertOutlet, assertPermission } from "@/lib/auth/rbac";
 import type { CustomClaims } from "@/lib/auth/roles";
-import { localDateOf } from "@/lib/capture/calendar";
+import { addDays, businessDateOf, localDateOf } from "@/lib/capture/calendar";
 import { createConstraint, type ConstraintStore } from "@/lib/constraints/service";
 import {
   ConflictError,
@@ -23,16 +23,24 @@ import {
 import {
   LIST_DECIDED_MAX,
   LIST_OPEN_MAX,
+  WATCH_DAYS,
   ListProposalsResponseSchema,
   DecisionResponseSchema,
   type ApproveBody,
   type DecisionResponse,
   type ListProposalsResponse,
   type ProposalListItem,
+  type ProposalsWatch,
   type ReviewBody,
   type ReviewView,
+  type WatchRow,
 } from "@/lib/proposals/review-contract";
+import { MIN_EVIDENCE_DATES } from "@/lib/proposals/constants";
 import { toProposalView } from "@/lib/proposals/view";
+import { selectCandidates } from "@/lib/proposals/candidates";
+import { evidenceByCategory } from "@/lib/proposals/precheck";
+import { evidenceReadWindow } from "@/lib/proposals/range";
+import type { ProposalStore } from "@/lib/proposals/service";
 import { planShip } from "@/lib/sop/ship";
 
 /**
@@ -81,6 +89,9 @@ export interface ProposalReviewStore {
   ): Promise<T>;
 }
 
+/** R-19 §3.5: the two range reads the watch panel shares with Generate (`firestoreProposalStore`). */
+export type EvidenceReader = Pick<ProposalStore, "listSessions" | "listThreadsInRange">;
+
 export interface ReviewDeps {
   /** Throws LibraryNotReadyError. */
   loadLibrary: () => ProposalLibrary;
@@ -90,6 +101,8 @@ export interface ReviewDeps {
 
 const OPEN_STATUSES: readonly ProposalStatus[] = ["awaiting_supervisor", "awaiting_owner"];
 const DECIDED_STATUSES: readonly ProposalStatus[] = ["approved", "rejected"];
+/** A proposal in one of these states marks its focus category `proposed` on the watch panel (R-19 §3.5). */
+const WATCH_PROPOSED_STATUSES: readonly ProposalStatus[] = ["awaiting_supervisor", "awaiting_owner", "approved"];
 
 function citedThreadIds(ps: readonly Proposal[]): string[] {
   return [...new Set(ps.flatMap((p) => p.content?.evidence.map((e) => e.thread_id) ?? []))];
@@ -107,14 +120,52 @@ function reviewViewOf(p: Proposal, tz: string): ReviewView {
 }
 
 /**
- * GET /api/v1/proposals (R-09 Task 5.4). Owner and supervisor get the SAME
- * payload (no role variant). The only evidence in the response is
- * `toProposalView`'s dated summaries (hard rule #7).
+ * R-19 §3.5 "What Bee6 is watching": one row per category with at least one fact in `[today-6, today]`, read
+ * with the same selection as Generate (so ROUTINE_OPS never appears), plus `proposed` when an open or approved
+ * proposal whose range overlaps the window is about that category. Plain code; counts only, never a thread id,
+ * device id or summary (hard rule #7).
+ */
+async function watchOf(
+  evidence: EvidenceReader,
+  all: readonly Proposal[],
+  tz: string,
+  nowMs: number,
+): Promise<ProposalsWatch> {
+  const today = businessDateOf(nowMs, tz);
+  const range = { from_date: addDays(today, -(WATCH_DAYS - 1)), to_date: today };
+  const window = evidenceReadWindow(range, tz);
+  const [sessions, rows] = await Promise.all([evidence.listSessions(window.dates), evidence.listThreadsInRange(window.fromMs, window.toMs)]);
+  const proposed = new Set(
+    all
+      .filter(
+        (p) =>
+          WATCH_PROPOSED_STATUSES.includes(p.status) &&
+          p.focus_category &&
+          p.range.from_date <= range.to_date &&
+          p.range.to_date >= range.from_date,
+      )
+      .map((p) => p.focus_category!),
+  );
+  const categories: WatchRow[] = evidenceByCategory(selectCandidates(rows, sessions, tz, range)).map((r) => ({
+    category: r.category,
+    facts: r.facts,
+    dates: r.dates,
+    need_dates: MIN_EVIDENCE_DATES,
+    state: proposed.has(r.category) ? "proposed" : r.ready ? "ready" : "needs_more",
+  }));
+  return { from_date: range.from_date, to_date: range.to_date, categories };
+}
+
+/**
+ * GET /api/v1/proposals (R-09 Task 5.4; R-19 §3.5 adds `watch`). Owner and
+ * supervisor get the SAME payload (no role variant). The only evidence in the
+ * response is `toProposalView`'s dated summaries and the watch panel's counts
+ * (hard rule #7).
  */
 export async function listProposals(
   store: ProposalReviewStore,
-  deps: Pick<ReviewDeps, "loadLibrary">,
-  input: { claims: CustomClaims },
+  deps: Pick<ReviewDeps, "loadLibrary"> & { evidence: EvidenceReader },
+  input: { claims: CustomClaims; now_ms: number },
 ): Promise<ListProposalsResponse> {
   try {
     return await listProposalsCore(store, deps, input);
@@ -126,8 +177,8 @@ export async function listProposals(
 
 async function listProposalsCore(
   store: ProposalReviewStore,
-  deps: Pick<ReviewDeps, "loadLibrary">,
-  input: { claims: CustomClaims },
+  deps: Pick<ReviewDeps, "loadLibrary"> & { evidence: EvidenceReader },
+  input: { claims: CustomClaims; now_ms: number },
 ): Promise<ListProposalsResponse> {
   const { claims } = input;
   assertPermission(claims, "proposals:read");
@@ -154,10 +205,11 @@ async function listProposalsCore(
   const decided = all.filter((p) => DECIDED_STATUSES.includes(p.status)).slice(0, LIST_DECIDED_MAX);
   const superseded = supersededIds(all);
 
-  const [threads, currentSopId, constraints] = await Promise.all([
+  const [threads, currentSopId, constraints, watch] = await Promise.all([
     store.getThreads(citedThreadIds([...open, ...decided])),
     store.getCurrentSopVersionId(),
     store.listConstraints(),
+    watchOf(deps.evidence, all, tz, input.now_ms),
   ]);
   const sopIds = new Set([...open, ...decided].map((p) => p.generator.sop_version_id));
   if (currentSopId !== null) sopIds.add(currentSopId);
@@ -190,7 +242,7 @@ async function listProposalsCore(
 
   const openItems = open.map((p) => itemOf(p, true)).filter((i): i is ProposalListItem => i !== null);
   const decidedItems = decided.map((p) => itemOf(p, false)).filter((i): i is ProposalListItem => i !== null);
-  return ListProposalsResponseSchema.parse({ open: openItems, decided: decidedItems });
+  return ListProposalsResponseSchema.parse({ open: openItems, decided: decidedItems, watch });
 }
 
 type Refusal = Exclude<DecisionCheck, { kind: "proceed" }>;
