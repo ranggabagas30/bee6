@@ -391,6 +391,8 @@
 
 .b6-handle {
   box-sizing: border-box;
+  /* In the sheet's flex column the handle must keep its content height: without this a 360x640 phone shrinks it. */
+  flex-shrink: 0;
   width: 100%;
   min-height: 48px;
   padding: 0;
@@ -446,6 +448,13 @@
   display: none;
 }
 
+/* The scroll bodies are tab stops (tabindex=0), so a keyboard user can scroll them even with nothing focusable inside. */
+.b6-sheet__body:focus-visible,
+.b6-panel__body:focus-visible {
+  outline: 2px solid var(--b6-focus);
+  outline-offset: -2px;
+}
+
 /* ---- side panel (laptop) ---- */
 .b6-panel {
   position: fixed;
@@ -483,8 +492,8 @@
 .b6-panel__close {
   flex: none;
   box-sizing: border-box;
-  min-width: var(--b6-tap);
-  min-height: var(--b6-tap);
+  min-width: 48px;
+  min-height: 48px;
   border: 0;
   border-radius: var(--b6-r-control);
   background: var(--b6-surface-soft);
@@ -501,6 +510,12 @@
   gap: 12px;
   min-height: 0;
   overflow-y: auto;
+}
+
+/* While the laptop panel is open every page keeps its content left of it (the panel is fixed and 360 px wide):
+   SidePanel puts the class on <html> for exactly as long as it is open. */
+.b6-panel-open body {
+  padding-right: var(--b6-panel-w);
 }
 
 .b6-panel-pill {

@@ -71,7 +71,7 @@ describe("SidePanel", () => {
     const close = screen.getByRole("button", { name: "Close the helper" });
     expect(close.getAttribute("aria-label")).toBe("Close the helper");
     expect(close.querySelector('[aria-hidden="true"]')).toBeTruthy();
-    expect(minHeightPx(ruleDeclarations(css, ".b6-panel__close"), tokens)).toBeGreaterThanOrEqual(44);
+    expect(minHeightPx(ruleDeclarations(css, ".b6-panel__close"), tokens)).toBeGreaterThanOrEqual(48);
   });
 
   it("Escape closes the open panel", () => {
@@ -99,6 +99,36 @@ describe("SidePanel", () => {
     expect(pill["top"]).toBe("14px");
     expect(pill["right"]).toBe("20px");
     expect(minHeightPx(pill, tokens)).toBeGreaterThanOrEqual(48);
+  });
+
+  it("the scroll body is a keyboard-focusable region named by the caller (or by the panel's label)", () => {
+    const { unmount } = render(<Harness initial />);
+    const body = document.querySelector(".b6-panel__body") as HTMLElement;
+    expect(body.getAttribute("tabindex")).toBe("0");
+    expect(body.getAttribute("role")).toBe("region");
+    expect(body.getAttribute("aria-label")).toBe("Helper");
+    expect(ruleDeclarations(css, ".b6-panel__body:focus-visible")["outline"]).toBe("2px solid var(--b6-focus)");
+    unmount();
+    render(
+      <SidePanel label="Helper" open onOpenChange={() => {}} openLabel="o" closeLabel="c" pill={<span>p</span>} header={<span>h</span>} bodyLabelledBy="card-h">
+        <h2 id="card-h">Card heading</h2>
+      </SidePanel>,
+    );
+    expect(screen.getByRole("region", { name: "Card heading" })).toBe(document.querySelector(".b6-panel__body"));
+  });
+
+  it("while open it insets every page by the panel width (a class on <html>, padding on <body>); collapsing or unmounting removes it", () => {
+    const rule = ruleDeclarations(css, ".b6-panel-open body");
+    expect(rule["padding-right"]).toBe("var(--b6-panel-w)");
+    const { unmount } = render(<Harness />);
+    expect(document.documentElement.classList.contains("b6-panel-open")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: /Open the helper/ }));
+    expect(document.documentElement.classList.contains("b6-panel-open")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Close the helper" }));
+    expect(document.documentElement.classList.contains("b6-panel-open")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: /Open the helper/ }));
+    unmount();
+    expect(document.documentElement.classList.contains("b6-panel-open")).toBe(false);
   });
 
   it("has no axe violations collapsed or open", async () => {

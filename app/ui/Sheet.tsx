@@ -15,6 +15,8 @@ export interface SheetProps {
   /** Content of the always-visible handle row (summary, chips). */
   handle: ReactNode;
   children: ReactNode;
+  /** Id of the element that names the scrolling body (a card heading). Without it the body is named by the handle's action text ("Close the guide"), so it never repeats the sheet's own name. */
+  bodyLabelledBy?: string;
   className?: string;
 }
 
@@ -23,7 +25,7 @@ export interface SheetProps {
  * Controlled and non-modal: no dialog role, no focus trap, the page behind stays usable. Escape closes it.
  * It holds no copy of its own: every string comes from the caller.
  */
-export function Sheet({ label, open, onOpenChange, openLabel, closeLabel, handle, children, className }: SheetProps) {
+export function Sheet({ label, open, onOpenChange, openLabel, closeLabel, handle, children, bodyLabelledBy, className }: SheetProps) {
   const bodyId = useId();
   const handleRef = useRef<HTMLButtonElement>(null);
 
@@ -45,14 +47,25 @@ export function Sheet({ label, open, onOpenChange, openLabel, closeLabel, handle
       >
         <span className="b6-sheet__grip" aria-hidden="true" />
         <span className="b6-sheet__row">
-          <span className="b6-sr-only">{open ? closeLabel : openLabel}</span>
+          <span id={`${bodyId}-action`} className="b6-sr-only">
+            {open ? closeLabel : openLabel}
+          </span>
           <span className="b6-sheet__handle-content">{handle}</span>
           <span className="b6-sheet__chev" aria-hidden="true">
             {open ? "⌄" : "⌃"}
           </span>
         </span>
       </button>
-      <div id={bodyId} className="b6-sheet__body" hidden={!open}>
+      {/* The body scrolls, so it is a tab stop with a name (axe scrollable-region-focusable): a keyboard user can scroll it
+          even when nothing inside is focusable. */}
+      <div
+        id={bodyId}
+        className="b6-sheet__body"
+        hidden={!open}
+        role="region"
+        tabIndex={0}
+        aria-labelledby={bodyLabelledBy ?? `${bodyId}-action`}
+      >
         {children}
       </div>
     </section>
