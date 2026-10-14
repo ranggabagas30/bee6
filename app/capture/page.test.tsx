@@ -61,7 +61,13 @@ interface FakeSession {
 const fakeSessions: FakeSession[] = [];
 /** The callbacks of the most recent startCaptureSession call (to push engine events into the page). */
 let lastCallbacks: FakeCallbacks | null = null;
+/**
+ * A stuck upload: the fake stop() then settles only at its `drainMs` bound (5 s unless the caller passes one), the
+ * way the real session.ts stop() does, so a test can prove the bound the page actually gets.
+ */
 let holdStops = false;
+/** The engine's dropped count the fake stop() reports (a number only). */
+let fakeDroppedCount = 0;
 const startCaptureSession = vi.fn(
   async (
     _auth: unknown,
@@ -70,7 +76,13 @@ const startCaptureSession = vi.fn(
     _sessionId?: string,
   ): Promise<FakeSession> => {
     const session: FakeSession = {
-      stop: vi.fn(() => (holdStops ? new Promise<void>(() => {}) : Promise.resolve())),
+      stop: vi.fn((options?: { drainMs?: number }) =>
+        holdStops
+          ? new Promise<{ droppedCount: number }>((resolve) => {
+              setTimeout(() => resolve({ droppedCount: fakeDroppedCount }), options?.drainMs ?? 5_000);
+            })
+          : Promise.resolve({ droppedCount: fakeDroppedCount }),
+      ),
     };
     fakeSessions.push(session);
     lastCallbacks = cb;
@@ -107,6 +119,7 @@ afterEach(() => {
   fakeSessions.length = 0;
   lastCallbacks = null;
   holdStops = false;
+  fakeDroppedCount = 0;
   uuidCounter = 0;
   postDemoClosing.mockImplementation(async () => ({ ok: true, data: { closing_reached: true } }) as never);
 });
@@ -1173,8 +1186,8 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       expect(clearDeviceAuth).toHaveBeenCalledTimes(1);
     });
 
-    it("uploads: waits for the engine to drain (Finishing uploads…), then at most 15 s", async () => {
-      // Every timer faked from the start (RTL's own waitFor would hang), so the 15 s cap is deterministic.
+    /** A sandbox session at closing time under fully faked timers (RTL's own waitFor would hang otherwise). */
+    async function reachClosingUnderFakeTimers() {
       vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
       vi.setSystemTime(new Date(MON_2230_WIB));
       fetchCaptureConfig.mockResolvedValue(demoConfig());
@@ -1188,11 +1201,17 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       fireEvent.click(screen.getByRole("button", { name: "Finish and end the day" }));
       await settle();
       expect(screen.getByRole("button", { name: "End today" })).toBeTruthy(); // closing reached
-      holdStops = true; // the engine's stop() never settles: a stuck upload
+    }
+
+    it("uploads: the engine is asked to drain for 15 s (not its 5 s default); Finishing uploads… shows meanwhile", async () => {
+      await reachClosingUnderFakeTimers();
+      holdStops = true; // a stuck upload: the engine's stop() settles only at its drain bound
       fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
       fireEvent.click(screen.getByRole("button", { name: "Sign out anyway" }));
       await settle();
       expect(screen.getByText("Finishing uploads…")).toBeTruthy();
+      expect(fakeSessions[0]!.stop).toHaveBeenCalledWith({ drainMs: 15_000 });
+      // With the engine's 5 s default the page would already be gone here.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(14_000);
       });
@@ -1205,10 +1224,129 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       expect(postSessionEnd).not.toHaveBeenCalled();
     });
 
+    it("uploads: logs the engine's dropped count at sign-out, a number only (no text, no ids)", async () => {
+      await reachClosingUnderFakeTimers();
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      try {
+        fakeDroppedCount = 3;
+        fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+        fireEvent.click(screen.getByRole("button", { name: "Sign out anyway" }));
+        await settle();
+        expect(replace).toHaveBeenCalledWith("/");
+        expect(info).toHaveBeenCalledTimes(1);
+        const args = info.mock.calls[0]!;
+        expect(args).toContain(3);
+        const printed = args.map(String).join(" ");
+        expect(printed).not.toContain("deviceId");
+        expect(printed).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/); // no session or device id
+      } finally {
+        info.mockRestore();
+      }
+    });
+
+    it("the running dialog goes away when the 10-min auto-stop ends the session underneath it; no discard, no sign-out", async () => {
+      await startDemoSession();
+      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      expect(screen.getByRole("dialog", { name: "Sign out and cancel today?" })).toBeTruthy();
+      // The sandbox hard stop: start + max_ms (10 min), seen by the 1 s demo tick.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600_000 + 2_000);
+      });
+      await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      expect(postSessionDiscard).not.toHaveBeenCalled();
+      expect(clearDeviceAuth).not.toHaveBeenCalled();
+      expect(replace).not.toHaveBeenCalled();
+    });
+
+    it("the running dialog's Confirm is disabled while the auto-stop's end call is in flight", async () => {
+      await startDemoSession();
+      let resolveEnd: (v: { ok: true }) => void = () => {};
+      postSessionEnd.mockImplementationOnce(() => new Promise((resolve) => { resolveEnd = resolve; }));
+      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600_000 + 2_000);
+      });
+      await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+      // The end call has not answered: the session is still "running" on this page, so the dialog is still up.
+      const confirm = screen.getByRole("button", { name: "Sign out and cancel" }) as HTMLButtonElement;
+      expect(confirm.disabled).toBe(true);
+      fireEvent.click(confirm);
+      expect(postSessionDiscard).not.toHaveBeenCalled();
+      resolveEnd({ ok: true });
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    });
+
     it("never shows a device id anywhere on the screen", async () => {
       await startDemoSession();
       fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
       expect(document.body.textContent).not.toContain("deviceId");
+    });
+  });
+
+  describe("sign-out while Start is in flight (tech-lead round 1, major)", () => {
+    async function renderIdleSandbox() {
+      pinClock(MON_2230_WIB);
+      fetchCaptureConfig.mockResolvedValue(demoConfig());
+      await renderReady();
+      return screen.findByRole("button", { name: "Start" });
+    }
+
+    it("Sign out is disabled while the start route has not answered; a tap does nothing", async () => {
+      let resolveStart: (v: { ok: true }) => void = () => {};
+      postSessionStart.mockImplementationOnce(() => new Promise((resolve) => { resolveStart = resolve; }));
+      fireEvent.click(await renderIdleSandbox());
+      await waitFor(() => expect(postSessionStart).toHaveBeenCalledTimes(1));
+      const signOut = screen.getByRole("button", { name: "Sign out" }) as HTMLButtonElement;
+      expect(signOut.disabled).toBe(true);
+      fireEvent.click(signOut);
+      expect(clearDeviceAuth).not.toHaveBeenCalled();
+      expect(replace).not.toHaveBeenCalled();
+      resolveStart({ ok: true });
+      await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+      expect((screen.getByRole("button", { name: "Sign out" }) as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it("Sign out is disabled while the engine is still starting (startCaptureSession pending)", async () => {
+      let resolveEngine: (s: FakeSession) => void = () => {};
+      startCaptureSession.mockImplementationOnce(() => new Promise<FakeSession>((resolve) => { resolveEngine = resolve; }));
+      fireEvent.click(await renderIdleSandbox());
+      await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
+      const signOut = screen.getByRole("button", { name: "Sign out" }) as HTMLButtonElement;
+      expect(signOut.disabled).toBe(true);
+      fireEvent.click(signOut);
+      expect(clearDeviceAuth).not.toHaveBeenCalled();
+      const session: FakeSession = { stop: vi.fn(() => Promise.resolve({ droppedCount: 0 })) };
+      resolveEngine(session);
+      await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+      expect(session.stop).not.toHaveBeenCalled();
+    });
+
+    it("an engine that resolves after the page unmounted is stopped at once (mic off, no upload from a dead page)", async () => {
+      let resolveEngine: (s: FakeSession) => void = () => {};
+      startCaptureSession.mockImplementationOnce(() => new Promise<FakeSession>((resolve) => { resolveEngine = resolve; }));
+      fireEvent.click(await renderIdleSandbox());
+      await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
+      cleanup(); // the page is gone (a sign-out from another path, or navigation)
+      const session: FakeSession = { stop: vi.fn(() => Promise.resolve({ droppedCount: 0 })) };
+      await act(async () => {
+        resolveEngine(session);
+      });
+      await waitFor(() => expect(session.stop).toHaveBeenCalledTimes(1));
+    });
+
+    it("Sign out is disabled while an open-session End or Cancel is in flight", async () => {
+      vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+      vi.setSystemTime(new Date(MON_2230_WIB));
+      fetchCaptureConfig.mockResolvedValue(demoConfig({ open_session: open({ closing_reached: true }), closing_reached: true }));
+      let resolveEnd: (v: { ok: true }) => void = () => {};
+      postSessionEnd.mockImplementationOnce(() => new Promise((resolve) => { resolveEnd = resolve; }));
+      await renderReady();
+      fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+      await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+      expect((screen.getByRole("button", { name: "Sign out" }) as HTMLButtonElement).disabled).toBe(true);
+      resolveEnd({ ok: true });
+      await waitFor(() => expect((screen.getByRole("button", { name: "Sign out" }) as HTMLButtonElement).disabled).toBe(false));
     });
   });
 

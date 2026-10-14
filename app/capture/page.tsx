@@ -40,7 +40,12 @@ import {
   postSessionStart,
   readDeviceAuth,
 } from "@/lib/capture/browser/client";
-import { startCaptureSession, type CaptureSession } from "@/lib/capture/browser/session";
+import {
+  startCaptureSession,
+  type CaptureSession,
+  type CaptureStopOptions,
+  type CaptureStopResult,
+} from "@/lib/capture/browser/session";
 import {
   createEventRingBuffer,
   type CaptureEvent,
@@ -318,6 +323,14 @@ export default function CapturePage() {
   }
   const compactChrome = isCompactChrome({ present: demoSession !== undefined, wide: drawerLayout.wide });
 
+  // R-19 PR-4b: the "cancel today" sign-out dialog promises a cancel. If the 10-min auto-stop ends the session
+  // underneath it, that promise is gone (there is nothing left to cancel), so the dialog closes rather than letting
+  // Confirm fall into the after-closing branch. Render-time sync, same shape as the drawer state above. The
+  // dialog's `busy` also covers `autoStopBusy`, so Confirm cannot fire during the end call itself.
+  if (signOutKind === "running" && session === null) {
+    setSignOutKind(null);
+  }
+
   // Debrief entry (R-07, technical spec §8.10): per-device, from this
   // device's own last-ended record — the phone-local one set the instant
   // Selesai/the auto-stop succeeds (below), or the config's on load/reload.
@@ -354,15 +367,15 @@ export default function CapturePage() {
   // stopRunningSession reads only refs and stable setState setters, so an
   // empty dep array is accurate — it lets the auto-stop effect below list it
   // as a dependency without re-running on every render.
-  // It returns the engine's stop promise (settles once the in-flight upload drained, 5 s at most) so the demo
-  // sign-out can wait for it; every other caller ignores it, as before.
-  const stopRunningSession = useCallback((): Promise<void> => {
+  // It returns the engine's stop promise (settles once the in-flight upload drained, or at `drainMs`, 5 s by
+  // default) so the demo sign-out can wait for it; every other caller ignores it, as before.
+  const stopRunningSession = useCallback((options?: CaptureStopOptions): Promise<CaptureStopResult | null> => {
     sessionGenRef.current += 1;
     const s = sessionRef.current;
     sessionRef.current = null;
     setSessionRunning(false);
     setStatus(null);
-    return s ? s.stop() : Promise.resolve();
+    return s ? s.stop(options) : Promise.resolve(null);
   }, []);
 
   // ── R-19 PR-4b: re-read the capture config (sandbox only) ──────────────────
@@ -378,6 +391,9 @@ export default function CapturePage() {
       const loaded = await fetchCaptureConfig(auth);
       if (gen !== configGenRef.current) return;
       setConfig(loaded);
+      // NOTE (PR-7, owner reset): mergeRefreshedLastEnded keeps the phone's record when the server returns
+      // last_ended null. Once the owner can reset the sandbox, a null from the server is legitimate (the day is
+      // gone) and PR-7 must invalidate the local record there, or the phone keeps showing a day that no longer exists.
       setLastEnded((prev) => mergeRefreshedLastEnded(prev, loaded.last_ended));
     } catch {
       /* keep the config we have */
@@ -580,6 +596,13 @@ export default function CapturePage() {
     mulaiInFlightRef.current = false;
     setMulaiBusy(false);
     if (!captureSession) return; // onUnsupported already switched the view
+    // The page moved on while the engine was starting (unmount bumps the generation: a sign-out from the idle
+    // branch, or navigation): this session has no owner, so release the mic now instead of uploading from a dead
+    // page.
+    if (gen !== sessionGenRef.current) {
+      void captureSession.stop();
+      return;
+    }
     sessionRef.current = captureSession;
     setSessionRunning(true);
     setSession({ session_id: sessionId, started_at_ms: startedAt, local_date: localDate });
@@ -783,7 +806,9 @@ export default function CapturePage() {
     router.replace("/");
   }
   function handleSignOutTap() {
-    if (signOutBusyRef.current) return;
+    // Not while Start is in flight: the engine may still be starting, and a sign-out now would leave the mic on
+    // and the engine uploading from an unmounted page. The button is disabled too; this keeps a stale tap honest.
+    if (signOutBusyRef.current || mulaiInFlightRef.current || openBusyRef.current) return;
     setSignOutErrorKey(null);
     if (session) {
       setSignOutKind(closingReached ? "closed" : "running");
@@ -831,19 +856,23 @@ export default function CapturePage() {
       return;
     }
     // After closing (or an open session past closing): no session route at all. Stop the engine (mic off, wake lock
-    // released, no end POST), then give the in-memory upload queue at most 15 s to drain.
+    // released, no end POST), then give the in-memory upload queue at most 15 s to drain. The engine's own stop()
+    // bounds the drain at 5 s by default, so the 15 s is passed down to it; the race here is only the outer guard
+    // should the stop promise itself hang (it never waits on an upload beyond `drainMs`).
     setSignOutFinishing(session !== null);
     configGenRef.current += 1;
-    const drain = stopRunningSession();
+    const drain = stopRunningSession({ drainMs: SIGN_OUT_DRAIN_MAX_MS });
     if (session !== null) {
       let timer: ReturnType<typeof setTimeout> | undefined;
-      await Promise.race([
-        drain.catch(() => undefined),
-        new Promise<void>((resolve) => {
-          timer = setTimeout(resolve, SIGN_OUT_DRAIN_MAX_MS);
+      const result = await Promise.race([
+        drain.catch((): null => null),
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => resolve(null), SIGN_OUT_DRAIN_MAX_MS);
         }),
       ]);
       clearTimeout(timer);
+      // Observability for the judge run: a COUNT only (hard rule #7: no text, no session or device id).
+      console.info("[capture] demo sign-out after closing: segments dropped by the engine:", result?.droppedCount ?? 0);
     }
     finishSignOut();
   }
@@ -1175,7 +1204,7 @@ export default function CapturePage() {
             ? {
                 label: t(lang, "C-sess-signout"),
                 onClick: handleSignOutTap,
-                disabled: signOutBusy || selesaiBusy || autoStopBusy || closingBusy,
+                disabled: signOutBusy || selesaiBusy || autoStopBusy || closingBusy || mulaiBusy || openBusy,
               }
             : undefined
         }
@@ -1244,7 +1273,7 @@ export default function CapturePage() {
         <SignOutDialog
           kind={signOutKind}
           lang={lang}
-          busy={signOutBusy}
+          busy={signOutBusy || autoStopBusy}
           finishing={signOutFinishing}
           errorKey={signOutErrorKey}
           onConfirm={() => void confirmSignOut()}
