@@ -2,7 +2,8 @@ import { addDays, businessDateOf } from "@/lib/capture/calendar";
 import { COLLECTIONS, type CollectionName } from "@/lib/firestore/collections";
 import type { LastEnded, Outlet } from "@/lib/firestore/schema";
 import { CLONE_DATE_KEYS, CLONE_UNTOUCHED_KEYS, shiftDeep } from "@/lib/demo/clone";
-import { DEMO_DAYS_TOTAL, NEXT_DAY_MAX, PREPARING_MAX_MS, TEMPLATE_DOC_MAX } from "@/lib/demo/constants";
+import { NEXT_DAY_MAX, PREPARING_MAX_MS, TEMPLATE_DOC_MAX } from "@/lib/demo/constants";
+import { demoDayOf, demoDaysDone, type DemoDay } from "@/lib/capture/contract";
 import { DemoNextDayResponseSchema, type DemoNextDayBody, type DemoNextDayResponse, type DemoNextDayStatus, type NextDayRefusal } from "@/lib/demo/contract";
 import { AppError, ConflictError, NotFoundError, ValidationError } from "@/lib/http/errors";
 
@@ -70,8 +71,6 @@ export interface NextDayRequestInput extends NextDayGuardInput {
   open_questions: number;
 }
 
-export type DemoDay = 1 | 2 | 3;
-
 export type NextDayDecision =
   /** The phone is behind the server (a double tap after a finished shift): answer with the current day. */
   | { kind: "stale"; day: 2 | 3 }
@@ -102,17 +101,8 @@ export function nextDayDecision(input: NextDayRequestInput): NextDayDecision {
   return { kind: "proceed" };
 }
 
-// ── capture config counters (section 4.3) ─────────────────────────────────────────────────────────────────────
-
-export function demoDayOf(nextDayCount: number | undefined): DemoDay {
-  return Math.min(DEMO_DAYS_TOTAL, (nextDayCount ?? 0) + 1) as DemoDay;
-}
-
-export function demoDaysDone(input: { next_day_count: number | undefined; last_ended: LastEnded | null; today: string }): number {
-  const last = input.last_ended;
-  const todayDone = last !== null && last.end_reason !== "discarded" && last.business_date === input.today ? 1 : 0;
-  return Math.min(DEMO_DAYS_TOTAL, (input.next_day_count ?? 0) + todayDone);
-}
+// ── capture config counters (section 4.3): defined in lib/capture/contract.ts (browser-safe), re-exported here ──
+export { demoDayOf, demoDaysDone, type DemoDay };
 
 // ── the shift (section 4.2): time only, one day back ─────────────────────────────────────────────────────────
 

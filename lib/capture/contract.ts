@@ -19,7 +19,6 @@ import { classifyMicSource } from "@/lib/capture/mic-source";
 import { captureMode } from "@/lib/devices/capture-mode";
 import { DEMO_DAYS_TOTAL, DEMO_SESSION_MAX_MS } from "@/lib/demo/constants";
 import { DemoNextDayStatusSchema, DemoOpenSessionSchema, type DemoNextDayStatus } from "@/lib/demo/contract";
-import { demoDayOf, demoDaysDone } from "@/lib/demo/next-day";
 
 /**
  * Shared capture contract (R-03, web spec §4.1/§5). This module is the single
@@ -275,6 +274,24 @@ export function hasDemoProfile(input: {
   device?: Pick<Device, "expires_at_ms"> | null;
 }): boolean {
   return input.demoMode && input.outlet.sandbox !== undefined && input.device?.expires_at_ms !== undefined;
+}
+
+// ── R-19 PR-2 (plan section 4.3): the sandbox's day counters ─────────────────────────────────────────────
+// Defined HERE (not in lib/demo/next-day.ts) because this module is bundled into the browser capture client:
+// the next-day module reaches firebase-admin through the clone/store imports and must stay server-only.
+
+export type DemoDay = 1 | 2 | 3;
+
+/** `day = next_day_count + 1`, capped at DEMO_DAYS_TOTAL. */
+export function demoDayOf(nextDayCount: number | undefined): DemoDay {
+  return Math.min(DEMO_DAYS_TOTAL, (nextDayCount ?? 0) + 1) as DemoDay;
+}
+
+/** `days_done = next_day_count + (today's non-discarded ended day ? 1 : 0)`, capped at DEMO_DAYS_TOTAL. */
+export function demoDaysDone(input: { next_day_count: number | undefined; last_ended: LastEnded | null; today: string }): number {
+  const last = input.last_ended;
+  const todayDone = last !== null && last.end_reason !== "discarded" && last.business_date === input.today ? 1 : 0;
+  return Math.min(DEMO_DAYS_TOTAL, (input.next_day_count ?? 0) + todayDone);
 }
 
 /**
