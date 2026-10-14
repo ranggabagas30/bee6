@@ -37,8 +37,12 @@ const postDemoClosing = vi.fn<
   (auth: unknown, id: string) => Promise<{ ok: boolean; status?: number; code?: string; details?: unknown }>
 >(async () => ({ ok: true, data: { closing_reached: true } }) as never);
 
+// R-19 PR-4b: the local demo sign-out removes the device pair (no server call).
+const clearDeviceAuth = vi.fn();
+
 vi.mock("@/lib/capture/browser/client", () => ({
   readDeviceAuth: () => readDeviceAuth(),
+  clearDeviceAuth: () => clearDeviceAuth(),
   deviceAuthHeaders: () => ({}),
   fetchCaptureConfig: (auth: unknown) => fetchCaptureConfig(auth),
   postSessionStart: (auth: unknown, body: unknown) => postSessionStart(auth, body),
@@ -460,6 +464,48 @@ describe("CapturePage: auto-stop enforcement (technical spec §8.7)", () => {
   });
 });
 
+// R-19 PR-3 (§6.3): on a sandbox the debrief opens itself right after End, so the questions route is
+// answered here with the server's `preparing` and no question yet (the labels land 2-4 min later).
+function stubPreparingQuestions() {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        ({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: { debrief: { business_date: "2026-10-12", ends_at_ms: Date.now() + 3_600_000 }, questions: [], preparing: true },
+          }),
+        }) as Response,
+    ),
+  );
+}
+afterEach(() => vi.unstubAllGlobals());
+
+// The done screen is reached by the completion flag (what DebriefFlow writes on entering `done`), seeded for
+// the debrief the page opens at End: endsAtMs = the End instant (fake clock, frozen) + 1 h.
+const DEBRIEF_MS = 3_600_000;
+// This test environment has no usable `window.localStorage`, so the flag goes into an in-memory Storage
+// installed on `window` for the test (removed again by `vi.unstubAllGlobals()`).
+function seedDoneFlag(endsAtMs: number, answered = 2, skipped = 1) {
+  const mem = new Map<string, string>([
+    [DEBRIEF_DONE_FLAG_KEY, String(endsAtMs)],
+    [DEBRIEF_DONE_SUMMARY_KEY, JSON.stringify({ answered, skipped })],
+  ]);
+  const storage = {
+    getItem: (k: string) => mem.get(k) ?? null,
+    setItem: (k: string, v: string) => void mem.set(k, v),
+    removeItem: (k: string) => void mem.delete(k),
+    clear: () => mem.clear(),
+    key: (i: number) => [...mem.keys()][i] ?? null,
+    get length() {
+      return mem.size;
+    },
+  } as Storage;
+  vi.stubGlobal("localStorage", storage);
+}
+
 describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
   const MON_2230_WIB = "2026-10-12T15:30:00Z"; // past the pilot's 18:00 Mulai cut-off
   const demoConfig = (extra: Record<string, unknown> = {}) => ({
@@ -608,48 +654,6 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
     await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
     expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "auto_stop" });
   });
-
-  // R-19 PR-3 (§6.3): on a sandbox the debrief opens itself right after End, so the questions route is
-  // answered here with the server's `preparing` and no question yet (the labels land 2-4 min later).
-  function stubPreparingQuestions() {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () =>
-          ({
-            ok: true,
-            status: 200,
-            json: async () => ({
-              data: { debrief: { business_date: "2026-10-12", ends_at_ms: Date.now() + 3_600_000 }, questions: [], preparing: true },
-            }),
-          }) as Response,
-      ),
-    );
-  }
-  afterEach(() => vi.unstubAllGlobals());
-
-  // The done screen is reached by the completion flag (what DebriefFlow writes on entering `done`), seeded for
-  // the debrief the page opens at End: endsAtMs = the End instant (fake clock, frozen) + 1 h.
-  const DEBRIEF_MS = 3_600_000;
-  // This test environment has no usable `window.localStorage`, so the flag goes into an in-memory Storage
-  // installed on `window` for the test (removed again by `vi.unstubAllGlobals()`).
-  function seedDoneFlag(endsAtMs: number, answered = 2, skipped = 1) {
-    const mem = new Map<string, string>([
-      [DEBRIEF_DONE_FLAG_KEY, String(endsAtMs)],
-      [DEBRIEF_DONE_SUMMARY_KEY, JSON.stringify({ answered, skipped })],
-    ]);
-    const storage = {
-      getItem: (k: string) => mem.get(k) ?? null,
-      setItem: (k: string, v: string) => void mem.set(k, v),
-      removeItem: (k: string) => void mem.delete(k),
-      clear: () => mem.clear(),
-      key: (i: number) => [...mem.keys()][i] ?? null,
-      get length() {
-        return mem.size;
-      },
-    } as Storage;
-    vi.stubGlobal("localStorage", storage);
-  }
 
   it("the auto-stop never needs closing: End stays locked and the stop still fires", async () => {
     await renderDemoRunning();
@@ -1022,6 +1026,396 @@ describe("CapturePage script drawer (R-18, sandbox only)", () => {
     expect(main.getAttribute("style")).toBe(
       "max-width: 360px; margin: 0px auto; padding: 24px; font-family: system-ui, sans-serif;",
     );
+  });
+});
+
+// ── R-19 PR-4b: demo sign-out (plan 5.7), the open-session view (5.7a) and the config re-fetch ──────────────
+describe("CapturePage R-19 PR-4b (sandbox only)", () => {
+  const MON_2230_WIB = "2026-10-12T15:30:00Z";
+  const SID = "00000000-0000-4000-8000-000000000042";
+  const STARTED = Date.parse(MON_2230_WIB) - 120_000;
+  const open = (over: Record<string, unknown> = {}) => ({
+    session_id: SID,
+    started_at_ms: STARTED,
+    closing_reached: false,
+    auto_stop_at_ms: STARTED + 600_000,
+    ...over,
+  });
+  const demoConfig = (profile: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) => ({
+    ...config({ sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } }),
+    capture_mode: "room",
+    demo_session: { ...DEMO_PROFILE, ...profile },
+    ...extra,
+  });
+  const pilotConfig = () => {
+    const { demo_session: _drop, ...pilot } = demoConfig();
+    return pilot;
+  };
+  async function startDemoSession() {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date(MON_2230_WIB));
+    fetchCaptureConfig.mockResolvedValue(demoConfig());
+    await renderReady();
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+  }
+  async function reachClosing() {
+    await screen.findByRole("region", { name: "Demo script" });
+    for (let i = 0; i < 9; i += 1) fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish and end the day" }));
+    await screen.findByRole("button", { name: "End today" });
+  }
+  /** Lets the page's awaited steps (the engine stop, then the sign-out) settle under the faked intervals. */
+  const settle = () =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+  describe("sign-out button", () => {
+    it("is on the top bar of a sandbox device, and absent on the pilot", async () => {
+      pinClock(MON_2230_WIB);
+      fetchCaptureConfig.mockResolvedValue(pilotConfig());
+      await renderReady();
+      await screen.findByRole("button", { name: "Start" });
+      expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+      cleanup();
+      fetchCaptureConfig.mockResolvedValue(demoConfig());
+      await renderReady();
+      await screen.findByRole("button", { name: "Start" });
+      expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
+    });
+
+    it("no session: signs out at once, no dialog, no session route, the device pair is cleared, back to /", async () => {
+      pinClock(MON_2230_WIB);
+      fetchCaptureConfig.mockResolvedValue(demoConfig());
+      await renderReady();
+      await screen.findByRole("button", { name: "Start" });
+      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(clearDeviceAuth).toHaveBeenCalledTimes(1);
+      expect(replace).toHaveBeenCalledWith("/");
+      expect(postSessionDiscard).not.toHaveBeenCalled();
+      expect(postSessionEnd).not.toHaveBeenCalled();
+    });
+
+    it("before closing, running: asks first; Keep listening changes nothing", async () => {
+      await startDemoSession();
+      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      expect(screen.getByRole("dialog", { name: "Sign out and cancel today?" })).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Keep listening" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(clearDeviceAuth).not.toHaveBeenCalled();
+      expect(postSessionDiscard).not.toHaveBeenCalled();
+      expect(fakeSessions[0]!.stop).not.toHaveBeenCalled();
+      expect(screen.getByText("Listening")).toBeTruthy();
+    });
+
+    it("before closing: Sign out and cancel calls the existing discard route, stops the engine, THEN clears the device and leaves", async () => {
+      await startDemoSession();
+      const sessionId = startCaptureSession.mock.calls[0]![3];
+      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      fireEvent.click(screen.getByRole("button", { name: "Sign out and cancel" }));
+      await waitFor(() => expect(replace).toHaveBeenCalledWith("/"));
+      expect(postSessionDiscard).toHaveBeenCalledTimes(1);
+      expect(postSessionDiscard.mock.calls[0]![1]).toBe(sessionId);
+      expect(fakeSessions[0]!.stop).toHaveBeenCalledTimes(1);
+      expect(clearDeviceAuth).toHaveBeenCalledTimes(1);
+      expect(postSessionEnd).not.toHaveBeenCalled();
+      expect(postSessionDiscard.mock.invocationCallOrder[0]!).toBeLessThan(clearDeviceAuth.mock.invocationCallOrder[0]!);
+    });
+
+    it("a failed discard keeps the judge here: the error shows, the session keeps listening, nothing is cleared", async () => {
+      await startDemoSession();
+      postSessionDiscard.mockImplementationOnce(async () => ({ ok: false, status: 409, code: "session_ended" }));
+      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      fireEvent.click(screen.getByRole("button", { name: "Sign out and cancel" }));
+      await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+      expect(screen.getByRole("dialog")).toBeTruthy();
+      expect(clearDeviceAuth).not.toHaveBeenCalled();
+      expect(replace).not.toHaveBeenCalled();
+      expect(fakeSessions[0]!.stop).not.toHaveBeenCalled();
+    });
+
+    it("discard 409 closing_reached (the server already marked closing): the dialog becomes the after-closing one, nothing is deleted or cleared", async () => {
+      await startDemoSession();
+      postSessionDiscard.mockImplementationOnce(async () => ({ ok: false, status: 409, code: "closing_reached" }));
+      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      fireEvent.click(screen.getByRole("button", { name: "Sign out and cancel" }));
+      await screen.findByRole("dialog", { name: "Sign out?" });
+      expect(clearDeviceAuth).not.toHaveBeenCalled();
+      expect(screen.queryByRole("alert")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Sign out anyway" }));
+      await settle();
+      expect(replace).toHaveBeenCalledWith("/");
+      expect(postSessionDiscard).toHaveBeenCalledTimes(1);
+    });
+
+    it("after closing: the dialog says the session stays open; Stay changes nothing", async () => {
+      await startDemoSession();
+      await reachClosing();
+      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      expect(screen.getByRole("dialog", { name: "Sign out?" })).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Stay" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(clearDeviceAuth).not.toHaveBeenCalled();
+    });
+
+    it("after closing: Sign out anyway touches NO session route (nothing ended, nothing deleted), stops the engine, clears the device", async () => {
+      await startDemoSession();
+      await reachClosing();
+      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      fireEvent.click(screen.getByRole("button", { name: "Sign out anyway" }));
+      await settle();
+      expect(replace).toHaveBeenCalledWith("/");
+      expect(postSessionDiscard).not.toHaveBeenCalled();
+      expect(postSessionEnd).not.toHaveBeenCalled();
+      expect(fakeSessions[0]!.stop).toHaveBeenCalledTimes(1);
+      expect(clearDeviceAuth).toHaveBeenCalledTimes(1);
+    });
+
+    it("uploads: waits for the engine to drain (Finishing uploads…), then at most 15 s", async () => {
+      // Every timer faked from the start (RTL's own waitFor would hang), so the 15 s cap is deterministic.
+      vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+      vi.setSystemTime(new Date(MON_2230_WIB));
+      fetchCaptureConfig.mockResolvedValue(demoConfig());
+      await renderReady();
+      await settle();
+      fireEvent.click(screen.getByRole("button", { name: "Start" }));
+      await settle();
+      await vi.dynamicImportSettled(); // the lazily loaded script drawer
+      await settle();
+      for (let i = 0; i < 9; i += 1) fireEvent.click(screen.getByRole("button", { name: "Next" }));
+      fireEvent.click(screen.getByRole("button", { name: "Finish and end the day" }));
+      await settle();
+      expect(screen.getByRole("button", { name: "End today" })).toBeTruthy(); // closing reached
+      holdStops = true; // the engine's stop() never settles: a stuck upload
+      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      fireEvent.click(screen.getByRole("button", { name: "Sign out anyway" }));
+      await settle();
+      expect(screen.getByText("Finishing uploads…")).toBeTruthy();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(14_000);
+      });
+      expect(replace).not.toHaveBeenCalled();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_500);
+      });
+      expect(replace).toHaveBeenCalledWith("/");
+      expect(clearDeviceAuth).toHaveBeenCalledTimes(1);
+      expect(postSessionEnd).not.toHaveBeenCalled();
+    });
+
+    it("never shows a device id anywhere on the screen", async () => {
+      await startDemoSession();
+      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      expect(document.body.textContent).not.toContain("deviceId");
+    });
+  });
+
+  describe("open-session view (plan 5.7a)", () => {
+    async function renderWithOpen(openSession: ReturnType<typeof open>, extra: Record<string, unknown> = {}) {
+      vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+      vi.setSystemTime(new Date(MON_2230_WIB));
+      // The first read finds the open session; every later read (after End or Cancel) finds none, as the server would.
+      fetchCaptureConfig.mockResolvedValueOnce(demoConfig({ open_session: openSession, closing_reached: openSession.closing_reached }, extra));
+      fetchCaptureConfig.mockResolvedValue(demoConfig({}, extra));
+      await renderReady();
+    }
+
+    it("replaces the idle Start whenever open_session exists (even though Start would be offered): no way to start a second session", async () => {
+      await renderWithOpen(open());
+      await screen.findByRole("heading", { name: "Today's session was interrupted." });
+      expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+      expect(screen.queryByText("Tap Start to begin today's session.")).toBeNull();
+      expect(startCaptureSession).not.toHaveBeenCalled();
+    });
+
+    it("the page never resumes listening into the old session", async () => {
+      await renderWithOpen(open({ closing_reached: true }));
+      await screen.findByRole("heading", { name: "Today's session is still open." });
+      expect(startCaptureSession).not.toHaveBeenCalled();
+      expect(postSessionStart).not.toHaveBeenCalled();
+    });
+
+    it("closing reached: End today ends THAT session (selesai) via the existing route, then the debrief runs", async () => {
+      stubPreparingQuestions();
+      await renderWithOpen(open({ closing_reached: true }));
+      fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+      await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+      const [, id, body] = postSessionEnd.mock.calls[0]! as [unknown, string, { started_at_ms: number; ended_at_ms: number; end_reason: string }];
+      expect(id).toBe(SID);
+      expect(body).toMatchObject({ started_at_ms: STARTED, end_reason: "selesai" });
+      expect(body.ended_at_ms).toBe(Date.parse(MON_2230_WIB));
+      await waitFor(() => expect(screen.getByText("Preparing your questions")).toBeTruthy());
+      expect(screen.queryByRole("heading", { name: "Today's session is still open." })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+    });
+
+    it("not reached: Cancel today discards THAT session via the existing route, then Start is offered again", async () => {
+      await renderWithOpen(open());
+      fireEvent.click(await screen.findByRole("button", { name: "Cancel today" }));
+      await waitFor(() => expect(postSessionDiscard).toHaveBeenCalledTimes(1));
+      expect(postSessionDiscard.mock.calls[0]![1]).toBe(SID);
+      expect(postSessionDiscard.mock.calls[0]![2]).toMatchObject({ started_at_ms: STARTED });
+      expect(postSessionEnd).not.toHaveBeenCalled();
+      await screen.findByRole("button", { name: "Start" });
+      expect(screen.queryByRole("heading", { name: "Today's session was interrupted." })).toBeNull();
+    });
+
+    it("a failed End keeps the view and shows the generic line; a retry is possible", async () => {
+      await renderWithOpen(open({ closing_reached: true }));
+      postSessionEnd.mockImplementationOnce(async () => ({ ok: false, status: 500 }));
+      fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+      await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Could not process that. Try again."));
+      expect(screen.getByRole("heading", { name: "Today's session is still open." })).toBeTruthy();
+      expect((screen.getByRole("button", { name: "End today" }) as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it("Cancel today refused with 409 closing_reached (closing was marked meanwhile) becomes End today", async () => {
+      await renderWithOpen(open());
+      postSessionDiscard.mockImplementationOnce(async () => ({ ok: false, status: 409, code: "closing_reached" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Cancel today" }));
+      await screen.findByRole("heading", { name: "Today's session is still open." });
+      expect(screen.getByRole("button", { name: "End today" })).toBeTruthy();
+    });
+
+    it("signing out with the closing-reached view asks first (the session stays open); with the interrupted view it leaves at once", async () => {
+      await renderWithOpen(open({ closing_reached: true }));
+      await screen.findByRole("heading", { name: "Today's session is still open." });
+      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      expect(screen.getByRole("dialog", { name: "Sign out?" })).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Sign out anyway" }));
+      await waitFor(() => expect(replace).toHaveBeenCalledWith("/"));
+      expect(postSessionDiscard).not.toHaveBeenCalled();
+      expect(postSessionEnd).not.toHaveBeenCalled();
+      cleanup();
+      replace.mockClear();
+      clearDeviceAuth.mockClear();
+      await renderWithOpen(open());
+      await screen.findByRole("heading", { name: "Today's session was interrupted." });
+      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(replace).toHaveBeenCalledWith("/");
+      expect(postSessionDiscard).not.toHaveBeenCalled();
+    });
+
+    it("pilot: no open-session view, Start as before", async () => {
+      pinClock(MON_2230_WIB);
+      fetchCaptureConfig.mockResolvedValue(pilotConfig());
+      await renderReady();
+      await screen.findByRole("button", { name: "Start" });
+      expect(screen.queryByRole("heading", { name: /session/i })).toBeNull();
+    });
+  });
+
+  describe("config re-fetch (the page loaded it once before)", () => {
+    async function idleSandbox(profile: Record<string, unknown> = {}) {
+      vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+      vi.setSystemTime(new Date(MON_2230_WIB));
+      fetchCaptureConfig.mockResolvedValue(demoConfig(profile));
+      await renderReady();
+      await screen.findByRole("button", { name: "Start" });
+      expect(fetchCaptureConfig).toHaveBeenCalledTimes(1);
+    }
+
+    it("after End on a sandbox the config is fetched again", async () => {
+      stubPreparingQuestions();
+      await startDemoSession();
+      await reachClosing();
+      fetchCaptureConfig.mockClear();
+      fireEvent.click(screen.getByRole("button", { name: "End today" }));
+      fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
+      await waitFor(() => expect(fetchCaptureConfig).toHaveBeenCalledTimes(1));
+      expect(screen.getByText("Preparing your questions")).toBeTruthy(); // the refreshed config does not undo the local end
+    });
+
+    it("after Cancel session on a sandbox the config is fetched again", async () => {
+      await startDemoSession();
+      fetchCaptureConfig.mockClear();
+      fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Yes, delete session" })).toBeTruthy());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_200);
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
+      await waitFor(() => expect(fetchCaptureConfig).toHaveBeenCalledTimes(1));
+    });
+
+    it("pilot: End never triggers a config fetch (the page behaves as before)", async () => {
+      vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+      vi.setSystemTime(new Date("2026-10-12T01:00:00Z"));
+      fetchCaptureConfig.mockResolvedValue(config({ sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } }));
+      await renderReady();
+      fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+      await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+      await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+      fireEvent.click(screen.getByRole("button", { name: "End" }));
+      fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
+      await waitFor(() => expect(screen.getByText("Debrief running")).toBeTruthy());
+      expect(fetchCaptureConfig).toHaveBeenCalledTimes(1);
+    });
+
+    it("an idle sandbox re-fetches every 30 s (a next-day jump or a finished debrief shows without a reload)", async () => {
+      await idleSandbox({ next_day: { allowed: false, reason: "preparing" } });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+      expect(fetchCaptureConfig).toHaveBeenCalledTimes(2);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+      expect(fetchCaptureConfig).toHaveBeenCalledTimes(3);
+    });
+
+    it("next_day reason busy is transient: re-polled after 5 s, and the lock line clears once it is allowed", async () => {
+      vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+      vi.setSystemTime(new Date(MON_2230_WIB));
+      const last = { business_date: "2026-10-12", end_reason: "selesai", debrief_ends_at_ms: Date.parse(MON_2230_WIB) + 3_000_000 };
+      fetchCaptureConfig.mockResolvedValueOnce(
+        { ...demoConfig({ days_done: 1, next_day: { allowed: false, reason: "busy" } }), last_ended: last },
+      );
+      fetchCaptureConfig.mockResolvedValue({ ...demoConfig({ days_done: 1, next_day: { allowed: true, reason: null } }), last_ended: last });
+      seedDoneFlag(last.debrief_ends_at_ms); // the debrief is done: the done slot (with the lock lines) is what shows
+      await renderReady();
+      await screen.findByText("Bee6 is busy with today's notes. Try again in a few seconds.");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      await waitFor(() => expect(screen.queryByText("Bee6 is busy with today's notes. Try again in a few seconds.")).toBeNull());
+      expect(screen.getByText("Use Jump to tomorrow in the judge guide")).toBeTruthy();
+      expect(fetchCaptureConfig).toHaveBeenCalledTimes(2);
+    });
+
+    it("no re-fetch while a session is running", async () => {
+      await startDemoSession();
+      fetchCaptureConfig.mockClear();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(65_000);
+      });
+      expect(fetchCaptureConfig).not.toHaveBeenCalled();
+    });
+
+    it("a failed re-fetch keeps the screen as it is", async () => {
+      await idleSandbox();
+      fetchCaptureConfig.mockRejectedValue(new Error("offline"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+      expect(screen.getByRole("button", { name: "Start" })).toBeTruthy();
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("the pilot never polls", async () => {
+      vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+      vi.setSystemTime(new Date(MON_2230_WIB));
+      fetchCaptureConfig.mockResolvedValue(pilotConfig());
+      await renderReady();
+      await screen.findByRole("button", { name: "Start" });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(120_000);
+      });
+      expect(fetchCaptureConfig).toHaveBeenCalledTimes(1);
+    });
   });
 });
 
