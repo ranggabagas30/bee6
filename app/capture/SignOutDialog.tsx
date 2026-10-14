@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button, Card } from "@/app/ui";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import type { Lang } from "@/lib/i18n/lang";
@@ -33,6 +33,15 @@ const COPY: Record<SignOutKind, { title: DictKey; body: DictKey; dismiss: DictKe
   },
 };
 
+const VISUALLY_HIDDEN = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  overflow: "hidden",
+  clip: "rect(0 0 0 0)",
+  whiteSpace: "nowrap",
+} as const;
+
 export interface SignOutDialogProps {
   kind: SignOutKind;
   lang: Lang;
@@ -49,6 +58,8 @@ export interface SignOutDialogProps {
 export function SignOutDialog({ kind, lang, busy, finishing, errorKey, onConfirm, onDismiss }: SignOutDialogProps) {
   const titleId = useId();
   const copy = COPY[kind];
+  // The kind this dialog opened with: a later change (a 409 closing_reached turns running into closed) is announced.
+  const [openedKind] = useState(kind);
   const rootRef = useRef<HTMLDivElement>(null);
   const dismissRef = useRef<HTMLButtonElement>(null);
   // Latest callbacks/flags for the document listener, so the listener is bound once per mount.
@@ -67,6 +78,13 @@ export function SignOutDialog({ kind, lang, busy, finishing, errorKey, onConfirm
       if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
     };
   }, []);
+
+  // After an async outcome the buttons come back from `disabled` (a disabled button drops focus to <body>) or the
+  // dialog swaps its content: put focus back on the safe choice so a keyboard / screen-reader user is not left
+  // outside the dialog.
+  useEffect(() => {
+    if (!busy) dismissRef.current?.focus();
+  }, [busy, kind]);
 
   // Escape anywhere + focus trap. On the document so it holds even when focus is on <body> (a disabled button
   // drops focus) or outside the dialog.
@@ -134,6 +152,11 @@ export function SignOutDialog({ kind, lang, busy, finishing, errorKey, onConfirm
           {t(lang, copy.title)}
         </h2>
         <p style={{ margin: "0 0 16px", fontSize: 16, lineHeight: 1.45 }}>{t(lang, copy.body)}</p>
+        {/* Polite live region: always mounted, filled only when the kind switched after open (running -> closed),
+            so the new title and body are read out. */}
+        <div aria-live="polite" aria-atomic="true" style={VISUALLY_HIDDEN}>
+          {kind !== openedKind ? `${t(lang, copy.title)}. ${t(lang, copy.body)}` : ""}
+        </div>
         {finishing ? (
           <p role="status" style={{ margin: "0 0 12px", fontSize: 14 }}>
             {t(lang, "C-sess-signout-finishing")}

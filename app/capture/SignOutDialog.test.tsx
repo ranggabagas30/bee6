@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { SignOutDialog } from "@/app/capture/SignOutDialog";
 import { axeViolations } from "@/lib/testing/axe";
 
@@ -147,5 +148,50 @@ describe("SignOutDialog: after closing (P2-07b)", () => {
   it("has no axe violations", async () => {
     const { container } = setup({ kind: "closed" });
     expect(await axeViolations(container)).toEqual([]);
+  });
+});
+
+// QA fix (a11y): an async outcome re-enables the buttons or swaps the dialog's content; focus must not stay on <body>.
+describe("SignOutDialog: focus and announcement after an async outcome", () => {
+  const base: ComponentProps<typeof SignOutDialog> = {
+    kind: "running",
+    lang: "en",
+    busy: false,
+    finishing: false,
+    errorKey: null,
+    onConfirm: () => undefined,
+    onDismiss: () => undefined,
+  };
+
+  it("re-focuses the dismiss button when busy turns false (a failed cancel shows the error line)", () => {
+    const { rerender } = render(<SignOutDialog {...base} busy />);
+    // The disabled buttons dropped focus to <body>, as a browser does.
+    (document.activeElement as HTMLElement | null)?.blur();
+    expect(document.activeElement).toBe(document.body);
+    rerender(<SignOutDialog {...base} busy={false} errorKey="C-sess-cancel-closed" />);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Keep listening" }));
+  });
+
+  it("re-focuses the dismiss button when the dialog switches from running to closed (a 409 closing_reached)", () => {
+    const { rerender } = render(<SignOutDialog {...base} busy />);
+    (document.activeElement as HTMLElement | null)?.blur();
+    rerender(<SignOutDialog {...base} kind="closed" busy={false} />);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Stay" }));
+  });
+
+  it("announces the running to closed switch through a polite live region", () => {
+    const { container, rerender } = render(<SignOutDialog {...base} />);
+    const region = container.querySelector('[aria-live="polite"]');
+    expect(region).toBeTruthy();
+    expect(region!.textContent).toBe("");
+    rerender(<SignOutDialog {...base} kind="closed" />);
+    expect(container.querySelector('[aria-live="polite"]')).toBe(region); // same node: content added to a live region
+    expect(region!.textContent).toContain("Sign out?");
+    expect(region!.textContent).toContain("can no longer be cancelled");
+  });
+
+  it("announces nothing on first render", () => {
+    const { container } = render(<SignOutDialog {...base} kind="closed" />);
+    expect(container.querySelector('[aria-live="polite"]')!.textContent).toBe("");
   });
 });
