@@ -63,6 +63,11 @@ export type DebriefEvent =
       cached: ReadonlySet<string>;
       /** R-19 (demo): the server's `preparing`; absent on the pilot (read as false). */
       preparing?: boolean;
+      /**
+       * R-19 (demo): counts stored by this phone for this debrief before a reload (answered / skipped so far).
+       * Absent on the pilot and on a first open (read as 0 / 0).
+       */
+      progress?: { answered: number; skipped: number };
     }
   | { type: "LOAD_FAILED" }
   /**
@@ -109,7 +114,8 @@ export function canCommit(v: DebriefView): boolean {
 
 /** The view after the last offered question is answered or skipped. */
 function afterLast(s: DebriefState, answered: number, skipped: number): DebriefView {
-  return s.demo && s.preparing ? { kind: "waiting_more", answered, skipped } : { kind: "done", answered, skipped };
+  // Demo: waiting makes sense only while the server may still add something AND there is room to show it.
+  return s.demo && s.preparing && s.seen.size < DEBRIEF_SHOW_MAX ? { kind: "waiting_more", answered, skipped } : { kind: "done", answered, skipped };
 }
 
 export function reduceDebrief(s: DebriefState, e: DebriefEvent): DebriefState {
@@ -126,10 +132,14 @@ export function reduceDebrief(s: DebriefState, e: DebriefEvent): DebriefState {
       const filtered = e.questions
         .filter((item) => !e.cached.has(item.question_id))
         .slice(0, DEBRIEF_SHOW_MAX);
+      const answered = s.demo ? (e.progress?.answered ?? 0) : 0;
+      const skipped = s.demo ? (e.progress?.skipped ?? 0) : 0;
       let view: DebriefView;
-      if (filtered.length > 0) view = freshQuestion(filtered, 0, 0, 0);
+      if (filtered.length > 0) view = freshQuestion(filtered, 0, answered, skipped);
       else if (!s.demo) view = { kind: "empty" };
-      else view = preparing ? { kind: "preparing" } : { kind: "done", answered: 0, skipped: 0 };
+      else if (!preparing) view = { kind: "done", answered, skipped };
+      // A reload after some answers: the judge was already past "Preparing", so resume at "Checking for more".
+      else view = answered + skipped > 0 ? { kind: "waiting_more", answered, skipped } : { kind: "preparing" };
       return {
         ...s,
         business_date: e.business_date,
@@ -148,7 +158,7 @@ export function reduceDebrief(s: DebriefState, e: DebriefEvent): DebriefState {
     case "REFRESHED": {
       const v = s.view;
       const refreshable: ReadonlyArray<DebriefView["kind"]> = s.demo
-        ? ["empty", "question", "done", "preparing", "waiting_more"]
+        ? ["question", "preparing", "waiting_more"]
         : ["empty", "question", "done"];
       if (!refreshable.includes(v.kind)) return s;
       const preparing = s.demo && e.preparing === true;
@@ -168,8 +178,9 @@ export function reduceDebrief(s: DebriefState, e: DebriefEvent): DebriefState {
       const answered = v.kind === "done" || v.kind === "waiting_more" ? v.answered : 0;
       const skipped = v.kind === "done" || v.kind === "waiting_more" ? v.skipped : 0;
       if (add.length === 0) {
-        // Demo: a quiet refresh after the server stopped preparing closes the debrief.
-        if (s.demo && !preparing && (v.kind === "preparing" || v.kind === "waiting_more")) {
+        // Demo: a quiet refresh after the server stopped preparing, or with the cap spent (nothing more can be
+        // shown), closes the debrief.
+        if (s.demo && (!preparing || room <= 0) && (v.kind === "preparing" || v.kind === "waiting_more")) {
           return { ...base, view: { kind: "done", answered, skipped } };
         }
         return base;

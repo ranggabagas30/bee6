@@ -170,12 +170,13 @@ describe("cap 5 per debrief across refreshes (demo)", () => {
     const after = reduceDebrief(two, refreshed(five, true));
     expect(ids(after)).toEqual(["c", "d", "e"]);
     expect(after.seen.size).toBe(5);
+    // Five ids were offered: nothing more can be shown, so the last answer closes the debrief even though the
+    // server still says preparing (no "Checking for more questions…" for ever).
     const exhausted = run(after, [{ type: "SKIP" }, { type: "SKIP" }, { type: "SKIP" }]);
-    expect(exhausted.view).toEqual({ kind: "waiting_more", answered: 0, skipped: 5 });
-    // f and g are still unseen on the server but the cap is spent: nothing is added, and once the server
-    // stops preparing the debrief is done.
-    expect(reduceDebrief(exhausted, refreshed(five, true)).view).toEqual({ kind: "waiting_more", answered: 0, skipped: 5 });
-    expect(reduceDebrief(exhausted, refreshed(five, false)).view).toEqual({ kind: "done", answered: 0, skipped: 5 });
+    expect(exhausted.view).toEqual({ kind: "done", answered: 0, skipped: 5 });
+    // done is terminal: a late poll must not pull the view back, with or without fresh ids.
+    expect(reduceDebrief(exhausted, refreshed(five, true)).view).toEqual({ kind: "done", answered: 0, skipped: 5 });
+    expect(reduceDebrief(exhausted, refreshed([q("h")], true)).view).toEqual({ kind: "done", answered: 0, skipped: 5 });
   });
 
   it("on the question view the room is 5 minus every id offered so far, not 5 minus the current list", () => {
@@ -184,6 +185,85 @@ describe("cap 5 per debrief across refreshes (demo)", () => {
     expect(ids(second)).toEqual(["d"]);
     const third = reduceDebrief(second, refreshed([q("e"), q("f")], true));
     expect(ids(third)).toEqual(["d", "e"]);
+  });
+});
+
+describe("cap spent (demo): nothing more can be shown", () => {
+  const five = [q("a"), q("b"), q("c"), q("d"), q("e")];
+  const skipAll = [{ type: "SKIP" }, { type: "SKIP" }, { type: "SKIP" }, { type: "SKIP" }, { type: "SKIP" }] as const;
+
+  it("the fifth answer goes straight to done while the server still says preparing", () => {
+    const s = run(DEMO_CLOSED, [{ type: "OPEN" }, loaded(five, true), ...skipAll]);
+    expect(s.view).toEqual({ kind: "done", answered: 0, skipped: 5 });
+  });
+
+  it("a fourth answer of four still waits for more (room left)", () => {
+    const s = run(DEMO_CLOSED, [{ type: "OPEN" }, loaded(five.slice(0, 4), true), ...skipAll.slice(0, 4)]);
+    expect(s.view.kind).toBe("waiting_more");
+  });
+
+  it("REFRESHED on waiting_more with no room and the server still preparing -> done", () => {
+    // Reach waiting_more with five offered by hand (the reducer itself would already have gone to done).
+    const waiting: DebriefState = {
+      ...DEMO_CLOSED,
+      view: { kind: "waiting_more", answered: 2, skipped: 3 },
+      seen: new Set(five.map((x) => x.question_id)),
+      preparing: true,
+    };
+    expect(reduceDebrief(waiting, refreshed([q("z")], true)).view).toEqual({ kind: "done", answered: 2, skipped: 3 });
+  });
+
+  it("REFRESHED on preparing with no room (reload spent the cap) and the server still preparing -> done", () => {
+    const prep: DebriefState = {
+      ...DEMO_CLOSED,
+      view: { kind: "preparing" },
+      seen: new Set(five.map((x) => x.question_id)),
+      preparing: true,
+    };
+    expect(reduceDebrief(prep, refreshed([q("z")], true)).view).toEqual({ kind: "done", answered: 0, skipped: 0 });
+  });
+});
+
+describe("REFRESHED (demo): done is terminal", () => {
+  it("a late poll with a fresh question does not pull a done view back", () => {
+    const done = run(DEMO_CLOSED, [{ type: "OPEN" }, loaded([q("a")], false), { type: "SKIP" }]);
+    expect(done.view.kind).toBe("done");
+    expect(reduceDebrief(done, refreshed([q("b")], true)).view).toEqual({ kind: "done", answered: 0, skipped: 1 });
+  });
+});
+
+describe("LOADED (demo) seeded from a stored progress record (reload mid-debrief)", () => {
+  const progress = { answered: 3, skipped: 0 };
+  const loadedWith = (questions: DebriefQuestionView[], preparing: boolean) =>
+    ({ ...loaded(questions, preparing), progress }) as const;
+
+  it("nothing left to offer while the server prepares -> waiting_more with the stored counts, then done keeps them", () => {
+    const s = run(DEMO_CLOSED, [{ type: "OPEN" }, loadedWith([], true)]);
+    expect(s.view).toEqual({ kind: "waiting_more", answered: 3, skipped: 0 });
+    expect(reduceDebrief(s, refreshed([], false)).view).toEqual({ kind: "done", answered: 3, skipped: 0 });
+  });
+
+  it("nothing left to offer and the server is done preparing -> done with the stored counts (not 'no questions')", () => {
+    const s = run(DEMO_CLOSED, [{ type: "OPEN" }, loadedWith([], false)]);
+    expect(s.view).toEqual({ kind: "done", answered: 3, skipped: 0 });
+  });
+
+  it("fresh questions carry the stored counts into the question view and on to the end", () => {
+    const s = run(DEMO_CLOSED, [{ type: "OPEN" }, loadedWith([q("a")], false)]);
+    expect((s.view as QuestionView).answered).toBe(3);
+    const end = run(s, [{ type: "CHOOSE", answer: "yes" }, { type: "TYPE", reason: "ok" }, { type: "COMMITTED" }]);
+    expect(end.view).toEqual({ kind: "done", answered: 4, skipped: 0 });
+  });
+
+  it("no stored progress behaves as before (0 / 0)", () => {
+    expect(run(DEMO_CLOSED, [{ type: "OPEN" }, loaded([], false)]).view).toEqual({ kind: "done", answered: 0, skipped: 0 });
+  });
+
+  it("the pilot ignores a progress field", () => {
+    const pilot: DebriefState = { ...DEMO_CLOSED, demo: false };
+    expect(run(pilot, [{ type: "OPEN" }, loadedWith([], false)]).view).toEqual({ kind: "empty" });
+    const withQ = run(pilot, [{ type: "OPEN" }, loadedWith([q("a")], false)]);
+    expect((withQ.view as QuestionView).answered).toBe(0);
   });
 });
 
