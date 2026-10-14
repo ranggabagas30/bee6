@@ -53,7 +53,9 @@ export function SignOutDialog({ kind, lang, busy, finishing, errorKey, onConfirm
   const dismissRef = useRef<HTMLButtonElement>(null);
   // Latest callbacks/flags for the document listener, so the listener is bound once per mount.
   const latest = useRef({ busy, onDismiss });
-  latest.current = { busy, onDismiss };
+  useEffect(() => {
+    latest.current = { busy, onDismiss };
+  });
 
   // Initial focus on the safe choice, and focus return: remember what had focus when the dialog opened (the
   // top-bar Sign out button) and give it back on unmount. The opener is read before the dismiss button takes
