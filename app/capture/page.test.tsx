@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { DEBRIEF_DONE_FLAG_KEY, DEBRIEF_DONE_SUMMARY_KEY } from "@/lib/debrief/constants";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 /**
@@ -83,12 +84,18 @@ vi.mock("@/lib/capture/browser/session", () => ({
 }));
 
 let uuidCounter = 0;
-vi.stubGlobal("crypto", {
-  randomUUID: () => `11111111-1111-1111-1111-${String(++uuidCounter).padStart(12, "0")}`,
-});
+// Re-installed after every test: the debrief describes below call `vi.unstubAllGlobals()` to drop their fetch stub,
+// which would otherwise also drop this one for every later test (the outer hook runs after the inner ones).
+function stubCrypto() {
+  vi.stubGlobal("crypto", {
+    randomUUID: () => `11111111-1111-1111-1111-${String(++uuidCounter).padStart(12, "0")}`,
+  });
+}
+stubCrypto();
 
 afterEach(() => {
   cleanup();
+  stubCrypto();
   vi.clearAllMocks();
   vi.useRealTimers();
   readDeviceAuth.mockReturnValue(null);
@@ -602,6 +609,48 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
     expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "auto_stop" });
   });
 
+  // R-19 PR-3 (§6.3): on a sandbox the debrief opens itself right after End, so the questions route is
+  // answered here with the server's `preparing` and no question yet (the labels land 2-4 min later).
+  function stubPreparingQuestions() {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          ({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              data: { debrief: { business_date: "2026-10-12", ends_at_ms: Date.now() + 3_600_000 }, questions: [], preparing: true },
+            }),
+          }) as Response,
+      ),
+    );
+  }
+  afterEach(() => vi.unstubAllGlobals());
+
+  // The done screen is reached by the completion flag (what DebriefFlow writes on entering `done`), seeded for
+  // the debrief the page opens at End: endsAtMs = the End instant (fake clock, frozen) + 1 h.
+  const DEBRIEF_MS = 3_600_000;
+  // This test environment has no usable `window.localStorage`, so the flag goes into an in-memory Storage
+  // installed on `window` for the test (removed again by `vi.unstubAllGlobals()`).
+  function seedDoneFlag(endsAtMs: number, answered = 2, skipped = 1) {
+    const mem = new Map<string, string>([
+      [DEBRIEF_DONE_FLAG_KEY, String(endsAtMs)],
+      [DEBRIEF_DONE_SUMMARY_KEY, JSON.stringify({ answered, skipped })],
+    ]);
+    const storage = {
+      getItem: (k: string) => mem.get(k) ?? null,
+      setItem: (k: string, v: string) => void mem.set(k, v),
+      removeItem: (k: string) => void mem.delete(k),
+      clear: () => mem.clear(),
+      key: (i: number) => [...mem.keys()][i] ?? null,
+      get length() {
+        return mem.size;
+      },
+    } as Storage;
+    vi.stubGlobal("localStorage", storage);
+  }
+
   it("the auto-stop never needs closing: End stays locked and the stop still fires", async () => {
     await renderDemoRunning();
     expect((screen.getByRole("button", { name: END_LOCKED }) as HTMLButtonElement).disabled).toBe(true);
@@ -611,29 +660,45 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
     expect(postDemoClosing).not.toHaveBeenCalled();
   });
 
-  // Plan 5.6: Start is hidden (not rendered disabled) on a sandbox while locked; the pilot keeps its disabled button.
-  it("a finished demo day renders no Start button: the unlock line and the Supervisor note, with no contradictory reason or hint line", async () => {
+  // R-19 PR-3 (§6.3): End hands straight over to the debrief; the entry card and Start never show on a sandbox.
+  it("R-19: a finished demo day opens the debrief by itself (Preparing your questions), with no entry card and no Start button", async () => {
+    stubPreparingQuestions();
     await renderDemoRunning();
     const end = await reachClosing();
     fireEvent.click(end);
     fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
     await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
-    await waitFor(() =>
-      expect(screen.getAllByText("Demo day finished. Switch to Supervisor to see it.").length).toBeGreaterThan(0),
-    );
+    await waitFor(() => expect(screen.getByText("Preparing your questions")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Answer questions" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
-    expect(screen.getByText("Start unlocks tomorrow from 01:00")).toBeTruthy();
+  });
+
+  // Plan 5.6 + tech-lead note: after End `idle.offered` is false on a sandbox, so the done slot (the debrief's
+  // terminal summary, which renders `primary`) shows the locked line and never a Start button.
+  it("a finished demo day's done slot renders no Start button: the unlock line, with no contradictory reason or hint line", async () => {
+    stubPreparingQuestions();
+    await renderDemoRunning();
+    seedDoneFlag(Date.parse(MON_2230_WIB) + DEBRIEF_MS);
+    const end = await reachClosing();
+    fireEvent.click(end);
+    fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
+    await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByText("Start unlocks tomorrow from 01:00")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+    expect(screen.queryByText("Preparing your questions")).toBeNull();
     // Right after End the reason can only be day_not_ended, which cannot be true while Start is locked: no
     // reason line and no jump hint (the jump is not allowed yet either).
     expect(screen.queryByText(/Run today first/)).toBeNull();
     expect(screen.queryByText("Use Jump to tomorrow in the judge guide")).toBeNull();
   });
 
-  it("locked Start with next_day allowed points to the judge guide instead of a reason", async () => {
+  it("locked Start with next_day allowed points to the judge guide instead of a reason (done slot)", async () => {
     pinClock("2026-10-12T16:00:00Z"); // Mon 23:00 WIB, the day ended at 22:30
+    const debriefEnds = Date.parse("2026-10-12T16:30:00Z");
+    seedDoneFlag(debriefEnds);
     fetchCaptureConfig.mockResolvedValue(
       demoConfig({
-        last_ended: { business_date: "2026-10-12", end_reason: "selesai", debrief_ends_at_ms: Date.parse("2026-10-12T16:30:00Z") },
+        last_ended: { business_date: "2026-10-12", end_reason: "selesai", debrief_ends_at_ms: debriefEnds },
         demo_session: { ...DEMO_PROFILE, days_done: 1, next_day: { allowed: true, reason: null } },
       }),
     );
@@ -644,13 +709,12 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
     expect(screen.queryByText(/Run today first/)).toBeNull();
   });
 
-  it("item 8: after End the sandbox says the demo day is finished and never offers a 'tap Start again <date>' line", async () => {
+  it("item 8: after End the sandbox never offers a 'tap Start again <date>' line", async () => {
+    stubPreparingQuestions();
     await renderDemoRunning();
     fireEvent.click(await reachClosing());
     fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
-    await waitFor(() =>
-      expect(screen.getAllByText("Demo day finished. Switch to Supervisor to see it.").length).toBeGreaterThan(0),
-    );
+    await waitFor(() => expect(screen.getByText("Preparing your questions")).toBeTruthy());
     expect(screen.queryByText(/You can tap Start again/)).toBeNull();
   });
 
@@ -717,6 +781,7 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
 });
 
 describe("CapturePage script drawer (R-18, sandbox only)", () => {
+  afterEach(() => vi.unstubAllGlobals());
   const MON_1000_WIB = "2026-10-12T03:00:00Z";
   const demoConfig = () => ({
     ...config({ sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } }),
@@ -843,7 +908,21 @@ describe("CapturePage script drawer (R-18, sandbox only)", () => {
     expect(postSessionEnd).toHaveBeenCalledTimes(1);
   });
 
-  it("End dialog opened at 9:58, auto-stop fires at 10:00, 'Yes, end' tapped during the round trip: ONE end call, headline stays 'Ended automatically'", async () => {
+  it("End dialog opened at 9:58, auto-stop fires at 10:00, 'Yes, end' tapped during the round trip: ONE end call, the debrief opens itself", async () => {
+    // R-19 PR-3 (§6.3): the sandbox debrief auto-opens after the auto-stop, so the questions route must answer.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          ({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              data: { debrief: { business_date: "2026-10-12", ends_at_ms: Date.now() + 3_600_000 }, questions: [], preparing: true },
+            }),
+          }) as Response,
+      ),
+    );
     await renderDemoRunning();
     await finishToClosing();
     await vi.advanceTimersByTimeAsync(9 * 60_000 + 58_000);
@@ -863,7 +942,7 @@ describe("CapturePage script drawer (R-18, sandbox only)", () => {
     await vi.advanceTimersByTimeAsync(2_000);
     expect(postSessionEnd).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("End today's operations?")).toBeNull();
-    expect(screen.getByText(/^Ended automatically at \d/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("Preparing your questions")).toBeTruthy());
   });
 
   it("the countdown follows the page clock, in text", async () => {
@@ -946,7 +1025,7 @@ describe("CapturePage script drawer (R-18, sandbox only)", () => {
   });
 });
 
-describe("CapturePage debrief refresh wiring (R-18)", () => {
+describe("CapturePage debrief wiring (R-18 Check button; R-19 §6.3: a sandbox opens the debrief itself, the pilot taps the card)", () => {
   const listBody = {
     data: {
       debrief: { business_date: "2026-10-12", ends_at_ms: Date.parse("2026-10-12T04:00:00Z") },
@@ -969,17 +1048,23 @@ describe("CapturePage debrief refresh wiring (R-18)", () => {
       ...(demo ? { demo_session: DEMO_PROFILE } : {}),
     });
     await renderReady();
-    fireEvent.click(await screen.findByRole("button", { name: "Answer questions" }));
+    if (demo) {
+      // The sandbox never shows the entry card: the debrief opens itself (`demo` on DebriefFlow).
+      await waitFor(() => expect(screen.queryByRole("button", { name: "Start" })).toBeNull());
+      expect(screen.queryByRole("button", { name: "Answer questions" })).toBeNull();
+    } else {
+      fireEvent.click(await screen.findByRole("button", { name: "Answer questions" }));
+    }
     await waitFor(() => expect(screen.getByText("Question 1 of 1")).toBeTruthy());
   }
   afterEach(() => vi.unstubAllGlobals());
 
-  it("a sandbox device's debrief offers 'Check for new questions'", async () => {
+  it("a sandbox device's debrief opens itself and offers 'Check for new questions'", async () => {
     await openDebrief(true);
     expect(screen.getByRole("button", { name: "Check for new questions" })).toBeTruthy();
   });
 
-  it("pilot: the same debrief has no such button", async () => {
+  it("pilot: the entry card must be tapped and the same debrief has no such button", async () => {
     await openDebrief(false);
     expect(screen.queryByRole("button", { name: "Check for new questions" })).toBeNull();
   });
