@@ -1,6 +1,6 @@
 "use client";
 
-import type { FocusEvent } from "react";
+import { useEffect, useRef, useState, type FocusEvent } from "react";
 import Link from "next/link";
 import { useLang } from "@/lib/i18n/context";
 import { t, type DictKey } from "@/lib/i18n/dict";
@@ -41,10 +41,40 @@ function revealOnFocus(e: FocusEvent<HTMLAnchorElement>) {
   e.currentTarget.scrollIntoView({ inline: "nearest", block: "nearest" });
 }
 
+/**
+ * The right-edge fade is a cue that more items wait to the right, so it shows only while the row overflows AND is not
+ * scrolled to the end. At the end (or with no overflow) nothing follows, and the last item and its focus ring stay undimmed.
+ */
+function useOverflowFade(dep: unknown) {
+  const ref = useRef<HTMLElement>(null);
+  const [fade, setFade] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      const more = el.scrollWidth - el.clientWidth - el.scrollLeft > 1;
+      setFade(more);
+    };
+    measure();
+    el.addEventListener("scroll", measure, { passive: true });
+    window.addEventListener("resize", measure);
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    ro?.observe(el);
+    if (el.firstElementChild) ro?.observe(el.firstElementChild);
+    return () => {
+      el.removeEventListener("scroll", measure);
+      window.removeEventListener("resize", measure);
+      ro?.disconnect();
+    };
+  }, [dep]);
+  return { ref, fade };
+}
+
 export function AppNav({ role, current }: { role: NavRoleId; current?: NavItemId }) {
   const { lang } = useLang();
+  const { ref, fade } = useOverflowFade(`${lang}:${role}`);
   return (
-    <nav aria-label={t(lang, "C-web-nav-label")} className={styles.nav}>
+    <nav ref={ref} data-fade={fade ? "true" : "false"} aria-label={t(lang, "C-web-nav-label")} className={styles.nav}>
       <ul className={styles.navList}>
         {NAV[role].map((item) => {
           const isCurrent = item === current;

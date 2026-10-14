@@ -40,15 +40,21 @@
 }
 
 .nav {
-  margin: 0 -16px 16px;
-  padding: 0 16px;
+  /* The scroller clips on both axes: 4 px of its own padding (undone by the negative top margin and a smaller bottom one)
+     plus the list's 2 px give the 2 px focus ring + 2 px offset their full room, top and bottom. */
+  margin: -4px -16px 12px;
+  padding: 4px 16px;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
-  /* Edge fade: the cue that more items wait to the right. Dropped from 900 px, where the row wraps. */
-  mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
   /* A focused or scrolled-to link stops clear of the fade. */
   scroll-padding-inline: 24px;
+}
+
+/* Edge fade: the cue that more items wait to the right. AppNav sets data-fade only while the row overflows and is not
+   scrolled to the end, so the last item is never dimmed. Dropped from 900 px, where the row wraps. */
+.nav[data-fade="true"] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
 }
 
 .nav::-webkit-scrollbar {
@@ -108,6 +114,9 @@
   .nav {
     margin: 0 0 20px;
     padding: 0;
+    overflow: visible; /* wrapped, not scrolled: nothing to clip, so the focus ring shows whole */
+  }
+  .nav[data-fade="true"] {
     mask-image: none;
   }
   .navList {
