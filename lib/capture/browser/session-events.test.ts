@@ -21,6 +21,7 @@ const hoisted = vi.hoisted(() => ({
   wakeLockAcquire: vi.fn(async () => true),
   wakeLockRelease: vi.fn(async () => {}),
   mediaTrackStop: vi.fn(),
+  uploaderOnAccepted: null as ((lines: number) => void) | null,
 }));
 
 vi.mock("@/lib/capture/browser/encoder", () => ({
@@ -59,7 +60,10 @@ vi.mock("@/lib/capture/browser/wake-lock", () => ({
 
 vi.mock("@/lib/capture/browser/client", () => ({
   createHeartbeatPoster: () => async () => {},
-  createSegmentUploader: () => async () => 200,
+  createSegmentUploader: (_auth: unknown, _sessionId: unknown, onAccepted?: (lines: number) => void) => {
+    hoisted.uploaderOnAccepted = onAccepted ?? null;
+    return async () => 200;
+  },
 }));
 
 import { startCaptureSession } from "@/lib/capture/browser/session";
@@ -101,6 +105,41 @@ afterEach(() => {
   vi.clearAllMocks();
   hoisted.vadOnFrame = null;
   hoisted.vadOnError = null;
+  hoisted.uploaderOnAccepted = null;
+});
+
+// R-19 PR-4a (plan 5.2): the uploader's accepted-line count becomes a `segment_accepted` event on the same
+// onEvent channel. Only a count ever travels; the page keeps `linesThisSession` from it.
+describe("startCaptureSession segment_accepted (R-19 line counting)", () => {
+  it("forwards the uploader's accepted line count as a segment_accepted event", async () => {
+    const events: CaptureEvent[] = [];
+    const session = await startCaptureSession(AUTH, CONFIG, {
+      onStatus: () => {},
+      onMicSource: () => {},
+      onUnsupported: () => {},
+      onSampleRateRejected: () => {},
+      onEvent: (e) => events.push(e),
+    }, "11111111-1111-4111-8111-111111111111");
+    expect(hoisted.uploaderOnAccepted).toBeTypeOf("function");
+    hoisted.uploaderOnAccepted?.(2);
+    hoisted.uploaderOnAccepted?.(0);
+    expect(events.filter((e) => e.type === "segment_accepted")).toEqual([
+      { type: "segment_accepted", lines: 2 },
+      { type: "segment_accepted", lines: 0 },
+    ]);
+    await session?.stop();
+  });
+
+  it("without onEvent the count is dropped silently", async () => {
+    const session = await startCaptureSession(AUTH, CONFIG, {
+      onStatus: () => {},
+      onMicSource: () => {},
+      onUnsupported: () => {},
+      onSampleRateRejected: () => {},
+    });
+    expect(() => hoisted.uploaderOnAccepted?.(1)).not.toThrow();
+    await session?.stop();
+  });
 });
 
 describe("startCaptureSession onEvent", () => {

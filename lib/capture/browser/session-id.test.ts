@@ -69,16 +69,18 @@ afterEach(() => {
 describe("startCaptureSession wires the session id to the segment uploader", () => {
   it("passes the session id through to createSegmentUploader", async () => {
     const session = await startCaptureSession(AUTH, CONFIG, cb, "11111111-1111-1111-1111-111111111111");
+    // The third argument is the R-19 line-count callback (plan 5.2); the id stays the second.
     expect(hoisted.createSegmentUploader).toHaveBeenCalledWith(
       AUTH,
       "11111111-1111-1111-1111-111111111111",
+      expect.any(Function),
     );
     await session?.stop();
   });
 
   it("omits the session id when none is given (no behaviour change for an existing caller)", async () => {
     const session = await startCaptureSession(AUTH, CONFIG, cb);
-    expect(hoisted.createSegmentUploader).toHaveBeenCalledWith(AUTH, undefined);
+    expect(hoisted.createSegmentUploader).toHaveBeenCalledWith(AUTH, undefined, expect.any(Function));
     await session?.stop();
   });
 });

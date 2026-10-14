@@ -77,8 +77,17 @@ export function buildSegmentPut(
  * `sessionId` stamps every segment with the Mulai session it belongs to
  * (release gate, web spec §6.6.4): without it, a Batalkan discard deletes 0
  * segments while telling staff "removed".
+ *
+ * `onAccepted` (R-19 PR-4a, plan 5.2): after a 200 that is not `{discarded: true}`, the response's
+ * `lines` COUNT is handed over (the route returns `{seg_id, lines}`; never text). Omitted by every
+ * pre-R-19 caller; a body that cannot be read or has no numeric `lines` reports nothing. The engine
+ * contract (status or null) is unchanged.
  */
-export function createSegmentUploader(auth: DeviceAuth, sessionId?: string): UploadFn {
+export function createSegmentUploader(
+  auth: DeviceAuth,
+  sessionId?: string,
+  onAccepted?: (lines: number) => void,
+): UploadFn {
   return async (segment) => {
     try {
       const req = buildSegmentPut(segment, auth, sessionId);
@@ -90,11 +99,27 @@ export function createSegmentUploader(auth: DeviceAuth, sessionId?: string): Upl
           type: segment.content_type,
         }),
       });
+      if (onAccepted && res.ok) {
+        const lines = await acceptedLineCount(res);
+        if (lines !== null) onAccepted(lines);
+      }
       return res.status;
     } catch {
       return null; // network error → engine retries
     }
   };
+}
+
+/** The `lines` count of a segment 200, or null for `{discarded: true}`, an unreadable body or a missing count. */
+async function acceptedLineCount(res: Response): Promise<number | null> {
+  try {
+    const payload: { data?: { discarded?: unknown; lines?: unknown } } | null = await res.json();
+    const data = payload?.data;
+    if (!data || data.discarded === true || typeof data.lines !== "number") return null;
+    return data.lines;
+  } catch {
+    return null;
+  }
 }
 
 /** Fetches + validates the capture config (server output boundary → zod). */

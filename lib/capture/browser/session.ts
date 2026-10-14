@@ -104,7 +104,9 @@ export async function startCaptureSession(
 
   const engine = new CaptureEngine({
     encode: encodeSegmentToWebmOpus,
-    upload: createSegmentUploader(auth, sessionId),
+    // R-19 PR-4a (plan 5.2): the server's accepted line COUNT becomes a `segment_accepted` event on the same
+    // channel as the engine's own events. Only a number ever travels; the segment response carries no text.
+    upload: createSegmentUploader(auth, sessionId, (lines) => cb.onEvent?.({ type: "segment_accepted", lines })),
     onStatusChange: (status) => {
       cb.onStatus(status);
       // Translate the existing status callback into a state_changed event —

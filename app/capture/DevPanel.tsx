@@ -34,6 +34,9 @@ function formatMetadata(event: CaptureEvent): string {
       return `seg_id=${event.seg_id} byte_count=${event.byte_count}`;
     case "segment_upload_result":
       return `seg_id=${event.seg_id} ok=${event.ok}`;
+    case "segment_accepted":
+      // R-19 PR-4a: a count only; the event type has no text field to format.
+      return `lines=${event.lines}`;
     case "wake_lock_changed":
       return `held=${event.held}`;
     case "mic_restart":

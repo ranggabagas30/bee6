@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildSegmentPut,
+  createSegmentUploader,
   deviceAuthHeaders,
   fetchCaptureConfig,
   postSessionDiscard,
@@ -184,6 +185,49 @@ const config: CaptureConfigResponse = {
   last_ended: null,
   capture_mode: "room",
 };
+
+// R-19 PR-4a (plan 5.2): the segment response is a line COUNT (`{seg_id, lines}`), never text. The uploader hands
+// that count to an optional callback after a 200 that is not `{discarded: true}`; the engine contract (status or
+// null) is unchanged.
+describe("createSegmentUploader onAccepted (R-19 line counting)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const stub = (status: number, body: unknown, ok = status < 400) =>
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok, status, json: async () => body }) as Response));
+
+  it("200 {seg_id, lines}: returns the status and reports the line count", async () => {
+    stub(200, { data: { seg_id: "seg-abc", lines: 3 } });
+    const accepted: number[] = [];
+    const upload = createSegmentUploader(auth, undefined, (n) => accepted.push(n));
+    expect(await upload(segment)).toBe(200);
+    expect(accepted).toEqual([3]);
+  });
+
+  it("200 {discarded: true}: the status is returned and nothing is reported", async () => {
+    stub(200, { data: { discarded: true } });
+    const onAccepted = vi.fn();
+    expect(await createSegmentUploader(auth, undefined, onAccepted)(segment)).toBe(200);
+    expect(onAccepted).not.toHaveBeenCalled();
+  });
+
+  it("a non-2xx, a body without a numeric lines field, or an unreadable body: status returned, nothing reported, no throw", async () => {
+    const onAccepted = vi.fn();
+    stub(422, { error: { code: "VALIDATION_ERROR" } });
+    expect(await createSegmentUploader(auth, "11111111-1111-4111-8111-111111111111", onAccepted)(segment)).toBe(422);
+    stub(200, { data: { seg_id: "seg-abc", lines: "three" } });
+    expect(await createSegmentUploader(auth, undefined, onAccepted)(segment)).toBe(200);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError("bad json"); } }) as unknown as Response),
+    );
+    expect(await createSegmentUploader(auth, undefined, onAccepted)(segment)).toBe(200);
+    expect(onAccepted).not.toHaveBeenCalled();
+  });
+
+  it("without a callback (every existing caller) the uploader behaves exactly as before", async () => {
+    stub(200, { data: { seg_id: "seg-abc", lines: 3 } });
+    expect(await createSegmentUploader(auth)(segment)).toBe(200);
+  });
+});
 
 describe("resolveCapturePhase (strict config shape, no consent gate)", () => {
   it("is active inside today's hours", () => {

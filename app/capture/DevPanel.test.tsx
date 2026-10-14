@@ -65,6 +65,14 @@ describe("DevPanel", () => {
     expect(lines[1]).toMatch(/state_changed/);
   });
 
+  // R-19 PR-4a (plan 5.2): the accepted-line COUNT event is formatted like the others; it has no text to show.
+  it("formats a segment_accepted event as its line count", () => {
+    const events: LoggedCaptureEvent[] = [{ ts: 1_000, event: { type: "segment_accepted", lines: 3 } }];
+    const { container } = render(<DevPanel {...BASE_PROPS} events={events} />);
+    const line = container.querySelector('[data-testid="dev-event-log"] li')?.textContent ?? "";
+    expect(line).toMatch(/segment_accepted: lines=3$/);
+  });
+
   // R-07 Task 8: new readouts, all via optional props with safe ("not shown")
   // defaults — the current page.tsx (unmodified, pre-P1) passes none of
   // these, so BASE_PROPS alone must keep rendering exactly as before.
