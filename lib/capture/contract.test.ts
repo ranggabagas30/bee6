@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CaptureConfigResponseSchema,
+  FRESH_DEMO_SESSION,
   HeartbeatRequestSchema,
   MAX_SEGMENT_BYTES,
   SEGMENT_CONTENT_TYPE,
@@ -11,6 +12,7 @@ import {
   toCaptureConfig,
   toHeartbeat,
 } from "@/lib/capture/contract";
+import { scriptFor } from "@/lib/demo/script";
 import {
   BadRequestError,
   ForbiddenError,
@@ -208,7 +210,7 @@ describe("CaptureConfigResponseSchema", () => {
     it("7.T4 / R-19 present as the full journey profile (a fresh sandbox: day 1 of 3, nothing run yet) only when all three hold", () => {
       expect(toCaptureConfig(sbxOutlet, null, 1, true, expiring).demo_session).toEqual({
         max_ms: 600_000,
-        script_id: "bakery-v2",
+        script_id: "bakery-v1",
         day: 1,
         days_total: 3,
         days_done: 0,
@@ -238,10 +240,17 @@ describe("CaptureConfigResponseSchema", () => {
         expect(parse({}).success).toBe(true);
         expect(parse({ open_session: null }).success).toBe(true);
       });
-      it("refuses another max_ms, the old script id, an extra key and the old two-key profile", () => {
+      it("accepts both script ids until PR-5 narrows to bakery-v2, and refuses any other", () => {
+        expect(parse({ script_id: "bakery-v1" }).success).toBe(true);
+        expect(parse({ script_id: "bakery-v2" }).success).toBe(true);
+        expect(parse({ script_id: "bakery-v3" }).success).toBe(false);
+      });
+      it("the fresh profile's script id is one the phone's script drawer can render (scriptFor is non-null)", () => {
+        expect(scriptFor(FRESH_DEMO_SESSION.script_id)).not.toBeNull();
+      });
+      it("refuses another max_ms, an extra key and the old two-key profile", () => {
         expect(parse({ max_ms: 1 }).success).toBe(false);
         expect(parse({ max_ms: 300_000 }).success).toBe(false);
-        expect(parse({ script_id: "bakery-v1" }).success).toBe(false);
         expect(parse({ extra: 1 }).success).toBe(false);
         expect(CaptureConfigResponseSchema.safeParse({ ...base, demo_session: { max_ms: 600_000, script_id: "bakery-v2" } }).success).toBe(false);
       });
