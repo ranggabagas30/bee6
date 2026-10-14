@@ -23,12 +23,14 @@ import { isDiscardArmed, nextMulaiIsNow, shouldAutoClosePanel } from "@/app/capt
 import { DebriefFlow } from "@/app/capture/debrief/DebriefFlow";
 import { drawerInsetStyle, isCompactChrome, useDrawerLayout, type DrawerState } from "@/app/capture/drawer-layout";
 import { ShopTopBar } from "@/app/shop/ShopTopBar";
+import { Button, Chip } from "@/app/ui";
 import { useLang } from "@/lib/i18n/context";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import { clockLabel, dayLabel } from "@/lib/i18n/format";
 import { sessionErrorKey } from "@/lib/i18n/codes";
 import {
   fetchCaptureConfig,
+  postDemoClosing,
   postSessionDiscard,
   postSessionEnd,
   postSessionStart,
@@ -46,6 +48,7 @@ import { autoStopDeadline, selesaiReady } from "@/lib/capture/demo-session";
 import {
   addDays,
   businessDateOf,
+  closeMs,
   localDateOf,
   mulaiAvailability,
   mulaiWindowDateOf,
@@ -53,6 +56,7 @@ import {
   zonedTimeToEpochMs,
   DEBRIEF_DURATION_MS,
 } from "@/lib/capture/calendar";
+import type { NextDayRefusal } from "@/lib/demo/contract";
 import type { CaptureStatus } from "@/lib/capture/browser/engine";
 import type { MicSourceClass } from "@/lib/capture/mic-source";
 
@@ -106,6 +110,26 @@ const PANEL_STYLE: React.CSSProperties = {
 };
 
 type View = "loading" | "error" | "unsupported" | "ready";
+
+/**
+ * R-19 (plan 4.4): the one-line reason shown under a locked Start on a sandbox. `unanswered_questions` is a
+ * confirm dialog in the judge guide (PR-2), not a lock line, so it falls back to the guide hint.
+ */
+const NEXT_DAY_REASON_KEY: Record<Exclude<NextDayRefusal, "unanswered_questions">, DictKey> = {
+  proposal_exists: "C-sess-next-day-proposal_exists",
+  max_days: "C-sess-next-day-max_days",
+  session_open: "C-sess-next-day-session_open",
+  day_not_ended: "C-sess-next-day-day_not_ended",
+  preparing: "C-sess-next-day-preparing",
+  shift_incomplete: "C-sess-next-day-shift_incomplete",
+  busy: "C-sess-next-day-busy",
+};
+
+/** The page's own copy for a closing-route failure (plan 5.4); the server's message is never shown. */
+interface ClosingError {
+  key: DictKey;
+  vars?: Record<string, string | number>;
+}
 
 /**
  * The next OPEN business day strictly after `localDate` — never the closed
@@ -197,6 +221,16 @@ export default function CapturePage() {
   const batalkanBusyRef = useRef(false);
   const [batalkanBusy, setBatalkanBusy] = useState(false);
   const [batalkanErrorKey, setBatalkanErrorKey] = useState<DictKey | null>(null);
+
+  // R-19 PR-4a "Jump to closing time" (plan 5.4, 5.5; sandbox only). `closingReached` unlocks End for the
+  // current local session; it resets on every Start. The error is the page's own copy (never server text).
+  const closingBusyRef = useRef(false);
+  const [closingBusy, setClosingBusy] = useState(false);
+  const [closingReached, setClosingReached] = useState(false);
+  const [closingError, setClosingError] = useState<ClosingError | null>(null);
+  // R-19 PR-4a (plan 5.2): the sum of `segment_accepted` line COUNTS since Start. A number only; it never
+  // sees a line. Shown through the dev readout; PR-5's script card reads it for "I have spoken this".
+  const [linesThisSession, setLinesThisSession] = useState(0);
 
   // DEV-01 manual-start re-entrancy guards (unchanged from the pre-rewrite page).
   const devStartingRef = useRef(false);
@@ -416,7 +450,13 @@ export default function CapturePage() {
       },
       onUnsupported: () => setView("unsupported"),
       onSampleRateRejected: (msg: string) => setSampleRateMsg(msg),
-      onEvent: devControlsEnabled ? handleEvent : undefined,
+      // Always wired (R-19 line counting needs it); the DEV-01 ring buffer only fills in dev mode.
+      onEvent: (event: CaptureEvent) => {
+        if (event.type === "segment_accepted" && isCurrent()) {
+          setLinesThisSession((n) => n + event.lines);
+        }
+        if (devControlsEnabled) handleEvent(event);
+      },
     };
   }
 
@@ -435,6 +475,10 @@ export default function CapturePage() {
     autoStopInFlightRef.current = false;
     setMulaiBusy(true);
     setMulaiErrorKey(null);
+    // R-19: closing and the heard-line count belong to one session each.
+    setClosingReached(false);
+    setClosingError(null);
+    setLinesThisSession(0);
     const sessionId = crypto.randomUUID();
     const startedAt = Date.now();
     const result = await postSessionStart(auth, {
@@ -484,9 +528,12 @@ export default function CapturePage() {
     setSelesaiConfirmOpen(false);
   }
   async function confirmSelesai() {
-    // The 5:00 auto-stop already ended (or is ending) this session: a second end call would race it and could
+    // The 10:00 auto-stop already ended (or is ending) this session: a second end call would race it and could
     // flip the headline from "Ended automatically" to a plain Selesai.
     if (!session || selesaiBusyRef.current || autoStopInFlightRef.current) return;
+    // R-19 (plan 5.5): on a sandbox, End is locked until closing. The button is disabled before that; this guard
+    // keeps the drawer's Finish and any stale handler honest too (the server would answer 409 closing_not_reached).
+    if (config?.demo_session !== undefined && !closingReached) return;
     const auth = readDeviceAuth();
     if (!auth) return;
     selesaiBusyRef.current = true;
@@ -514,10 +561,42 @@ export default function CapturePage() {
     setSession(null);
   }
 
+  // ── R-19 "Jump to closing time" (plan 5.4; sandbox only) ────────────────────
+  // POST /api/v1/demo/closing for the current session. 200 unlocks End ("End today"); 409 not_enough_speech
+  // shows the {have} of {need} line (counts from the server, zod-validated in the client); anything else the
+  // generic line. The server guard is the only speech rule: the page never measures time or text.
+  async function handleJumpToClosing() {
+    if (!session || !config?.demo_session || closingReached) return;
+    if (closingBusyRef.current || autoStopInFlightRef.current || selesaiBusyRef.current) return;
+    const auth = readDeviceAuth();
+    if (!auth) return;
+    closingBusyRef.current = true;
+    setClosingBusy(true);
+    setClosingError(null);
+    const result = await postDemoClosing(auth, session.session_id);
+    closingBusyRef.current = false;
+    setClosingBusy(false);
+    if (result.ok) {
+      setClosingReached(true);
+      return;
+    }
+    if (result.status === 409 && result.code === "not_enough_speech" && result.details) {
+      setClosingError({ key: "C-sess-closing-not-enough", vars: result.details });
+      return;
+    }
+    setClosingError({ key: sessionErrorKey(result.status, result.code) });
+  }
+
   // R-18: the drawer's Finish IS the Selesai confirmation (it skips the dialog) and runs the same handler.
-  // It does nothing while the 5:00 auto-stop is already ending the session.
+  // It does nothing while the 10:00 auto-stop is already ending the session.
+  // R-19 PR-4a: on a sandbox the first Finish is "Jump to closing time" (End is locked until then); once
+  // closing is reached it is the Selesai path as before. PR-5 moves the jump into the judge guide card.
   function handleDrawerFinish() {
     if (autoStopInFlightRef.current) return;
+    if (config?.demo_session !== undefined && !closingReached) {
+      void handleJumpToClosing();
+      return;
+    }
     void confirmSelesai();
   }
 
@@ -613,17 +692,37 @@ export default function CapturePage() {
         compact={compactChrome}
       />
     );
+    // R-19 (plan 5.6), sandbox only: while Start is locked the button is NOT rendered; the unlock line and
+    // either the guide hint (next_day allowed) or the one-line reason take its place. The pilot keeps its
+    // disabled button exactly as before.
+    const startLocked = demoSession !== undefined && !idle.offered;
+    const nextDayReason = demoSession?.next_day.reason ?? null;
+    // `day_not_ended` can never be true while Start is locked (the day already ended), and the jump is not
+    // allowed either, so it gets no reason line and no jump hint.
+    const lockedHintKey: DictKey | null =
+      nextDayReason === "day_not_ended"
+        ? null
+        : nextDayReason === null || nextDayReason === "unanswered_questions"
+          ? "C-sess-start-jump-hint"
+          : NEXT_DAY_REASON_KEY[nextDayReason];
     const primary = (
       <>
-        <button
-          type="button"
-          style={PRIMARY_BUTTON_STYLE}
-          onClick={handleMulaiTap}
-          disabled={mulaiBusy}
-          aria-disabled={!idle.offered || mulaiBusy ? "true" : undefined}
-        >
-          {mulaiBusy ? t(lang, "C-b-mulai-busy") : t(lang, "C-b-mulai")}
-        </button>
+        {startLocked ? (
+          <>
+            <p style={{ marginTop: 16, fontSize: 16, fontWeight: 700 }}>{t(lang, "C-sess-start-locked")}</p>
+            {lockedHintKey ? <p style={{ fontSize: 14 }}>{t(lang, lockedHintKey)}</p> : null}
+          </>
+        ) : (
+          <button
+            type="button"
+            style={PRIMARY_BUTTON_STYLE}
+            onClick={handleMulaiTap}
+            disabled={mulaiBusy}
+            aria-disabled={!idle.offered || mulaiBusy ? "true" : undefined}
+          >
+            {mulaiBusy ? t(lang, "C-b-mulai-busy") : t(lang, "C-b-mulai")}
+          </button>
+        )}
         {idle.offered ? <p style={{ fontSize: 14 }}>{t(lang, "C-h-idle-help")}</p> : null}
         {mulaiErrorKey ? (
           <p role="alert" style={{ color: "#b00020" }}>
@@ -664,6 +763,24 @@ export default function CapturePage() {
   // ── running view (a session is open) ────────────────────────────────────────
   function renderSelesaiArea() {
     if (!session || !config || nowMs === null) return null;
+    if (config.demo_session !== undefined) {
+      // R-19 (plan 5.5), sandbox: End is ALWAYS rendered, really `disabled` (not only aria-disabled) with the
+      // template outlet's closing time until "Jump to closing time", then enabled as "End today". `closeMs` is
+      // null only on a closed weekday of the template hours, which the demo template never has.
+      const close = closeMs(session.local_date, config.weekly_hours, config.timezone);
+      const closeHm = close === null ? "--:--" : clockLabel(close, config.timezone);
+      return (
+        <Button
+          variant="secondary"
+          block
+          style={{ marginTop: 12, minHeight: 48 }}
+          disabled={!closingReached}
+          onClick={openSelesaiConfirm}
+        >
+          {closingReached ? t(lang, "C-sess-end-today") : t(lang, "C-sess-end-locked", { time: closeHm })}
+        </Button>
+      );
+    }
     const sv = selesaiViewFor({
       nowMs,
       session,
@@ -787,8 +904,13 @@ export default function CapturePage() {
         {session ? (
           <>
             {!selesaiConfirmOpen && !batalkanOpen ? renderSelesaiArea() : null}
+            {closingError && !selesaiConfirmOpen && !batalkanOpen ? (
+              <p role="alert" style={{ color: "#b00020" }}>
+                {t(lang, closingError.key, closingError.vars)}
+              </p>
+            ) : null}
             {selesaiConfirmOpen ? renderSelesaiConfirmPanel() : null}
-            {!selesaiConfirmOpen && !batalkanOpen ? (
+            {!selesaiConfirmOpen && !batalkanOpen && !(config?.demo_session !== undefined && closingReached) ? (
               <button
                 type="button"
                 style={{ ...SECONDARY_BUTTON_STYLE, minHeight: 48 }}
@@ -827,9 +949,28 @@ export default function CapturePage() {
     <main style={mainStyle}>
       <ShopTopBar compact={compactChrome} />
       <h1 style={compactChrome ? { fontSize: 22, margin: "0 0 8px" } : { fontSize: 22 }}>{t(lang, "C-cap-title")}</h1>
+      {/* R-19 (Q6), sandbox only: "Day n of 3 · date". The date is the real local date (the shifted days are
+          behind it); the pilot never renders this line. */}
+      {view === "ready" && demoSession !== undefined && config && nowMs !== null ? (
+        <p style={{ margin: "0 0 8px" }}>
+          <Chip>
+            {t(lang, "C-sess-day-of", {
+              n: demoSession.day,
+              total: demoSession.days_total,
+              date: dayLabel(businessDateOf(nowMs, config.timezone), lang),
+            })}
+          </Chip>
+        </p>
+      ) : null}
 
       {devControlsEnabled ? (
-        <DevPanel onStart={handleDevStart} onPause={handleDevStop} onStop={handleDevStop} events={events} />
+        <DevPanel
+          onStart={handleDevStart}
+          onPause={handleDevStop}
+          onStop={handleDevStop}
+          events={events}
+          linesHeard={linesThisSession}
+        />
       ) : null}
 
       {view === "loading" ? <p>{t(lang, "C-h-loading")}</p> : null}
@@ -859,7 +1000,7 @@ export default function CapturePage() {
           maxMs={demoSession.max_ms}
           nowMs={nowMs}
           onFinish={handleDrawerFinish}
-          finishing={selesaiBusy || autoStopBusy}
+          finishing={closingBusy || selesaiBusy || autoStopBusy}
           open={scriptOpen}
           onToggle={() => setScriptOpen((o) => !o)}
           wide={drawerLayout.wide}

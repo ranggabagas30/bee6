@@ -51,7 +51,12 @@ describe("CaptureEvent", () => {
     const _bad1: CaptureEvent = { type: "state_changed", state: "listening", queuedCount: 0, text: "hi" };
     // @ts-expect-error -- segment_closed must never gain a free-text field.
     const _bad2: CaptureEvent = { type: "segment_closed", seg_id: "s", duration_ms: 1, transcript: "hi" };
+    // @ts-expect-error -- segment_accepted carries a line COUNT only (R-19 PR-4a), never the lines.
+    const _bad3: CaptureEvent = { type: "segment_accepted", lines: 1, text: "hi" };
+    const ok: CaptureEvent = { type: "segment_accepted", lines: 3 };
+    expect(ok.type).toBe("segment_accepted");
     void _bad1;
     void _bad2;
+    void _bad3;
   });
 });

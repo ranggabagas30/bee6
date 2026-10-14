@@ -31,6 +31,9 @@ export type CaptureEvent =
   // `http_status` is the numeric HTTP status of the upload response, or null
   // for a network failure (no response). Never a response body (rule #2).
   | { type: "segment_upload_result"; seg_id: string; ok: boolean; http_status: number | null }
+  // R-19 PR-4a (plan 5.2): the server accepted a segment and transcribed `lines` of it. A COUNT only — the
+  // segment response never carries text, so this event cannot either. Drives the page's `linesThisSession`.
+  | { type: "segment_accepted"; lines: number }
   | { type: "wake_lock_changed"; held: boolean }
   | { type: "mic_restart"; reason: string };
 

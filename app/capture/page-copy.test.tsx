@@ -16,6 +16,7 @@ const fetchCaptureConfig = vi.fn<(auth: unknown) => Promise<unknown>>();
 const postSessionStart = vi.fn(async (..._args: unknown[]) => ({ ok: true }));
 const postSessionEnd = vi.fn(async (..._args: unknown[]) => ({ ok: true }));
 const postSessionDiscard = vi.fn(async (..._args: unknown[]) => ({ ok: true }));
+const postDemoClosing = vi.fn(async (..._args: unknown[]) => ({ ok: true, data: { closing_reached: true } }));
 vi.mock("@/lib/capture/browser/client", () => ({
   readDeviceAuth: () => readDeviceAuth(),
   fetchCaptureConfig: (auth: unknown) => fetchCaptureConfig(auth),
@@ -23,6 +24,7 @@ vi.mock("@/lib/capture/browser/client", () => ({
   postSessionEnd: (auth: unknown, id: string, body: unknown) => postSessionEnd(auth, id, body),
   postSessionDiscard: (auth: unknown, id: string, body: unknown) =>
     postSessionDiscard(auth, id, body),
+  postDemoClosing: (auth: unknown, id: string) => postDemoClosing(auth, id),
 }));
 
 vi.stubGlobal("crypto", { randomUUID: () => "11111111-1111-1111-1111-111111111111" });
@@ -217,7 +219,21 @@ describe("capture page: no Bahasa text on an EN screen, no English on an ID scre
 // R-18: on a sandbox device (capture config carries demo_session) the pilot "tap Start again <date>" copy is
 // never true: Cancel is the retake path (Start is offered again at once) and End has no restart at all.
 describe("capture page: the End and Cancel panels in the sandbox (R-18)", () => {
-  const SANDBOX = { ...CONFIG, capture_mode: "room", demo_session: { max_ms: 300_000, script_id: "bakery-v1" } };
+  // R-19: the full journey profile (the old two-key shape no longer parses on the server).
+  const SANDBOX = {
+    ...CONFIG,
+    capture_mode: "room",
+    demo_session: {
+      max_ms: 600_000,
+      script_id: "bakery-v1",
+      day: 1,
+      days_total: 3,
+      days_done: 0,
+      closing_reached: false,
+      open_session: null,
+      next_day: { allowed: false, reason: "day_not_ended" },
+    },
+  };
   const MON_1000_WIB = "2026-10-12T03:00:00Z";
 
   async function openRunning(lang: Lang, config: unknown, startName: string) {
@@ -230,20 +246,41 @@ describe("capture page: the End and Cancel panels in the sandbox (R-18)", () => 
     await waitFor(() => expect(screen.queryByRole("button", { name: startName })).toBeNull());
     return container;
   }
+  /** R-19 PR-4a: End is locked until closing; the drawer's last-card Finish is the phone's "Jump to closing time". */
+  async function reachClosing(nextName: string, finishName: string, endName: string) {
+    await screen.findByRole("button", { name: nextName });
+    for (let i = 0; i < 9; i += 1) fireEvent.click(screen.getByRole("button", { name: nextName }));
+    fireEvent.click(screen.getByRole("button", { name: finishName }));
+    return screen.findByRole("button", { name: endName });
+  }
   const panelText = () =>
     screen.getByRole("heading", { level: 2, name: /^(End today|Akhiri operasional|Cancel the session|Batalkan sesi yang)/ })
       .parentElement?.textContent ?? "";
 
+  it("EN sandbox, End locked: the exact closing-time label, really disabled, in English", async () => {
+    await openRunning("en", SANDBOX, "Start");
+    const end = screen.getByRole("button", { name: "End · available at closing time (22:00)" }) as HTMLButtonElement;
+    expect(end.disabled).toBe(true);
+    expect(screen.getByText("Day 1 of 3 · Mon 12 Oct")).toBeTruthy();
+  });
+
+  it("ID sandbox, End locked: the Bahasa label and the Bahasa day line", async () => {
+    await openRunning("id", SANDBOX, "Mulai");
+    const end = screen.getByRole("button", { name: "Selesai · tersedia saat jam tutup (22:00)" }) as HTMLButtonElement;
+    expect(end.disabled).toBe(true);
+    expect(screen.getByText("Hari 1 dari 3 · Sen 12 Okt")).toBeTruthy();
+  });
+
   it("EN sandbox, End: 'The 1-hour debrief starts now. This cannot be undone.' and no restart date", async () => {
     await openRunning("en", SANDBOX, "Start");
-    fireEvent.click(screen.getByRole("button", { name: "End" }));
+    fireEvent.click(await reachClosing("Next", "Finish and end the day", "End today"));
     expect(panelText()).toContain("The 1-hour debrief starts now. This cannot be undone.");
     expect(panelText()).not.toMatch(/tap Start again|Mon 12 Oct|01:00/);
   });
 
   it("ID sandbox, End: Bahasa body and no restart date", async () => {
     await openRunning("id", SANDBOX, "Mulai");
-    fireEvent.click(screen.getByRole("button", { name: "Selesai" }));
+    fireEvent.click(await reachClosing("Berikutnya", "Selesai dan akhiri hari", "Akhiri hari ini"));
     expect(panelText()).toContain("Debrief 1 jam dimulai sekarang. Tidak bisa dikembalikan.");
     expect(panelText()).not.toMatch(/ditekan lagi|12 Okt|01:00/);
   });

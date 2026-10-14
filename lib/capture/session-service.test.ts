@@ -22,6 +22,8 @@ const WEEKLY: WeeklyHours = {
 const CAL = { weekly: WEEKLY, tz: JKT };
 const wib = (iso: string) => Date.parse(`${iso}+07:00`);
 const NOW = wib("2026-10-14T12:00:00");
+/** R-19: the sandbox hard stop the routes pass as `demo_max_ms` (lib/demo/constants.ts DEMO_SESSION_MAX_MS). */
+const DEMO_MAX = 600_000;
 const SID = "11111111-1111-4111-8111-111111111111";
 
 interface FakeOpts {
@@ -109,6 +111,8 @@ function fakeStore(seed: FakeOpts = {}) {
     get deleteCalls() { return deleteCalls; },
     /** Segments that arrive (or are still on the server) before the next delete. */
     addSegments(n: number) { segments += n; },
+    /** R-19: what POST /api/v1/demo/closing writes on the open sandbox session. */
+    markClosing(at_ms: number) { if (session) session = { ...session, demo_closing_at_ms: at_ms }; },
     discardAudits() { return audits.filter((a) => a.action === "capture.session_discarded"); },
   };
 }
@@ -138,26 +142,26 @@ describe("startSession (PROD-01 4.2)", () => {
     expect(f.session?.received_end_at).toBeNull();
   });
 
-  it("R-18: a sandbox session (demo_max_ms) auto-stops at start + 5 min; without it the auto-stop stays close + 1 h", async () => {
+  it("R-18/R-19: a sandbox session (demo_max_ms) auto-stops at start + 10 min; without it the auto-stop stays close + 1 h", async () => {
     const started = NOW - 4_000; // inside the +/- 10 s clamp: kept as sent
     const demo = fakeStore();
-    await startSession(demo.store, { ...base, started_at_ms: started, demo_max_ms: 300_000 });
+    await startSession(demo.store, { ...base, started_at_ms: started, demo_max_ms: DEMO_MAX });
     expect(demo.session?.started_at_ms).toBe(started);
-    expect(demo.session?.auto_stop_at_ms).toBe(started + 300_000);
+    expect(demo.session?.auto_stop_at_ms).toBe(started + DEMO_MAX);
     const pilot = fakeStore();
     await startSession(pilot.store, { ...base, started_at_ms: wib("2026-10-14T11:59:00") });
     expect(pilot.session?.auto_stop_at_ms).toBe(wib("2026-10-15T02:00:00"));
   });
 
-  it("R-18 (security): a sandbox start time is clamped to now +/- 10 s so the 5-minute stop cannot be shifted", async () => {
+  it("R-18 (security): a sandbox start time is clamped to now +/- 10 s so the 10-minute stop cannot be shifted", async () => {
     const early = fakeStore();
-    await startSession(early.store, { ...base, started_at_ms: NOW - 120_000, demo_max_ms: 300_000 });
+    await startSession(early.store, { ...base, started_at_ms: NOW - 120_000, demo_max_ms: DEMO_MAX });
     expect(early.session?.started_at_ms).toBe(NOW - 10_000);
-    expect(early.session?.auto_stop_at_ms).toBe(NOW - 10_000 + 300_000);
+    expect(early.session?.auto_stop_at_ms).toBe(NOW - 10_000 + DEMO_MAX);
     const late = fakeStore();
-    await startSession(late.store, { ...base, started_at_ms: NOW + 240_000, demo_max_ms: 300_000 });
+    await startSession(late.store, { ...base, started_at_ms: NOW + 240_000, demo_max_ms: DEMO_MAX });
     expect(late.session?.started_at_ms).toBe(NOW + 10_000);
-    expect(late.session?.auto_stop_at_ms).toBe(NOW + 10_000 + 300_000);
+    expect(late.session?.auto_stop_at_ms).toBe(NOW + 10_000 + DEMO_MAX);
   });
 
   it("the pilot start time is never clamped (a start up to 7 days old stays as sent)", async () => {
@@ -570,9 +574,10 @@ describe("R-18: a clamped sandbox start never ends up after the end or discard t
 
   it("end: ended_at_ms is raised to the clamped start, the doc parses, and the debrief runs from there", async () => {
     const f = fakeStore();
-    await startSession(f.store, { ...base, started_at_ms: phoneStart, demo_max_ms: 300_000 });
+    await startSession(f.store, { ...base, started_at_ms: phoneStart, demo_max_ms: DEMO_MAX });
     expect(f.session?.started_at_ms).toBe(clampedStart);
-    await endSession(f.store, { ...base, started_at_ms: phoneStart, ended_at_ms: phoneEnd, end_reason: "selesai", demo_max_ms: 300_000 });
+    f.markClosing(NOW); // R-19: a sandbox Selesai needs the closing mark
+    await endSession(f.store, { ...base, started_at_ms: phoneStart, ended_at_ms: phoneEnd, end_reason: "selesai", demo_max_ms: DEMO_MAX });
     expect(f.session?.ended_at_ms).toBe(clampedStart);
     expect(() => CaptureSessionSchema.parse(f.session)).not.toThrow();
     expect(f.session?.debrief_ends_at_ms).toBe(clampedStart + 3_600_000);
@@ -581,8 +586,8 @@ describe("R-18: a clamped sandbox start never ends up after the end or discard t
 
   it("discard: discarded_at_ms is raised to the clamped start and the tombstone parses", async () => {
     const f = fakeStore();
-    await startSession(f.store, { ...base, started_at_ms: phoneStart, demo_max_ms: 300_000 });
-    await discardSession(f.store, { ...base, started_at_ms: phoneStart, discarded_at_ms: phoneEnd, demo_max_ms: 300_000 });
+    await startSession(f.store, { ...base, started_at_ms: phoneStart, demo_max_ms: DEMO_MAX });
+    await discardSession(f.store, { ...base, started_at_ms: phoneStart, discarded_at_ms: phoneEnd, demo_max_ms: DEMO_MAX });
     expect(f.session?.end_reason).toBe("discarded");
     expect(f.session?.ended_at_ms).toBe(clampedStart);
     expect(() => CaptureSessionSchema.parse(f.session)).not.toThrow();
@@ -591,9 +596,10 @@ describe("R-18: a clamped sandbox start never ends up after the end or discard t
 
   it("an end after the clamped start is kept exactly as sent", async () => {
     const f = fakeStore();
-    await startSession(f.store, { ...base, started_at_ms: phoneStart, demo_max_ms: 300_000 });
+    await startSession(f.store, { ...base, started_at_ms: phoneStart, demo_max_ms: DEMO_MAX });
+    f.markClosing(NOW);
     const later = NOW + 5_000;
-    await endSession(f.store, { ...base, started_at_ms: phoneStart, ended_at_ms: later, end_reason: "selesai", demo_max_ms: 300_000 });
+    await endSession(f.store, { ...base, started_at_ms: phoneStart, ended_at_ms: later, end_reason: "selesai", demo_max_ms: DEMO_MAX });
     expect(f.session?.ended_at_ms).toBe(later);
   });
 
@@ -607,5 +613,94 @@ describe("R-18: a clamped sandbox start never ends up after the end or discard t
     await startSession(d.store, { ...base, started_at_ms: started });
     await discardSession(d.store, { ...base, started_at_ms: started, discarded_at_ms: started + 1 });
     expect(d.session?.ended_at_ms).toBe(started + 1);
+  });
+});
+
+// R-19 PR-4a (plan section 5.5): on a sandbox (demo_max_ms set) End is locked until "Jump to closing time" has
+// marked the session (`demo_closing_at_ms`), and Cancel is refused once it has. The pilot path (no demo_max_ms)
+// never sees either rule.
+describe("R-19: sandbox End and Cancel gates around demo_closing_at_ms", () => {
+  const started = NOW - 4_000;
+  const sandbox = { ...base, demo_max_ms: DEMO_MAX };
+
+  it("end selesai on a sandbox without the closing mark: 409 closing_not_reached, nothing written", async () => {
+    const f = fakeStore();
+    await startSession(f.store, { ...sandbox, started_at_ms: started });
+    await expect(
+      endSession(f.store, { ...sandbox, started_at_ms: started, ended_at_ms: NOW, end_reason: "selesai" }),
+    ).rejects.toMatchObject({ statusCode: 409, code: "closing_not_reached" });
+    expect(f.session?.ended_at_ms).toBeNull();
+    expect(f.lastEnded).toBeNull();
+    expect(f.audits.map((a) => a.action)).toEqual(["capture.session_start"]);
+  });
+
+  it("end selesai on a sandbox with the closing mark: accepted and the mark is kept on the doc", async () => {
+    const f = fakeStore();
+    await startSession(f.store, { ...sandbox, started_at_ms: started });
+    f.markClosing(NOW - 1_000);
+    await endSession(f.store, { ...sandbox, started_at_ms: started, ended_at_ms: NOW, end_reason: "selesai" });
+    expect(f.session?.end_reason).toBe("selesai");
+    expect(f.session?.demo_closing_at_ms).toBe(NOW - 1_000);
+    expect(() => CaptureSessionSchema.parse(f.session)).not.toThrow();
+  });
+
+  it("auto_stop and lost are always accepted on a sandbox, with or without the mark", async () => {
+    for (const end_reason of ["auto_stop", "lost"] as const) {
+      const f = fakeStore();
+      await startSession(f.store, { ...sandbox, started_at_ms: started });
+      await endSession(f.store, { ...sandbox, started_at_ms: started, ended_at_ms: NOW, end_reason });
+      expect(f.session?.end_reason).toBe(end_reason);
+    }
+  });
+
+  it("a sandbox selesai on an already-ended session stays idempotent (no 409, unchanged)", async () => {
+    const f = fakeStore();
+    await startSession(f.store, { ...sandbox, started_at_ms: started });
+    await endSession(f.store, { ...sandbox, started_at_ms: started, ended_at_ms: NOW, end_reason: "auto_stop" });
+    await endSession(f.store, { ...sandbox, started_at_ms: started, ended_at_ms: NOW + 1, end_reason: "selesai" });
+    expect(f.session?.end_reason).toBe("auto_stop");
+  });
+
+  it("pilot selesai without any mark is unchanged (accepted)", async () => {
+    const f = fakeStore();
+    await startSession(f.store, { ...base, started_at_ms: wib("2026-10-14T10:00:00") });
+    await endSession(f.store, { ...base, started_at_ms: wib("2026-10-14T10:00:00"), ended_at_ms: NOW, end_reason: "selesai" });
+    expect(f.session?.end_reason).toBe("selesai");
+  });
+
+  it("discard on a sandbox after the closing mark: 409 closing_reached, no tombstone, no segment delete", async () => {
+    const f = fakeStore({ segments: 3 });
+    await startSession(f.store, { ...sandbox, started_at_ms: started });
+    f.markClosing(NOW - 1_000);
+    await expect(
+      discardSession(f.store, { ...sandbox, started_at_ms: started, discarded_at_ms: NOW }),
+    ).rejects.toMatchObject({ statusCode: 409, code: "closing_reached" });
+    expect(f.session?.end_reason).toBeNull();
+    expect(f.deleteCalls).toBe(0);
+    expect(f.discardAudits()).toHaveLength(0);
+  });
+
+  it("discard on a sandbox before the mark is the normal retake path", async () => {
+    const f = fakeStore({ segments: 3 });
+    await startSession(f.store, { ...sandbox, started_at_ms: started });
+    await discardSession(f.store, { ...sandbox, started_at_ms: started, discarded_at_ms: NOW });
+    expect(f.session?.end_reason).toBe("discarded");
+    expect(f.deletedSegments).toBe(3);
+  });
+
+  it("a second discard of an already-discarded sandbox session stays idempotent even if a mark is present", async () => {
+    const f = fakeStore();
+    await startSession(f.store, { ...sandbox, started_at_ms: started });
+    await discardSession(f.store, { ...sandbox, started_at_ms: started, discarded_at_ms: NOW });
+    f.markClosing(NOW);
+    await expect(discardSession(f.store, { ...sandbox, started_at_ms: started, discarded_at_ms: NOW })).resolves.toMatchObject({ ok: true });
+  });
+
+  it("pilot discard ignores a stray closing mark (sandbox-only rule)", async () => {
+    const f = fakeStore();
+    await startSession(f.store, { ...base, started_at_ms: wib("2026-10-14T10:00:00") });
+    f.markClosing(NOW);
+    await discardSession(f.store, { ...base, started_at_ms: wib("2026-10-14T10:00:00"), discarded_at_ms: NOW });
+    expect(f.session?.end_reason).toBe("discarded");
   });
 });

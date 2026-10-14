@@ -5,6 +5,12 @@ import {
 } from "@/lib/capture/contract";
 import { businessDateOf, plannedIntervalFor } from "@/lib/capture/calendar";
 import type { QueuedSegment, UploadFn } from "@/lib/capture/browser/engine";
+import {
+  ClosingRefusalDetailsSchema,
+  DemoClosingResponseSchema,
+  type ClosingRefusalDetails,
+  type DemoClosingResponse,
+} from "@/lib/demo/contract";
 
 /**
  * Browser-side capture HTTP client (web spec §5/§6). The request *builders* are
@@ -77,8 +83,17 @@ export function buildSegmentPut(
  * `sessionId` stamps every segment with the Mulai session it belongs to
  * (release gate, web spec §6.6.4): without it, a Batalkan discard deletes 0
  * segments while telling staff "removed".
+ *
+ * `onAccepted` (R-19 PR-4a, plan 5.2): after a 200 that is not `{discarded: true}`, the response's
+ * `lines` COUNT is handed over (the route returns `{seg_id, lines}`; never text). Omitted by every
+ * pre-R-19 caller; a body that cannot be read or has no numeric `lines` reports nothing. The engine
+ * contract (status or null) is unchanged.
  */
-export function createSegmentUploader(auth: DeviceAuth, sessionId?: string): UploadFn {
+export function createSegmentUploader(
+  auth: DeviceAuth,
+  sessionId?: string,
+  onAccepted?: (lines: number) => void,
+): UploadFn {
   return async (segment) => {
     try {
       const req = buildSegmentPut(segment, auth, sessionId);
@@ -90,11 +105,27 @@ export function createSegmentUploader(auth: DeviceAuth, sessionId?: string): Upl
           type: segment.content_type,
         }),
       });
+      if (onAccepted && res.ok) {
+        const lines = await acceptedLineCount(res);
+        if (lines !== null) onAccepted(lines);
+      }
       return res.status;
     } catch {
       return null; // network error → engine retries
     }
   };
+}
+
+/** The `lines` count of a segment 200, or null for `{discarded: true}`, an unreadable body or a missing count. */
+async function acceptedLineCount(res: Response): Promise<number | null> {
+  try {
+    const payload: { data?: { discarded?: unknown; lines?: unknown } } | null = await res.json();
+    const data = payload?.data;
+    if (!data || data.discarded === true || typeof data.lines !== "number") return null;
+    return data.lines;
+  } catch {
+    return null;
+  }
 }
 
 /** Fetches + validates the capture config (server output boundary → zod). */
@@ -191,6 +222,36 @@ export function postSessionDiscard(
   body: { started_at_ms: number; discarded_at_ms: number },
 ): Promise<SessionRouteResult<{ ok: true; cleanup: "pending" | "done" }>> {
   return postSessionRoute(`/api/v1/capture/sessions/${sessionId}/discard`, auth, body);
+}
+
+// ── R-19 PR-4a: "Jump to closing time" (plan 5.4; sandbox judge devices only) ───
+
+/**
+ * Outcome of `POST /api/v1/demo/closing`. Like `SessionRouteResult`, but a failure also carries the 409
+ * `not_enough_speech` counts ({have, need}), validated with zod; any other shape, status or a network failure
+ * reads as `details: null`. Never throws; never reads the server's `error.message`.
+ */
+export type DemoClosingResult =
+  | { ok: true; data: DemoClosingResponse }
+  | { ok: false; status: number | undefined; code: string | undefined; details: ClosingRefusalDetails | null };
+
+export async function postDemoClosing(auth: DeviceAuth, sessionId: string): Promise<DemoClosingResult> {
+  try {
+    const res = await fetch("/api/v1/demo/closing", {
+      method: "POST",
+      headers: { ...deviceAuthHeaders(auth), "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId }),
+    });
+    if (!res.ok) {
+      const payload: { error?: { code?: string; details?: unknown } } | null = await res.json().catch(() => null);
+      const details = ClosingRefusalDetailsSchema.safeParse(payload?.error?.details);
+      return { ok: false, status: res.status, code: payload?.error?.code, details: details.success ? details.data : null };
+    }
+    const payload: { data?: unknown } = await res.json();
+    return { ok: true, data: DemoClosingResponseSchema.parse(payload.data) };
+  } catch {
+    return { ok: false, status: undefined, code: undefined, details: null };
+  }
 }
 
 export type CapturePhase = "outside_hours" | "active";

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { autoStopDeadline, demoMulaiAvailability, selesaiReady } from "@/lib/capture/demo-session";
 import { FRESH_DEMO_SESSION } from "@/lib/capture/contract";
+import { DEMO_SESSION_MAX_MS } from "@/lib/demo/constants";
 import { autoStopAtMs, mulaiAvailability } from "@/lib/capture/calendar";
 import type { WeeklyHours } from "@/lib/firestore/schema";
 
@@ -76,24 +77,24 @@ describe("autoStopDeadline", () => {
     expect(autoStopDeadline({ localDate: "2026-10-14", startedAtMs: NOON, weekly: closed, tz: TZ })).toBeNull();
   });
   it("profile: start + max_ms when that is earlier than close + 1 h", () => {
-    expect(autoStopDeadline({ localDate: "2026-10-14", startedAtMs: NOON, weekly, tz: TZ, maxMs: 300_000 })).toBe(NOON + 300_000);
+    expect(autoStopDeadline({ localDate: "2026-10-14", startedAtMs: NOON, weekly, tz: TZ, maxMs: DEMO_SESSION_MAX_MS })).toBe(NOON + DEMO_SESSION_MAX_MS);
   });
   it("profile: start + max_ms even when close + 1 h comes first (the server uses start + max_ms only)", () => {
     const late = wib("2026-10-14T22:44:00");
-    expect(autoStopDeadline({ localDate: "2026-10-14", startedAtMs: late, weekly, tz: TZ, maxMs: 300_000 })).toBe(
-      late + 300_000,
+    expect(autoStopDeadline({ localDate: "2026-10-14", startedAtMs: late, weekly, tz: TZ, maxMs: DEMO_SESSION_MAX_MS })).toBe(
+      late + DEMO_SESSION_MAX_MS,
     );
   });
   it("profile: a start after close + 1 h (23:10, or 00:30 while local_date is still yesterday) is never already past", () => {
     const after = wib("2026-10-14T23:10:00");
-    const deadline = autoStopDeadline({ localDate: "2026-10-14", startedAtMs: after, weekly, tz: TZ, maxMs: 300_000 });
-    expect(deadline).toBe(after + 300_000);
+    const deadline = autoStopDeadline({ localDate: "2026-10-14", startedAtMs: after, weekly, tz: TZ, maxMs: DEMO_SESSION_MAX_MS });
+    expect(deadline).toBe(after + DEMO_SESSION_MAX_MS);
     expect(deadline!).toBeGreaterThan(after);
   });
   it("profile on a closed weekday: start + max_ms", () => {
     const closed: WeeklyHours = { ...weekly, wed: null };
-    expect(autoStopDeadline({ localDate: "2026-10-14", startedAtMs: started, weekly: closed, tz: TZ, maxMs: 300_000 })).toBe(
-      started + 300_000,
+    expect(autoStopDeadline({ localDate: "2026-10-14", startedAtMs: started, weekly: closed, tz: TZ, maxMs: DEMO_SESSION_MAX_MS })).toBe(
+      started + DEMO_SESSION_MAX_MS,
     );
   });
 });

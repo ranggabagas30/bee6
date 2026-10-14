@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildSegmentPut,
+  createSegmentUploader,
   deviceAuthHeaders,
   fetchCaptureConfig,
+  postDemoClosing,
   postSessionDiscard,
   postSessionEnd,
   postSessionStart,
@@ -149,6 +151,71 @@ describe("session routes (Mulai/Selesai/Batalkan; web spec §6.6.3-§6.6.5)", ()
     expect(result).toEqual({ ok: false, status: 409, code: "session_ended" });
   });
 
+  // R-19 PR-4a (plan 5.4): "Jump to closing time". The 409 not_enough_speech details are counts only
+  // ({have, need}), validated with zod before the page may show them; any other shape reads as no details.
+  it("postDemoClosing: posts {session_id} to /api/v1/demo/closing with the device auth; 200 is ok:true", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => {
+        expect(url).toBe("/api/v1/demo/closing");
+        expect(init.headers).toMatchObject(deviceAuthHeaders(auth));
+        expect(JSON.parse(String(init.body))).toEqual({ session_id: "11111111-1111-1111-1111-111111111111" });
+        return new Response(JSON.stringify({ data: { closing_reached: true } }), { status: 200 });
+      }),
+    );
+    const result = await postDemoClosing(auth, "11111111-1111-1111-1111-111111111111");
+    expect(result).toEqual({ ok: true, data: { closing_reached: true } });
+  });
+
+  it("postDemoClosing: 409 not_enough_speech carries the validated {have, need} counts", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: { code: "not_enough_speech", message: "x", details: { have: 3, need: 5 } } }), {
+            status: 409,
+          }),
+      ),
+    );
+    const result = await postDemoClosing(auth, "11111111-1111-1111-1111-111111111111");
+    expect(result).toEqual({ ok: false, status: 409, code: "not_enough_speech", details: { have: 3, need: 5 } });
+  });
+
+  it("postDemoClosing: malformed details, another 409, a 404 and a network failure all carry details: null", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: { code: "not_enough_speech", details: { have: "3", text: "hello" } } }), { status: 409 }),
+      ),
+    );
+    expect(await postDemoClosing(auth, "11111111-1111-1111-1111-111111111111")).toEqual({
+      ok: false,
+      status: 409,
+      code: "not_enough_speech",
+      details: null,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ error: { code: "session_not_open" } }), { status: 409 })),
+    );
+    expect(await postDemoClosing(auth, "11111111-1111-1111-1111-111111111111")).toEqual({
+      ok: false,
+      status: 409,
+      code: "session_not_open",
+      details: null,
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 404 })));
+    expect(await postDemoClosing(auth, "11111111-1111-1111-1111-111111111111")).toMatchObject({ ok: false, status: 404, details: null });
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("offline"); }));
+    expect(await postDemoClosing(auth, "11111111-1111-1111-1111-111111111111")).toEqual({
+      ok: false,
+      status: undefined,
+      code: undefined,
+      details: null,
+    });
+  });
+
   it("postSessionDiscard: a 202 pending-cleanup response is still ok:true", async () => {
     vi.stubGlobal(
       "fetch",
@@ -184,6 +251,49 @@ const config: CaptureConfigResponse = {
   last_ended: null,
   capture_mode: "room",
 };
+
+// R-19 PR-4a (plan 5.2): the segment response is a line COUNT (`{seg_id, lines}`), never text. The uploader hands
+// that count to an optional callback after a 200 that is not `{discarded: true}`; the engine contract (status or
+// null) is unchanged.
+describe("createSegmentUploader onAccepted (R-19 line counting)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const stub = (status: number, body: unknown, ok = status < 400) =>
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok, status, json: async () => body }) as Response));
+
+  it("200 {seg_id, lines}: returns the status and reports the line count", async () => {
+    stub(200, { data: { seg_id: "seg-abc", lines: 3 } });
+    const accepted: number[] = [];
+    const upload = createSegmentUploader(auth, undefined, (n) => accepted.push(n));
+    expect(await upload(segment)).toBe(200);
+    expect(accepted).toEqual([3]);
+  });
+
+  it("200 {discarded: true}: the status is returned and nothing is reported", async () => {
+    stub(200, { data: { discarded: true } });
+    const onAccepted = vi.fn();
+    expect(await createSegmentUploader(auth, undefined, onAccepted)(segment)).toBe(200);
+    expect(onAccepted).not.toHaveBeenCalled();
+  });
+
+  it("a non-2xx, a body without a numeric lines field, or an unreadable body: status returned, nothing reported, no throw", async () => {
+    const onAccepted = vi.fn();
+    stub(422, { error: { code: "VALIDATION_ERROR" } });
+    expect(await createSegmentUploader(auth, "11111111-1111-4111-8111-111111111111", onAccepted)(segment)).toBe(422);
+    stub(200, { data: { seg_id: "seg-abc", lines: "three" } });
+    expect(await createSegmentUploader(auth, undefined, onAccepted)(segment)).toBe(200);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError("bad json"); } }) as unknown as Response),
+    );
+    expect(await createSegmentUploader(auth, undefined, onAccepted)(segment)).toBe(200);
+    expect(onAccepted).not.toHaveBeenCalled();
+  });
+
+  it("without a callback (every existing caller) the uploader behaves exactly as before", async () => {
+    stub(200, { data: { seg_id: "seg-abc", lines: 3 } });
+    expect(await createSegmentUploader(auth)(segment)).toBe(200);
+  });
+});
 
 describe("resolveCapturePhase (strict config shape, no consent gate)", () => {
   it("is active inside today's hours", () => {
