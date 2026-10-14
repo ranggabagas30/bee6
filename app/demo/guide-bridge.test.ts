@@ -1,0 +1,81 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { FRESH_DEMO_SESSION, type DemoSessionProfile } from "@/lib/capture/contract";
+import {
+  DEBRIEF_DONE_FLAG_KEY,
+  capturePhaseFor,
+  publishCaptureBridge,
+  readCaptureBridge,
+  subscribeCaptureBridge,
+  type CaptureBridge,
+} from "@/app/demo/guide-bridge";
+
+/**
+ * R-19 PR-5: the seam between /capture (which owns the session, the config and the actions) and the judge guide
+ * mounted in the root layout. `capturePhaseFor` is the pure phase table (plan 7.1 keys); the store is a tiny
+ * external store for useSyncExternalStore.
+ */
+const NOW = Date.parse("2026-10-14T05:00:00Z");
+const profile = (over: Partial<DemoSessionProfile> = {}): DemoSessionProfile => ({ ...FRESH_DEMO_SESSION, ...over });
+const ended = (over: Partial<{ end_reason: string; debrief_ends_at_ms: number | null }> = {}) => ({
+  business_date: "2026-10-14",
+  end_reason: over.end_reason ?? "selesai",
+  debrief_ends_at_ms: over.debrief_ends_at_ms === undefined ? NOW + 3_000_000 : over.debrief_ends_at_ms,
+});
+
+describe("capturePhaseFor", () => {
+  const base = { profile: profile(), session: null, lastEnded: null, nowMs: NOW, debriefDoneFlag: null, startOffered: true };
+
+  it("no session, nothing ended: ready", () => {
+    expect(capturePhaseFor(base)).toBe("ready");
+  });
+
+  it("a running session is listening until closing is reached, then closing", () => {
+    expect(capturePhaseFor({ ...base, session: { closingReached: false } })).toBe("listening");
+    expect(capturePhaseFor({ ...base, session: { closingReached: true } })).toBe("closing");
+  });
+
+  it("a still-open server session with no local one (PR-4b) is open_session", () => {
+    const open = { session_id: "11111111-1111-4111-8111-111111111111", started_at_ms: NOW - 1000, closing_reached: true, auto_stop_at_ms: NOW + 1000 };
+    expect(capturePhaseFor({ ...base, profile: profile({ open_session: open }) })).toBe("open_session");
+  });
+
+  it("the debrief window: preparing while the server says so, else question; done on the PR-3 flag or once the window is over", () => {
+    const debrief = { ...base, lastEnded: ended(), startOffered: false };
+    expect(capturePhaseFor(debrief)).toBe("debrief_question");
+    expect(capturePhaseFor({ ...debrief, profile: profile({ next_day: { allowed: false, reason: "preparing" } }) })).toBe("debrief_preparing");
+    expect(capturePhaseFor({ ...debrief, debriefDoneFlag: String(NOW + 3_000_000) })).toBe("debrief_done");
+    expect(capturePhaseFor({ ...debrief, debriefDoneFlag: String(NOW + 1) })).toBe("debrief_question");
+    expect(capturePhaseFor({ ...debrief, nowMs: NOW + 3_000_000 })).toBe("debrief_done");
+  });
+
+  it("a discarded session has no debrief: ready; an ended day whose debrief is over but Start is offered (after the jump): ready", () => {
+    expect(capturePhaseFor({ ...base, lastEnded: ended({ end_reason: "discarded", debrief_ends_at_ms: null }) })).toBe("ready");
+    expect(capturePhaseFor({ ...base, lastEnded: ended(), nowMs: NOW + 4_000_000, startOffered: true })).toBe("ready");
+    expect(capturePhaseFor({ ...base, lastEnded: ended(), nowMs: NOW + 4_000_000, startOffered: false })).toBe("debrief_done");
+  });
+});
+
+describe("the capture bridge store", () => {
+  afterEach(() => publishCaptureBridge(null));
+
+  it("starts empty, publishes a snapshot, notifies subscribers, and clears", () => {
+    expect(readCaptureBridge()).toBeNull();
+    const onChange = vi.fn();
+    const off = subscribeCaptureBridge(onChange);
+    const bridge: CaptureBridge = {
+      state: { profile: profile(), phase: "listening", sessionId: "s1", linesThisSession: 2, closingBusy: false, closingError: null, micTrouble: false },
+      actions: { jumpToClosing: () => {}, refetchConfig: async () => {} },
+    };
+    publishCaptureBridge(bridge);
+    expect(readCaptureBridge()).toBe(bridge);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    off();
+    publishCaptureBridge(null);
+    expect(readCaptureBridge()).toBeNull();
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("names the PR-3 done flag key the plan fixes", () => {
+    expect(DEBRIEF_DONE_FLAG_KEY).toBe("bee6.debrief.done");
+  });
+});

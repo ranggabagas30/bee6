@@ -73,9 +73,13 @@ describe("app/demo/* import boundaries (R-12 Task 8.6)", () => {
     for (const line of localLines) expect(line).toMatch(/DEVICE_(TOKEN|ID)_KEY|DEMO_STATE_KEY/);
   });
 
-  it("the sandbox state is shared across tabs: sessionStorage is not used under app/demo/", () => {
+  it("the sandbox state is shared across tabs: sessionStorage is used under app/demo/ only by the judge guide, for the spoken-cards progress of one local session (plan 5.3)", () => {
     const offenders = TARGET_FILES.filter((f) => /sessionStorage/.test(readFileSync(f, "utf8"))).map(relPath);
-    expect(offenders).toEqual([]);
+    expect(offenders).toEqual(["app/demo/JudgeGuide.tsx"]);
+    const guide = readFileSync(join(TARGET_DIR, "JudgeGuide.tsx"), "utf8");
+    const lines = guide.split("\n").filter((l) => /sessionStorage\.(get|set|remove)Item/.test(l));
+    expect(lines.length).toBeGreaterThan(0);
+    for (const line of lines) expect(line).toMatch(/scriptStorageKey\(/);
   });
 
   it("the wire contract is the allowed demo import", () => {
@@ -124,9 +128,9 @@ describe("pilot isolation of the demo sign-in (R-18 P1)", () => {
     expect(src).not.toMatch(/ssr:\s*false/); // server-rendered with the page: no flash of a missing demo box
   });
 
-  it("no pilot-reachable module imports lib/demo/credentials: only app/demo/DemoAccess does", () => {
+  it("no pilot-reachable module imports lib/demo/credentials: only app/demo/DemoAccess and the judge guide (R-19 PR-5, loaded only when DEMO_MODE is on) do", () => {
     const importers = APP_AND_LIB.filter((f) => /["']@\/lib\/demo\/credentials["']/.test(readFileSync(f, "utf8"))).map(relPath);
-    expect(importers).toEqual(["app/demo/DemoAccess.tsx"]);
+    expect(importers.sort()).toEqual(["app/demo/DemoAccess.tsx", "app/demo/JudgeGuide.tsx"]);
   });
 
   it("nothing but lib/demo/credentials.ts (and the server-only reserved pairing code) carries the published credential values", () => {
