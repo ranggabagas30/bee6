@@ -180,6 +180,12 @@ export function cloneTemplate(input: {
   device_token_hash: string;
   /** The sandbox's current business date (the caller passes `businessDateOf(now_ms, outlet timezone)`). */
   anchor_business_date: string;
+  /**
+   * R-19 PR-7 (owner reset): the copy's expiry. Default `now_ms + SANDBOX_TTL_MS` (creation, unchanged). A reset
+   * passes the OLD expiry so it never extends the 2-hour copy; a value that is not a safe integer after `now_ms`,
+   * or lies beyond `now_ms + SANDBOX_TTL_MS`, is refused.
+   */
+  expires_at_ms?: number;
 }): ClonedDoc[] {
   const { tpl, ids, now_ms, key_sha256, device_token_hash, anchor_business_date } = input;
   const last = tpl.device.last_ended;
@@ -204,7 +210,10 @@ export function cloneTemplate(input: {
   }
   const shift = <T extends object>(doc: T): T => capAtNow(shiftDeep(doc, deltaMs, k), now_ms);
   const map = { device: ids.device_id, outlet: ids.outlet_id };
-  const expiresAt = now_ms + SANDBOX_TTL_MS;
+  const expiresAt = input.expires_at_ms ?? now_ms + SANDBOX_TTL_MS;
+  if (!Number.isSafeInteger(expiresAt) || expiresAt <= now_ms || expiresAt > now_ms + SANDBOX_TTL_MS) {
+    throw new Error("cloneTemplate: expiry must be a whole instant after now and at most now + the sandbox TTL");
+  }
 
   for (const t of tpl.threads) assertNoTokenInText(t);
 

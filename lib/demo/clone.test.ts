@@ -620,3 +620,42 @@ describe("R-18 P0 whole-day time shift", () => {
     }
   });
 });
+
+describe("R-19 PR-7 expires_at_ms (owner reset keeps the 2-hour copy)", () => {
+  const withExpiry = (expires_at_ms: number) =>
+    cloneTemplate({ tpl: templateSet(), ids: IDS, now_ms: NOW, key_sha256: KEY, device_token_hash: HASH, anchor_business_date: businessDateOf(NOW, TZ), expires_at_ms });
+  const outletOf = (docs: ClonedDoc[]) => byCol(docs, COLLECTIONS.outlets)[0]!.data as ReturnType<typeof OutletSchema.parse>;
+  const deviceOf = (docs: ClonedDoc[]) => byCol(docs, COLLECTIONS.devices)[0]!.data as ReturnType<typeof DeviceSchema.parse>;
+
+  it("a given expiry is used on the sandbox object and on the judge device, not now + the TTL", () => {
+    const expiry = NOW + 37 * 60_000;
+    const docs = withExpiry(expiry);
+    expect(outletOf(docs).sandbox?.expires_at_ms).toBe(expiry);
+    expect(deviceOf(docs).expires_at_ms).toBe(expiry);
+    expect(outletOf(docs).sandbox?.created_at_ms).toBe(NOW);
+  });
+
+  it("with no expiry the default (now + SANDBOX_TTL_MS) is unchanged", () => {
+    const docs = clone();
+    expect(outletOf(docs).sandbox?.expires_at_ms).toBe(NOW + SANDBOX_TTL_MS);
+    expect(deviceOf(docs).expires_at_ms).toBe(NOW + SANDBOX_TTL_MS);
+  });
+
+  it("an expiry beyond now + the TTL (a reset can never extend the copy) refuses", () => {
+    expect(() => withExpiry(NOW + SANDBOX_TTL_MS + 1)).toThrow("cloneTemplate: expiry");
+    expect(withExpiry(NOW + SANDBOX_TTL_MS)).toBeTruthy();
+  });
+
+  it("an expiry that is not in the future, or not a safe integer, refuses", () => {
+    expect(() => withExpiry(NOW)).toThrow("cloneTemplate: expiry");
+    expect(() => withExpiry(NOW - 1)).toThrow("cloneTemplate: expiry");
+    expect(() => withExpiry(NOW + 1.5)).toThrow("cloneTemplate: expiry");
+    expect(() => withExpiry(Number.NaN)).toThrow("cloneTemplate: expiry");
+  });
+
+  it("a re-clone carries no next_day_count and no shift marker (day 1 again)", () => {
+    const sandbox = outletOf(withExpiry(NOW + 60_000)).sandbox as Record<string, unknown>;
+    expect("next_day_count" in sandbox).toBe(false);
+    expect("shift_started_at_ms" in sandbox).toBe(false);
+  });
+});

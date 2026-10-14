@@ -3,20 +3,32 @@ import { ZodError } from "zod";
 import { generateDeviceToken, hashDeviceToken } from "@/lib/auth/pairing";
 import { businessDateOf } from "@/lib/capture/calendar";
 import type { CustomClaims } from "@/lib/auth/roles";
-import { AppError, ConflictError, LockedError, NotFoundError } from "@/lib/http/errors";
+import { AppError, ConflictError, ForbiddenError, LockedError, NotFoundError, ValidationError } from "@/lib/http/errors";
 import { cloneTemplate, judgeDeviceIdOf, sandboxIds } from "@/lib/demo/clone";
 import {
   CLEANUP_PER_CREATE,
   COUNTER_TTL_MS,
   IP_SALT_MIN_LENGTH,
+  RESET_PER_SANDBOX,
   SANDBOX_DAILY,
+  SANDBOX_OUTLET_PREFIX,
   SANDBOX_IP_DAILY,
   SANDBOX_TTL_MS,
   SWITCH_IP_DAILY,
   SWITCHES_PER_SANDBOX,
 } from "@/lib/demo/constants";
-import { DemoSessionResponseSchema, type DemoRole, type DemoSessionBody, type DemoSessionResponse } from "@/lib/demo/contract";
+import {
+  DemoResetBodySchema,
+  DemoResetResponseSchema,
+  DemoSessionResponseSchema,
+  type DemoResetResponse,
+  type DemoRole,
+  type DemoSessionBody,
+  type DemoSessionResponse,
+} from "@/lib/demo/contract";
 import { ipBucketKey, secondsToUtcMidnight, utcDay } from "@/lib/demo/limits";
+import { SHIFT_MARKER_STALE_MS } from "@/lib/demo/next-day";
+import { runCheck } from "@/lib/demo/redact-cap";
 import { TemplateTooLargeError, type DemoStore } from "@/lib/demo/store-types";
 
 /**
@@ -60,6 +72,7 @@ const CLONE_FAILURE_CODES: readonly (readonly [string, string])[] = [
   ["cloneTemplate: template free text contains a template id token", "template_id_token"],
   ["cloneTemplate: template has no ended session", "missing_session_day"],
   ["cloneTemplate: a template session starts after now", "session_after_now"],
+  ["cloneTemplate: expiry", "bad_expiry"],
 ];
 
 /** The only thing logged about a failed clone: a fixed code, never the error message. */
@@ -291,4 +304,148 @@ async function credentials(
     expires_at_ms: c.expires_at_ms,
     landing_path: LANDING[c.role],
   });
+}
+
+// ── R-19 PR-7: owner reset of the demo sandbox (docs/tasks/R-19-demo-v2.md section 8.4) ─────────────────────────
+
+/** How long the reset holds the judge device's pipeline lease (the tick and a next-day shift skip the device meanwhile). */
+export const RESET_LEASE_MS = 120_000;
+
+/**
+ * The store seam of the reset: the `DemoStore` calls it needs plus four narrow ones. Firestore implementation:
+ * `firestoreResetStore` in lib/firestore/demo-reset-store.ts.
+ */
+export interface ResetStore extends Pick<DemoStore, "readTemplate" | "writeSandbox" | "deleteSandbox" | "getOutlet" | "bumpCounter" | "readCounter"> {
+  /** The judge device's stored token hash; null when the device doc is missing, belongs to another outlet or has no hash. */
+  readJudgeTokenHash(outletId: string, deviceId: string): Promise<string | null>;
+  /** `proposal_locks/{outlet}` exists with `expires_at_ms > nowMs` (a proposal is being generated). */
+  proposalLockLive(outletId: string, nowMs: number): Promise<boolean>;
+  /** The device's pipeline lease (the tick store's); null when held. */
+  acquireLease(outletId: string, deviceId: string, nowMs: number, ttlMs: number): Promise<number | null>;
+  releaseLease(outletId: string, deviceId: string, token: number): Promise<void>;
+}
+
+export interface ResetDeps {
+  log?: (event: string, fields: Record<string, unknown>) => void;
+}
+
+export interface ResetInput {
+  /** The verified claims: the outlet comes from here and only from here, never from the request. */
+  claims: Pick<CustomClaims, "outlet_id" | "role">;
+  now_ms: number;
+  /** The route's `DEMO_MODE === "true"`. */
+  demoMode: boolean;
+  /** Reads the request body. Called only after the sandbox gate and the owner check, so a caller who fails either never reaches body handling. */
+  body: () => Promise<unknown>;
+}
+
+const busy = () => new ConflictError("The demo is busy, try again shortly", "busy");
+
+/**
+ * `POST /api/v1/demo/reset`: wipes ONE sandbox back to the template (day 1, original SOP, no proposals, no staff
+ * answers), keeping its key, its 2-hour expiry, its judge device and that device's token (the paired phone and the
+ * signed-in owner keep working). Demo project only.
+ *
+ * Order (nothing destructive happens before step 8; every refusal before it spends no cap slot):
+ *  1. DEMO_MODE off -> 404, before any read.   2. The caller's outlet is a sandbox (id prefix, then the outlet doc
+ *  with `project_kind` "demo" and a `sandbox` object) else the same 404.   3. role === "owner" else 403.
+ *  4. Strict body `{ confirm: "reset" }`.   5. The sandbox is not expired (409 SANDBOX_EXPIRED).
+ *  6. Cap pre-check, read-only (429).   7. Refuse while a fresh shift marker, a live proposal lock or a held pipeline
+ *  lease says something is writing to the sandbox (409 busy); a marker older than SHIFT_MARKER_STALE_MS is a crashed
+ *  shift and does not block (the reset is its recovery). The re-clone is built in memory FIRST (a broken template
+ *  never destroys a sandbox), then the lease is taken, then the cap slot is charged.
+ *  8. `deleteSandbox`, then `writeSandbox` of the re-clone with the SAME ids, key hash, token hash and expiry.
+ * A failure from step 8 on is a 503 `reset_failed`: the half-built sandbox expires and is cleaned up like any other.
+ * A next-day shift that was in flight cannot finish against the new sandbox: it needs the lease or the marker count.
+ *
+ * Nothing is logged but fixed codes, the sandbox id and an error class. No key, hash, token, text or device id.
+ */
+export async function resetSandbox(store: ResetStore, deps: ResetDeps, input: ResetInput): Promise<DemoResetResponse> {
+  const log = deps.log ?? defaultLog;
+  const { now_ms } = input;
+  if (!input.demoMode) throw new NotFoundError("route", "route"); // before any read, never logged
+  const outletId = input.claims.outlet_id;
+  if (!outletId.startsWith(SANDBOX_OUTLET_PREFIX)) throw new NotFoundError("route", "route");
+  const outlet = await store.getOutlet(outletId);
+  if (!outlet || outlet.project_kind !== "demo" || !outlet.sandbox) throw new NotFoundError("route", "route");
+  if (input.claims.role !== "owner") throw new ForbiddenError("Only the owner can reset the demo");
+
+  const parsed = DemoResetBodySchema.safeParse(await input.body());
+  if (!parsed.success) {
+    throw new ValidationError(
+      "invalid_body",
+      parsed.error.issues.map((issue) => ({ field: issue.path.join("."), message: issue.code })),
+    );
+  }
+
+  const expires = outlet.sandbox.expires_at_ms;
+  if (now_ms >= expires) throw new ConflictError("Sandbox expired", "SANDBOX_EXPIRED");
+
+  // The cap: a read-only look now (a refused or busy reset costs no slot), the charge right before the wipe.
+  const counterId = `reset_sandbox:${outletId}`;
+  const capRefused = () =>
+    new LockedError(Math.max(1, Math.ceil((expires - now_ms) / 1000)), "This demo has reached its reset limit", "demo_reset_cap");
+  await runCheck(async () => {
+    if ((await store.readCounter(counterId)) >= RESET_PER_SANDBOX) throw capRefused();
+  });
+
+  const marker = outlet.sandbox.shift_started_at_ms ?? null;
+  if (marker !== null && now_ms - marker <= SHIFT_MARKER_STALE_MS) throw busy();
+  if (await store.proposalLockLive(outletId, now_ms)) throw busy();
+
+  const deviceId = judgeDeviceIdOf(outletId);
+  const tokenHash = await store.readJudgeTokenHash(outletId, deviceId);
+  if (!tokenHash) throw notReady();
+
+  let tpl;
+  try {
+    tpl = await store.readTemplate();
+  } catch (error) {
+    if (error instanceof TemplateTooLargeError) throw new AppError("The demo is not ready", "template_too_large", 503);
+    throw error;
+  }
+  if (tpl === null || tpl.outlet.project_kind !== "demo") throw notReady();
+  let docs;
+  try {
+    docs = cloneTemplate({
+      tpl,
+      ids: { outlet_id: outletId, device_id: deviceId },
+      now_ms,
+      key_sha256: outlet.sandbox.key_sha256,
+      device_token_hash: tokenHash,
+      anchor_business_date: businessDateOf(now_ms, tpl.outlet.timezone),
+      expires_at_ms: expires, // a reset never extends the 2-hour copy
+    });
+  } catch (error) {
+    log("clone_failed", { reason: cloneFailureReason(error) });
+    throw notReady();
+  }
+
+  const lease = await store.acquireLease(outletId, deviceId, now_ms, RESET_LEASE_MS);
+  if (lease === null) throw busy();
+  try {
+    await runCheck(async () => {
+      if (!(await store.bumpCounter(counterId, "reset_sandbox", utcDay(now_ms), RESET_PER_SANDBOX, new Date(now_ms + COUNTER_TTL_MS).toISOString()))) {
+        throw capRefused();
+      }
+    });
+    let stage: "delete" | "write" = "delete";
+    try {
+      await store.deleteSandbox(outletId);
+      stage = "write";
+      await store.writeSandbox(docs);
+    } catch (error) {
+      log("reset_failed", { sandbox: outletId, stage, error_class: errorClass(error) });
+      throw new AppError("The reset did not finish", "reset_failed", 503);
+    }
+    log("sandbox_reset", { sandbox: outletId });
+    return DemoResetResponseSchema.parse({ reset: true });
+  } finally {
+    // The wipe also removed the lease doc, so this is normally a no-op. Never rethrow: it must not mask the result.
+    try {
+      await store.releaseLease(outletId, deviceId, lease);
+    } catch (error) {
+      log("reset_release_failed", { sandbox: outletId, error_class: errorClass(error) });
+    }
+  }
 }
