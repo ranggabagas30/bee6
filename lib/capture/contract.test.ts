@@ -324,3 +324,44 @@ describe("CaptureConfigResponseSchema", () => {
     ).toThrow();
   });
 });
+
+// ── R-19 PR-2: the sandbox profile's day, days_done and next_day (plan section 4.3) ─────────────────────────
+import { DEMO_SESSION_MAX_MS } from "@/lib/demo/constants";
+import { projectDemoSessionProfile, withDemoDay, type DemoDayInput } from "@/lib/capture/contract";
+
+describe("projectDemoSessionProfile", () => {
+  const T0 = Date.UTC(2026, 9, 14, 3, 0, 0);
+  const last = { business_date: "2026-10-14", end_reason: "selesai" as const, ended_at_ms: T0 - 60_000, debrief_ends_at_ms: T0 + 3_540_000 };
+  const base: DemoDayInput = { next_day_count: undefined, last_ended: null, today: "2026-10-14", next_day: { allowed: false, reason: "day_not_ended" } };
+
+  it("a fresh sandbox is exactly FRESH_DEMO_SESSION", () => {
+    expect(projectDemoSessionProfile(base)).toEqual(FRESH_DEMO_SESSION);
+  });
+
+  it("day = next_day_count + 1, days_done counts today's ended day, next_day is the guard's verdict; script stays bakery-v1 until PR-5", () => {
+    expect(projectDemoSessionProfile({ next_day_count: 0, last_ended: last, today: "2026-10-14", next_day: { allowed: true, reason: null } })).toEqual({
+      max_ms: DEMO_SESSION_MAX_MS, script_id: "bakery-v1", day: 1, days_total: 3, days_done: 1, closing_reached: false, open_session: null, next_day: { allowed: true, reason: null },
+    });
+    expect(projectDemoSessionProfile({ next_day_count: 1, last_ended: { ...last, business_date: "2026-10-13" }, today: "2026-10-14", next_day: { allowed: false, reason: "day_not_ended" } })).toMatchObject({ day: 2, days_done: 1 });
+    expect(projectDemoSessionProfile({ next_day_count: 2, last_ended: last, today: "2026-10-14", next_day: { allowed: false, reason: "max_days" } })).toMatchObject({ day: 3, days_done: 3, next_day: { allowed: false, reason: "max_days" } });
+  });
+
+  it("validates strictly: an inconsistent next_day is refused", () => {
+    expect(() => projectDemoSessionProfile({ ...base, next_day: { allowed: true, reason: "busy" } as never })).toThrow();
+  });
+});
+
+describe("withDemoDay (the config route's overlay)", () => {
+  const pilotConfig = { timezone: "Asia/Jakarta", weekly_hours: { mon: { open: "07:00", close: "21:45" }, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null }, last_ended: null, capture_mode: "none" as const };
+  const demoDay: DemoDayInput = { next_day_count: 1, last_ended: null, today: "2026-10-14", next_day: { allowed: false, reason: "day_not_ended" } };
+
+  it("leaves a config without demo_session untouched (the pilot never gains the key)", () => {
+    expect(withDemoDay(pilotConfig, demoDay)).toEqual(pilotConfig);
+  });
+
+  it("replaces the fresh profile with the live one and re-validates the whole response", () => {
+    const out = withDemoDay({ ...pilotConfig, demo_session: FRESH_DEMO_SESSION }, demoDay);
+    expect(out.demo_session).toMatchObject({ day: 2, days_done: 1, next_day: { allowed: false, reason: "day_not_ended" } });
+    expect(Object.keys(out).sort()).toEqual(["capture_mode", "demo_session", "last_ended", "timezone", "weekly_hours"]);
+  });
+});
