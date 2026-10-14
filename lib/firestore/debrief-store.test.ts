@@ -395,6 +395,97 @@ describe("firestoreDebriefStore.findEndedDebrief", () => {
   });
 });
 
+describe("firestoreDebriefStore.getLatestEndedSession (R-19 preparing)", () => {
+  it("picks this device's latest ENDED session of the business date (by ended_at_ms), ignoring open and discarded ones", async () => {
+    const { db } = fakeDb({
+      [COLLECTIONS.captureSessions]: {
+        early: asDoc(makeCaptureSession({ session_id: "11111111-1111-4111-8111-111111111111", ended_at_ms: 1000 })),
+        late: asDoc(makeCaptureSession({ session_id: "22222222-2222-4222-8222-222222222222", ended_at_ms: 5000, end_reason: "auto_stop" })),
+        open: asDoc(makeCaptureSession({ session_id: "33333333-3333-4333-8333-333333333333", ended_at_ms: null, end_reason: null })),
+        discarded: asDoc(makeCaptureSession({ session_id: "44444444-4444-4444-8444-444444444444", ended_at_ms: 9000, end_reason: "discarded", debrief_ends_at_ms: null })),
+        otherDay: asDoc(makeCaptureSession({ session_id: "55555555-5555-4555-8555-555555555555", ended_at_ms: 9500, local_date: "2026-10-06" })),
+        otherDevice: asDoc(makeCaptureSession({ session_id: "66666666-6666-4666-8666-666666666666", ended_at_ms: 9900, device_id: "dev-2" })),
+      },
+    });
+    const result = await firestoreDebriefStore(OUTLET, db).getLatestEndedSession(DEVICE, "2026-10-07");
+    expect(result).toEqual({ session_id: "22222222-2222-4222-8222-222222222222", ended_at_ms: 5000 });
+  });
+
+  it("returns null when the device has no ended session that date", async () => {
+    const { db } = fakeDb({});
+    expect(await firestoreDebriefStore(OUTLET, db).getLatestEndedSession(DEVICE, "2026-10-07")).toBeNull();
+  });
+});
+
+describe("firestoreDebriefStore.listSessionLines (R-19 preparing)", () => {
+  const seg = (seg_id: string, lines: { text: string }[], overrides: Record<string, unknown> = {}) => ({
+    outlet_id: OUTLET,
+    device_id: DEVICE,
+    seg_id,
+    received_at: "2026-10-07T10:00:00.000Z",
+    device_start: "2026-10-07T10:00:00.000Z",
+    device_end: "2026-10-07T10:00:10.000Z",
+    model: "gemini-3.5-transcribe-preview",
+    location: "global",
+    lines: lines.map((l, i) => ({ text: l.text, start: i, end: i + 1 })),
+    expires_at: "2026-10-09T10:00:00.000Z",
+    session_id: "11111111-1111-4111-8111-111111111111",
+    ...overrides,
+  });
+
+  it("returns `${seg_id}#${index}` ids with has_text for this device + session only; a blanked line has no text", async () => {
+    const { db } = fakeDb({
+      [COLLECTIONS.segments]: {
+        s1: seg("s1", [{ text: "oven checked" }, { text: "" }, { text: "   " }]),
+        s2: seg("s2", [{ text: "phone order" }], { session_id: "22222222-2222-4222-8222-222222222222" }),
+        s3: seg("s3", [{ text: "other phone" }], { device_id: "dev-2" }),
+      },
+    });
+    const result = await firestoreDebriefStore(OUTLET, db).listSessionLines(DEVICE, "11111111-1111-4111-8111-111111111111");
+    expect(result).toEqual([
+      { line_id: "s1#0", has_text: true },
+      { line_id: "s1#1", has_text: false },
+      { line_id: "s1#2", has_text: false },
+    ]);
+  });
+
+  it("reads a Timestamp expires_at (the stored form) and skips a malformed segment doc", async () => {
+    const { db } = fakeDb({
+      [COLLECTIONS.segments]: {
+        s1: seg("s1", [{ text: "ok" }], { expires_at: Timestamp.fromDate(new Date("2026-10-09T10:00:00.000Z")) }),
+        bad: { outlet_id: OUTLET, device_id: DEVICE, session_id: "11111111-1111-4111-8111-111111111111", lines: "nope" },
+      },
+    });
+    const result = await firestoreDebriefStore(OUTLET, db).listSessionLines(DEVICE, "11111111-1111-4111-8111-111111111111");
+    expect(result).toEqual([{ line_id: "s1#0", has_text: true }]);
+  });
+});
+
+describe("firestoreDebriefStore.listLabelledLineIds (R-19 preparing)", () => {
+  const unit = (unit_key: string, line_ids: string[], status: "pending" | "done" | "failed", device_id = DEVICE) => ({
+    outlet_id: OUTLET,
+    device_id,
+    unit_key,
+    line_ids,
+    status,
+    attempts: 1,
+    labelled_at_ms: status === "pending" ? null : 1,
+  });
+
+  it("unions the line ids of this device's done and failed units; pending units and other devices are not labelled", async () => {
+    const { db } = fakeDb({
+      [COLLECTIONS.labelUnits]: {
+        u1: unit("u1", ["s1#0", "s1#1"], "done"),
+        u2: unit("u2", ["s1#2"], "failed"),
+        u3: unit("u3", ["s1#3"], "pending"),
+        u4: unit("u4", ["s9#0"], "done", "dev-2"),
+      },
+    });
+    const result = await firestoreDebriefStore(OUTLET, db).listLabelledLineIds(DEVICE);
+    expect([...result].sort()).toEqual(["s1#0", "s1#1", "s1#2"]);
+  });
+});
+
 describe("firestoreDebriefStore.transactAnswer", () => {
   it("reads question + thread + correction-exists, then writes the patches, correction and audit", async () => {
     const { db, collections } = fakeDb({

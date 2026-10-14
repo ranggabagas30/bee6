@@ -41,6 +41,9 @@ function fakeStore(overrides: Partial<DebriefStore> = {}): DebriefStore {
     findEndedDebrief: async () => null,
     listStaffNames: async () => [],
     transactAnswer: async () => "already_answered",
+    getLatestEndedSession: async () => null,
+    listSessionLines: async () => [],
+    listLabelledLineIds: async () => new Set(),
     ...overrides,
   };
 }
@@ -153,6 +156,44 @@ describe("GET /api/v1/questions", () => {
     expect(body.data.questions[0].category).toBe("CUSTOMER_SERVICE");
     expect(body.data.questions[0].start_hm).toBe("02:05");
     expect(body.data.questions[0].end_hm).toBe("02:10");
+  });
+
+  describe("R-19: `preparing` is in the response only on a sandbox outlet", () => {
+    const activeLastEnded = (): LastEnded => ({
+      business_date: "2026-10-07",
+      end_reason: "selesai",
+      ended_at_ms: Date.now() - 60_000,
+      debrief_ends_at_ms: Date.now() + 3_600_000,
+    });
+    const deviceClaims = () =>
+      vi.spyOn(guardModule, "requireDevice").mockResolvedValueOnce({ outlet_id: "outlet-1", device_id: "device-1", role: "device" });
+
+    it("sandbox: preparing: true while an unlabelled text line of the ended session exists", async () => {
+      deviceClaims();
+      vi.spyOn(debriefStoreModule, "firestoreDebriefStore").mockReturnValueOnce(
+        fakeStore({
+          getOutletCalendar: async () => ({ tz: "Asia/Jakarta", retention_days: 14, sandbox: true }),
+          getLastEnded: async () => activeLastEnded(),
+          getLatestEndedSession: async () => ({ session_id: "11111111-1111-4111-8111-111111111111", ended_at_ms: Date.now() - 60_000 }),
+          listSessionLines: async () => [{ line_id: "s1#0", has_text: true }],
+          listLabelledLineIds: async () => new Set(),
+        }),
+      );
+      const response = await GET(getRequest());
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.data.preparing).toBe(true);
+    });
+
+    it("pilot: no `preparing` key at all", async () => {
+      deviceClaims();
+      vi.spyOn(debriefStoreModule, "firestoreDebriefStore").mockReturnValueOnce(
+        fakeStore({ getLastEnded: async () => activeLastEnded() }),
+      );
+      const response = await GET(getRequest());
+      const body = await response.json();
+      expect(Object.keys(body.data).sort()).toEqual(["debrief", "questions"]);
+    });
   });
 
   it("with X-Device-Id present: requireDevice is called, requireClaims never is", async () => {

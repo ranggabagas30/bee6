@@ -64,6 +64,16 @@ class FakeDebriefStore implements DebriefStore {
     this.listStaffNamesCalls += 1;
     return this.staffNames;
   }
+  // R-19 PR-3 `preparing` inputs (exercised in service.r19.test.ts); nothing pending here.
+  async getLatestEndedSession() {
+    return null;
+  }
+  async listSessionLines() {
+    return [];
+  }
+  async listLabelledLineIds() {
+    return new Set<string>();
+  }
   async transactAnswer(
     question_id: string,
     fn: (s: AnswerTxSnapshot) => AnswerWritePlan,

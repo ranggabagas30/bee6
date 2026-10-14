@@ -56,6 +56,12 @@ export const DebriefListResponseSchema = z
       .strict()
       .nullable(),
     questions: z.array(DebriefQuestionViewSchema).max(DEBRIEF_LIST_SERVER_CAP),
+    /**
+     * R-19 PR-3: present ONLY on a demo sandbox outlet while a debrief is active. `true` while the ended
+     * session still has text lines no label unit has finished and End was under PREPARING_MAX_MS ago
+     * (the phone shows "Preparing your questions"). Absent on every pilot response.
+     */
+    preparing: z.boolean().optional(),
   })
   .strict();
 export type DebriefListResponse = z.infer<typeof DebriefListResponseSchema>;
