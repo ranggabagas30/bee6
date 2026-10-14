@@ -9,7 +9,7 @@ import { Card, Mist } from "@/app/ui";
 import { ShopTopBar } from "@/app/shop/ShopTopBar";
 import { PairForm, type PairedInfo } from "@/app/pair/PairForm";
 import { PairedChecklist } from "@/app/pair/PairedChecklist";
-import type { DemoAccessProps, DemoFill } from "@/app/sign-in/panel-hooks";
+import type { DemoAccessProps } from "@/app/sign-in/panel-hooks";
 import { DemoHooksConsumer } from "@/app/sign-in/demo-hooks";
 import styles from "@/app/pair/pair.module.css";
 
@@ -28,19 +28,10 @@ type Paired = { kind: "pilot"; info: PairedInfo } | { kind: "demo" };
 export function PairScreen({ demo, config }: { demo: boolean; config: FirebaseWebConfig | null }) {
   const { lang } = useLang();
   const [paired, setPaired] = useState<Paired | null>(null);
-  // A "Fill in" from the demo box re-keys the form with the code (the guide's own fill uses the window event instead).
-  const [codeFill, setCodeFill] = useState<{ nonce: number; code: string }>({ nonce: 0, code: "" });
-
-  function fill(values: DemoFill) {
-    if (values.code !== undefined) setCodeFill((c) => ({ nonce: c.nonce + 1, code: values.code ?? "" }));
-  }
-
   const form = (
     <DemoHooksConsumer>
       {(hooks) => (
         <PairForm
-          key={codeFill.nonce}
-          initialCode={codeFill.code}
           demoIntercept={hooks.interceptCode}
           onPaired={(info) => setPaired({ kind: "pilot", info })}
         />
@@ -56,9 +47,9 @@ export function PairScreen({ demo, config }: { demo: boolean; config: FirebaseWe
         <Card as="section" className={styles.card} aria-labelledby="pair-h1">
           {paired ? (
             paired.kind === "demo" ? (
-              <PairedChecklist demo />
+              <PairedChecklist demo headingId="pair-h1" />
             ) : (
-              <PairedChecklist outletId={paired.info.outletId} auth={paired.info.auth} />
+              <PairedChecklist outletId={paired.info.outletId} auth={paired.info.auth} headingId="pair-h1" />
             )
           ) : (
             <>
@@ -67,7 +58,7 @@ export function PairScreen({ demo, config }: { demo: boolean; config: FirebaseWe
               </h1>
               <p className={styles.help}>{t(lang, "C-pair-help")}</p>
               {demo ? (
-                <DemoAccess config={config} role="staff" onFill={fill} onStarted={() => setPaired({ kind: "demo" })}>
+                <DemoAccess config={config} role="staff" onFill={() => {}} onStarted={() => setPaired({ kind: "demo" })}>
                   {form}
                 </DemoAccess>
               ) : (

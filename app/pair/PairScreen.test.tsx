@@ -128,6 +128,28 @@ describe("PairScreen on the pilot (demo=false): Set up this device, pilot copy u
     expect(screen.getByRole("link", { name: "Open the listening page" })).toBeTruthy();
   });
 
+  it("after pairing, the card is a named region (its aria-labelledby points at the heading)", async () => {
+    pinOpenDay();
+    stubPairThenConfig(200);
+    renderScreen();
+    expect(screen.getByRole("region", { name: "Set up this device" })).toBeTruthy();
+    fillCodeAndSubmit("123456");
+    await screen.findByRole("heading", { level: 1, name: "Phone set up" }, { timeout: 3000 });
+    expect(screen.getByRole("region", { name: "Phone set up" })).toBeTruthy();
+  });
+
+  it("a code set the way the judge guide's Fill in sets it (native setter + input event on #pairing-code) shows in the six boxes and enables the button", () => {
+    renderScreen();
+    const input = document.getElementById("pairing-code") as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(input, "000000");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(screen.getAllByTestId("pair-box").map((b) => b.textContent).join("")).toBe("000000");
+    expect((screen.getByRole("button", { name: "Set up" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("success in Bahasa", async () => {
     pinOpenDay();
     stubPairThenConfig(200);
@@ -192,6 +214,17 @@ describe("PairScreen on the demo (demo=true): the demo code opens a sandbox, the
     await waitFor(() => expect(screen.getByTestId("demo-status").textContent).toContain("The demo has reached today's limit."));
     expect((screen.getByRole("button", { name: "Set up" }) as HTMLButtonElement).disabled).toBe(false);
     expect(screen.queryByText("Device set up")).toBeNull();
+  });
+
+  it("after the demo pairing, the card is a named region 'Device set up'", async () => {
+    startOrSwitch.mockResolvedValue({ kind: "started" });
+    renderScreen({ demo: true });
+    await screen.findByTestId("demo-status");
+    await act(async () => {
+      fillCodeAndSubmit("000000");
+    });
+    await screen.findByRole("heading", { level: 1, name: "Device set up" });
+    expect(screen.getByRole("region", { name: "Device set up" })).toBeTruthy();
   });
 
   it("any other code takes the real pair route and starts no demo", async () => {

@@ -42,9 +42,11 @@ export interface PairedChecklistProps {
   auth?: DeviceAuth;
   headingLevel?: 1 | 2;
   demo?: boolean;
+  /** id for the heading, so the surrounding region can be named by it (aria-labelledby). */
+  headingId?: string;
 }
 
-export function PairedChecklist({ outletId, auth, headingLevel = 1, demo = false }: PairedChecklistProps) {
+export function PairedChecklist({ outletId, auth, headingLevel = 1, demo = false, headingId }: PairedChecklistProps) {
   const { lang } = useLang();
   // untilHm: today's Mulai window end once the outlet config has loaded. A config failure must not turn a successful
   // pairing into an error: step 3 simply stays hidden.
@@ -73,7 +75,7 @@ export function PairedChecklist({ outletId, auth, headingLevel = 1, demo = false
 
   return (
     <>
-      <Heading className={styles.h1}>{t(lang, demo ? "C-web-pair-done-h" : "C-pair-ok-h")}</Heading>
+      <Heading id={headingId} className={styles.h1}>{t(lang, demo ? "C-web-pair-done-h" : "C-pair-ok-h")}</Heading>
       {!demo && outletId !== undefined && <p className={styles.outlet}>{t(lang, "C-pair-ok-line", { outlet_id: outletId })}</p>}
       <ol className={styles.steps}>
         {steps.map((step) => (

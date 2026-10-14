@@ -33,12 +33,6 @@ const OUTLET_ID_KEY = "bee6.outlet_id";
 
 const CODE_LENGTH = 6;
 
-/**
- * Window event that fills the code field without submitting (`detail: { code }`; non-digits are dropped). The judge
- * guide's "Fill in" action (R-19 PR-5, mounted by the root layout outside this page tree) dispatches it.
- */
-export const PAIR_CODE_FILL_EVENT = "bee6:pair-code";
-
 export interface PairedInfo {
   outletId: string;
   auth: DeviceAuth;
@@ -51,7 +45,7 @@ export interface PairFormProps {
    * pair route is not called. `false`, or a throw, takes the real path. Only the lazily loaded demo code supplies this.
    */
   demoIntercept?: (code: string) => Promise<boolean>;
-  /** Starts the field with this code (the demo box's Fill in). */
+  /** Starts the field with this code (the role sign-in's demo box Fill in). */
   initialCode?: string;
 }
 
@@ -68,15 +62,6 @@ export function PairForm({ onPaired, demoIntercept, initialCode = "" }: PairForm
   const errorRef = useRef<HTMLParagraphElement>(null);
   const errorId = useId();
   const hintId = useId();
-
-  useEffect(() => {
-    const onFill = (event: Event) => {
-      const detail = (event as CustomEvent<{ code?: unknown }>).detail;
-      if (detail && typeof detail.code === "string") setCode(digitsOnly(detail.code));
-    };
-    window.addEventListener(PAIR_CODE_FILL_EVENT, onFill);
-    return () => window.removeEventListener(PAIR_CODE_FILL_EVENT, onFill);
-  }, []);
 
   // A refusal moves focus to its line (UX-03 §5.1) so it is read at once; the digits stay for a corrected retry.
   useEffect(() => {

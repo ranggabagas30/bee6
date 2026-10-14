@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { LangProvider } from "@/lib/i18n/context";
 import { createMemoryStorage } from "@/lib/demo/testing/memory-storage";
 import { axeViolations } from "@/lib/testing/axe";
-import { PAIR_CODE_FILL_EVENT, PairForm } from "@/app/pair/PairForm";
+import { PairForm } from "@/app/pair/PairForm";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 
@@ -104,17 +104,6 @@ describe("PairForm", () => {
       await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("No connection."));
       expect(input().value).toBe("123456");
       expect(submitButton().disabled).toBe(false);
-    });
-
-    it(`a ${PAIR_CODE_FILL_EVENT} window event fills the field without submitting (the judge guide's Fill in, PR-5)`, () => {
-      vi.stubGlobal("fetch", vi.fn());
-      renderForm();
-      act(() => {
-        window.dispatchEvent(new CustomEvent(PAIR_CODE_FILL_EVENT, { detail: { code: "12-34 56" } }));
-      });
-      expect(input().value).toBe("123456");
-      expect(submitButton().disabled).toBe(false);
-      expect(fetch).not.toHaveBeenCalled();
     });
 
     it("is in Bahasa when the language says so", () => {
