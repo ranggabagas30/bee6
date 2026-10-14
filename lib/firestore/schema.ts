@@ -4,6 +4,7 @@ import { MIC_SOURCE_CLASSES } from "@/lib/capture/mic-source";
 import { CategorySchema, WorkCategorySchema } from "@/lib/pipeline/categories";
 import { GateDecisionSchema } from "@/lib/pipeline/gate";
 import { CORRECTION_TEXT_MAX_CHARS } from "@/lib/debrief/constants";
+import { NEXT_DAY_MAX } from "@/lib/demo/constants";
 
 /**
  * Firestore schema v0 (web spec §6.4). zod schemas + inferred TS types for every
@@ -140,7 +141,7 @@ export const OutletSchema = z
         expires_at_ms: z.number().int().min(0),
         key_sha256: z.string().regex(/^[a-f0-9]{64}$/),
         /** R-19: how many times the sandbox clock has jumped to the next day (0..NEXT_DAY_MAX); absent = 0. */
-        next_day_count: z.number().int().min(0).max(2).optional(),
+        next_day_count: z.number().int().min(0).max(NEXT_DAY_MAX).optional(),
         /** R-19: single-flight marker of a running "Jump to tomorrow" shift; non-null while one runs or after a crash. */
         shift_started_at_ms: z.number().int().min(0).nullable().optional(),
       })

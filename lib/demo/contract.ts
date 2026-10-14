@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEMO_DAYS_TOTAL } from "@/lib/demo/constants";
 
 /**
  * Body and response of `POST /api/v1/demo/session` (R-12 Task 6.1; web spec 6.2). The response
@@ -127,7 +128,7 @@ export type DemoProcessNowResponse = z.infer<typeof DemoProcessNowResponseSchema
 export const DemoProgressResponseSchema = z
   .object({
     day: z.union([z.literal(1), z.literal(2), z.literal(3)]),
-    days_done: z.number().int().min(0).max(3),
+    days_done: z.number().int().min(0).max(DEMO_DAYS_TOTAL),
     proposals_with_content: z.number().int().min(0),
     feasible: z.number().int().min(0),
     owner_decided: z.number().int().min(0),

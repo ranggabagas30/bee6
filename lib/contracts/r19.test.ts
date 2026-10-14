@@ -83,6 +83,8 @@ describe("R-19 connected devices (plan section 9.3, hard rule #7: no device id, 
     expect(DeviceRowSchema.safeParse(row).success).toBe(true);
     expect(DeviceRowSchema.safeParse({ ...row, paired: false, paired_on: null, last_seen_ms: null }).success).toBe(true);
     expect(DeviceRowSchema.safeParse({ ...row, label: "" }).success).toBe(false);
+    expect(DeviceRowSchema.safeParse({ ...row, paired_on: "yesterday" }).success).toBe(false);
+    expect(DeviceRowSchema.safeParse({ ...row, paired_on: "2026-10-12T08:00:00Z" }).success).toBe(false);
     expect(DeviceRowSchema.safeParse({ ...row, listening: "yes" }).success).toBe(false);
   });
 

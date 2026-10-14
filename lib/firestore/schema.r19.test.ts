@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { NEXT_DAY_MAX } from "@/lib/demo/constants";
 import {
   CaptureSessionSchema,
   DEMO_COUNTER_KINDS,
@@ -36,6 +37,11 @@ describe("R-19 OutletSchema.sandbox additions", () => {
     expect(r.sandbox).toEqual(sandbox);
   });
 
+  it("next_day_count's ceiling is NEXT_DAY_MAX, which is 2", () => {
+    expect(NEXT_DAY_MAX).toBe(2);
+    expect(parse({ next_day_count: NEXT_DAY_MAX }).success).toBe(true);
+    expect(parse({ next_day_count: NEXT_DAY_MAX + 1 }).success).toBe(false);
+  });
   it("next_day_count accepts 0, 1, 2 and rejects 3, -1 and a fraction", () => {
     for (const n of [0, 1, 2]) expect(parse({ next_day_count: n }).success).toBe(true);
     for (const n of [3, -1, 1.5]) expect(parse({ next_day_count: n }).success).toBe(false);

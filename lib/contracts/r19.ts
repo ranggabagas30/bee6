@@ -66,7 +66,7 @@ export const DeviceRowSchema = z
   .object({
     label: z.string().min(1),
     paired: z.boolean(),
-    paired_on: z.string().min(1).nullable(),
+    paired_on: dateString.nullable(),
     last_seen_ms: z.number().int().min(0).nullable(),
     listening: z.boolean(),
   })
