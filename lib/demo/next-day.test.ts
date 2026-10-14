@@ -465,3 +465,19 @@ describe("runNextDay", () => {
     expect(await codeOf(runNextDay(f.store, input({ now_ms: T0 + SHIFT_MARKER_STALE_MS + 1 })))).toBe("409:shift_incomplete");
   });
 });
+
+// ── refusal copy (section 4.4) lives in the journey i18n slice, one key per code ─────────────────────────────
+import { NEXT_DAY_REFUSALS } from "@/lib/demo/contract";
+import { journeyEN, journeyID } from "@/lib/i18n/v2/journey";
+
+describe("next-day refusal copy", () => {
+  it("has an EN and ID line for every NextDayRefusal code, plus the unanswered dialog's body and two buttons", () => {
+    const keys = [...NEXT_DAY_REFUSALS.map((c) => `C-journey-next-day-${c}`), "C-journey-next-day-unanswered-body", "C-journey-next-day-unanswered-answer-first", "C-journey-next-day-unanswered-jump-anyway"];
+    for (const k of keys) {
+      expect((journeyEN as Record<string, string>)[k], k).toBeTruthy();
+      expect((journeyID as Record<string, string>)[k], k).toBeTruthy();
+    }
+    expect((journeyEN as Record<string, string>)["C-journey-next-day-unanswered_questions"]).toContain("{n}");
+    expect((journeyEN as Record<string, string>)["C-journey-next-day-max_days"]).toBe("All 3 demo days are done. Sign out and continue as Supervisor.");
+  });
+});
