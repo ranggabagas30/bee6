@@ -23,6 +23,11 @@ export interface DemoAccessProps {
   config: FirebaseWebConfig | null;
   role: SignInRole;
   onFill: (fill: DemoFill) => void;
+  /**
+   * R-19 PR-6 (/pair): when given, a started demo does NOT hard-navigate to the role's landing page; the box calls this
+   * instead and the screen shows its own next step (Device set up). Without it the start navigates as before.
+   */
+  onStarted?: () => void;
   /** The sign-in panels; they read the intercepts through `DemoHooksConsumer`. */
   children: ReactNode;
 }

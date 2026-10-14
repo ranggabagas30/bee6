@@ -222,7 +222,7 @@ describe("RoleSignIn on the pilot (demo=false)", () => {
     renderSignIn({ initialRole: "staff" });
     submitCode("123456");
     expect(await screen.findByText("For outlet outlet-7")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Open the listening page" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open the listening page" }).getAttribute("href")).toBe("/capture");
     expect(screen.queryByLabelText("6-digit code")).toBeNull();
   });
 
@@ -310,10 +310,11 @@ describe("RoleSignIn on a demo deployment (demo=true)", () => {
     return view;
   }
 
-  it("shows the demo access box for the chosen role, with that role's credential", async () => {
+  it("shows the demo access box for the chosen role: no code for staff (W8), the email and password for the web roles", async () => {
     await renderDemo("staff");
     expect(screen.getByText("Demo access")).toBeTruthy();
-    expect(screen.getByText("000000")).toBeTruthy();
+    expect(screen.queryByText("000000")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Fill in" })).toBeNull();
     expect(screen.getByText(/Each sign-in opens your own private copy of a fictional shop for 2 hours/)).toBeTruthy();
     fireEvent.click(radio("Supervisor"));
     expect(screen.getByText("supervisor.judge@example.com")).toBeTruthy();
@@ -389,11 +390,10 @@ describe("RoleSignIn on a demo deployment (demo=true)", () => {
     expect(screen.getByTestId("demo-status").textContent).toContain("Filled in. Submit to continue.");
   });
 
-  it("Fill in on the Staff panel fills the code", async () => {
+  it("the Staff panel still pairs with a typed demo code (the judge guide fills it, PR-5); nothing on the panel shows it", async () => {
     await renderDemo("staff");
-    fireEvent.click(screen.getByRole("button", { name: "Fill in" }));
-    expect(codeInput().value).toBe("000000");
-    expect(startOrSwitch).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain("000000");
+    expect(codeInput().value).toBe("");
   });
 
   it("a refusal is explained in the demo box and the forms are usable again", async () => {
@@ -417,7 +417,7 @@ describe("RoleSignIn on a demo deployment (demo=true)", () => {
   });
 
   it("the demo box is in Bahasa too", async () => {
-    await renderDemo("staff", { lang: "id" });
+    await renderDemo("owner", { lang: "id" });
     expect(screen.getByText("Akses demo")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Isi otomatis" })).toBeTruthy();
   });

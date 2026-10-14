@@ -19,8 +19,11 @@ export function authOrNull(config: FirebaseWebConfig | null): Auth | null {
  * Shared by the demo sign-in box and the demo bar (R-12 Task 8, R-18 P1): one in-flight request at a time (a ref, so a
  * second tap in the same tick cannot slip past the disabled attribute), the last refusal, and the busy flag.
  * The refusal is cleared when the next attempt starts, never before.
+ *
+ * `navigate` (R-19 PR-6) replaces the default hard navigation of a started demo; `/pair` passes a no-op and shows its
+ * own next step. Omitted = the hard navigation to the role's landing page, as before.
  */
-export function useDemoStart(config: FirebaseWebConfig | null, onExpired: "restart" | "stop") {
+export function useDemoStart(config: FirebaseWebConfig | null, onExpired: "restart" | "stop", navigate?: (path: string) => void) {
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<DemoRefusal | null>(null);
   const inFlight = useRef(false);
@@ -34,7 +37,8 @@ export function useDemoStart(config: FirebaseWebConfig | null, onExpired: "resta
     try {
       // startDemo never throws; building the auth client can (a bad Firebase config).
       const auth = config ? getClientAuth(config) : null;
-      result = onExpired === "restart" ? await startOrSwitch(role, { auth }) : await startDemo(role, { auth, onExpired });
+      const options = navigate ? { auth, navigate } : { auth };
+      result = onExpired === "restart" ? await startOrSwitch(role, options) : await startDemo(role, { ...options, onExpired });
     } catch {
       result = { kind: "error" };
     } finally {

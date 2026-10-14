@@ -1,15 +1,23 @@
 "use client";
 
-import { useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { useLang } from "@/lib/i18n/context";
 import { pairErrorKey } from "@/lib/i18n/codes";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import type { DeviceAuth } from "@/lib/capture/browser/client";
+import { Button } from "@/app/ui";
+import { cx } from "@/app/ui/cx";
+import styles from "@/app/pair/pair.module.css";
 
 /**
- * The shop phone's pairing form (web spec §3, §4.1), shared by `/pair` and the Staff panel of the role sign-in (R-18 P1).
- * Type the 6-digit code, POST it to /api/v1/devices/pair, store the returned long-lived device token in this browser, and
- * hand the outlet and device auth to `onPaired`.
+ * The shop phone's pairing form (web spec §3, §4.1; "Set up this device", R-19 PR-6 §8.1), shared by `/pair` and the
+ * Staff panel of the role sign-in (R-18 P1). Type the 6-digit code, POST it to /api/v1/devices/pair, store the returned
+ * long-lived device token in this browser, and hand the outlet and device auth to `onPaired`.
+ *
+ * One real input (numeric, one-time-code autofill) sits transparently over six visual boxes that mirror its digits; the
+ * boxes are decoration for sighted users, the input is the only control. States: empty (button disabled, "Enter all 6
+ * digits" under it), filled (enabled), submitting (`aria-busy`, "Setting up…"), refused and network (an alert the input
+ * is described by; digits kept).
  */
 
 // ACCEPTED DESIGN (Tech Lead R-02 finding #2): the long-lived device token is
@@ -22,6 +30,14 @@ import type { DeviceAuth } from "@/lib/capture/browser/client";
 const DEVICE_TOKEN_KEY = "bee6.device_token";
 const DEVICE_ID_KEY = "bee6.device_id";
 const OUTLET_ID_KEY = "bee6.outlet_id";
+
+const CODE_LENGTH = 6;
+
+/**
+ * Window event that fills the code field without submitting (`detail: { code }`; non-digits are dropped). The judge
+ * guide's "Fill in" action (R-19 PR-5, mounted by the root layout outside this page tree) dispatches it.
+ */
+export const PAIR_CODE_FILL_EVENT = "bee6:pair-code";
 
 export interface PairedInfo {
   outletId: string;
@@ -39,31 +55,33 @@ export interface PairFormProps {
   initialCode?: string;
 }
 
-// box-sizing: border-box keeps width 100% inside the column (padding and border
-// do not add to it), so the code field lines up with the button at 360 px and above.
-const CODE_INPUT_STYLE: CSSProperties = {
-  display: "block",
-  boxSizing: "border-box",
-  width: "100%",
-  minHeight: 48,
-  fontSize: 24,
-  padding: 8,
-  marginTop: 8,
-};
-export const PAIR_BUTTON_STYLE: CSSProperties = {
-  boxSizing: "border-box",
-  width: "100%",
-  minHeight: 48,
-  padding: 12,
-  fontSize: 16,
-};
+const digitsOnly = (value: string) => value.replace(/\D/g, "").slice(0, CODE_LENGTH);
 
 export function PairForm({ onPaired, demoIntercept, initialCode = "" }: PairFormProps) {
   const { lang } = useLang();
-  const [code, setCode] = useState(initialCode);
+  const [code, setCode] = useState(() => digitsOnly(initialCode));
   const [submitting, setSubmitting] = useState(false);
+  const [focused, setFocused] = useState(false);
   const [errorKey, setErrorKey] = useState<DictKey | null>(null);
   const inFlight = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const errorRef = useRef<HTMLParagraphElement>(null);
+  const errorId = useId();
+  const hintId = useId();
+
+  useEffect(() => {
+    const onFill = (event: Event) => {
+      const detail = (event as CustomEvent<{ code?: unknown }>).detail;
+      if (detail && typeof detail.code === "string") setCode(digitsOnly(detail.code));
+    };
+    window.addEventListener(PAIR_CODE_FILL_EVENT, onFill);
+    return () => window.removeEventListener(PAIR_CODE_FILL_EVENT, onFill);
+  }, []);
+
+  // A refusal moves focus to its line (UX-03 §5.1) so it is read at once; the digits stay for a corrected retry.
+  useEffect(() => {
+    if (errorKey) errorRef.current?.focus();
+  }, [errorKey]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -112,35 +130,59 @@ export function PairForm({ onPaired, demoIntercept, initialCode = "" }: PairForm
     }
   }
 
+  const complete = code.length === CODE_LENGTH;
+  const activeIndex = Math.min(code.length, CODE_LENGTH - 1);
+  const describedBy = [errorKey ? errorId : null, !complete ? hintId : null].filter(Boolean).join(" ") || undefined;
+
   return (
-    <>
-      <form onSubmit={handleSubmit}>
-        <label htmlFor="pairing-code">{t(lang, "C-pair-label")}</label>
+    <form onSubmit={handleSubmit} aria-busy={submitting} className={styles.form} noValidate>
+      <label htmlFor="pairing-code" className={styles.label}>
+        {t(lang, "C-pair-label")}
+      </label>
+      <div className={styles.boxes} onClick={() => inputRef.current?.focus()}>
         <input
+          ref={inputRef}
           id="pairing-code"
           name="pairing-code"
+          className={styles.input}
           inputMode="numeric"
           autoComplete="one-time-code"
           pattern="\d{6}"
-          maxLength={6}
+          maxLength={CODE_LENGTH}
           required
+          readOnly={submitting}
           value={code}
-          onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))}
-          style={CODE_INPUT_STYLE}
+          aria-describedby={describedBy}
+          aria-invalid={errorKey ? true : undefined}
+          onChange={(event) => setCode(digitsOnly(event.target.value))}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
         />
-        <button
-          type="submit"
-          disabled={submitting || code.length !== 6}
-          style={{ ...PAIR_BUTTON_STYLE, marginTop: 16 }}
-        >
-          {submitting ? t(lang, "C-pair-busy") : t(lang, "C-b-pasang")}
-        </button>
-      </form>
+        <div className={styles.cells} aria-hidden="true">
+          {Array.from({ length: CODE_LENGTH }, (_, index) => (
+            <span
+              key={index}
+              data-testid="pair-box"
+              className={cx(styles.cell, code[index] !== undefined && styles.cellFilled, focused && index === activeIndex && styles.cellActive)}
+            >
+              {code[index] ?? ""}
+            </span>
+          ))}
+        </div>
+      </div>
+      <Button type="submit" variant="primary" size="lg" block disabled={submitting || !complete} className={styles.submit}>
+        {submitting ? t(lang, "C-pair-busy") : t(lang, "C-b-pasang")}
+      </Button>
+      {!complete && (
+        <p id={hintId} className={styles.hint}>
+          {t(lang, "C-pair-need")}
+        </p>
+      )}
       {errorKey ? (
-        <p role="alert" style={{ color: "#b00020", marginTop: 16 }}>
+        <p id={errorId} ref={errorRef} tabIndex={-1} role="alert" className={styles.error}>
           {t(lang, errorKey)}
         </p>
       ) : null}
-    </>
+    </form>
   );
 }

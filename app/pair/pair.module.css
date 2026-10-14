@@ -1,0 +1,216 @@
+/*
+ * /pair: "Set up this device" and "Device set up" (R-19 PR-6 §8.1) on the PR-0b tokens. One column, 360 px first.
+ * The six code boxes are decoration under a transparent real input (the only control); the active box shows a caret bar.
+ */
+
+.page {
+  position: relative;
+  min-height: 100dvh;
+  background: var(--b6-ground);
+  color: var(--b6-ink);
+  font-family: var(--b6-font-sans);
+}
+
+.column {
+  position: relative;
+  box-sizing: border-box;
+  max-width: 440px;
+  margin: 0 auto;
+  padding: 12px 16px 32px;
+  padding-left: max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
+}
+
+.card {
+  box-sizing: border-box;
+  padding: 22px 20px 24px;
+}
+
+.h1 {
+  margin: 0 0 8px;
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.3px;
+  overflow-wrap: anywhere;
+}
+
+.help {
+  margin: 0 0 20px;
+  font-size: var(--b6-fs-body);
+  line-height: 1.5;
+  color: var(--b6-muted);
+  overflow-wrap: anywhere;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.label {
+  font-size: var(--b6-fs-ui);
+  font-weight: 500;
+}
+
+.boxes {
+  position: relative;
+  min-height: 56px;
+  cursor: text;
+}
+
+.cells {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+}
+
+.cell {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 56px;
+  border-radius: var(--b6-r-control);
+  background: var(--b6-surface);
+  box-shadow: inset 0 0 0 1px var(--b6-line-field);
+  font-family: var(--b6-font-mono);
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+  color: var(--b6-ink);
+}
+
+.cellFilled {
+  box-shadow: inset 0 0 0 1px var(--b6-line-strong);
+}
+
+.cellActive {
+  box-shadow: inset 0 0 0 2px var(--b6-focus);
+}
+
+.cellActive:empty::after {
+  content: "";
+  width: 2px;
+  height: 26px;
+  background: var(--b6-ink);
+  animation: pair-caret 1s steps(2, start) infinite;
+}
+
+@keyframes pair-caret {
+  to {
+    visibility: hidden;
+  }
+}
+
+/* The real input: full-size over the boxes so taps and autofill land on it; its own text is invisible (the boxes show it). */
+.input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  font-size: 16px; /* never below 16px: iOS would zoom on focus */
+  letter-spacing: 0;
+  outline: none;
+}
+
+.input::selection {
+  background: transparent;
+}
+
+.submit {
+  margin-top: 8px;
+}
+
+.hint {
+  margin: 0;
+  font-size: var(--b6-fs-small);
+  line-height: 1.5;
+  color: var(--b6-muted);
+  text-align: center;
+}
+
+.error {
+  margin: 4px 0 0;
+  padding: 12px 14px;
+  border-radius: var(--b6-r-control);
+  background: var(--b6-red-bg);
+  color: var(--b6-red-ink);
+  font-size: var(--b6-fs-body);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.error:focus-visible {
+  outline: 2px solid var(--b6-focus);
+  outline-offset: 2px;
+}
+
+/* ---- Device set up ---- */
+.outlet {
+  margin: 0 0 16px;
+  font-size: var(--b6-fs-body);
+  color: var(--b6-muted);
+  overflow-wrap: anywhere;
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0 0 24px;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+
+.step {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  font-size: var(--b6-fs-body);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.step::before {
+  counter-increment: step;
+  content: counter(step);
+  flex: none;
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  margin-top: -2px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--b6-teal-bg);
+  box-shadow: inset 0 0 0 1px var(--b6-teal-line);
+  color: var(--b6-teal-ink);
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-small);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cellActive:empty::after {
+    animation: none;
+  }
+}
+
+@media (min-width: 900px) {
+  .column {
+    padding-top: 40px;
+  }
+  .card {
+    padding: 28px 28px 30px;
+  }
+}
