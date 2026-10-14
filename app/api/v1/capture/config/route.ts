@@ -37,7 +37,8 @@ async function withSandboxDay(config: CaptureConfigResponse, claims: { outlet_id
     next_day_count,
     last_ended: guard.last_ended,
     today: businessDateOf(now_ms, config.timezone),
-    next_day: nextDayEligibility({ ...guard, now_ms, tz: config.timezone, next_day_count: next_day_count ?? 0 }),
+    // The marker is part of the verdict: a crashed shift reports `shift_incomplete` (owner-reset copy), a live one `busy`.
+    next_day: nextDayEligibility({ ...guard, now_ms, tz: config.timezone, next_day_count: next_day_count ?? 0, shift_started_at_ms: outlet?.sandbox?.shift_started_at_ms ?? null }),
   });
 }
 

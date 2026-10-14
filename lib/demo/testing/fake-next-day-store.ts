@@ -92,8 +92,10 @@ export function fakeNextDayStore(seed: {
       calls.push("proposalWithContent");
       return [...col(COLLECTIONS.proposals).values()].some((p) => p.outlet_id === outletId && p.content != null);
     },
-    async takeShiftMarker(_outletId, nowMs) {
+    async takeShiftMarker(_outletId, nowMs, expectedCount) {
       calls.push("takeShiftMarker");
+      const count = sandbox().next_day_count ?? 0;
+      if (count !== expectedCount) return { taken: false, moved_to_count: count };
       const existing = sandbox().shift_started_at_ms ?? null;
       if (existing !== null) return { taken: false, started_at_ms: existing };
       setSandbox({ shift_started_at_ms: nowMs });
@@ -156,9 +158,10 @@ export function fakeNextDayStore(seed: {
       }
       return n;
     },
-    async completeShift() {
+    async completeShift(_outletId, expectedCount) {
       calls.push("completeShift");
-      setSandbox({ next_day_count: (sandbox().next_day_count ?? 0) + 1, shift_started_at_ms: null });
+      if ((sandbox().next_day_count ?? 0) !== expectedCount) throw new Error("fake: next_day_count moved under the shift marker");
+      setSandbox({ next_day_count: expectedCount + 1, shift_started_at_ms: null });
     },
   };
   return { store, calls, state, cols };

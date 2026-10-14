@@ -179,6 +179,21 @@ describe("GET /api/v1/capture/config", () => {
       expect(body.data.demo_session).toMatchObject({ day: 1, days_done: 1, next_day: { allowed: false, reason: "proposal_exists" } });
     });
 
+    it("R-19 PR-2 (QA defect 2): a set shift marker is reported (busy while fresh, shift_incomplete once stale), not day_not_ended", async () => {
+      vi.stubEnv("DEMO_MODE", "true");
+      const NOW = Date.parse("2026-10-14T03:00:00.000Z");
+      vi.spyOn(Date, "now").mockReturnValue(NOW);
+      // After a crashed shift: last_ended already moved to yesterday, the marker still set.
+      const movedBack = { business_date: "2026-10-13", end_reason: "selesai" as const, ended_at_ms: NOW - 86_400_000 - 10 * 60_000, debrief_ends_at_ms: NOW - 86_400_000 + 50 * 60_000 };
+      for (const [started, reason] of [[NOW - 5_000, "busy"], [NOW - 200_000, "shift_incomplete"]] as const) {
+        const marked: Outlet = { ...sbxOutlet, sandbox: { ...sandbox, shift_started_at_ms: started } };
+        wireDevice(judge({ last_ended: movedBack }), 1, marked);
+        vi.mocked(demoStoreModule.firestoreNextDayStore).mockReturnValue(fakeNextDayStore({ outlet: marked, last_ended: movedBack }).store);
+        const body = (await (await GET(req())).json()) as { data: Record<string, unknown> };
+        expect(body.data.demo_session).toMatchObject({ next_day: { allowed: false, reason } });
+      }
+    });
+
     it("DEMO_MODE unset (the pilot): never present, whatever the docs say; keys are exactly the pilot four; no demo store is built", async () => {
       vi.stubEnv("DEMO_MODE", "");
       wireDevice(judge(), 1, sbxOutlet);

@@ -32,7 +32,7 @@ describe("shiftDeep opts (R-19 PR-2: the clone's defaults stay, the next-day shi
 
 // ── guards (plan section 4.1) ───────────────────────────────────────────────────────────────────────────────
 import { PREPARING_MAX_MS } from "@/lib/demo/constants";
-import { demoDayOf, demoDaysDone, isPreparing, nextDayDecision, nextDayEligibility, type NextDayGuardInput } from "@/lib/demo/next-day";
+import { SHIFT_MARKER_STALE_MS, demoDayOf, demoDaysDone, isPreparing, nextDayDecision, nextDayEligibility, type NextDayGuardInput } from "@/lib/demo/next-day";
 import { businessDateOf } from "@/lib/capture/calendar";
 
 const TZ = "Asia/Jakarta";
@@ -48,6 +48,7 @@ function okInput(over: Partial<NextDayGuardInput> = {}): NextDayGuardInput {
     pending_unlabelled_lines: 0,
     proposal_with_content: false,
     proposal_lock_live: false,
+    shift_started_at_ms: null,
     ...over,
   };
 }
@@ -88,6 +89,35 @@ describe("nextDayEligibility (G3-G6, in order, no writes)", () => {
   it("G6 proposal_exists before busy", () => {
     expect(nextDayEligibility(okInput({ proposal_with_content: true, proposal_lock_live: true })).reason).toBe("proposal_exists");
     expect(nextDayEligibility(okInput({ proposal_lock_live: true })).reason).toBe("busy");
+  });
+});
+
+describe("nextDayEligibility: the shift marker is judged BEFORE G3-G6 (QA defect 2)", () => {
+  // After writeShift moved last_ended to yesterday, G4 would say day_not_ended; the marker says what really happened.
+  const afterPartialShift = { last_ended: { ...okInput().last_ended!, business_date: "2026-10-13" } };
+
+  it("a marker newer than SHIFT_MARKER_STALE_MS is busy, even though G4 alone would say day_not_ended", () => {
+    const input = okInput({ ...afterPartialShift, shift_started_at_ms: T0 - SHIFT_MARKER_STALE_MS });
+    expect(nextDayEligibility(input)).toEqual({ allowed: false, reason: "busy" });
+  });
+
+  it("a marker older than SHIFT_MARKER_STALE_MS is shift_incomplete (the owner-reset copy), even though G4 alone would say day_not_ended", () => {
+    const input = okInput({ ...afterPartialShift, shift_started_at_ms: T0 - SHIFT_MARKER_STALE_MS - 1 });
+    expect(nextDayEligibility(input)).toEqual({ allowed: false, reason: "shift_incomplete" });
+  });
+
+  it("the marker also wins over an open session (G3) and over proposal_exists (G6)", () => {
+    expect(nextDayEligibility(okInput({ session_open: true, shift_started_at_ms: T0 - 1 })).reason).toBe("busy");
+    expect(nextDayEligibility(okInput({ proposal_with_content: true, shift_started_at_ms: T0 - SHIFT_MARKER_STALE_MS - 5 })).reason).toBe("shift_incomplete");
+  });
+
+  it("nextDayDecision refuses with the marker's reason, not G4's", () => {
+    const base = { expected_day: 1 as const, confirm_unanswered: true, open_questions: 0 };
+    expect(nextDayDecision({ ...okInput({ ...afterPartialShift, shift_started_at_ms: T0 }), ...base })).toEqual({ kind: "refuse", reason: "busy" });
+    expect(nextDayDecision({ ...okInput({ ...afterPartialShift, shift_started_at_ms: T0 - SHIFT_MARKER_STALE_MS - 1 }), ...base })).toEqual({
+      kind: "refuse",
+      reason: "shift_incomplete",
+    });
   });
 });
 
@@ -302,7 +332,7 @@ describe("shiftLastEnded (devices: only last_ended moves)", () => {
 
 // ── runNextDay: the orchestration over an injected store (section 4.1 G1/G7, 4.2 order) ─────────────────────
 import { AppError, LockedError } from "@/lib/http/errors";
-import { SHIFT_MARKER_STALE_MS, runNextDay, type NextDayInput } from "@/lib/demo/next-day";
+import { runNextDay, type NextDayInput } from "@/lib/demo/next-day";
 import { fakeNextDayStore } from "@/lib/demo/testing/fake-next-day-store";
 import { NEXT_DAY_PER_SANDBOX, TEMPLATE_DOC_MAX } from "@/lib/demo/constants";
 import type { Outlet } from "@/lib/firestore/schema";
@@ -481,8 +511,8 @@ describe("runNextDay", () => {
     const f = fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast(), docs: dayOneDocs() });
     const store = {
       ...f.store,
-      async takeShiftMarker(o: string, n: number) {
-        const r = await f.store.takeShiftMarker(o, n);
+      async takeShiftMarker(o: string, n: number, expectedCount: number) {
+        const r = await f.store.takeShiftMarker(o, n, expectedCount);
         f.cols.get(COLLECTIONS.proposals)!.set("late", { outlet_id: SBX, content: { change_title: "x" } });
         return r;
       },
@@ -549,6 +579,81 @@ describe("runNextDay", () => {
     expect(f.state.written).toEqual([]);
     expect(f.state.outlet?.sandbox?.shift_started_at_ms).toBeNull();
     expect(f.state.leaseHeld).toBe(false);
+  });
+
+  it("DOUBLE-SHIFT race (QA defect 1): B reads the guard at count 0 and stalls before the marker; A finishes the whole shift; B then gets the stale 200 {day:2} and writes nothing", async () => {
+    const f = fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast(), docs: dayOneDocs() });
+    let finishA!: () => void;
+    const aFinished = new Promise<void>((r) => (finishA = r));
+    const storeB = {
+      ...f.store,
+      async takeShiftMarker(o: string, n: number, expectedCount: number) {
+        await aFinished; // B is slow between its guard read and the marker
+        return f.store.takeShiftMarker(o, n, expectedCount);
+      },
+    };
+    const pB = runNextDay(storeB, input());
+    await Promise.resolve();
+    expect(await runNextDay(f.store, input())).toEqual({ day: 2 }); // A: the real shift
+    const writesAfterA = f.state.written.length;
+    const startedAfterA = (f.cols.get(COLLECTIONS.captureSessions)!.get(`${JDG}:${S1}`) as { started_at_ms: number }).started_at_ms;
+    finishA();
+    expect(await pB).toEqual({ day: 2 }); // B: stale 200, not an error
+    expect(f.state.outlet?.sandbox?.next_day_count).toBe(1);
+    expect(f.state.outlet?.sandbox?.shift_started_at_ms).toBeNull();
+    expect(f.state.written.length).toBe(writesAfterA); // B wrote nothing
+    expect((f.cols.get(COLLECTIONS.captureSessions)!.get(`${JDG}:${S1}`) as { started_at_ms: number }).started_at_ms).toBe(startedAfterA); // data shifted once
+    expect(f.calls.filter((c) => c === "acquireLease")).toHaveLength(1);
+    expect(f.calls.filter((c) => c === "completeShift")).toHaveLength(1);
+  });
+
+  it("two requests past the guard read together: exactly one shifts, the other is busy (marker), count 1", async () => {
+    const f = fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast(), docs: dayOneDocs() });
+    let arrived = 0;
+    let release!: () => void;
+    const barrier = new Promise<void>((r) => (release = r));
+    const store = {
+      ...f.store,
+      async readGuardState(...a: Parameters<typeof f.store.readGuardState>) {
+        const g = await f.store.readGuardState(...a);
+        if (++arrived === 2) release();
+        await barrier;
+        return g;
+      },
+    };
+    const res = await Promise.allSettled([runNextDay(store, input()), runNextDay(store, input())]);
+    expect(res.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const rejected = res.find((r) => r.status === "rejected") as PromiseRejectedResult;
+    expect((rejected.reason as AppError).code).toBe("busy");
+    expect(f.state.outlet?.sandbox?.next_day_count).toBe(1);
+  });
+
+  it("a failure AFTER writeShift (expire throws): the retry is busy inside SHIFT_MARKER_STALE_MS and shift_incomplete after it, never day_not_ended (QA defect 2)", async () => {
+    const f = fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast(), docs: dayOneDocs() });
+    const store = { ...f.store, async expireOpenQuestions(): Promise<number> { throw new Error("expire boom"); } };
+    await expect(runNextDay(store, input())).rejects.toThrow("expire boom");
+    expect(f.state.last_ended?.business_date).not.toBe(TODAY); // the shift already moved last_ended to yesterday
+    expect(f.state.outlet?.sandbox).toMatchObject({ shift_started_at_ms: T0 });
+    expect(f.state.leaseHeld).toBe(false);
+    expect(await codeOf(runNextDay(f.store, input()))).toBe("409:busy"); // +0 s
+    expect(await codeOf(runNextDay(f.store, input({ now_ms: T0 + 200_000 })))).toBe("409:shift_incomplete"); // +200 s: the owner reset
+    expect(f.state.outlet?.sandbox?.next_day_count ?? 0).toBe(0);
+  });
+
+  it("a failure AFTER writeShift (completeShift throws) behaves the same: marker stays, retries are busy then shift_incomplete", async () => {
+    const f = fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast(), docs: dayOneDocs() });
+    const store = { ...f.store, async completeShift(): Promise<void> { throw new Error("complete boom"); } };
+    await expect(runNextDay(store, input())).rejects.toThrow("complete boom");
+    expect(await codeOf(runNextDay(f.store, input()))).toBe("409:busy");
+    expect(await codeOf(runNextDay(f.store, input({ now_ms: T0 + 200_000 })))).toBe("409:shift_incomplete");
+  });
+
+  it("a failure BEFORE the first write (lease throws) clears the marker: the retry just proceeds", async () => {
+    const f = fakeNextDayStore({ outlet: sbxOutlet(), last_ended: endedLast(), docs: dayOneDocs() });
+    let first = true;
+    const store = { ...f.store, async acquireLease(...a: Parameters<typeof f.store.acquireLease>) { if (first) { first = false; throw new Error("lease boom"); } return f.store.acquireLease(...a); } };
+    await expect(runNextDay(store, input())).rejects.toThrow("lease boom");
+    expect(await runNextDay(store, input())).toEqual({ day: 2 });
   });
 
   it("a crash mid-write leaves the marker set (owner reset is the recovery) and releases the lease; later taps get shift_incomplete", async () => {

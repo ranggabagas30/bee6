@@ -207,25 +207,49 @@ describe("firestoreNextDayStore marker (G7) and completion", () => {
   it("takeShiftMarker sets the marker only when it is null/absent; a second take reports the existing one", async () => {
     const f = fakeDb(seedSandbox());
     const store = firestoreNextDayStore(f.db);
-    expect(await store.takeShiftMarker(SBX, T0)).toEqual({ taken: true });
+    expect(await store.takeShiftMarker(SBX, T0, 0)).toEqual({ taken: true });
     expect((f.cols.get(COLLECTIONS.outlets)!.get(SBX)!.sandbox as Doc).shift_started_at_ms).toBe(T0);
-    expect(await store.takeShiftMarker(SBX, T0 + 5)).toEqual({ taken: false, started_at_ms: T0 });
+    expect(await store.takeShiftMarker(SBX, T0 + 5, 0)).toEqual({ taken: false, started_at_ms: T0 });
     await store.abortShift(SBX);
     expect((f.cols.get(COLLECTIONS.outlets)!.get(SBX)!.sandbox as Doc).shift_started_at_ms).toBeNull();
-    expect(await store.takeShiftMarker(SBX, T0 + 9)).toEqual({ taken: true });
-    await store.completeShift(SBX);
+    expect(await store.takeShiftMarker(SBX, T0 + 9, 0)).toEqual({ taken: true });
+    await store.completeShift(SBX, 0);
     expect(f.cols.get(COLLECTIONS.outlets)!.get(SBX)!.sandbox).toMatchObject({ next_day_count: 1, shift_started_at_ms: null, key_sha256: "a".repeat(64) });
-    await store.takeShiftMarker(SBX, T0 + 20);
-    await store.completeShift(SBX);
+    await store.takeShiftMarker(SBX, T0 + 20, 1);
+    await store.completeShift(SBX, 1);
     expect((f.cols.get(COLLECTIONS.outlets)!.get(SBX)!.sandbox as Doc).next_day_count).toBe(2);
+  });
+
+  it("takeShiftMarker also requires the count the caller saw (QA defect 1): a moved count takes nothing and reports the new count", async () => {
+    const f = fakeDb(seedSandbox());
+    const store = firestoreNextDayStore(f.db);
+    await store.takeShiftMarker(SBX, T0, 0);
+    await store.completeShift(SBX, 0); // another request finished the whole shift: count 1, marker null
+    const writesBefore = f.writes.length;
+    expect(await store.takeShiftMarker(SBX, T0 + 50, 0)).toEqual({ taken: false, moved_to_count: 1 }); // the stale caller saw count 0
+    expect(f.writes.length).toBe(writesBefore);
+    expect((f.cols.get(COLLECTIONS.outlets)!.get(SBX)!.sandbox as Doc).shift_started_at_ms).toBeNull();
+    expect(await store.takeShiftMarker(SBX, T0 + 60, 1)).toEqual({ taken: true });
+  });
+
+  it("completeShift increments only from the count the marker was taken under; otherwise it throws and writes nothing", async () => {
+    const f = fakeDb(seedSandbox());
+    const store = firestoreNextDayStore(f.db);
+    await store.takeShiftMarker(SBX, T0, 0);
+    const writesBefore = f.writes.length;
+    await expect(store.completeShift(SBX, 1)).rejects.toThrow(/next_day_count/);
+    expect(f.writes.length).toBe(writesBefore);
+    expect((f.cols.get(COLLECTIONS.outlets)!.get(SBX)!.sandbox as Doc).next_day_count ?? 0).toBe(0);
+    await store.completeShift(SBX, 0);
+    expect((f.cols.get(COLLECTIONS.outlets)!.get(SBX)!.sandbox as Doc).next_day_count).toBe(1);
   });
 
   it("refuses a non-sandbox outlet (no marker written) and a missing outlet", async () => {
     const f = fakeDb({ [COLLECTIONS.outlets]: { [SBX]: { ...outlet(), sandbox: undefined } } });
     const store = firestoreNextDayStore(f.db);
-    await expect(store.takeShiftMarker(SBX, T0)).rejects.toThrow(/not a sandbox/);
-    await expect(store.takeShiftMarker("outlet-1", T0)).rejects.toThrow(/not a sandbox/);
-    await expect(store.completeShift(SBX)).rejects.toThrow(/not a sandbox/);
+    await expect(store.takeShiftMarker(SBX, T0, 0)).rejects.toThrow(/not a sandbox/);
+    await expect(store.takeShiftMarker("outlet-1", T0, 0)).rejects.toThrow(/not a sandbox/);
+    await expect(store.completeShift(SBX, 0)).rejects.toThrow(/not a sandbox/);
     expect(f.writes).toEqual([]);
   });
 

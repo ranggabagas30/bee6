@@ -24,6 +24,9 @@ import type { DemoStore } from "@/lib/demo/store-types";
  * changes (hard rule #10); no audio is touched (#2); no name is read (#7).
  */
 
+/** A marker older than this belongs to a crashed shift (G7): later calls get `shift_incomplete`; newer ones `busy`. */
+export const SHIFT_MARKER_STALE_MS = 120_000;
+
 // ── guards G3-G6 (G1 = demo mode + sandbox outlet, G2 = device auth: both happen in the route) ────────────────
 
 export interface NextDayGuardInput {
@@ -42,6 +45,8 @@ export interface NextDayGuardInput {
   proposal_with_content: boolean;
   /** G6: `proposal_locks/{outlet}` exists with `expires_at_ms > now`. */
   proposal_lock_live: boolean;
+  /** `outlet.sandbox.shift_started_at_ms ?? null`: the G7 marker. Judged before G3-G6 (a half-done shift has moved `last_ended`). */
+  shift_started_at_ms: number | null;
 }
 
 /** Section 6.2: "Preparing your questions" while unlabelled lines remain, for at most PREPARING_MAX_MS after the end. */
@@ -51,8 +56,23 @@ export function isPreparing(input: { pending: number; ended_at_ms: number; now_m
 
 const refused = (reason: NextDayRefusal): DemoNextDayStatus => ({ allowed: false, reason });
 
-/** G3-G6 in order, no writes. Also what the capture config reports as `demo_session.next_day`. */
+/**
+ * The G7 marker as a refusal: a fresh marker is a shift in flight (`busy`), one older than SHIFT_MARKER_STALE_MS is a
+ * crashed shift (`shift_incomplete`: only the owner reset recovers it). null when no marker is set.
+ */
+function markerRefusal(shift_started_at_ms: number | null, now_ms: number): NextDayRefusal | null {
+  if (shift_started_at_ms === null) return null;
+  return now_ms - shift_started_at_ms > SHIFT_MARKER_STALE_MS ? "shift_incomplete" : "busy";
+}
+
+/**
+ * The marker first, then G3-G6 in order, no writes. Also what the capture config reports as `demo_session.next_day`.
+ * The marker comes first because a shift that failed after `writeShift` has already moved `last_ended` to yesterday:
+ * G4 would then say `day_not_ended` and hide that the demo is mid-shift (or needs the owner reset).
+ */
 export function nextDayEligibility(input: NextDayGuardInput): DemoNextDayStatus {
+  const marker = markerRefusal(input.shift_started_at_ms, input.now_ms);
+  if (marker !== null) return refused(marker);
   if (input.session_open) return refused("session_open"); // G3
   const last = input.last_ended; // G4
   if (!last || last.end_reason === "discarded" || last.business_date !== businessDateOf(input.now_ms, input.tz)) {
@@ -94,6 +114,10 @@ export function nextDayDecision(input: NextDayRequestInput): NextDayDecision {
   const day = demoDayOf(input.next_day_count);
   if (input.expected_day < day) return { kind: "stale", day: day as 2 | 3 };
   if (input.expected_day > day) return { kind: "ahead", day };
+  // PR-5 note: `max_days` is UNREACHABLE through the route's `expected_day: 1 | 2` body contract: on day 3 every
+  // allowed value is stale (answered above with 200 {day:3}). This line is a defence for a pair the contract cannot
+  // produce. The phone must therefore read `demo_session.next_day.reason === "max_days"` from the capture config and
+  // never call the route in that state.
   if (input.next_day_count >= NEXT_DAY_MAX) return { kind: "refuse", reason: "max_days" };
   const eligibility = nextDayEligibility(input);
   if (!eligibility.allowed) return { kind: "refuse", reason: eligibility.reason as NextDayRefusal };
@@ -175,8 +199,6 @@ export function shiftLastEnded(last: LastEnded): LastEnded {
 
 // ── orchestration: G1, G7 and the write order (section 4.2), over an injected store ───────────────────────────
 
-/** A marker older than this belongs to a crashed shift (G7): later calls get `shift_incomplete`; newer ones `busy`. */
-export const SHIFT_MARKER_STALE_MS = 120_000;
 /** The device's pipeline lease held for the shift (the tick skips the device meanwhile). */
 export const SHIFT_LEASE_MS = 120_000;
 /** The read is bounded: more docs than this in one collection of a sandbox is refused (503 `template_too_large`). */
@@ -209,8 +231,17 @@ export interface NextDayStore {
   readGuardState(outletId: string, deviceId: string, nowMs: number): Promise<NextDayGuardState>;
   /** Any proposal of the outlet with `content !== null` (G6, re-checked after the marker is taken). */
   proposalWithContent(outletId: string): Promise<boolean>;
-  /** G7 transaction: sets `sandbox.shift_started_at_ms = nowMs` only if it is null/absent; else reports the existing marker. */
-  takeShiftMarker(outletId: string, nowMs: number): Promise<{ taken: true } | { taken: false; started_at_ms: number }>;
+  /**
+   * G7 transaction: sets `sandbox.shift_started_at_ms = nowMs` only if `next_day_count` is still `expectedCount` (the
+   * count the caller's decision was made under) AND the marker is null/absent. A moved count means another request
+   * finished the shift meanwhile: nothing is written and the new count is reported (`moved_to_count`). Otherwise the
+   * existing marker is reported (`started_at_ms`).
+   */
+  takeShiftMarker(
+    outletId: string,
+    nowMs: number,
+    expectedCount: number,
+  ): Promise<{ taken: true } | { taken: false; started_at_ms: number } | { taken: false; moved_to_count: number }>;
   /** Clears OUR marker after a failure before the first write (count unchanged). */
   abortShift(outletId: string): Promise<void>;
   /** The device's pipeline lease (tick store); null when held. */
@@ -222,8 +253,11 @@ export interface NextDayStore {
   writeShift(outletId: string, write: { docs: ShiftDoc[]; last_ended: { device_id: string; last_ended: LastEnded } | null }): Promise<void>;
   /** The tick store's `expireOpenQuestions` (gate questions' threads go unverified too). */
   expireOpenQuestions(outletId: string, deviceId: string, debriefEndsAtMs: number, nowMs: number): Promise<number>;
-  /** Transaction: `next_day_count + 1`, `shift_started_at_ms = null`. */
-  completeShift(outletId: string): Promise<void>;
+  /**
+   * Transaction: `next_day_count + 1`, `shift_started_at_ms = null`, only when `next_day_count` is still `expectedCount`
+   * (the value our marker was taken under). Throws without writing when the count moved (cannot happen while we hold the marker).
+   */
+  completeShift(outletId: string, expectedCount: number): Promise<void>;
 }
 
 export interface NextDayInput {
@@ -278,6 +312,7 @@ export async function runNextDay(store: NextDayStore, input: NextDayInput): Prom
   const guard = await store.readGuardState(input.outlet_id, input.device_id, input.now_ms);
   const decision = nextDayDecision({
     ...guard,
+    shift_started_at_ms: outlet.sandbox.shift_started_at_ms ?? null,
     now_ms: input.now_ms,
     tz: outlet.timezone,
     next_day_count: nextDayCount,
@@ -293,8 +328,13 @@ export async function runNextDay(store: NextDayStore, input: NextDayInput): Prom
   }
 
   // G7: single flight. The marker first (a crashed shift must never be repeated on top of half-moved data).
-  const marker = await store.takeShiftMarker(input.outlet_id, input.now_ms);
-  if (!marker.taken) throw refuse(input.now_ms - marker.started_at_ms > SHIFT_MARKER_STALE_MS ? "shift_incomplete" : "busy");
+  // The marker transaction also checks the count the decision above was made under: a request that stalled between
+  // its guard read and here, while another finished the whole shift, gets the stale 200 and never shifts twice.
+  const marker = await store.takeShiftMarker(input.outlet_id, input.now_ms, nextDayCount);
+  if (!marker.taken) {
+    if ("moved_to_count" in marker) return DemoNextDayResponseSchema.parse({ day: demoDayOf(marker.moved_to_count) });
+    throw refuse(markerRefusal(marker.started_at_ms, input.now_ms) ?? "busy");
+  }
 
   // With our marker held: G6 once more (a proposal can appear between the guard read and the marker), then the lease.
   // Any throw here, or a refusal, clears OUR marker first (count unchanged).
@@ -332,7 +372,7 @@ export async function runNextDay(store: NextDayStore, input: NextDayInput): Prom
     if (last && last.debrief_ends_at_ms !== null) {
       expired = await store.expireOpenQuestions(input.outlet_id, input.device_id, last.debrief_ends_at_ms, input.now_ms);
     }
-    await store.completeShift(input.outlet_id);
+    await store.completeShift(input.outlet_id, nextDayCount);
     const day = demoDayOf(nextDayCount + 1);
     log("next_day", { sandbox: input.outlet_id, day, docs: shifted.length, expired });
     return DemoNextDayResponseSchema.parse({ day });

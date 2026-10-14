@@ -457,11 +457,14 @@ export function firestoreNextDayStore(db: Firestore = adminDb()): NextDayStore {
       };
     },
 
-    async takeShiftMarker(outletId, nowMs) {
+    async takeShiftMarker(outletId, nowMs, expectedCount) {
       const ref = outletsCol().doc(outletId);
       return db.runTransaction(async (tx) => {
         const snap = await tx.get(ref);
         const outlet = requireSandbox(snap.exists ? snap.data() : undefined, outletId);
+        // Count first: if it moved, another request finished the whole shift after this caller's guard read.
+        const count = outlet.sandbox.next_day_count ?? 0;
+        if (count !== expectedCount) return { taken: false as const, moved_to_count: count };
         const existing = outlet.sandbox.shift_started_at_ms ?? null;
         if (existing !== null) return { taken: false as const, started_at_ms: existing };
         tx.update(ref, { sandbox: { ...outlet.sandbox, shift_started_at_ms: nowMs } });
@@ -473,8 +476,12 @@ export function firestoreNextDayStore(db: Firestore = adminDb()): NextDayStore {
       await patchSandbox(outletId, (s) => ({ ...s, shift_started_at_ms: null }));
     },
 
-    async completeShift(outletId) {
-      await patchSandbox(outletId, (s) => ({ ...s, next_day_count: (s.next_day_count ?? 0) + 1, shift_started_at_ms: null }));
+    async completeShift(outletId, expectedCount) {
+      await patchSandbox(outletId, (s) => {
+        // Increment only from the count our marker was taken under; a moved count must never be incremented again.
+        if ((s.next_day_count ?? 0) !== expectedCount) throw new Error("demo-store: next_day_count moved under the shift marker");
+        return { ...s, next_day_count: expectedCount + 1, shift_started_at_ms: null };
+      });
     },
 
     acquireLease: (outletId, deviceId, nowMs, ttlMs) => tick.acquireLease(outletId, deviceId, nowMs, ttlMs),
