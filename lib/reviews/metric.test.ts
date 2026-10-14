@@ -122,8 +122,9 @@ describe("countWindow", () => {
     expect(r.count).toBe(2);
   });
 
-  it("2.T3 any-category candidate adds its date; sessions outside the window do not count", () => {
-    const rows = [row("2026-10-08", { category: "ROUTINE_OPS" })];
+  it("2.T3 any evidence-category candidate adds its date; sessions outside the window do not count", () => {
+    // R-19 D-3: ROUTINE_OPS is never a candidate (selectCandidates drops it), so an evidence category stands in.
+    const rows = [row("2026-10-08", { category: "EVENT" })];
     const s = [session("2026-10-05"), session("2026-10-09")];
     expect(countWindow({ ...base, rows, sessions: s })).toMatchObject({ days_captured: 1, count: 0 });
   });
