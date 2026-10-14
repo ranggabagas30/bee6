@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Segmented } from "@/app/ui/Segmented";
 import { axeViolations } from "@/lib/testing/axe";
-import { minHeightPx, readGlobalsCss, rootTokens, ruleDeclarations } from "@/lib/testing/css";
+import { contrast, minHeightPx, readGlobalsCss, rootTokens, ruleDeclarations, tok } from "@/lib/testing/css";
 
 afterEach(() => cleanup());
 const css = readGlobalsCss();
@@ -71,6 +71,15 @@ describe("Segmented", () => {
     expect(b.disabled).toBe(true);
     fireEvent.click(b);
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("a disabled option is faint text and not-allowed, never a faded copy (no opacity)", () => {
+    const d = ruleDeclarations(css, ".b6-seg__item:disabled");
+    expect(d["color"]).toBe("var(--b6-faint)");
+    expect(d["cursor"]).toBe("not-allowed");
+    expect(d["opacity"]).toBeUndefined();
+    // inactive controls are exempt from WCAG 1.4.3; the faint-on-chip ratio is still pinned so it cannot drift lower
+    expect(contrast(tok(tokens, "--b6-faint"), tok(tokens, "--b6-chip"))).toBeGreaterThanOrEqual(2.9);
   });
 
   it("has a mono (language toggle) and a plain (view switch) look", () => {

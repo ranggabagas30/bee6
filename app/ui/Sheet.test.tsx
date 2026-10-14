@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Sheet } from "@/app/ui/Sheet";
 import { axeViolations } from "@/lib/testing/axe";
-import { minHeightPx, readGlobalsCss, rootTokens, ruleDeclarations } from "@/lib/testing/css";
+import { declarations, minHeightPx, parseCss, readGlobalsCss, rootTokens, ruleDeclarations } from "@/lib/testing/css";
 
 afterEach(() => cleanup());
 const css = readGlobalsCss();
@@ -91,11 +91,22 @@ describe("Sheet", () => {
     const sheet = ruleDeclarations(css, ".b6-sheet");
     expect(sheet["position"]).toBe("fixed");
     expect(sheet["bottom"]).toBe("0");
-    expect(sheet["max-height"]).toBe("70vh");
+    expect(sheet["max-height"]).toBe("70dvh");
     expect(sheet["border-radius"]).toBe("var(--b6-r-sheet) var(--b6-r-sheet) 0 0");
     expect(ruleDeclarations(css, ".b6-sheet__body")["overflow-y"]).toBe("auto");
     expect(minHeightPx(ruleDeclarations(css, ".b6-handle"), tokens)).toBeGreaterThanOrEqual(48);
     expect(ruleDeclarations(css, ".b6-sheet__body[hidden]")["display"]).toBe("none");
+  });
+
+  it("the handle focus ring is drawn inside the handle, so the full-width edge cannot clip it", () => {
+    expect(ruleDeclarations(css, ".b6-handle:focus-visible")["outline-offset"]).toBe("-2px");
+    expect(ruleDeclarations(css, ".b6-handle:focus-visible")["outline"]).toBe("2px solid var(--b6-focus)");
+  });
+
+  it("the height cap falls back to vh where dvh is unsupported, then uses dvh", () => {
+    const body = parseCss(css).find((r) => r.prelude === ".b6-sheet")!.body;
+    const caps = declarations(body).filter(([k]) => k === "max-height").map(([, v]) => v);
+    expect(caps).toEqual(["70vh", "70dvh"]);
   });
 
   it("has no axe violations open or collapsed", async () => {

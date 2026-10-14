@@ -175,6 +175,11 @@
   outline-offset: 2px;
 }
 
+/* The sheet handle spans the full viewport width, so an outset ring would be clipped at the screen edge: draw it inside. */
+.b6-handle:focus-visible {
+  outline-offset: -2px;
+}
+
 /* ---- button ---- */
 .b6-btn {
   box-sizing: border-box;
@@ -327,9 +332,10 @@
   box-shadow: var(--b6-shadow-seg-on);
 }
 
+/* Disabled text is faint, not a faded copy. Inactive controls are exempt from WCAG 1.4.3 (contrast minimum). */
 .b6-seg__item:disabled {
+  color: var(--b6-faint);
   cursor: not-allowed;
-  opacity: 0.6;
 }
 
 /* ---- step tick ---- */
@@ -373,6 +379,7 @@
   display: flex;
   flex-direction: column;
   max-height: 70vh;
+  max-height: 70dvh;
   padding-bottom: env(safe-area-inset-bottom);
   border-radius: var(--b6-r-sheet) var(--b6-r-sheet) 0 0;
   background: var(--b6-surface);
