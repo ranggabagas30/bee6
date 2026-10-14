@@ -22,7 +22,7 @@ import { homeEN, homeID } from "@/lib/i18n/v2/home";
  * as {name} and filled by t(); a missing value throws.
  */
 
-export const ID = {
+export const ID_BASE = {
   // Switch control (shop top bar). Endonyms are the same in both modes.
   "C-lang-group": "Pilih bahasa",
   "C-lang-id": "Bahasa Indonesia",
@@ -534,8 +534,11 @@ export const ID = {
   "C-demo-retry-hr": "Coba lagi dalam sekitar {n} jam.", // PROVISIONAL
   "C-demo-retry-tomorrow": "Coba lagi besok.", // PROVISIONAL
   "C-demo-retry-later": "Coba lagi nanti.", // PROVISIONAL
+} as const;
 
-  // R-19 i18n v2 slices (lib/i18n/v2/*): spread once here; later PRs add keys only in their own slice file.
+/** R-19 i18n v2 slices (lib/i18n/v2/*): merged once here; later PRs add keys only in their own slice file. */
+export const ID = {
+  ...ID_BASE,
   ...journeyID,
   ...sessionID,
   ...debriefID,
@@ -548,7 +551,7 @@ export const ID = {
 
 export type DictKey = keyof typeof ID;
 
-export const EN: Record<DictKey, string> = {
+export const EN_BASE: Record<keyof typeof ID_BASE, string> = {
   "C-lang-group": "Choose language",
   "C-lang-id": "Bahasa Indonesia",
   "C-lang-en": "English",
@@ -1042,8 +1045,10 @@ export const EN: Record<DictKey, string> = {
   "C-demo-retry-hr": "Try again in about {n} h.", // PROVISIONAL
   "C-demo-retry-tomorrow": "Try again tomorrow.", // PROVISIONAL
   "C-demo-retry-later": "Try again later.", // PROVISIONAL
+};
 
-  // R-19 i18n v2 slices (lib/i18n/v2/*): spread once here; later PRs add keys only in their own slice file.
+export const EN: Record<DictKey, string> = {
+  ...EN_BASE,
   ...journeyEN,
   ...sessionEN,
   ...debriefEN,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { EN, ID } from "@/lib/i18n/dict";
+import { EN, EN_BASE, ID, ID_BASE } from "@/lib/i18n/dict";
+import { clashingKeys } from "@/lib/i18n/v2/clash";
 import * as journey from "@/lib/i18n/v2/journey";
 import * as session from "@/lib/i18n/v2/session";
 import * as debrief from "@/lib/i18n/v2/debrief";
@@ -69,10 +70,22 @@ describe("i18n v2 slices", () => {
     }
   });
 
-  it("the dictionary's size is its own keys plus every slice's (a spread never silently replaces an existing key)", () => {
-    const sliceKeys = Object.values(SLICES).reduce((n, { id }) => n + Object.keys(id).length, 0);
-    const lib = Object.keys(ID).length;
-    expect(lib).toBeGreaterThanOrEqual(sliceKeys);
-    expect(Object.keys(EN).length).toBe(lib);
+  describe("a slice never replaces a base key", () => {
+    it("clashingKeys names every key a slice shares with the base or with an earlier slice", () => {
+      expect(clashingKeys({ a: "1", b: "2" }, { s1: { c: "3" }, s2: { b: "x", d: "4" } })).toEqual(["b (s2)"]);
+      expect(clashingKeys({ a: "1" }, { s1: { c: "3" }, s2: { c: "x" } })).toEqual(["c (s2)"]);
+      expect(clashingKeys({ a: "1" }, { s1: { c: "3" }, s2: { d: "x" } })).toEqual([]);
+    });
+    it("no slice key is already in ID_BASE or EN_BASE (so a spread replaces nothing)", () => {
+      const ids = Object.fromEntries(Object.entries(SLICES).map(([n, { id }]) => [n, id]));
+      const ens = Object.fromEntries(Object.entries(SLICES).map(([n, { en }]) => [n, en]));
+      expect(clashingKeys(ID_BASE, ids)).toEqual([]);
+      expect(clashingKeys(EN_BASE, ens)).toEqual([]);
+    });
+    it("the dictionary is exactly the base plus every slice, in both languages", () => {
+      const sliceKeys = Object.values(SLICES).reduce((n, { id }) => n + Object.keys(id).length, 0);
+      expect(Object.keys(ID).length).toBe(Object.keys(ID_BASE).length + sliceKeys);
+      expect(Object.keys(EN).length).toBe(Object.keys(EN_BASE).length + sliceKeys);
+    });
   });
 });
