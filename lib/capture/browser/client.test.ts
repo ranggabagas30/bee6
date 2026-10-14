@@ -5,6 +5,7 @@ import {
   deviceAuthHeaders,
   fetchCaptureConfig,
   postDemoClosing,
+  postDemoNextDay,
   postSessionDiscard,
   postSessionEnd,
   postSessionStart,
@@ -214,6 +215,40 @@ describe("session routes (Mulai/Selesai/Batalkan; web spec §6.6.3-§6.6.5)", ()
       code: undefined,
       details: null,
     });
+  });
+
+  // R-19 PR-5 (plan section 4, 7.2): "Jump to tomorrow". The 409 unanswered_questions details are a count only,
+  // validated with zod; the 200 body is validated too (day 2 or 3).
+  it("postDemoNextDay: posts {expected_day, confirm_unanswered} to /api/v1/demo/next-day with the device auth; 200 carries the validated day", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => {
+        expect(url).toBe("/api/v1/demo/next-day");
+        expect(init.headers).toMatchObject(deviceAuthHeaders(auth));
+        expect(JSON.parse(String(init.body))).toEqual({ expected_day: 1, confirm_unanswered: false });
+        return new Response(JSON.stringify({ data: { day: 2 } }), { status: 200 });
+      }),
+    );
+    expect(await postDemoNextDay(auth, { expected_day: 1, confirm_unanswered: false })).toEqual({ ok: true, data: { day: 2 } });
+  });
+
+  it("postDemoNextDay: 409 unanswered_questions carries the validated {unanswered} count; other refusals and failures carry details: null", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ error: { code: "unanswered_questions", message: "x", details: { unanswered: 2 } } }), { status: 409 })),
+    );
+    expect(await postDemoNextDay(auth, { expected_day: 2, confirm_unanswered: false })).toEqual({
+      ok: false,
+      status: 409,
+      code: "unanswered_questions",
+      details: { unanswered: 2 },
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: { code: "busy" } }), { status: 409 })));
+    expect(await postDemoNextDay(auth, { expected_day: 2, confirm_unanswered: true })).toEqual({ ok: false, status: 409, code: "busy", details: null });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: { day: 9 } }), { status: 200 })));
+    expect(await postDemoNextDay(auth, { expected_day: 2, confirm_unanswered: true })).toEqual({ ok: false, status: undefined, code: undefined, details: null });
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("offline"); }));
+    expect(await postDemoNextDay(auth, { expected_day: 1, confirm_unanswered: false })).toEqual({ ok: false, status: undefined, code: undefined, details: null });
   });
 
   it("postSessionDiscard: a 202 pending-cleanup response is still ok:true", async () => {
