@@ -301,10 +301,10 @@ describe("R-12 H2: sandbox generate cap", () => {
     expect(firestoreDemoStore).not.toHaveBeenCalled();
   });
 
-  it("DEMO_MODE on + a sandbox outlet: the sixth generation is 429 demo_generate_cap and generateProposal is not reached", async () => {
+  it("DEMO_MODE on + a sandbox outlet: the ninth generation is 429 demo_generate_cap and generateProposal is not reached", async () => {
     vi.stubEnv("DEMO_MODE", "true");
     const f = demoStoreWith(sandboxOutlet());
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 8; i++) {
       verifyIdToken.mockResolvedValueOnce(sbxClaims("supervisor"));
       vi.mocked(firestoreProposalStore).mockReturnValueOnce({ ...oneFactStore(), getOutlet: async () => sandboxOutlet() });
       expect((await POST(postRequest(VALID_BODY, "Bearer t"))).status).toBe(201);
@@ -317,7 +317,7 @@ describe("R-12 H2: sandbox generate cap", () => {
     expect(Number(res.headers.get("Retry-After"))).toBeGreaterThanOrEqual(1);
     expect(res.headers.get("Cache-Control")).toBe("private, no-store");
     expect(firestoreProposalStore).not.toHaveBeenCalled();
-    expect(f.bumps.filter((b) => b.id === `generate_sandbox:${SBX}`)).toHaveLength(6);
+    expect(f.bumps.filter((b) => b.id === `generate_sandbox:${SBX}`)).toHaveLength(9);
   });
 
   it("DEMO_MODE on + the daily generate cap and the model ceiling are enforced across sandboxes", async () => {

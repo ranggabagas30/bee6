@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { COLLECTIONS, type CollectionName } from "@/lib/firestore/collections";
 import { addDays, businessDateOf, localHmOf } from "@/lib/capture/calendar";
 import { selectCandidates, type ProposalThreadRow } from "@/lib/proposals/candidates";
@@ -29,6 +29,25 @@ import {
   questionDoc,
   threadDoc,
 } from "@/lib/demo/testing/fixtures";
+
+/**
+ * R-19 D-2 sets the real CARRY_OVER_MAX to 0 (routine-only template). The carry-over MECHANISM (kept for a
+ * later re-enable) is still tested here at the R-18 value of 2 through this hoisted override; the real
+ * constant is asserted in constants.test.ts and by the "CARRY_OVER_MAX = 0" test below.
+ */
+const carry = vi.hoisted(() => ({ max: 2 }));
+vi.mock("@/lib/demo/constants", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/demo/constants")>();
+  return {
+    ...actual,
+    get CARRY_OVER_MAX() {
+      return carry.max;
+    },
+  };
+});
+afterEach(() => {
+  carry.max = 2;
+});
 
 const NOW = Date.UTC(2026, 9, 28, 3, 0, 0); // well after the template days
 const IDS = { outlet_id: "sbx-aaaaaaaaaaaa", device_id: "jdg-bbbbbbbbbbbb" };
@@ -233,6 +252,20 @@ describe("cloneTemplate", () => {
     const answered = qs.find((q) => q.status === "answered")!;
     expect(answered.answer).toBe("yes");
     expect(answered.answered_at_ms).toBeTypeOf("number");
+  });
+
+  it("R-19 6.4 with CARRY_OVER_MAX = 0 every template question stays unverified and no thread is re-opened", () => {
+    carry.max = 0;
+    const tpl = templateSet();
+    const docs = clone(tpl);
+    const qs = byCol(docs, COLLECTIONS.questions).map((d) => d.data as Question);
+    const expired = tpl.questions.filter((q) => q.status === "unverified").length;
+    expect(expired).toBeGreaterThan(0);
+    expect(qs.filter((q) => q.status === "open")).toHaveLength(0);
+    expect(qs.filter((q) => q.status === "unverified")).toHaveLength(expired);
+    const tplUnverifiedThreads = tpl.threads.filter((t) => t.status === "unverified").length;
+    const threads = byCol(docs, COLLECTIONS.threads).map((d) => d.data as Thread);
+    expect(threads.filter((t) => t.status === "unverified")).toHaveLength(tplUnverifiedThreads);
   });
 
   it("6.T1 at most 2 are carried (the oldest window first); every other expired question stays unverified with its thread", () => {

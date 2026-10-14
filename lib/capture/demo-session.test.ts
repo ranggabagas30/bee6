@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { autoStopDeadline, demoMulaiAvailability, selesaiReady } from "@/lib/capture/demo-session";
+import { FRESH_DEMO_SESSION } from "@/lib/capture/contract";
 import { autoStopAtMs, mulaiAvailability } from "@/lib/capture/calendar";
 import type { WeeklyHours } from "@/lib/firestore/schema";
 
@@ -99,7 +100,7 @@ describe("autoStopDeadline", () => {
 
 describe("selesaiReady", () => {
   it("true with the profile, false without (the pilot waits for min(start + 4 h, close))", () => {
-    expect(selesaiReady({ max_ms: 300_000, script_id: "bakery-v1" })).toBe(true);
+    expect(selesaiReady(FRESH_DEMO_SESSION)).toBe(true);
     expect(selesaiReady(undefined)).toBe(false);
   });
 });

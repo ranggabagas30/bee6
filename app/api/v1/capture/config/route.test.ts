@@ -4,6 +4,7 @@ import { GET } from "./route";
 import * as servicesModule from "@/lib/auth/services";
 import * as storesModule from "@/lib/firestore/stores";
 import * as adminModule from "@/lib/firebase/admin";
+import { FRESH_DEMO_SESSION } from "@/lib/capture/contract";
 import { UnauthorizedError } from "@/lib/http/errors";
 import type { Device, Outlet } from "@/lib/firestore/schema";
 
@@ -144,7 +145,7 @@ describe("GET /api/v1/capture/config", () => {
       vi.stubEnv("DEMO_MODE", "true");
       wireDevice(judge(), 1, sbxOutlet);
       const body = (await (await GET(req())).json()) as { data: Record<string, unknown> };
-      expect(body.data.demo_session).toEqual({ max_ms: 300_000, script_id: "bakery-v1" });
+      expect(body.data.demo_session).toEqual(FRESH_DEMO_SESSION);
     });
 
     it("DEMO_MODE unset (the pilot): never present, whatever the docs say; keys are exactly the pilot four", async () => {
