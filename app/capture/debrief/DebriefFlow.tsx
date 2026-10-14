@@ -5,7 +5,7 @@ import { canCommit, reduceDebrief, type DebriefState } from "@/lib/debrief/flow"
 import { DebriefListResponseSchema } from "@/lib/debrief/contract";
 import { appendAnswer, CacheWriteError, cachedIds, pendingSummary, purgeNow, readCache } from "@/lib/debrief/answer-cache";
 import { createAnswerUploader, type AnswerUploader, type Disposition } from "@/lib/debrief/answer-uploader";
-import { readDoneFlag, writeDoneFlag, type DoneSummary } from "@/lib/debrief/done-flag";
+import { readDoneFlag, readProgress, writeDoneFlag, writeProgress, type DoneSummary } from "@/lib/debrief/done-flag";
 import {
   ANSWER_PURGE_INTERVAL_MS,
   ANSWER_RETRY_MS,
@@ -218,14 +218,19 @@ export function DebriefFlow({
     }
   }
 
-  // R-19 (demo): the poll runs only on a sandbox device, only while `preparing`, `waiting_more` or a question is
-  // on screen, and stops at the debrief's end. The latest closure is read through a ref so the interval is
+  // R-19 (demo): the poll runs only on a sandbox device, only while `preparing` or `waiting_more` is on screen
+  // (or a question is, and the server last said it is still preparing), and stops at the debrief's end. Once the
+  // server stops preparing nothing new can arrive, so a question on screen is not polled any more (this bounds
+  // the polls to about PREPARING_MAX_MS / REFRESH_POLL_MS_DEMO per debrief). The latest closure is read through a ref so the interval is
   // created once per "polling view" span.
   const refreshRef = useRef(refreshQuestions);
   useEffect(() => {
     refreshRef.current = refreshQuestions;
   });
-  const polling = state.view.kind === "preparing" || state.view.kind === "waiting_more" || state.view.kind === "question";
+  const polling =
+    state.view.kind === "preparing" ||
+    state.view.kind === "waiting_more" ||
+    (state.view.kind === "question" && state.preparing);
   useEffect(() => {
     if (!demo || !polling) return;
     const id = setInterval(() => {
@@ -258,6 +263,7 @@ export function DebriefFlow({
         business_date: parsed.data.debrief.business_date,
         cached,
         preparing: parsed.data.preparing,
+        ...(demo && effectiveStorage ? { progress: readProgress(effectiveStorage, endsAtMs) ?? undefined } : {}),
       });
     } catch {
       dispatch({ type: "LOAD_FAILED" });
@@ -284,6 +290,19 @@ export function DebriefFlow({
     if (!demo || !doneCounts || !effectiveStorage) return;
     writeDoneFlag(effectiveStorage, endsAtMs, { answered: doneCounts.answered, skipped: doneCounts.skipped });
   }, [demo, doneCounts, effectiveStorage, endsAtMs]);
+
+  // R-19 (demo): the counts so far, written after every answer or skip, so a reload before `done` resumes with
+  // the right numbers. Counts only; not terminal (the completion flag above is the only terminal marker).
+  const progressCounts =
+    state.view.kind === "question" || state.view.kind === "waiting_more" || state.view.kind === "done"
+      ? { answered: state.view.answered, skipped: state.view.skipped }
+      : null;
+  const progressAnswered = progressCounts?.answered ?? null;
+  const progressSkipped = progressCounts?.skipped ?? null;
+  useEffect(() => {
+    if (!demo || !effectiveStorage || progressAnswered === null || progressSkipped === null) return;
+    writeProgress(effectiveStorage, endsAtMs, { answered: progressAnswered, skipped: progressSkipped });
+  }, [demo, effectiveStorage, endsAtMs, progressAnswered, progressSkipped]);
 
   function handleRetry() {
     dispatch({ type: "RETRY" });

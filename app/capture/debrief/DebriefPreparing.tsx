@@ -26,11 +26,13 @@ export function DebriefPreparing() {
   const { lang } = useLang();
   const headingRef = useFocusOnMount<HTMLHeadingElement>();
   return (
-    <section aria-busy="true">
+    <section>
       <h2 ref={headingRef} tabIndex={-1} style={HEADING_STYLE}>
         {t(lang, "C-d2-prep-h")}
       </h2>
-      <p style={{ margin: "4px 0 0" }}>{t(lang, "C-d2-prep-1")}</p>
+      <p role="status" style={{ margin: "4px 0 0" }}>
+        {t(lang, "C-d2-prep-1")}
+      </p>
       <p style={{ margin: "12px 0 0", fontWeight: 600 }}>{t(lang, "C-d2-prep-2")}</p>
       <p style={{ margin: "12px 0 0", fontSize: 14, color: "#555" }}>{t(lang, "C-d2-prep-3")}</p>
     </section>
@@ -42,11 +44,11 @@ export function DebriefWaitingMore() {
   const { lang } = useLang();
   const headingRef = useFocusOnMount<HTMLHeadingElement>();
   return (
-    <section aria-busy="true">
+    <section>
       <h2 ref={headingRef} tabIndex={-1} style={HEADING_STYLE}>
         {t(lang, "C-d2-wait-h")}
       </h2>
-      <p style={{ margin: "4px 0 0" }}>{t(lang, "C-d2-wait-1")}</p>
+      <p role="status" style={{ margin: "4px 0 0" }}>{t(lang, "C-d2-wait-1")}</p>
     </section>
   );
 }
