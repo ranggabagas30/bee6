@@ -9,6 +9,12 @@ import { reasonLength } from "@/lib/debrief/reason";
  * caller (`useReducer(reduceDebrief, ...)`); this module knows nothing about
  * Mulai, Selesai or the shop's opening-hours calendar (see the grep test in
  * `flow.test.ts`, which checks this file imports no such module).
+ *
+ * R-19 PR-3 (`docs/tasks/R-19-demo-v2.md` §6.3), demo sandbox only (`demo: true`): the server labels the
+ * judge's moments 2-4 min after End, so the list is never frozen at OPEN. While the server says `preparing`,
+ * an exhausted list lands on `waiting_more` (never `done`), an empty list on `preparing`, and a refresh that
+ * brings fresh questions re-enters `question`; the cap is DEBRIEF_SHOW_MAX per debrief (every id ever
+ * offered), not per list. `demo: false` keeps every pilot transition exactly as it was.
  */
 
 export type DebriefView =
@@ -16,6 +22,8 @@ export type DebriefView =
   | { kind: "loading" }
   | { kind: "load_error" }
   | { kind: "empty" }
+  /** R-19 demo: no question yet and the server is still labelling today's notes. */
+  | { kind: "preparing" }
   | {
       kind: "question";
       list: DebriefQuestionView[];
@@ -28,6 +36,8 @@ export type DebriefView =
       /** Count of this device's own skips so far this debrief (carries into "done"). */
       skipped: number;
     }
+  /** R-19 demo: every offered question is answered or skipped, but the server may still add more. */
+  | { kind: "waiting_more"; answered: number; skipped: number }
   | { kind: "done"; answered: number; skipped: number }
   | { kind: "timed_out"; ended_at_ms: number };
 
@@ -37,19 +47,36 @@ export type DebriefState = {
   business_date: string | null;
   /** Ids this debrief actually put in front of the device (R-18 refresh never offers one twice). */
   seen: ReadonlySet<string>;
+  /** R-19: true only for a sandbox judge device; false on every pilot phone. */
+  demo: boolean;
+  /** R-19 (demo): the last `preparing` the server reported; always false on the pilot. */
+  preparing: boolean;
 };
 
 export type DebriefEvent =
   | { type: "OPEN" }
   | { type: "RETRY" }
-  | { type: "LOADED"; questions: DebriefQuestionView[]; business_date: string; cached: ReadonlySet<string> }
+  | {
+      type: "LOADED";
+      questions: DebriefQuestionView[];
+      business_date: string;
+      cached: ReadonlySet<string>;
+      /** R-19 (demo): the server's `preparing`; absent on the pilot (read as false). */
+      preparing?: boolean;
+      /**
+       * R-19 (demo): counts and acted-on ids stored by this phone for this debrief before a reload. The ids
+       * seed `seen`, so a skipped question is not offered twice and the cap of 5 holds across the reload.
+       * Absent on the pilot and on a first open (read as 0 / 0 / none).
+       */
+      progress?: { answered: number; skipped: number; seen?: readonly string[] };
+    }
   | { type: "LOAD_FAILED" }
   /**
    * R-18 (sandbox only): a re-fetch of the list while it is on screen. The reducer's own `seen` set (only
    * the ids it actually offered) keeps a skipped question from being offered twice, and an id that did not
    * fit under DEBRIEF_SHOW_MAX stays unseen so a later refresh can offer it.
    */
-  | { type: "REFRESHED"; questions: DebriefQuestionView[]; cached: ReadonlySet<string> }
+  | { type: "REFRESHED"; questions: DebriefQuestionView[]; cached: ReadonlySet<string>; preparing?: boolean }
   | { type: "CHOOSE"; answer: "yes" | "no" }
   | { type: "TYPE"; reason: string }
   | { type: "COMMITTED" }
@@ -86,6 +113,21 @@ export function canCommit(v: DebriefView): boolean {
   return n >= 1 && n <= REASON_MAX_CHARS;
 }
 
+/** The view after the last offered question is answered or skipped. */
+function afterLast(s: DebriefState, answered: number, skipped: number): DebriefView {
+  // Demo: waiting makes sense only while the server may still add something AND there is room to show it.
+  return s.demo && s.preparing && s.seen.size < DEBRIEF_SHOW_MAX ? { kind: "waiting_more", answered, skipped } : { kind: "done", answered, skipped };
+}
+
+/**
+ * The ids to persist with the counts: every id in `seen` that this device answered or skipped. Offered questions
+ * not yet touched (the rest of the current list) are left out, so a reload still offers them.
+ */
+export function actedIds(s: DebriefState): string[] {
+  const untouched = new Set(s.view.kind === "question" ? s.view.list.slice(s.view.index).map((item) => item.question_id) : []);
+  return [...s.seen].filter((id) => !untouched.has(id));
+}
+
 export function reduceDebrief(s: DebriefState, e: DebriefEvent): DebriefState {
   switch (e.type) {
     case "OPEN":
@@ -96,12 +138,23 @@ export function reduceDebrief(s: DebriefState, e: DebriefEvent): DebriefState {
       // A late GET response (the view already moved on — e.g. TICK fired
       // `timed_out` first) must never replace whatever is on screen now.
       if (s.view.kind !== "loading") return s;
+      const preparing = s.demo && e.preparing === true;
+      const stored = new Set<string>(s.demo ? (e.progress?.seen ?? []) : []);
+      const room = Math.max(0, DEBRIEF_SHOW_MAX - stored.size);
       const filtered = e.questions
-        .filter((item) => !e.cached.has(item.question_id))
-        .slice(0, DEBRIEF_SHOW_MAX);
-      const view: DebriefView =
-        filtered.length === 0 ? { kind: "empty" } : freshQuestion(filtered, 0, 0, 0);
-      return { ...s, business_date: e.business_date, view, seen: new Set(filtered.map((item) => item.question_id)) };
+        .filter((item) => !e.cached.has(item.question_id) && !stored.has(item.question_id))
+        .slice(0, room);
+      const answered = s.demo ? (e.progress?.answered ?? 0) : 0;
+      const skipped = s.demo ? (e.progress?.skipped ?? 0) : 0;
+      const seen = new Set([...stored, ...filtered.map((item) => item.question_id)]);
+      let view: DebriefView;
+      if (filtered.length > 0) view = freshQuestion(filtered, 0, answered, skipped);
+      else if (!s.demo) view = { kind: "empty" };
+      // Nothing left to offer: the server is done, or the cap of 5 is spent (nothing more can be shown).
+      else if (!preparing || seen.size >= DEBRIEF_SHOW_MAX) view = { kind: "done", answered, skipped };
+      // A reload after some answers: the judge was already past "Preparing", so resume at "Checking for more".
+      else view = answered + skipped > 0 ? { kind: "waiting_more", answered, skipped } : { kind: "preparing" };
+      return { ...s, business_date: e.business_date, view, seen, preparing };
     }
 
     case "LOAD_FAILED":
@@ -112,20 +165,35 @@ export function reduceDebrief(s: DebriefState, e: DebriefEvent): DebriefState {
 
     case "REFRESHED": {
       const v = s.view;
-      if (v.kind !== "empty" && v.kind !== "question" && v.kind !== "done") return s;
+      const refreshable: ReadonlyArray<DebriefView["kind"]> = s.demo
+        ? ["question", "preparing", "waiting_more"]
+        : ["empty", "question", "done"];
+      if (!refreshable.includes(v.kind)) return s;
+      const preparing = s.demo && e.preparing === true;
+      const base = preparing === s.preparing ? s : { ...s, preparing };
       const fresh = e.questions.filter((item) => !e.cached.has(item.question_id) && !s.seen.has(item.question_id));
       const markSeen = (add: DebriefQuestionView[]) => new Set([...s.seen, ...add.map((item) => item.question_id)]);
       if (v.kind === "question") {
-        const room = DEBRIEF_SHOW_MAX - v.list.length;
+        // Demo: the cap is DEBRIEF_SHOW_MAX per debrief (every id offered so far), so a list that restarted after
+        // waiting_more cannot offer five more. Pilot: the R-18 per-list room, unchanged.
+        const room = s.demo ? DEBRIEF_SHOW_MAX - s.seen.size : DEBRIEF_SHOW_MAX - v.list.length;
         const add = fresh.slice(0, Math.max(0, room));
-        if (add.length === 0) return s;
-        return { ...s, view: { ...v, list: [...v.list, ...add] }, seen: markSeen(add) };
+        if (add.length === 0) return base;
+        return { ...base, view: { ...v, list: [...v.list, ...add] }, seen: markSeen(add) };
       }
-      const add = fresh.slice(0, DEBRIEF_SHOW_MAX);
-      if (add.length === 0) return s;
-      const answered = v.kind === "done" ? v.answered : 0;
-      const skipped = v.kind === "done" ? v.skipped : 0;
-      return { ...s, view: freshQuestion(add, 0, answered, skipped), seen: markSeen(add) };
+      const room = s.demo ? DEBRIEF_SHOW_MAX - s.seen.size : DEBRIEF_SHOW_MAX;
+      const add = fresh.slice(0, Math.max(0, room));
+      const answered = v.kind === "done" || v.kind === "waiting_more" ? v.answered : 0;
+      const skipped = v.kind === "done" || v.kind === "waiting_more" ? v.skipped : 0;
+      if (add.length === 0) {
+        // Demo: a quiet refresh after the server stopped preparing, or with the cap spent (nothing more can be
+        // shown), closes the debrief.
+        if (s.demo && (!preparing || room <= 0) && (v.kind === "preparing" || v.kind === "waiting_more")) {
+          return { ...base, view: { kind: "done", answered, skipped } };
+        }
+        return base;
+      }
+      return { ...base, view: freshQuestion(add, 0, answered, skipped), seen: markSeen(add) };
     }
 
     case "CHOOSE": {
@@ -145,7 +213,7 @@ export function reduceDebrief(s: DebriefState, e: DebriefEvent): DebriefState {
       const nextIndex = index + 1;
       const view: DebriefView =
         nextIndex >= list.length
-          ? { kind: "done", answered: nextAnswered, skipped }
+          ? afterLast(s, nextAnswered, skipped)
           : freshQuestion(list, nextIndex, nextAnswered, skipped);
       return { ...s, view };
     }
@@ -162,7 +230,7 @@ export function reduceDebrief(s: DebriefState, e: DebriefEvent): DebriefState {
       const nextIndex = index + 1;
       const view: DebriefView =
         nextIndex >= list.length
-          ? { kind: "done", answered, skipped: nextSkipped }
+          ? afterLast(s, answered, nextSkipped)
           : freshQuestion(list, nextIndex, answered, nextSkipped);
       return { ...s, view };
     }

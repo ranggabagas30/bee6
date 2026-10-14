@@ -36,9 +36,22 @@ export const INCIDENT_FIRST: ReadonlySet<WorkCategory> = new Set([
   "SECURITY_INCIDENT",
   "DISRUPTION",
 ]);
-/** R-18 (sandbox only): the debrief list is re-fetched this often while it is on screen. */
-export const REFRESH_POLL_MS = 20_000;
-/** R-18 (sandbox only): the poll gives up this long after it began (the debrief end stops it earlier). */
-export const REFRESH_POLL_MAX_MS = 10 * 60_000;
+/**
+ * R-19 §6.3 (sandbox only): the debrief list is re-fetched this often while `preparing`, `waiting_more` or a
+ * question is on screen, until the debrief's end. Replaces R-18's 20 s / 10-minute poll.
+ */
+export const REFRESH_POLL_MS_DEMO = 10_000;
 /** R-18 (sandbox only): a manual "Check for new questions" tap closer than this to the last check does nothing. */
 export const REFRESH_MIN_INTERVAL_MS = 5_000;
+/**
+ * R-19 §6.3 (sandbox only): localStorage key of the completion flag, `String(endsAtMs)` of the debrief whose
+ * done screen was reached, so a reload inside the hour shows the done summary instead of the entry card.
+ */
+export const DEBRIEF_DONE_FLAG_KEY = "bee6.debrief.done";
+/** Beside the flag: `{"answered":n,"skipped":k}` so the restored done summary can state its counts. */
+export const DEBRIEF_DONE_SUMMARY_KEY = "bee6.debrief.done.summary";
+/**
+ * Beside the flag, but NOT terminal: `{"ends_at_ms":n,"answered":n,"skipped":k}` written on every answer or skip of a
+ * sandbox debrief, so a reload before `done` resumes with the right counts. Only the done flag marks terminal.
+ */
+export const DEBRIEF_PROGRESS_KEY = "bee6.debrief.progress";

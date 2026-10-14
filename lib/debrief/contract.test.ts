@@ -165,6 +165,13 @@ describe("DebriefListResponseSchema", () => {
       }).success,
     ).toBe(true);
   });
+
+  it("R-19: accepts an optional boolean `preparing` (sandbox only) and rejects a non-boolean one", () => {
+    const active = { debrief: { business_date: "2026-10-07", ends_at_ms: 1_700_000_000_000 }, questions: [] };
+    expect(DebriefListResponseSchema.safeParse({ ...active, preparing: true }).success).toBe(true);
+    expect(DebriefListResponseSchema.safeParse({ ...active, preparing: false }).success).toBe(true);
+    expect(DebriefListResponseSchema.safeParse({ ...active, preparing: "yes" }).success).toBe(false);
+  });
 });
 
 describe("AnswerResponseSchema", () => {

@@ -42,6 +42,8 @@ async function deviceQuestionsGet(req: NextRequest) {
       firestoreDebriefStore(claims.outlet_id),
       { outlet_id: claims.outlet_id, device_id: claims.device_id },
       Date.now(),
+      // R-19: `{event, pending, preparing}` counts only; the service never hands this a line id or text.
+      (entry) => console.log("debrief.preparing", entry),
     );
     return jsonOk(data);
   } catch (error) {

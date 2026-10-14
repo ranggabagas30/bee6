@@ -32,7 +32,8 @@ describe("shiftDeep opts (R-19 PR-2: the clone's defaults stay, the next-day shi
 
 // ── guards (plan section 4.1) ───────────────────────────────────────────────────────────────────────────────
 import { PREPARING_MAX_MS } from "@/lib/demo/constants";
-import { SHIFT_MARKER_STALE_MS, demoDayOf, demoDaysDone, isPreparing, nextDayDecision, nextDayEligibility, type NextDayGuardInput } from "@/lib/demo/next-day";
+import { isPreparing } from "@/lib/debrief/preparing";
+import { SHIFT_MARKER_STALE_MS, demoDayOf, demoDaysDone, nextDayDecision, nextDayEligibility, type NextDayGuardInput } from "@/lib/demo/next-day";
 import { businessDateOf } from "@/lib/capture/calendar";
 
 const TZ = "Asia/Jakarta";
