@@ -15,6 +15,9 @@
  *   v3    : the same cards in a different order
  *   v4    : light improvisation (one extra sentence on each problem card)
  *
+ * Round 1 of the rewrite loop (tech-lead, section 10.1) rewrote d2-c3 and d3-c2 (exact, v1, v2, v4): the phone-order
+ * card now states, in the problem moment itself, that the order was not read back to the caller.
+ *
  * `kind` is the QA expectation only. It is read by the harness to classify results and by nothing else
  * (hard rule #10: the evidence gate, not this file, decides what becomes a fact).
  */
@@ -139,9 +142,9 @@ const D2_EXACT = [
     "One egg tart. Enjoy.",
   ]),
   card("d2-c3", "problem_b", [
-    "Hello, Demo Bakery, good afternoon.",
+    "Hello, Demo Bakery, thanks for calling.",
     "Yes, fifty egg tarts for tomorrow morning. Pickup at ten. Okay, got it. Thank you, bye.",
-    "I will write that order down later.",
+    "I did not read that phone order back to the caller. I will write it down later.",
   ]),
   card("d2-c4", "routine", [
     "Display check. The croissants are almost gone, I am putting out a new tray. The rest is full.",
@@ -158,9 +161,9 @@ const D2_V1 = [
     "One egg tart, enjoy it.",
   ]),
   card("d2-c3", "problem_b", [
-    "Hello, Demo Bakery, good afternoon to you.",
+    "Hello, Demo Bakery, how can I help you?",
     "Yes, fifty egg tarts for tomorrow morning, to be picked up at ten. Alright, noted. Thanks, goodbye.",
-    "I will note that order down a bit later.",
+    "I did not read that phone order back to the caller. I will note it down a bit later.",
   ]),
   card("d2-c4", "routine", [
     "Checking the display. The croissants are nearly finished so I am bringing out a fresh tray. Everything else is full.",
@@ -177,9 +180,9 @@ const D2_V2 = [
     "Okay one egg tart. Enjoy.",
   ]),
   card("d2-c3", "problem_b", [
-    "Um, hello, Demo Bakery, good afternoon.",
+    "Um, hello, Demo Bakery, thanks for calling.",
     "Yes, um, fifty egg tarts for tomorrow morning. Pickup at ten. Okay, okay got it. Thank you, bye.",
-    "Okay so I will, um, write that order down later.",
+    "Okay so I did not read that phone order back to the caller. I will, um, write it down later.",
   ]),
   card("d2-c4", "routine", [
     "Okay display check. The croissants are, um, almost gone, I am putting out a new tray. The rest is, is full.",
@@ -197,9 +200,9 @@ const D2_V4 = [
     "They look good though.",
   ]),
   card("d2-c3", "problem_b", [
-    "Hello, Demo Bakery, good afternoon.",
+    "Hello, Demo Bakery, thanks for calling.",
     "Yes, fifty egg tarts for tomorrow morning. Pickup at ten. Okay, got it. Thank you, bye.",
-    "I will write that order down later.",
+    "I did not read that phone order back to the caller. I will write it down later.",
     "It was a big order for a weekday.",
   ]),
   D2_EXACT[3],
@@ -213,9 +216,9 @@ const D3_EXACT = [
     "Good morning. The oven is on, the display lights are on, and the float in the till is correct.",
   ]),
   card("d3-c2", "problem_b", [
-    "Hello, Demo Bakery.",
-    "A birthday cake and twenty croissants for Saturday. Pickup at three or four? Sorry, the line is bad. Okay, four o'clock. Bye.",
-    "I did not repeat the order back to them. I hope I got the time right.",
+    "Hello, Demo Bakery, thanks for calling.",
+    "A birthday cake and twenty croissants for Saturday. Pickup at three or four? Sorry, the phone line is bad. Okay, four o'clock. Bye.",
+    "I hung up without reading the order back to the caller. I hope I got the time right.",
   ]),
   card("d3-c3", "routine", ["The second tray of croissants is out. I am putting them on the display now."]),
   card("d3-c4", "routine", ["Display check. Everything is full. Nothing to refill right now."]),
@@ -226,8 +229,8 @@ const D3_V1 = [
   card("d3-c1", "routine", ["Morning. The oven and the display lights are on, and the till float is right."]),
   card("d3-c2", "problem_b", [
     "Hello, Demo Bakery, how can I help?",
-    "A birthday cake and twenty croissants for Saturday. Is the pickup at three or at four? Sorry, the line is not good. Okay, four o'clock. Goodbye.",
-    "I never read the order back to them. I hope I heard the time correctly.",
+    "So a birthday cake and twenty croissants for Saturday. Is pickup at three or at four? Sorry, the phone is breaking up. Okay, four o'clock. Goodbye.",
+    "I put the phone down without reading the order back to the caller. I hope I heard the time right.",
   ]),
   card("d3-c3", "routine", ["The second batch of croissants has come out and I am putting it on the display."]),
   card("d3-c4", "routine", ["Checking the display. All full, nothing needs refilling at the moment."]),
@@ -239,9 +242,9 @@ const D3_V2 = [
     "Okay good morning. The oven is on, um, the display lights are on, and the float in the till is, is correct.",
   ]),
   card("d3-c2", "problem_b", [
-    "Um, hello, hello, Demo Bakery.",
-    "A birthday cake and, um, twenty croissants for Saturday. Pickup at three or four? Sorry, the line is, is bad. Okay, four o'clock. Bye.",
-    "Okay so I did not repeat the order back to them. Um, I hope I got the time right.",
+    "Um, hello, hello, Demo Bakery, thanks for calling.",
+    "A birthday cake and, um, twenty croissants for Saturday. Pickup at three or four? Sorry, the phone line is, is bad. Okay, four o'clock. Bye.",
+    "Okay so I hung up without reading the order back to the caller. Um, I hope I got the time right.",
   ]),
   card("d3-c3", "routine", ["Um, the second tray of croissants is out. Okay I am putting them, putting them on the display now."]),
   card("d3-c4", "routine", ["Okay display check. Everything is, um, full. Nothing to refill right now."]),
@@ -251,10 +254,10 @@ const D3_V2 = [
 const D3_V4 = [
   D3_EXACT[0],
   card("d3-c2", "problem_b", [
-    "Hello, Demo Bakery.",
-    "A birthday cake and twenty croissants for Saturday. Pickup at three or four? Sorry, the line is bad. Okay, four o'clock. Bye.",
-    "I did not repeat the order back to them. I hope I got the time right.",
-    "It was a long call.",
+    "Hello, Demo Bakery, thanks for calling.",
+    "A birthday cake and twenty croissants for Saturday. Pickup at three or four? Sorry, the phone line is bad. Okay, four o'clock. Bye.",
+    "I hung up without reading the order back to the caller. I hope I got the time right.",
+    "That took a while.",
   ]),
   D3_EXACT[2],
   D3_EXACT[3],
