@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { usePathname } from "next/navigation";
 import { useLang } from "@/lib/i18n/context";
 import { t } from "@/lib/i18n/dict";
 import { DEMO_EMAILS, DEMO_PASSWORD, matchDemoCredential } from "@/lib/demo/credentials";
@@ -45,6 +46,7 @@ const noNavigation = () => {};
 
 export function DemoAccess({ config, role, onFill, onStarted, children }: DemoAccessProps) {
   const { lang } = useLang();
+  const pathname = usePathname();
   const { busy, refusal, start, clearRefusal } = useDemoStart(config, "restart", onStarted ? noNavigation : undefined);
   // The role the box last filled in for; the "Filled in" line shows only while the panel is still on that role.
   const [filledFor, setFilledFor] = useState<"supervisor" | "owner" | null>(null);
@@ -94,8 +96,8 @@ export function DemoAccess({ config, role, onFill, onStarted, children }: DemoAc
     statusText = [t(lang, lines.message), lines.hint ? t(lang, lines.hint.key, lines.hint.vars) : ""].filter(Boolean).join(" ");
   } else if (filledFor !== null && filledFor === role) {
     statusText = t(lang, "C-demo-cred-filled");
-  } else if (earlier?.expired && role !== "staff") {
-    // /pair (staff): the DemoBar is visible there and already says the session ended; /sign-in hides it once ended.
+  } else if (earlier?.expired && pathname !== "/pair") {
+    // On /pair the DemoBar is visible and already says the session ended; /sign-in hides it once ended, so the box says it there.
     statusText = t(lang, "C-demo-expired");
   }
 

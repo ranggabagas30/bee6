@@ -64,11 +64,11 @@ describe("AppNav (R-19 PR-6 §8.2, D-9)", () => {
     const scrollIntoView = vi.fn();
     Element.prototype.scrollIntoView = scrollIntoView;
     renderNav("owner", "home", "id");
-    const last = links()[3];
+    const last = links()[3]!;
     fireEvent.focus(last);
     expect(scrollIntoView).toHaveBeenCalledTimes(1);
     expect(scrollIntoView).toHaveBeenCalledWith({ inline: "nearest", block: "nearest" });
-    expect(scrollIntoView.mock.contexts[0]).toBe(last);
+    expect(scrollIntoView.mock.contexts[0]).toBe(last as unknown);
   });
 
   it("the nav CSS shows an edge fade when it overflows on a phone and keeps the focused item clear of it", () => {
