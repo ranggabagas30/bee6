@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { zonedTimeToEpochMs } from "@/lib/capture/calendar";
 import type { CustomClaims } from "@/lib/auth/roles";
+import type { AttributionSession } from "@/lib/day/attribution";
+import { isSuperseded } from "@/lib/proposals/review-plan";
 import {
   ConflictError,
   ForbiddenError,
@@ -112,7 +114,7 @@ function okModelResult(text: object, usage: Partial<{ input_tokens: number | nul
 
 interface FakeStoreState {
   outlet: Outlet | null;
-  sessions: never[];
+  sessions: AttributionSession[];
   rows: ProposalThreadRow[];
   sop: SopVersion | null;
   constraints: Constraint[];
@@ -631,7 +633,7 @@ describe("generateProposal", () => {
       created_by_role: "owner",
       created_at_ms: 2,
     };
-    const { store, state } = makeFakeStore({ openProposal: open, constraints: [c1, c2] });
+    const { store, state } = makeFakeStore({ openProposal: open, openProposals: [open], constraints: [c1, c2] });
     const { deps, model } = makeDeps();
     model.mockResolvedValueOnce(okModelResult(validWireText({ constraints_acknowledged: ["C1", "C2"] })));
     const result = await generateProposal(store, deps, { claims: claims(), from_date: "2026-10-01", to_date: "2026-10-02", now_ms: NOW_MS });
@@ -1111,5 +1113,48 @@ describe("generateProposal: R-19 3.3 focus category", () => {
     expect(result.proposal.status).toBe("blocked");
     expect(result.proposal.blocked_rule).toBe("schema_invalid");
     expect(result.proposal.focus_category).toBe("CUSTOMER_SERVICE");
+  });
+  it("an open proposal that is not reusable (newer constraint) does not block its own replacement: the new CS proposal supersedes it", async () => {
+    const c1: Constraint = {
+      outlet_id: OUTLET_ID,
+      constraint_id: "33333333-3333-4333-8333-333333333333",
+      text: "the oven only holds 2.5 kg",
+      source: "manual",
+      source_proposal_id: null,
+      created_by_role: "supervisor",
+      created_at_ms: 1,
+    };
+    const open = openDoc(1, [ROW_1, ROW_2], "CUSTOMER_SERVICE"); // acknowledges no constraint -> not reusable
+    const { store, state } = makeFakeStore({ rows: [ROW_1, ROW_2], openProposal: open, openProposals: [open], constraints: [c1] });
+    const { deps, model } = makeDeps();
+    model.mockResolvedValueOnce(okModelResult(validWireText({ constraints_acknowledged: ["C1"] })));
+    const result = await gen(store, deps, false);
+    expect(result.reused).toBe(false);
+    expect(result.proposal.status).toBe("awaiting_supervisor");
+    expect(result.proposal.focus_category).toBe("CUSTOMER_SERVICE");
+    const created = state.written[0]!.proposal;
+    expect(isSuperseded(open, [open, created])).toBe(true);
+  });
+
+  it("metric baseline uses the review's counter: CS facts on days 1-2, phone facts on days 2-3, sessions on 5 days -> CS baseline 2 in 5 days", async () => {
+    const dates = ["2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05"];
+    const sessions: AttributionSession[] = dates.map((d) => ({
+      device_id: DEVICE_ID,
+      local_date: d,
+      started_at_ms: zonedTimeToEpochMs(d, "09:30", TZ),
+      ended_at_ms: null,
+      auto_stop_at_ms: zonedTimeToEpochMs(d, "22:00", TZ),
+      end_reason: null,
+    }));
+    const phone2 = threadRow(4, "2026-10-02", { category: "PHONE_CALL" });
+    const phone3 = threadRow(5, "2026-10-03", { category: "PHONE_CALL" });
+    const { store } = makeFakeStore({ rows: [ROW_1, ROW_2, phone2, phone3], sessions });
+    const { deps, model } = makeDeps();
+    model.mockResolvedValueOnce(okModelResult(validWireText()));
+    const result = await generateProposal(store, deps, { claims: claims(), from_date: "2026-10-01", to_date: "2026-10-05", now_ms: NOW_MS });
+    expect(result.proposal.status).toBe("awaiting_supervisor");
+    expect(result.proposal.content?.metric.category).toBe("CUSTOMER_SERVICE");
+    expect(result.proposal.content?.metric.baseline_count).toBe(2);
+    expect(result.proposal.content?.metric.baseline_days).toBe(5);
   });
 });

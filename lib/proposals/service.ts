@@ -26,7 +26,8 @@ import { FLOOR_VERSION, MODEL_TIMEOUT_MS, PROPOSAL_GATE_VERSION, PROPOSAL_LEASE_
 import { evidenceReadWindow, validateRange } from "@/lib/proposals/range";
 import { aliasCandidates, selectCandidates, type Candidate, type ProposalThreadRow } from "@/lib/proposals/candidates";
 import { checkEvidenceFloor, evidenceByCategory, followupFor } from "@/lib/proposals/precheck";
-import { metricBaseline, reviewDate } from "@/lib/proposals/baseline";
+import { reviewDate } from "@/lib/proposals/baseline";
+import { countWindow } from "@/lib/reviews/metric";
 import { checkProposal, type ProposalGateContext } from "@/lib/proposals/proposal-gate";
 import { buildProposalWireSchema, generateProposalJsonSchema, type ProposalWire, type WireContext } from "@/lib/proposals/wire-schema";
 import { buildProposalPrompt } from "@/lib/proposals/prompt";
@@ -230,7 +231,9 @@ async function generateProposalCore(
 
     // 8a'. R-19 §3.3: threads already cited by an open proposal are not offered again, and a category that an open
     // proposal is already about is not proposed twice. The focus is the first READY category not yet taken.
-    const openProposals = await store.listOpenProposals();
+    // An open proposal found at step 6 but not reusable (a newer constraint) is being replaced by this run, so it
+    // must not block its own replacement (its threads stay citable, its category free). Never excluded on "another".
+    const openProposals = (await store.listOpenProposals()).filter((p) => p.proposal_id !== open?.proposal_id);
     const cited = new Set(openProposals.flatMap((p) => (p.content?.evidence ?? []).map((e) => e.thread_id)));
     const taken = new Set(openProposals.map((p) => p.focus_category).filter((c): c is WorkCategory => !!c));
     const pool = all.filter((c) => !cited.has(c.thread_id));
@@ -604,7 +607,9 @@ async function generateProposalCore(
           category: c.category,
           first_line_start_ms: c.first_line_start_ms,
         }));
-      const baseline = metricBaseline(all, wire!.metric_category!);
+      // The review's own counter (lib/reviews/metric.ts), so the baseline and the later outcome are the same measure.
+      const w = countWindow({ window: range, rows, sessions, tz, category: wire!.metric_category! });
+      const baseline = { baseline_count: w.count, baseline_days: Math.max(1, w.days_captured) };
       const proposal: Proposal = ProposalSchema.parse({
         outlet_id: outlet.outlet_id,
         proposal_id: proposalId,
