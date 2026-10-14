@@ -83,3 +83,22 @@ export function contrast(a: string, b: string): number {
   const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
   return (hi + 0.05) / (lo + 0.05);
 }
+
+/** Declarations of every top-level rule whose selector list contains exactly `selector`, merged in source order. */
+export function ruleDeclarations(css: string, selector: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const rule of parseCss(css)) {
+    if (rule.prelude.startsWith("@")) continue;
+    if (!rule.prelude.split(",").some((s) => s.trim() === selector)) continue;
+    for (const [k, v] of declarations(rule.body)) out[k] = v;
+  }
+  return out;
+}
+
+/** Tap target height in px for a rule: a literal "NNpx" or the --b6-tap token (44px). */
+export function minHeightPx(decls: Record<string, string>, tokens: Record<string, string>): number {
+  const raw = decls["min-height"] ?? decls["height"];
+  if (!raw) return 0;
+  const v = raw.replace(/var\((--[\w-]+)\)/, (_m, name: string) => tokens[name] ?? "0");
+  return parseFloat(v);
+}

@@ -92,11 +92,21 @@ describe("page-2 design tokens (app/globals.css)", () => {
     }
   });
 
-  it("disables decorative and interactive motion under prefers-reduced-motion", () => {
+  it("turns transitions off under prefers-reduced-motion", () => {
     const media = parseCss(css).find((r) => r.prelude === "@media (prefers-reduced-motion: reduce)");
     expect(media, "reduced-motion block exists").toBeTruthy();
-    const body = media!.body;
-    expect(body).toMatch(/transition:\s*none/);
-    expect(body).toMatch(/animation:\s*none/);
+    expect(media!.body).toMatch(/transition:\s*none/);
+  });
+
+  it("every animated selector is switched off in the reduced-motion block", () => {
+    const rules = parseCss(css);
+    const media = rules.find((r) => r.prelude === "@media (prefers-reduced-motion: reduce)")!;
+    const off = new Set(
+      media.children.filter((r) => /animation:\s*none/.test(r.body)).flatMap((r) => r.prelude.split(",").map((s) => s.trim())),
+    );
+    for (const r of rules) {
+      if (r.prelude.startsWith("@") || !/(^|;|\s)animation(-name)?\s*:/.test(r.body)) continue;
+      for (const sel of r.prelude.split(",").map((s) => s.trim())) expect(off.has(sel), `${sel} animates`).toBe(true);
+    }
   });
 });

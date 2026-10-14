@@ -110,14 +110,90 @@
   border: 0;
 }
 
+/* ---- surfaces ---- */
+.b6-card {
+  border-radius: var(--b6-r-card);
+  background: var(--b6-surface);
+  box-shadow: var(--b6-shadow-card);
+  color: var(--b6-ink);
+  font-family: var(--b6-font-sans);
+}
+
+.b6-glass {
+  border-radius: var(--b6-r-glass);
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: inset 0 0 0 1px var(--b6-line);
+  color: var(--b6-ink);
+  font-family: var(--b6-font-sans);
+}
+
+.b6-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 20px;
+}
+
+.b6-tile__value {
+  font-size: var(--b6-fs-stat);
+  font-weight: 300;
+  letter-spacing: -0.4px;
+}
+
+.b6-tile__detail {
+  font-size: var(--b6-fs-small);
+  color: var(--b6-muted);
+}
+
+.b6-tile--amber {
+  background: var(--b6-amber-bg);
+  box-shadow: inset 0 0 0 1px var(--b6-amber-line);
+  color: var(--b6-amber-ink);
+}
+
+.b6-tile--amber .b6-kicker,
+.b6-tile--amber .b6-tile__detail {
+  color: var(--b6-amber-ink);
+}
+
+/* ---- text ---- */
+.b6-kicker {
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-kicker);
+  letter-spacing: 0.3px;
+  color: var(--b6-muted);
+}
+
+/* ---- mist: needs a position:relative parent ---- */
+.b6-mist {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse min(1100px, 150%) min(700px, 70%) at 96% 0%,
+    var(--b6-mist-core) 0%,
+    rgba(211, 234, 227, 0.5) 34%,
+    rgba(245, 244, 241, 0) 66%
+  );
+}
+
+.b6-mist__leaf {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(38px);
+}
+
+.b6-mist__leaf--1 { top: -140px; right: -60px; width: 520px; height: 300px; background: var(--b6-mist-1); }
+.b6-mist__leaf--2 { top: 60px; right: 220px; width: 300px; height: 180px; background: var(--b6-mist-2); }
+.b6-mist__leaf--3 { top: -40px; right: 360px; width: 360px; height: 200px; background: var(--b6-mist-3); }
+.b6-mist__leaf--4 { top: 150px; right: 40px; width: 240px; height: 150px; background: var(--b6-mist-4); }
+
 @media (prefers-reduced-motion: reduce) {
   .b6-btn,
   .b6-seg__item,
   .b6-sheet,
   .b6-panel {
     transition: none;
-  }
-  .b6-mist__leaf {
-    animation: none;
   }
 }
