@@ -130,20 +130,29 @@ function daysBetween(from: string, to: string): number {
  * (add it to the untouched keys). The `/_at$/` rule would otherwise move it forward by the shift and extend a
  * cloned thread's retention beyond `retention_days`.
  */
-export function shiftDeep<T>(value: T, deltaMs: number, days: number, key = ""): T {
+export interface ShiftDeepOptions {
+  /** `YYYY-MM-DD` keys moved by whole days; defaults to the clone's DATE_KEYS. */
+  dateKeys?: ReadonlySet<string>;
+  /** Keys whose subtree is passed through untouched (same reference); defaults to the clone's UNTOUCHED_KEYS. */
+  untouchedKeys?: ReadonlySet<string>;
+}
+
+export function shiftDeep<T>(value: T, deltaMs: number, days: number, key = "", opts?: ShiftDeepOptions): T {
+  const dateKeys = opts?.dateKeys ?? DATE_KEYS;
+  const untouched = opts?.untouchedKeys ?? UNTOUCHED_KEYS;
   if (typeof value === "number") {
     return (/_ms$/.test(key) && Number.isInteger(value) && value >= EPOCH_MS_FLOOR ? value + deltaMs : value) as T;
   }
   if (typeof value === "string") {
-    if (DATE_KEYS.has(key) && /^\d{4}-\d{2}-\d{2}$/.test(value)) return addDays(value, days) as T;
+    if (dateKeys.has(key) && /^\d{4}-\d{2}-\d{2}$/.test(value)) return addDays(value, days) as T;
     if (/_at$/.test(key) && ISO_DATETIME.test(value)) return isoOf(Date.parse(value) + deltaMs) as T;
     return value;
   }
-  if (Array.isArray(value)) return value.map((v) => shiftDeep(v, deltaMs, days)) as T;
+  if (Array.isArray(value)) return value.map((v) => shiftDeep(v, deltaMs, days, "", opts)) as T;
   if (value !== null && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = UNTOUCHED_KEYS.has(k) ? v : shiftDeep(v, deltaMs, days, k);
+      out[k] = untouched.has(k) ? v : shiftDeep(v, deltaMs, days, k, opts);
     }
     return out as T;
   }
