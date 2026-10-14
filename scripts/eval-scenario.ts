@@ -18,10 +18,24 @@
  * The sanitizer (Sensitive Data Protection) is NOT in the loop: nothing is stored or returned, and the fixture is
  * fictional, so the model sees the same text the tick would after the staff-name scrub.
  *
+ * Known blind spots (so nobody reads a PASS as more than it is):
+ *   - U2 builds every unit with `open_threads: []`, so it cannot catch problem B continuing day 2's still-open
+ *     CUSTOMER_SERVICE thread across a unit boundary. The audio rehearsal (section 10.2) covers that.
+ *   - Keeping the `exact` variant equal to `SCRIPT_V2` (lib/demo/script.ts) is not tested here: that test is PR-5's job.
+ *
+ * Each cell is PASS, FAIL, or INCONCLUSIVE. INCONCLUSIVE means a label call kept failing with a retryable error
+ * (429 / 5xx / network) after every attempt: that is quota or infrastructure, not a model result, so the cell is
+ * neither a pass nor a failure of the script. A `parse_error` (the model returned invalid output) is a genuine
+ * model result and stays a FAIL. Retries follow production: a parse_error gets at most 2 attempts in total
+ * (`mapToUnitOutcome`); a retryable error gets up to 4 attempts with 2 / 4 / 8 s backoff plus jitter.
+ *
  * Usage:
  *   GOOGLE_CLOUD_PROJECT=bee6-playground npm run eval:scenario
  *   npm run eval:scenario -- --runs 3 --days 2,3 --variants exact,v3 --uniting U2 --concurrency 4
- * Exit codes: 0 pass, 2 acceptance failed, 1 setup/usage error.
+ * `--concurrency N` is the number of label calls in flight at any moment (a semaphore around each unit's call),
+ * not the number of runs; runs are all started at once and queue for a call slot. Default 3.
+ * Exit codes: 0 all cells pass; 2 any genuine FAIL; 3 inconclusive cells and no genuine FAIL (rerun later);
+ * 1 setup/usage error.
  */
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -29,6 +43,7 @@ import { pathToFileURL } from "node:url";
 import { evaluateGate } from "@/lib/pipeline/gate";
 import { callLabelModel, type LabelClientResult } from "@/lib/pipeline/label/client";
 import { loadCategoriesConfig, type CategoriesConfig } from "@/lib/pipeline/label/config";
+import { mapToUnitOutcome } from "@/lib/pipeline/label/failure";
 import { buildLabelPrompt } from "@/lib/pipeline/label/prompt";
 import { buildLabelWireSchema, generateResponseJsonSchema, type LabelWireOutput } from "@/lib/pipeline/label/wire-schema";
 import { buildThreads } from "@/lib/pipeline/threads";
@@ -45,9 +60,17 @@ export const DEMO_PROJECT_ID = "bee6-playground";
 export const DEFAULT_RUNS = 5;
 /** The debrief cap (technical specification; `DEBRIEF_SHOW_MAX`). */
 export const QUESTIONS_PER_DAY_MAX = 5;
-/** Label call attempts (a 429 on the shared model quota is common under load). Backoff: 2 s, 4 s, 8 s. */
+/**
+ * Max label call attempts for a retryable error (a 429 on the shared model quota is common under load). Backoff:
+ * 2 s, 4 s, 8 s, each plus up to 25 % jitter. A parse_error is capped by `mapToUnitOutcome` at 2 attempts, as in production.
+ */
 const LABEL_ATTEMPTS = 4;
 const BACKOFF_BASE_MS = 2_000;
+const JITTER_FRACTION = 0.25;
+
+export type CellStatus = "PASS" | "FAIL" | "INCONCLUSIVE";
+/** Why a unit's label call failed after every attempt. */
+export type CallFailure = "retryable_error" | "parse_error";
 
 export type Uniting = "U1" | "U2";
 export const UNITINGS: readonly Uniting[] = ["U1", "U2"];
@@ -102,6 +125,8 @@ export interface RunOutcome {
   /** Question-verdict threads plus one per failed label call (an `unlabelled_unit` question). */
   questions: number;
   failed_calls: number;
+  /** Of `failed_calls`, the units that failed with a retryable error (quota / infrastructure): inconclusive, not a model result. */
+  retryable_failures: number;
 }
 
 interface LineVerdict {
@@ -112,19 +137,21 @@ interface LineVerdict {
 /**
  * Pure. Turns the label output of every unit of one run into the run's outcome: `buildThreads`, then the
  * evidence gate per thread with no answer (hard rule #10: the gate is plain code, never the model).
- * `wire === null` is a unit whose label call failed.
+ * `wire === null` is a unit whose label call failed; `failure` says how (absent = a genuine, parse-type failure).
  */
 export function classifyRun(
   cards: readonly ScenarioCard[],
-  results: ReadonlyArray<{ plan: UnitPlan; wire: LabelWireOutput | null }>,
+  results: ReadonlyArray<{ plan: UnitPlan; wire: LabelWireOutput | null; failure?: CallFailure }>,
 ): RunOutcome {
   const verdictOfLine = new Map<string, LineVerdict>();
   let questions = 0;
   let failed_calls = 0;
+  let retryable_failures = 0;
 
-  for (const { plan, wire } of results) {
+  for (const { plan, wire, failure } of results) {
     if (wire === null) {
       failed_calls += 1;
+      if (failure === "retryable_error") retryable_failures += 1;
       questions += 1;
       continue;
     }
@@ -188,6 +215,7 @@ export function classifyRun(
     contaminated,
     questions,
     failed_calls,
+    retryable_failures,
   };
 }
 
@@ -205,6 +233,8 @@ export interface CellSummary {
   questions_ok: number;
   max_questions: number;
   failed_calls: number;
+  /** Units that failed with a retryable error after every attempt: any makes the cell INCONCLUSIVE. */
+  retryable_failures: number;
   /** What the A / B card landed as, counted over runs ("none" = no thread). Category names only. */
   a_categories: Record<string, number>;
   b_categories: Record<string, number>;
@@ -222,6 +252,7 @@ export function summarizeRuns(outcomes: readonly RunOutcome[]): CellSummary {
     questions_ok: 0,
     max_questions: 0,
     failed_calls: 0,
+    retryable_failures: 0,
     a_categories: {},
     b_categories: {},
   };
@@ -241,6 +272,7 @@ export function summarizeRuns(outcomes: readonly RunOutcome[]): CellSummary {
     if (o.questions <= QUESTIONS_PER_DAY_MAX) s.questions_ok += 1;
     s.max_questions = Math.max(s.max_questions, o.questions);
     s.failed_calls += o.failed_calls;
+    s.retryable_failures += o.retryable_failures;
   }
   return s;
 }
@@ -249,8 +281,14 @@ export function summarizeRuns(outcomes: readonly RunOutcome[]): CellSummary {
  * Acceptance of section 10.1, scaled to the run count N (identical to the plan at N = 5).
  * Exact script: A correct N/N (days 1-2) with A a fact in >= ceil(0.6 N); B correct N/N (days 2-3);
  * contamination 0; questions <= 5 in N/N. Variants: A and B correct >= ceil(0.8 N); contamination <= floor(0.2 N).
+ * A cell where any unit failed with a retryable error is INCONCLUSIVE whatever else it shows (the numbers are
+ * not trustworthy without that call); otherwise PASS or FAIL by the thresholds.
  */
-export function judgeCell(input: { variant: VariantId; day: Day; summary: CellSummary }): { pass: boolean; failures: string[] } {
+export function judgeCell(input: {
+  variant: VariantId;
+  day: Day;
+  summary: CellSummary;
+}): { status: CellStatus; pass: boolean; failures: string[] } {
   const { variant, day, summary: s } = input;
   const n = s.runs;
   const failures: string[] = [];
@@ -265,7 +303,8 @@ export function judgeCell(input: { variant: VariantId; day: Day; summary: CellSu
   const maxContam = exact ? 0 : Math.floor(0.2 * n);
   if (s.contamination > maxContam) failures.push(`contamination ${s.contamination}/${n} (max ${maxContam})`);
   if (exact && s.questions_ok < n) failures.push(`questions <= ${QUESTIONS_PER_DAY_MAX} in ${s.questions_ok}/${n} (max seen ${s.max_questions})`);
-  return { pass: failures.length === 0, failures };
+  const status: CellStatus = s.retryable_failures > 0 ? "INCONCLUSIVE" : failures.length === 0 ? "PASS" : "FAIL";
+  return { status, pass: status === "PASS", failures };
 }
 
 // ── The matrix ─────────────────────────────────────────────────────────────────────────────────────────
@@ -294,6 +333,7 @@ export interface CellResult {
   variant: VariantId;
   uniting: Uniting;
   summary: CellSummary;
+  status: CellStatus;
   pass: boolean;
   failures: string[];
 }
@@ -301,6 +341,7 @@ export interface CellResult {
 export interface ScenarioReport {
   runs: number;
   cells: CellResult[];
+  /** True only when every cell is PASS. */
   pass: boolean;
   /** Error class (e.g. "http_429", "parse_error") -> number of units that still failed after every attempt. Classes only. */
   call_errors: Record<string, number>;
@@ -308,41 +349,67 @@ export interface ScenarioReport {
 
 const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+type LabelOutcome = { wire: LabelWireOutput } | { error_class: string; failure: CallFailure };
+
+/**
+ * One unit's label call with retries. `mapToUnitOutcome` (production's own rule) decides retry vs failed, so a
+ * parse_error gets at most 2 attempts in total; a retryable error gets up to LABEL_ATTEMPTS with 2/4/8 s backoff
+ * plus jitter (`random` is injected so tests are exact).
+ */
 async function labelWithRetry(
   label: LabelCall,
   unit: LabelUnit,
   config: CategoriesConfig,
   sleep: (ms: number) => Promise<void>,
-): Promise<{ wire: LabelWireOutput } | { error_class: string }> {
-  let error_class = "unknown";
-  for (let attempt = 0; attempt < LABEL_ATTEMPTS; attempt += 1) {
-    if (attempt > 0) await sleep(BACKOFF_BASE_MS * 2 ** (attempt - 1));
-    const res = await label({ unit, config });
-    if (res.kind === "ok") return { wire: res.wire };
-    error_class = res.kind === "retryable_error" ? res.error.class : res.kind;
+  random: () => number,
+): Promise<LabelOutcome> {
+  for (let attempt = 1; ; attempt += 1) {
+    const result = await label({ unit, config });
+    const outcome = mapToUnitOutcome({ result, attempt, maxAttempts: LABEL_ATTEMPTS });
+    if (outcome.kind === "ok") return { wire: outcome.wire };
+    if (outcome.kind === "failed") {
+      return result.kind === "retryable_error"
+        ? { error_class: result.error.class, failure: "retryable_error" }
+        : { error_class: "parse_error", failure: "parse_error" };
+    }
+    const base = BACKOFF_BASE_MS * 2 ** (attempt - 1);
+    await sleep(base + Math.floor(base * JITTER_FRACTION * random()));
   }
-  return { error_class };
 }
 
-async function pool<T>(count: number, limit: number, work: (index: number) => Promise<T>): Promise<T[]> {
-  const out = new Array<T>(count);
-  let next = 0;
-  const worker = async (): Promise<void> => {
-    for (;;) {
-      const i = next++;
-      if (i >= count) return;
-      out[i] = await work(i);
+/** FIFO counting semaphore: at most `limit` holders at once. */
+function semaphore(limit: number): <T>(work: () => Promise<T>) => Promise<T> {
+  let active = 0;
+  const waiting: Array<() => void> = [];
+  const release = (): void => {
+    active -= 1;
+    waiting.shift()?.();
+  };
+  return async <T>(work: () => Promise<T>): Promise<T> => {
+    if (active >= limit) await new Promise<void>((resolve) => waiting.push(resolve));
+    active += 1;
+    try {
+      return await work();
+    } finally {
+      release();
     }
   };
-  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, count)) }, worker));
-  return out;
+}
+
+/** The process exit code: 0 all pass, 2 any genuine FAIL, 3 inconclusive cells and no genuine FAIL. */
+export function exitCodeFor(report: ScenarioReport): 0 | 2 | 3 {
+  if (report.cells.some((c) => c.status === "FAIL")) return 2;
+  if (report.cells.some((c) => c.status === "INCONCLUSIVE")) return 3;
+  return 0;
 }
 
 export async function runScenario(
   opts: ScenarioOptions,
-  deps: { label: LabelCall; sleep?: (ms: number) => Promise<void> },
+  deps: { label: LabelCall; sleep?: (ms: number) => Promise<void>; random?: () => number },
 ): Promise<ScenarioReport> {
   const sleep = deps.sleep ?? realSleep;
+  const random = deps.random ?? Math.random;
+  const limited = semaphore(Math.max(1, opts.concurrency));
   const call_errors: Record<string, number> = {};
   const days = opts.days ?? [1, 2, 3];
   const variants = opts.variants ?? VARIANT_IDS;
@@ -354,28 +421,28 @@ export async function runScenario(
       for (const variant of variants) for (const uniting of unitings) cells.push({ day: d.day, variant, uniting, cards: d.variants[variant] });
 
   const tasks = cells.flatMap((cell, c) => Array.from({ length: opts.runs }, (_, r) => ({ cell, c, r })));
-  const outcomes = await pool(tasks.length, opts.concurrency, async (i) => {
-    const { cell, c, r } = tasks[i]!;
+  // Every run starts at once; `concurrency` limits the label calls in flight (the semaphore), not the runs.
+  const outcomes = await Promise.all(tasks.map(async ({ cell, c, r }) => {
     const plans = buildUnits(cell.cards, cell.uniting, `d${cell.day}-${cell.variant}-${cell.uniting}-r${r}`);
     const results = await Promise.all(
       plans.map(async (plan) => {
-        const res = await labelWithRetry(deps.label, plan.unit, opts.config, sleep);
+        const res = await limited(() => labelWithRetry(deps.label, plan.unit, opts.config, sleep, random));
         if ("error_class" in res) {
           call_errors[res.error_class] = (call_errors[res.error_class] ?? 0) + 1;
-          return { plan, wire: null };
+          return { plan, wire: null, failure: res.failure };
         }
         return { plan, wire: res.wire };
       }),
     );
     return { c, outcome: classifyRun(cell.cards, results) };
-  });
+  }));
 
   const results: CellResult[] = cells.map((cell, c) => {
     const summary = summarizeRuns(outcomes.filter((o) => o.c === c).map((o) => o.outcome));
     const judged = judgeCell({ variant: cell.variant, day: cell.day, summary });
     return { day: cell.day, variant: cell.variant, uniting: cell.uniting, summary, ...judged };
   });
-  return { runs: opts.runs, cells: results, pass: results.every((r) => r.pass), call_errors };
+  return { runs: opts.runs, cells: results, pass: results.every((r) => r.status === "PASS"), call_errors };
 }
 
 // ── Report ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -402,27 +469,34 @@ export function formatReport(report: ScenarioReport): string {
       `contam ${s.contamination}/${n}`.padEnd(13),
       `q<=5 ${s.questions_ok}/${n} (max ${s.max_questions})`.padEnd(20),
       `failed calls ${s.failed_calls}`.padEnd(16),
-      c.pass ? "PASS" : "FAIL",
+      c.status,
     ].join(" | ");
   });
   const lines = [`[eval:scenario] ${n} run(s) per cell; counts only`, ...rows];
   for (const c of report.cells) {
-    if (c.pass) continue;
+    if (c.status === "PASS") continue;
     const s = c.summary;
     const detail = [
       ...c.failures,
       s.a_applicable ? `A landed as ${dist(s.a_categories)}` : null,
       s.b_applicable ? `B landed as ${dist(s.b_categories)}` : null,
     ].filter(Boolean);
-    lines.push(`  FAIL day ${c.day} ${c.variant} ${c.uniting}: ${detail.join("; ")}`);
+    lines.push(`  ${c.status} day ${c.day} ${c.variant} ${c.uniting}: ${detail.join("; ")}`);
   }
   if (Object.keys(report.call_errors).length > 0) {
     lines.push(
-      `[eval:scenario] WARNING: label calls failed after ${LABEL_ATTEMPTS} attempts (${dist(report.call_errors)}). ` +
-        "Cells with failed calls are INCONCLUSIVE, not a model result: lower --concurrency, wait for quota, and rerun.",
+      `[eval:scenario] WARNING: label calls failed after every attempt (${dist(report.call_errors)}). ` +
+        "Cells with a retryable-failed call are INCONCLUSIVE, not a model result: lower --concurrency, wait for quota, and rerun.",
     );
   }
-  lines.push(report.pass ? "[eval:scenario] PASS" : "[eval:scenario] FAIL (exit 2)");
+  const code = exitCodeFor(report);
+  lines.push(
+    code === 0
+      ? "[eval:scenario] PASS"
+      : code === 2
+        ? "[eval:scenario] FAIL (exit 2)"
+        : "[eval:scenario] INCONCLUSIVE (exit 3): no genuine failure, but some label calls kept failing; rerun",
+  );
   return lines.join("\n");
 }
 
@@ -504,7 +578,7 @@ async function main(): Promise<void> {
   console.log("[eval:scenario] fictional fixture only (hard rule #8); the report prints counts, never line text");
   const report = await runScenario({ ...args, config }, { label: realLabelCall });
   console.log(formatReport(report));
-  process.exitCode = report.pass ? 0 : 2;
+  process.exitCode = exitCodeFor(report);
 }
 
 const isMainModule = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;

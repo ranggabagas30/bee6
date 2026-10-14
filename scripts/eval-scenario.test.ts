@@ -5,6 +5,7 @@ import { SCENARIO_V2, VARIANT_IDS, type ScenarioCard } from "@/scripts/eval-fixt
 import {
   buildUnits,
   classifyRun,
+  exitCodeFor,
   formatReport,
   judgeCell,
   parseArgs,
@@ -66,7 +67,41 @@ describe("scenario fixture", () => {
     expect(day(1).variants.exact.find((c) => c.kind === "problem_a")!.lines[0]).toBe(
       "Excuse me, are these egg tarts fresh today? When were they baked?",
     );
-    expect(day(2).variants.exact.find((c) => c.kind === "problem_b")!.lines[0]).toBe("Hello, Demo Bakery, good afternoon.");
+    expect(day(2).variants.exact.find((c) => c.kind === "problem_b")!.lines[0]).toBe("Hello, Demo Bakery, thanks for calling.");
+  });
+
+  it("the rewritten phone-order cards (round 1) carry the agreed wording in exact, v1, v2 and v4", () => {
+    const b = (n: 2 | 3, v: (typeof VARIANT_IDS)[number]) => day(n).variants[v].find((c) => c.kind === "problem_b")!.lines;
+    expect(b(2, "exact")).toEqual([
+      "Hello, Demo Bakery, thanks for calling.",
+      "Yes, fifty egg tarts for tomorrow morning. Pickup at ten. Okay, got it. Thank you, bye.",
+      "I did not read that phone order back to the caller. I will write it down later.",
+    ]);
+    expect(b(3, "exact")).toEqual([
+      "Hello, Demo Bakery, thanks for calling.",
+      "A birthday cake and twenty croissants for Saturday. Pickup at three or four? Sorry, the phone line is bad. Okay, four o'clock. Bye.",
+      "I hung up without reading the order back to the caller. I hope I got the time right.",
+    ]);
+    expect(b(2, "v1")).toEqual([
+      "Hello, Demo Bakery, how can I help you?",
+      "Yes, fifty egg tarts for tomorrow morning, to be picked up at ten. Alright, noted. Thanks, goodbye.",
+      "I did not read that phone order back to the caller. I will note it down a bit later.",
+    ]);
+    expect(b(3, "v1")).toEqual([
+      "Hello, Demo Bakery, how can I help?",
+      "So a birthday cake and twenty croissants for Saturday. Is pickup at three or at four? Sorry, the phone is breaking up. Okay, four o'clock. Goodbye.",
+      "I put the phone down without reading the order back to the caller. I hope I heard the time right.",
+    ]);
+    // v4 = the exact lines plus one neutral extra line
+    expect(b(2, "v4")).toEqual([...b(2, "exact"), "It was a big order for a weekday."]);
+    expect(b(3, "v4")).toEqual([...b(3, "exact"), "That took a while."]);
+    // v2: the exact sentences with fillers added, three lines each
+    for (const n of [2, 3] as const) {
+      expect(b(n, "v2")).toHaveLength(3);
+      expect(b(n, "v2").join(" ")).toMatch(/\bum\b/i);
+    }
+    expect(b(2, "v2").join(" ")).toMatch(/read that phone order back to the caller/);
+    expect(b(3, "v2").join(" ")).toMatch(/reading the order back to the caller/);
   });
 
   it("v3 is a real reorder and v4 adds exactly one line to each problem card", () => {
@@ -179,6 +214,20 @@ describe("classifyRun", () => {
     expect(out.b!.correct).toBe(true);
   });
 
+  it("tells a retryable failure (inconclusive) from a parse failure (genuine)", () => {
+    const plans = buildUnits(cards, "U2", "t");
+    const out = classifyRun(
+      cards,
+      plans.map((plan, i) => ({
+        plan,
+        wire: i < 2 ? null : wireFor(plan, byId, perfect),
+        failure: i === 0 ? ("retryable_error" as const) : i === 1 ? ("parse_error" as const) : undefined,
+      })),
+    );
+    expect(out.failed_calls).toBe(2);
+    expect(out.retryable_failures).toBe(1);
+  });
+
   it("NON_WORK lines are dropped: a card whose lines are all NON_WORK has no category", () => {
     const [plan] = buildUnits(cards, "U1", "t");
     const wire = wireFor(plan!, byId, (c) => (c.kind === "problem_a" ? "NON_WORK" : perfect(c)));
@@ -202,6 +251,7 @@ describe("summarizeRuns and judgeCell", () => {
     contaminated: false,
     questions: 2,
     failed_calls: 0,
+    retryable_failures: 0,
     ...over,
   });
   const five = (...o: RunOutcome[]) => [...o, ...Array.from({ length: 5 - o.length }, () => ok())];
@@ -224,6 +274,7 @@ describe("summarizeRuns and judgeCell", () => {
       questions_ok: 4,
       max_questions: 6,
       failed_calls: 1,
+      retryable_failures: 0,
       a_categories: { STAFF_CONSULT: 1, CUSTOMER_SERVICE: 4 },
     });
   });
@@ -274,6 +325,17 @@ describe("summarizeRuns and judgeCell", () => {
     const j = judge("v1", 2, two);
     expect(j.pass).toBe(false);
     expect(j.failures.some((f) => f.includes("contamination"))).toBe(true);
+  });
+
+  it("a cell with a retryable-failed unit is INCONCLUSIVE, never PASS or FAIL; a parse failure stays a genuine FAIL", () => {
+    const retry = summarizeRuns(five(ok({ a: { correct: false, as_fact: false, category: null }, failed_calls: 1, retryable_failures: 1 })));
+    expect(judgeCell({ variant: "exact", day: 2, summary: retry }).status).toBe("INCONCLUSIVE");
+    // a retryable failure in an otherwise passing variant cell is still not a clean PASS
+    const quiet = summarizeRuns(five(ok({ failed_calls: 1, retryable_failures: 1 })));
+    expect(judgeCell({ variant: "v1", day: 2, summary: quiet }).status).toBe("INCONCLUSIVE");
+    const parse = summarizeRuns(five(ok({ a: { correct: false, as_fact: false, category: null }, failed_calls: 1 })));
+    expect(judgeCell({ variant: "exact", day: 2, summary: parse })).toMatchObject({ status: "FAIL", pass: false });
+    expect(judgeCell({ variant: "exact", day: 2, summary: summarizeRuns(five()) }).status).toBe("PASS");
   });
 
   it("scales the thresholds with the run count (--runs 3: exact still needs all, variant needs ceil(0.8*3)=3)", () => {
@@ -332,7 +394,7 @@ describe("runScenario (fake label model)", () => {
     expect(text).toContain("STAFF_CONSULT");
   });
 
-  it("retries with backoff, then counts a unit that keeps failing and names the error class", async () => {
+  it("retries 429s with 2/4/8 s backoff (plus jitter), then a unit that keeps failing is INCONCLUSIVE and names the error class", async () => {
     const sleeps: number[] = [];
     const sleep = async (ms: number) => void sleeps.push(ms);
     const one = { runs: 1, config, concurrency: 1, days: [1] as const, variants: ["exact"] as const, unitings: ["U1"] as const };
@@ -342,17 +404,69 @@ describe("runScenario (fake label model)", () => {
       if (calls <= 3) return { kind: "retryable_error", error: { class: "http_429" } };
       return perfectModel(input);
     };
-    const recovered = await runScenario(one, { label: flaky, sleep });
+    const recovered = await runScenario(one, { label: flaky, sleep, random: () => 0 });
     expect(recovered.cells[0]!.summary.failed_calls).toBe(0);
     expect(recovered.call_errors).toEqual({});
     expect(sleeps).toEqual([2_000, 4_000, 8_000]);
 
+    // jitter is added on top of the base, never below it and at most 25 % above
+    sleeps.length = 0;
+    calls = 0;
+    await runScenario(one, { label: flaky, sleep, random: () => 0.5 });
+    expect(sleeps).toEqual([2_000 + 250, 4_000 + 500, 8_000 + 1_000]);
+
     const dead: LabelCall = async () => ({ kind: "retryable_error", error: { class: "http_429" } });
-    const bad = await runScenario(one, { label: dead, sleep });
+    const bad = await runScenario(one, { label: dead, sleep, random: () => 0 });
     expect(bad.cells[0]!.summary.failed_calls).toBe(1);
+    expect(bad.cells[0]!.summary.retryable_failures).toBe(1);
+    expect(bad.cells[0]!.status).toBe("INCONCLUSIVE");
     expect(bad.pass).toBe(false);
     expect(bad.call_errors).toEqual({ http_429: 1 });
     expect(formatReport(bad)).toMatch(/INCONCLUSIVE/);
+    expect(exitCodeFor(bad)).toBe(3);
+  });
+
+  it("a parse_error twice then ok still ends as a failed unit (production allows 2 attempts), and it is a genuine FAIL", async () => {
+    const one = { runs: 1, config, concurrency: 1, days: [1] as const, variants: ["exact"] as const, unitings: ["U1"] as const };
+    let calls = 0;
+    const parseTwice: LabelCall = async (input) => {
+      calls += 1;
+      if (calls <= 2) return { kind: "parse_error", issues: [] };
+      return perfectModel(input);
+    };
+    const sleeps: number[] = [];
+    const report = await runScenario(one, { label: parseTwice, sleep: async (ms) => void sleeps.push(ms), random: () => 0 });
+    expect(calls).toBe(2);
+    expect(report.cells[0]!.summary.failed_calls).toBe(1);
+    expect(report.cells[0]!.summary.retryable_failures).toBe(0);
+    expect(report.cells[0]!.status).toBe("FAIL");
+    expect(report.call_errors).toEqual({ parse_error: 1 });
+    expect(exitCodeFor(report)).toBe(2);
+  });
+
+  it("exit code: 0 all pass, 2 on any genuine FAIL (even with inconclusive cells), 3 inconclusive only", async () => {
+    const base = { runs: 1, config, concurrency: 1, days: [1] as const, variants: ["exact"] as const, unitings: ["U1"] as const };
+    expect(exitCodeFor(await runScenario(base, { label: perfectModel, sleep: async () => {} }))).toBe(0);
+    const statuses = (xs: Array<"PASS" | "FAIL" | "INCONCLUSIVE">) =>
+      exitCodeFor({ runs: 1, pass: false, call_errors: {}, cells: xs.map((status) => ({ status }) as never) });
+    expect(statuses(["PASS", "INCONCLUSIVE"])).toBe(3);
+    expect(statuses(["INCONCLUSIVE", "FAIL"])).toBe(2);
+  });
+
+  it("--concurrency limits label calls in flight, not runs", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const tracked: LabelCall = async (input) => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 2));
+      inFlight -= 1;
+      return perfectModel(input);
+    };
+    // U2 = 5 units per run: without a call-level limit a single run alone would put 5 calls in flight
+    const report = await runScenario({ runs: 3, config, concurrency: 2, days: [2], variants: ["exact"], unitings: ["U2"] }, { label: tracked });
+    expect(report.pass).toBe(true);
+    expect(peak).toBe(2);
   });
 });
 
