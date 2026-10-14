@@ -1,5 +1,7 @@
-import { businessDateOf } from "@/lib/capture/calendar";
+import { addDays, businessDateOf } from "@/lib/capture/calendar";
+import { COLLECTIONS, type CollectionName } from "@/lib/firestore/collections";
 import type { LastEnded } from "@/lib/firestore/schema";
+import { CLONE_DATE_KEYS, CLONE_UNTOUCHED_KEYS, shiftDeep } from "@/lib/demo/clone";
 import { DEMO_DAYS_TOTAL, NEXT_DAY_MAX, PREPARING_MAX_MS } from "@/lib/demo/constants";
 import type { DemoNextDayStatus, NextDayRefusal } from "@/lib/demo/contract";
 
@@ -106,4 +108,69 @@ export function demoDaysDone(input: { next_day_count: number | undefined; last_e
   const last = input.last_ended;
   const todayDone = last !== null && last.end_reason !== "discarded" && last.business_date === input.today ? 1 : 0;
   return Math.min(DEMO_DAYS_TOTAL, (input.next_day_count ?? 0) + todayDone);
+}
+
+// ── the shift (section 4.2): time only, one day back ─────────────────────────────────────────────────────────
+
+const DAY_MS = 86_400_000;
+export const NEXT_DAY_DELTA_MS = -DAY_MS;
+export const NEXT_DAY_DAYS = -1;
+
+/** The clone's date keys plus the three `YYYY-MM-DD` fields the clone never meets. */
+export const NEXT_DAY_DATE_KEYS: ReadonlySet<string> = new Set([...CLONE_DATE_KEYS, "debrief_business_date", "from_date", "to_date"]);
+/**
+ * The clone's untouched keys plus every TTL and record-of-real-time field: `expires_at` (a native Timestamp on
+ * segments and corrections; the TTL must not move), `expires_at_ms`, the whole `sandbox` object, `ts`,
+ * `pairing_code_expires_at`, `paired_at`, `created_at`.
+ */
+export const NEXT_DAY_UNTOUCHED: ReadonlySet<string> = new Set([
+  ...CLONE_UNTOUCHED_KEYS,
+  "expires_at",
+  "expires_at_ms",
+  "sandbox",
+  "ts",
+  "pairing_code_expires_at",
+  "paired_at",
+  "created_at",
+]);
+
+/** The collections whose sandbox docs are moved whole (`set`, same ids). `devices` moves only `last_ended` (shiftLastEnded). */
+export const NEXT_DAY_SHIFT_COLLECTIONS: readonly CollectionName[] = [
+  COLLECTIONS.captureSessions,
+  COLLECTIONS.segments,
+  COLLECTIONS.threads,
+  COLLECTIONS.questions,
+  COLLECTIONS.corrections,
+  COLLECTIONS.labelUnits,
+  COLLECTIONS.proposals,
+];
+
+const isoOf = (ms: number) => new Date(ms).toISOString();
+const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+const shiftIso = (v: unknown): unknown => (typeof v === "string" && ISO_DATETIME.test(v) ? isoOf(Date.parse(v) + NEXT_DAY_DELTA_MS) : v);
+
+/**
+ * One sandbox doc, moved one day back. Never mutates the input; untouched subtrees keep their reference (so a
+ * Firestore Timestamp under `expires_at` is written back as the same Timestamp).
+ */
+export function shiftDocForNextDay<T extends Record<string, unknown>>(collection: CollectionName, data: T): T {
+  if (!NEXT_DAY_SHIFT_COLLECTIONS.includes(collection)) {
+    throw new Error(`shiftDocForNextDay: collection "${collection}" is not in the next-day table`);
+  }
+  const out = shiftDeep(data, NEXT_DAY_DELTA_MS, NEXT_DAY_DAYS, "", { dateKeys: NEXT_DAY_DATE_KEYS, untouchedKeys: NEXT_DAY_UNTOUCHED });
+  if (collection === COLLECTIONS.segments) {
+    // ISO device times without the `_at` suffix: named explicitly in the table.
+    return { ...out, device_start: shiftIso(out.device_start), device_end: shiftIso(out.device_end) };
+  }
+  return out;
+}
+
+/** `devices`: only the device's own `last_ended` moves. */
+export function shiftLastEnded(last: LastEnded): LastEnded {
+  return {
+    business_date: addDays(last.business_date, NEXT_DAY_DAYS),
+    end_reason: last.end_reason,
+    ended_at_ms: last.ended_at_ms + NEXT_DAY_DELTA_MS,
+    debrief_ends_at_ms: last.debrief_ends_at_ms === null ? null : last.debrief_ends_at_ms + NEXT_DAY_DELTA_MS,
+  };
 }

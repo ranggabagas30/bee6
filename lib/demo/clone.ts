@@ -112,6 +112,9 @@ const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
  * wrote or the gate decided can change (a `fields` entry named `business_date` stays as it is).
  */
 const UNTOUCHED_KEYS = new Set(["summary", "text", "fields", "gate", "runner_up", "answer"]);
+/** The clone's defaults, exported read-only so the next-day shift (lib/demo/next-day.ts) can widen them. */
+export const CLONE_DATE_KEYS: ReadonlySet<string> = DATE_KEYS;
+export const CLONE_UNTOUCHED_KEYS: ReadonlySet<string> = UNTOUCHED_KEYS;
 /** Record-keeping times: after the shift none may sit after `now` (a template seeded late in its day would land in the future). */
 const RECORD_MS_KEYS = ["created_at_ms", "updated_at_ms"] as const;
 const RECORD_ISO_KEYS = ["received_start_at", "received_end_at"] as const;
