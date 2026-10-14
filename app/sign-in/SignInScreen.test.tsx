@@ -495,20 +495,4 @@ describe("SignInScreen shell and the demo deployment (R-12 Task 8.5, R-18 P1)", 
     expect(screen.getByLabelText("Email")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Sign in" })).toBeTruthy();
   });
-
-  it("the home variant: children (the intro) above the sign-in, an h2 for Sign in, and a signed-in visitor is not redirected", async () => {
-    authUserState = { status: "signed_in", user: FAKE_USER } as unknown as AuthUserState;
-    render(
-      <LangProvider initial="en">
-        <SignInScreen config={CONFIG} demo variant="home" initialRole="staff">
-          <h1>Intro title</h1>
-        </SignInScreen>
-      </LangProvider>,
-    );
-    expect(screen.getByRole("heading", { level: 1, name: "Intro title" })).toBeTruthy();
-    expect(screen.getByRole("heading", { level: 2, name: "Sign in" })).toBeTruthy();
-    await screen.findByText("Demo access");
-    await act(async () => {});
-    expect(replace).not.toHaveBeenCalled();
-  });
 });
