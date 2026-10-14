@@ -22,7 +22,8 @@ function q(id: string, overrides: Partial<DebriefQuestionView> = {}): DebriefQue
   };
 }
 
-const CLOSED: DebriefState = { view: { kind: "closed" }, ends_at_ms: 10_000, business_date: null, seen: new Set() };
+// R-19 PR-3: `demo: false` is the pilot; every assertion in this file is the pilot path and stays as it was.
+const CLOSED: DebriefState = { view: { kind: "closed" }, ends_at_ms: 10_000, business_date: null, seen: new Set(), demo: false, preparing: false };
 
 describe("reduceDebrief: OPEN / RETRY", () => {
   it("OPEN from closed goes to loading", () => {
