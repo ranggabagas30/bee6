@@ -142,7 +142,8 @@ describe("ReviewsApp: lists", () => {
   it("shows the empty state when both lists are empty, and no decided heading", async () => {
     authedGetJson.mockResolvedValue(ok(list()));
     renderApp();
-    await screen.findByText("No reviews yet. A review starts on the review date of each SOP change.");
+    await screen.findByText("Nothing to review yet");
+    expect(screen.getByText("When an approved change reaches its review date, it appears here.")).not.toBeNull();
     expect(screen.queryByRole("heading", { name: "Decided" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Waiting for a verdict" })).toBeNull();
   });
@@ -196,7 +197,7 @@ describe("ReviewsApp: lists", () => {
     screen.getByText("Confirmed. Remembered as: Worked");
     expect(screen.queryByRole("button", { name: "Worked" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Waiting for a verdict" })).toBeNull();
-    expect(screen.queryByText(/^No reviews yet/)).toBeNull();
+    expect(screen.queryByText(/^Nothing to review yet/)).toBeNull();
   });
 });
 

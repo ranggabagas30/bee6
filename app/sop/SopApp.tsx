@@ -12,6 +12,7 @@ import { dayLabel } from "@/lib/i18n/format";
 import { SopOverviewSchema, type SopOverview } from "@/lib/sop/contract";
 import { WebTopBar } from "@/app/web/WebTopBar";
 import { ROLE_KEY, SopChangeCard } from "@/app/sop/SopChangeCard";
+import { EmptyState } from "@/app/web/EmptyState";
 
 /**
  * /sop (R-10 Task 5.3). Owner and supervisor see the SOP header, the plain
@@ -145,7 +146,7 @@ export function SopApp({ config }: { config: FirebaseWebConfig | null }) {
       <main style={PAGE_STYLE}>
         <WebTopBar auth={auth} showSignOut current="sop" />
         <h1>{t(lang, "C-sop-title")}</h1>
-        <p>{t(lang, "C-sop-empty")}</p>
+        <EmptyState title={t(lang, "C-web-empty-sop-h")} detail={role === "owner" ? t(lang, "C-web-empty-sop-owner") : undefined} />
       </main>
     );
   }

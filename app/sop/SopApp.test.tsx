@@ -117,10 +117,11 @@ describe("SopApp header", () => {
     await screen.findByText("Version 2 starts on Fri 16 Oct. Until then, version 1 applies.");
   });
 
-  it("5.T4 no SOP shows the empty message and no sections", async () => {
+  it("5.T4 no SOP shows the empty state (owner: with the upload-coming line) and no sections", async () => {
     authedGetJson.mockResolvedValue({ kind: "ok", data: overview({ latest: null, in_force_version: null }) });
     renderApp();
-    await screen.findByText("No SOP is set up for this outlet yet.");
+    await screen.findByText("No SOP yet.");
+    expect(screen.getByText("Uploading an SOP is coming soon. The demo uses a ready-made SOP.")).not.toBeNull();
     expect(screen.queryByText("Changes")).toBeNull();
     expect(screen.queryByRole("heading", { name: /Steps in version/ })).toBeNull();
     expect(document.querySelector("ol")).toBeNull(); // the nav is a <ul>; the steps list is the only <ol>

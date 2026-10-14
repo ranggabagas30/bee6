@@ -100,7 +100,7 @@ describe("ProposalList — loading", () => {
     authedGetJson.mockResolvedValue(listOf([]));
     renderList();
     expect(screen.getByText("Loading…")).not.toBeNull();
-    await waitFor(() => expect(screen.getByText("No open proposals.")).not.toBeNull());
+    await waitFor(() => expect(screen.getByText("No proposal yet")).not.toBeNull());
     expect(authedGetJson).toHaveBeenCalledTimes(1);
     expect(authedGetJson).toHaveBeenCalledWith(FAKE_AUTH, "/api/v1/proposals", expect.anything());
   });
@@ -137,12 +137,30 @@ describe("ProposalList — loading", () => {
 });
 
 describe("ProposalList — empty and error states", () => {
-  it("empty open list shows the empty line and hides the Decided heading", async () => {
+  it("nothing open and nothing decided shows the supervisor empty state (R-19 PR-6 §8.3) and hides the Decided heading", async () => {
     authedGetJson.mockResolvedValue(listOf([]));
     renderList();
-    await waitFor(() => expect(screen.getByText("No open proposals.")).not.toBeNull());
+    await waitFor(() => expect(screen.getByText("No proposal yet")).not.toBeNull());
+    expect(screen.getByText("Bee6 needs the same problem on at least 2 days.")).not.toBeNull();
     expect(screen.getByRole("heading", { name: "Open proposals" })).not.toBeNull();
     expect(screen.queryByRole("heading", { name: "Recently decided" })).toBeNull();
+    expect(screen.queryByText("No open proposals.")).toBeNull();
+  });
+
+  it("the owner's empty state is the Approvals copy", async () => {
+    authedGetJson.mockResolvedValue(listOf([]));
+    renderList("owner");
+    await waitFor(() => expect(screen.getByText("Nothing waiting for you.")).not.toBeNull());
+    expect(screen.getByText("Proposals appear here after the supervisor marks them feasible.")).not.toBeNull();
+    expect(screen.queryByText("No proposal yet")).toBeNull();
+  });
+
+  it("nothing open but something decided keeps the plain 'No open proposals.' line and the Decided section", async () => {
+    authedGetJson.mockResolvedValue(listOf([], [makeItem(2, "rejected", "Old change")]));
+    renderList();
+    await waitFor(() => expect(screen.getByText("No open proposals.")).not.toBeNull());
+    expect(screen.getByRole("heading", { name: "Recently decided" })).not.toBeNull();
+    expect(screen.queryByText("No proposal yet")).toBeNull();
   });
 
   it("a failed GET shows the generic message", async () => {
