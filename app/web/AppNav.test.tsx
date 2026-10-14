@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { LangProvider } from "@/lib/i18n/context";
 import { axeViolations } from "@/lib/testing/axe";
 import { AppNav, NAV, type NavItemId } from "@/app/web/AppNav";
@@ -57,5 +59,24 @@ describe("AppNav (R-19 PR-6 §8.2, D-9)", () => {
   it("axe finds no violation", async () => {
     const { container } = renderNav("supervisor", "day");
     expect(await axeViolations(container)).toEqual([]);
+  });
+  it("scrolls a focused link into view, so a partly visible item is not left clipped (keyboard, 360 px)", () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    renderNav("owner", "home", "id");
+    const last = links()[3];
+    fireEvent.focus(last);
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView).toHaveBeenCalledWith({ inline: "nearest", block: "nearest" });
+    expect(scrollIntoView.mock.contexts[0]).toBe(last);
+  });
+
+  it("the nav CSS shows an edge fade when it overflows on a phone and keeps the focused item clear of it", () => {
+    const css = readFileSync(join(__dirname, "shell.module.css"), "utf8");
+    const nav = css.match(/\n\.nav\s*{[^}]*}/)?.[0] ?? "";
+    expect(nav).toMatch(/mask-image:\s*linear-gradient\(to right/);
+    expect(nav).toMatch(/scroll-padding-inline:/);
+    // From 900 px the nav wraps instead of scrolling, so the fade is dropped there.
+    expect(css.slice(css.indexOf("@media (min-width: 900px)"))).toMatch(/mask-image:\s*none/);
   });
 });

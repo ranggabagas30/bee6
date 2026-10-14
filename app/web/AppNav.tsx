@@ -1,5 +1,6 @@
 "use client";
 
+import type { FocusEvent } from "react";
 import Link from "next/link";
 import { useLang } from "@/lib/i18n/context";
 import { t, type DictKey } from "@/lib/i18n/dict";
@@ -35,6 +36,11 @@ function labelKey(item: NavItemId, role: NavRoleId): DictKey {
   return `C-web-nav-${item}` as const;
 }
 
+/** The row scrolls sideways on a phone, and Chromium does not scroll a partly visible focused link into view itself. */
+function revealOnFocus(e: FocusEvent<HTMLAnchorElement>) {
+  e.currentTarget.scrollIntoView({ inline: "nearest", block: "nearest" });
+}
+
 export function AppNav({ role, current }: { role: NavRoleId; current?: NavItemId }) {
   const { lang } = useLang();
   return (
@@ -47,6 +53,7 @@ export function AppNav({ role, current }: { role: NavRoleId; current?: NavItemId
               <Link
                 href={HREF[item]}
                 aria-current={isCurrent ? "page" : undefined}
+                onFocus={revealOnFocus}
                 className={cx(styles.navLink, isCurrent && styles.navLinkCurrent)}
               >
                 {t(lang, labelKey(item, role))}

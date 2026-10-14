@@ -1,6 +1,6 @@
 /*
  * Supervisor / owner shell (R-19 PR-6 §8.2): the top bar and the nav row, on the PR-0b tokens (app/globals.css).
- * Mobile-first: one column at 360 px, the nav scrolls sideways if the labels do not fit; from 900 px the bar and
+ * Mobile-first: one column at 360 px, the nav scrolls sideways if the labels do not fit (with a right-edge fade as the cue); from 900 px the bar and
  * the nav sit on one line. Every control is at least 44 px tall (the nav links 48 px).
  */
 
@@ -45,6 +45,10 @@
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
+  /* Edge fade: the cue that more items wait to the right. Dropped from 900 px, where the row wraps. */
+  mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+  /* A focused or scrolled-to link stops clear of the fade. */
+  scroll-padding-inline: 24px;
 }
 
 .nav::-webkit-scrollbar {
@@ -104,6 +108,7 @@
   .nav {
     margin: 0 0 20px;
     padding: 0;
+    mask-image: none;
   }
   .navList {
     width: auto;
