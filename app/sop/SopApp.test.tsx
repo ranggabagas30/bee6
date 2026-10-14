@@ -122,7 +122,8 @@ describe("SopApp header", () => {
     renderApp();
     await screen.findByText("No SOP is set up for this outlet yet.");
     expect(screen.queryByText("Changes")).toBeNull();
-    expect(screen.queryByRole("list")).toBeNull();
+    expect(screen.queryByRole("heading", { name: /Steps in version/ })).toBeNull();
+    expect(document.querySelector("ol")).toBeNull(); // the nav is a <ul>; the steps list is the only <ol>
   });
 });
 
@@ -141,7 +142,7 @@ describe("SopApp sections", () => {
     const titles = screen.getAllByText(/^Change title v/).map((n) => n.textContent);
     expect(titles).toEqual(["Change title v3", "Change title v2"]);
     expect(screen.getByRole("heading", { name: "Steps in version 3" })).not.toBeNull();
-    const items = screen.getAllByRole("listitem");
+    const items = Array.from(document.querySelector("ol")!.querySelectorAll("li")); // the nav <ul> has its own items
     expect(items).toHaveLength(2);
     expect(items[0]!.textContent).toContain("Title a-01");
     expect(items[0]!.textContent).toContain("Done by: Staff");

@@ -120,7 +120,7 @@ export function DayRecordApp({
   if (state.kind === "loading") {
     return (
       <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
+        <WebTopBar auth={auth} showSignOut current="day" />
         <p role="status" aria-live="polite">
           {t(lang, "C-day-loading")}
         </p>
@@ -131,7 +131,7 @@ export function DayRecordApp({
   if (state.kind === "forbidden") {
     return (
       <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
+        <WebTopBar auth={auth} showSignOut current="day" />
         <p role="status" aria-live="polite">
           {t(lang, "C-day-forbidden")}
         </p>
@@ -142,7 +142,7 @@ export function DayRecordApp({
   if (state.kind === "invalid") {
     return (
       <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
+        <WebTopBar auth={auth} showSignOut current="day" />
         <p role="status" aria-live="polite">
           {t(lang, "C-day-invalid")}
         </p>
@@ -154,7 +154,7 @@ export function DayRecordApp({
   if (state.kind === "error") {
     return (
       <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
+        <WebTopBar auth={auth} showSignOut current="day" />
         <p role="status" aria-live="polite">
           {t(lang, "C-day-err")}
         </p>
@@ -169,7 +169,7 @@ export function DayRecordApp({
   return (
     <main>
       <div style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
+        <WebTopBar auth={auth} showSignOut current="day" />
       </div>
       <DayRecordView
         data={data}

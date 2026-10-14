@@ -168,7 +168,7 @@ export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
   if (authUser.status === "loading" || authUser.status === "signed_out" || role === null) {
     return (
       <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
+        <WebTopBar auth={auth} showSignOut current="reviews" />
         <p role="status" aria-live="polite">
           {t(lang, "C-day-loading")}
         </p>
@@ -179,7 +179,7 @@ export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
   if (role === "other" || view.kind === "forbidden") {
     return (
       <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
+        <WebTopBar auth={auth} showSignOut current="reviews" />
         <h1>{t(lang, "C-rev-title")}</h1>
         <p role="status" aria-live="polite">
           {t(lang, "C-rev-err-forbidden")}
@@ -196,7 +196,7 @@ export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
 
   return (
     <main style={PAGE_STYLE}>
-      <WebTopBar auth={auth} showSignOut />
+      <WebTopBar auth={auth} showSignOut current="reviews" />
       <h1>{t(lang, "C-rev-title")}</h1>
 
       <p
