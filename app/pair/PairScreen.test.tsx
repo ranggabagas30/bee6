@@ -5,6 +5,7 @@ import { LangProvider } from "@/lib/i18n/context";
 import type { StartDemoResult } from "@/app/demo/demo-client";
 import { createMemoryStorage } from "@/lib/demo/testing/memory-storage";
 import { axeViolations } from "@/lib/testing/axe";
+import { DEMO_STATE_KEY } from "@/app/demo/demo-client";
 import { PairScreen } from "@/app/pair/PairScreen";
 
 const push = vi.fn();
@@ -179,6 +180,15 @@ describe("PairScreen on the demo (demo=true): the demo code opens a sandbox, the
     expect(screen.getByText(/Each sign-in opens your own private copy of a fictional shop for 2 hours/)).toBeTruthy();
     expect(document.body.textContent).not.toContain("000000");
     expect(screen.queryByRole("button", { name: /Fill in|Start a fresh demo/ })).toBeNull();
+  });
+
+  it("an ended demo: the demo box does not repeat the ended sentence (the DemoBar shows it), the form stays usable", async () => {
+    window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: "A".repeat(43), expires_at_ms: 1_000, role: "staff" }));
+    renderScreen({ demo: true });
+    const status = await screen.findByTestId("demo-status");
+    expect(screen.queryByText("Your demo session has ended.")).toBeNull();
+    expect(status.textContent).toBe("");
+    expect(screen.getByRole("button", { name: "Set up" })).toBeTruthy();
   });
 
   it("the demo code starts a staff demo without a hard navigation, never calls the pair route, then shows Device set up", async () => {

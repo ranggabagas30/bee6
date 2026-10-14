@@ -28,6 +28,11 @@ export interface DemoAccessProps {
    * instead and the screen shows its own next step (Device set up). Without it the start navigates as before.
    */
   onStarted?: () => void;
+  /**
+   * R-19 PR-6 (/pair): the screen shows the DemoBar, which already says an ended demo session ended, so the box does not
+   * repeat it. /sign-in hides the bar once ended, so it leaves this unset and the box keeps the line.
+   */
+  barShowsEnded?: boolean;
   /** The sign-in panels; they read the intercepts through `DemoHooksConsumer`. */
   children: ReactNode;
 }

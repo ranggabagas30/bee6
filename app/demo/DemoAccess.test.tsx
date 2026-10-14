@@ -22,9 +22,6 @@ vi.mock("@/lib/auth/client/firebase-client", () => ({
   signInWithCustomToken: vi.fn(),
 }));
 
-let pathname = "/sign-in";
-vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
-
 const startOrSwitch = vi.fn<(role: string, options: Record<string, unknown>) => Promise<StartDemoResult>>();
 vi.mock("@/app/demo/demo-client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/app/demo/demo-client")>()),
@@ -47,10 +44,10 @@ function Panel() {
 }
 const onFill = vi.fn();
 
-function renderAccess(opts: { role?: SignInRole; lang?: "en" | "id"; config?: FirebaseWebConfig | null } = {}) {
+function renderAccess(opts: { role?: SignInRole; lang?: "en" | "id"; config?: FirebaseWebConfig | null; barShowsEnded?: boolean } = {}) {
   return render(
     <LangProvider initial={opts.lang ?? "en"}>
-      <DemoAccess role={opts.role ?? "staff"} onFill={onFill} config={opts.config === undefined ? CONFIG : opts.config}>
+      <DemoAccess role={opts.role ?? "staff"} onFill={onFill} config={opts.config === undefined ? CONFIG : opts.config} barShowsEnded={opts.barShowsEnded}>
         <Panel />
       </DemoAccess>
     </LangProvider>,
@@ -69,7 +66,6 @@ function deferred<T>() {
 
 let consoleSpies: ReturnType<typeof vi.spyOn>[] = [];
 beforeEach(() => {
-  pathname = "/sign-in";
   vi.stubGlobal("localStorage", createMemoryStorage());
   getClientAuth.mockReturnValue(FAKE_AUTH);
   signOut.mockReset().mockResolvedValue(undefined);
@@ -303,16 +299,14 @@ describe("DemoAccess intercepts", () => {
 
 describe("DemoAccess with an earlier visit in this browser", () => {
   it("on /sign-in says the session ended when the stored sandbox is past its expiry: the DemoBar is hidden there (any role tab)", () => {
-    pathname = "/sign-in";
     window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: 1_000, role: "owner" }));
     renderAccess({ role: "staff" });
     expect(status().textContent).toContain("Your demo session has ended.");
   });
 
-  it("on /pair does not repeat the ended sentence: the DemoBar already shows it", () => {
-    pathname = "/pair";
+  it("with the DemoBar showing the ended sentence (/pair) the box does not repeat it", () => {
     window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: 1_000, role: "staff" }));
-    renderAccess({ role: "staff" });
+    renderAccess({ role: "staff", barShowsEnded: true });
     expect(screen.queryByText("Your demo session has ended.")).toBeNull();
     expect(status().textContent).toBe("");
   });
