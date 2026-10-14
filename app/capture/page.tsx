@@ -768,9 +768,8 @@ export default function CapturePage() {
       return (
         <Button
           variant="secondary"
-          size="lg"
           block
-          style={{ marginTop: 12 }}
+          style={{ marginTop: 12, minHeight: 48 }}
           disabled={!closingReached}
           onClick={openSelesaiConfirm}
         >
