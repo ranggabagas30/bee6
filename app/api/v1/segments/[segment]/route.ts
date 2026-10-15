@@ -122,7 +122,8 @@ export async function PUT(
 
     // Step 7b (R-12): inside a demo sandbox only, cap the Gemini/SDP spend of this judge's phone. After
     // auth and every validation above, before the first model call; inert for the pilot (zero reads).
-    await enforceDemoCapsForRoute("segment", claims, "segments:upload");
+    // R-23: charged once per seg_id; a phone retry after a 503/429 is free (bounded).
+    await enforceDemoCapsForRoute("segment", claims, "segments:upload", "charge", { id: seg_id });
 
     // Step 8: Record the segment (tombstone check → transcribe → redact → store)
     const outcome = await recordSegment(
