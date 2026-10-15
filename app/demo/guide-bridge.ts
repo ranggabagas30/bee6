@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import type { DemoSessionProfile } from "@/lib/capture/contract";
-import { DEBRIEF_DONE_EVENT, DEBRIEF_DONE_FLAG_KEY } from "@/lib/debrief/constants";
+import { DEBRIEF_DONE_EVENT, DEBRIEF_DONE_FLAG_KEY, DEBRIEF_VIEW_EVENT } from "@/lib/debrief/constants";
+import { readDebriefView, type DebriefViewKind } from "@/lib/debrief/view-signal";
 import type { CapturePhase } from "@/lib/demo/guide";
 import type { DictKey } from "@/lib/i18n/dict";
 
@@ -47,6 +48,20 @@ export function useDebriefDoneFlag(): string | null {
   return useSyncExternalStore(subscribeDebriefDoneFlag, readDebriefDoneFlag, () => null);
 }
 
+function subscribeDebriefViewEvent(onChange: () => void): () => void {
+  window.addEventListener(DEBRIEF_VIEW_EVENT, onChange);
+  return () => window.removeEventListener(DEBRIEF_VIEW_EVENT, onChange);
+}
+
+/**
+ * The screen the debrief shows right now (round-4 D2): re-read the moment DebriefFlow publishes a change (its
+ * DEBRIEF_VIEW_EVENT), so the phase turns `debrief_question` in the same render as the page's question screen,
+ * not on the guide's next config re-poll. Null on the server and while no sandbox debrief is mounted.
+ */
+export function useDebriefView(): DebriefViewKind | null {
+  return useSyncExternalStore(subscribeDebriefViewEvent, readDebriefView, () => null);
+}
+
 export interface CaptureBridgeState {
   profile: DemoSessionProfile;
   phase: CapturePhase;
@@ -79,11 +94,17 @@ export interface CapturePhaseInput {
   nowMs: number;
   /** `localStorage[DEBRIEF_DONE_FLAG_KEY]` (null when unset). */
   debriefDoneFlag: string | null;
+  /** The screen the mounted sandbox debrief shows (`useDebriefView`); null when none is mounted. */
+  debriefView: DebriefViewKind | null;
   /** The page's own idle verdict (`idle.offered`): Start is on screen. */
   startOffered: boolean;
 }
 
-/** The plan 7.1 phase of the staff phone, from what the page knows. Pure. */
+/**
+ * The plan 7.1 phase of the staff phone, from what the page knows. Pure. Inside the debrief window the debrief's
+ * own screen decides between preparing and question (round-4 D2: the config's `next_day.reason` can be one
+ * re-poll stale); a screen that says nothing about the questions (closed, loading, ...) falls back to the config.
+ */
 export function capturePhaseFor(input: CapturePhaseInput): CapturePhase {
   if (input.session) return input.session.closingReached ? "closing" : "listening";
   if (input.profile.open_session !== null) return "open_session";
@@ -92,7 +113,17 @@ export function capturePhaseFor(input: CapturePhaseInput): CapturePhase {
   if (debriefEndsAt === null) return "ready";
   if (input.debriefDoneFlag !== null && input.debriefDoneFlag === String(debriefEndsAt)) return "debrief_done";
   if (input.nowMs >= debriefEndsAt) return input.startOffered ? "ready" : "debrief_done";
-  return input.profile.next_day.reason === "preparing" ? "debrief_preparing" : "debrief_question";
+  switch (input.debriefView) {
+    case "done":
+      return "debrief_done";
+    case "question":
+      return "debrief_question";
+    case "preparing":
+    case "waiting_more":
+      return "debrief_preparing";
+    default:
+      return input.profile.next_day.reason === "preparing" ? "debrief_preparing" : "debrief_question";
+  }
 }
 
 // ── the store ────────────────────────────────────────────────────────────────────────────────────────────────

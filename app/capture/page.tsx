@@ -24,7 +24,7 @@ import { OpenSessionView } from "@/app/capture/OpenSessionView";
 import { SignOutDialog, type SignOutKind } from "@/app/capture/SignOutDialog";
 import { configPollMs, dropOpenSession, markOpenSessionClosed, mergeRefreshedLastEnded } from "@/app/capture/config-refresh";
 import { drawerInsetStyle, isCompactChrome, useDrawerLayout } from "@/app/capture/drawer-layout";
-import { capturePhaseFor, publishCaptureBridge, useDebriefDoneFlag, type CaptureBridgeActions } from "@/app/demo/guide-bridge";
+import { capturePhaseFor, publishCaptureBridge, useDebriefDoneFlag, useDebriefView, type CaptureBridgeActions } from "@/app/demo/guide-bridge";
 import { ShopTopBar } from "@/app/shop/ShopTopBar";
 import { Button, Chip } from "@/app/ui";
 import { useLang } from "@/lib/i18n/context";
@@ -686,6 +686,9 @@ export default function CapturePage() {
   const startOffered = idle?.offered ?? false;
   // Re-read the moment the debrief's done screen writes it (R-19 PR-5 D3), not on the next 30 s tick.
   const debriefDoneFlag = useDebriefDoneFlag();
+  // ...and the debrief's own screen (round-4 D2), so preparing -> question flips the phase with the page, not on
+  // the guide's next config re-poll.
+  const debriefView = useDebriefView();
   useEffect(() => {
     if (view !== "ready" || demoSession === undefined || nowMs === null) {
       publishCaptureBridge(null);
@@ -697,13 +700,14 @@ export default function CapturePage() {
       lastEnded,
       nowMs,
       debriefDoneFlag,
+      debriefView,
       startOffered,
     });
     publishCaptureBridge({
       state: { profile: demoSession, phase, sessionId, linesThisSession, closingBusy, closingError, micTrouble },
       actions: bridgeActions,
     });
-  }, [view, demoSession, nowMs, sessionClosingReached, lastEnded, debriefDoneFlag, startOffered, sessionId, linesThisSession, closingBusy, closingError, micTrouble, bridgeActions]);
+  }, [view, demoSession, nowMs, sessionClosingReached, lastEnded, debriefDoneFlag, debriefView, startOffered, sessionId, linesThisSession, closingBusy, closingError, micTrouble, bridgeActions]);
   useEffect(() => () => publishCaptureBridge(null), []);
 
   // ── Batalkan (§5.6, web spec §6.6.5) ────────────────────────────────────────

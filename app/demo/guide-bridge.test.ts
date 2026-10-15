@@ -24,7 +24,7 @@ const ended = (over: Partial<{ end_reason: string; debrief_ends_at_ms: number | 
 });
 
 describe("capturePhaseFor", () => {
-  const base = { profile: profile(), session: null, lastEnded: null, nowMs: NOW, debriefDoneFlag: null, startOffered: true };
+  const base = { profile: profile(), session: null, lastEnded: null, nowMs: NOW, debriefDoneFlag: null, debriefView: null, startOffered: true };
 
   it("no session, nothing ended: ready", () => {
     expect(capturePhaseFor(base)).toBe("ready");
@@ -47,6 +47,36 @@ describe("capturePhaseFor", () => {
     expect(capturePhaseFor({ ...debrief, debriefDoneFlag: String(NOW + 3_000_000) })).toBe("debrief_done");
     expect(capturePhaseFor({ ...debrief, debriefDoneFlag: String(NOW + 1) })).toBe("debrief_question");
     expect(capturePhaseFor({ ...debrief, nowMs: NOW + 3_000_000 })).toBe("debrief_done");
+  });
+
+  // Round-4 D2: the debrief's own screen wins over the config's next_day.reason, which can be one re-poll stale.
+  it("inside the debrief window the page's own screen decides: a question on screen is debrief_question even while the config still says preparing", () => {
+    const stale = { ...base, lastEnded: ended(), startOffered: false, profile: profile({ next_day: { allowed: false, reason: "preparing" } }) };
+    expect(capturePhaseFor(stale)).toBe("debrief_preparing");
+    expect(capturePhaseFor({ ...stale, debriefView: "question" })).toBe("debrief_question");
+    expect(capturePhaseFor({ ...stale, debriefView: "preparing" })).toBe("debrief_preparing");
+    expect(capturePhaseFor({ ...stale, debriefView: "waiting_more" })).toBe("debrief_preparing");
+    expect(capturePhaseFor({ ...stale, debriefView: "done" })).toBe("debrief_done");
+  });
+
+  it("a preparing or waiting screen is debrief_preparing even once the config's reason has cleared", () => {
+    const cleared = { ...base, lastEnded: ended(), startOffered: false };
+    expect(capturePhaseFor(cleared)).toBe("debrief_question");
+    expect(capturePhaseFor({ ...cleared, debriefView: "preparing" })).toBe("debrief_preparing");
+    expect(capturePhaseFor({ ...cleared, debriefView: "waiting_more" })).toBe("debrief_preparing");
+  });
+
+  it.each(["closed", "loading", "load_error", "empty", "timed_out"] as const)("a %s screen says nothing about the questions: the config rule applies", (kind) => {
+    const debrief = { ...base, lastEnded: ended(), startOffered: false, debriefView: kind };
+    expect(capturePhaseFor(debrief)).toBe("debrief_question");
+    expect(capturePhaseFor({ ...debrief, profile: profile({ next_day: { allowed: false, reason: "preparing" } }) })).toBe("debrief_preparing");
+  });
+
+  it("the screen never overrides a session, the done flag, the window's end or a discarded day", () => {
+    expect(capturePhaseFor({ ...base, session: { closingReached: false }, debriefView: "question" })).toBe("listening");
+    expect(capturePhaseFor({ ...base, lastEnded: ended(), startOffered: false, debriefDoneFlag: String(NOW + 3_000_000), debriefView: "question" })).toBe("debrief_done");
+    expect(capturePhaseFor({ ...base, lastEnded: ended(), nowMs: NOW + 4_000_000, startOffered: true, debriefView: "question" })).toBe("ready");
+    expect(capturePhaseFor({ ...base, lastEnded: ended({ end_reason: "discarded", debrief_ends_at_ms: null }), debriefView: "question" })).toBe("ready");
   });
 
   it("a discarded session has no debrief: ready; an ended day whose debrief is over but Start is offered (after the jump): ready", () => {

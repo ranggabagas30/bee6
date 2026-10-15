@@ -196,7 +196,8 @@ describe("pilot /capture bundle boundary (R-18, R-19 PR-5)", () => {
     expect(page).toMatch(/from\s+["']@\/app\/demo\/guide-bridge["']/);
     const bridge = readFileSync(join(ROOT, "app/demo/guide-bridge.ts"), "utf8");
     const imports = bridge.split("\n").filter((l) => /^\s*import\s/.test(l));
-    for (const line of imports) expect(line).toMatch(/^import (type )?\{[^}]*\} from ["'](react|@\/lib\/capture\/contract|@\/lib\/debrief\/constants|@\/lib\/demo\/guide|@\/lib\/i18n\/dict)["'];$/);
+    // lib/debrief/view-signal carries the debrief's view KIND only (round-4 D2): a phase input, never text.
+    for (const line of imports) expect(line).toMatch(/^import (type )?\{[^}]*\} from ["'](react|@\/lib\/capture\/contract|@\/lib\/debrief\/constants|@\/lib\/debrief\/view-signal|@\/lib\/demo\/guide|@\/lib\/i18n\/dict)["'];$/);
     expect(bridge).not.toMatch(/import\s*\(/);
   });
 
