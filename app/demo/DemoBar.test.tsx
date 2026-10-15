@@ -187,7 +187,7 @@ describe("DemoBar keeps the slot's reserve class on <html> in step with whether 
     expect(reserved()).toBe(false);
   });
 
-  it("drops the class at the instant the demo ends while /sign-in is open (the bar flips to hidden)", async () => {
+  it("R-21 D5: moving from /pair (bar shown, class reserved) to /sign-in (remount) hides the bar and drops the class", async () => {
     vi.useFakeTimers({ now: new Date("2026-10-19T08:00:00Z") });
     seed("owner", Date.now() + 5_000);
     pathname = "/pair"; // Start on /pair where the bar is shown

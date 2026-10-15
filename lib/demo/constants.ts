@@ -40,7 +40,7 @@ export const SWITCH_IP_DAILY = 60;
 export const GENERATE_PER_SANDBOX = 8;
 export const GENERATE_DAILY = 300;
 /** Segment uploads (Gemini transcription + Sensitive Data Protection) per judge sandbox, and per day across all of them. */
-/** R-19: 150 (was 60): 3 days x up to 10 min. */
+/** R-19: 150 (was 60): 3 days x up to 20 min. */
 export const SEGMENT_PER_SANDBOX = 150;
 export const SEGMENT_DAILY = 3000;
 /** Simulated review fast-forwards per sandbox (writes only, no model call). */
