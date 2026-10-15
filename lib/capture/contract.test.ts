@@ -209,7 +209,7 @@ describe("CaptureConfigResponseSchema", () => {
     });
     it("7.T4 / R-19 present as the full journey profile (a fresh sandbox: day 1 of 3, nothing run yet) only when all three hold", () => {
       expect(toCaptureConfig(sbxOutlet, null, 1, true, expiring).demo_session).toEqual({
-        max_ms: 600_000,
+        max_ms: 1_200_000,
         script_id: "bakery-v2",
         day: 1,
         days_total: 3,
@@ -225,7 +225,7 @@ describe("CaptureConfigResponseSchema", () => {
     describe("the profile schema (plan section 2.3)", () => {
       const base = { timezone: "Asia/Jakarta", weekly_hours: weekly, last_ended: null, capture_mode: "room" };
       const profile = {
-        max_ms: 600_000,
+        max_ms: 1_200_000,
         script_id: "bakery-v2",
         day: 2,
         days_total: 3,
@@ -249,11 +249,15 @@ describe("CaptureConfigResponseSchema", () => {
         expect(FRESH_DEMO_SESSION.script_id).toBe("bakery-v2");
         expect(scriptFor(FRESH_DEMO_SESSION.script_id)).not.toBeNull();
       });
-      it("refuses another max_ms, an extra key and the old two-key profile", () => {
+      it("refuses max_ms outside range [60_000, 3_600_000], an extra key and the old two-key profile (R-21 O-3)", () => {
         expect(parse({ max_ms: 1 }).success).toBe(false);
-        expect(parse({ max_ms: 300_000 }).success).toBe(false);
+        expect(parse({ max_ms: 30_000 }).success).toBe(false);
+        expect(parse({ max_ms: 1_200_000 }).success).toBe(true);  // Current default
+        expect(parse({ max_ms: 3_600_001 }).success).toBe(false);
+        expect(parse({ max_ms: 60_000 }).success).toBe(true);  // Minimum
+        expect(parse({ max_ms: 3_600_000 }).success).toBe(true);  // Maximum
         expect(parse({ extra: 1 }).success).toBe(false);
-        expect(CaptureConfigResponseSchema.safeParse({ ...base, demo_session: { max_ms: 600_000, script_id: "bakery-v2" } }).success).toBe(false);
+        expect(CaptureConfigResponseSchema.safeParse({ ...base, demo_session: { max_ms: 1_200_000, script_id: "bakery-v2" } }).success).toBe(false);
       });
       it("day is 1, 2 or 3; days_total is exactly 3; days_done is 0 to 3", () => {
         for (const day of [1, 2, 3]) expect(parse({ day }).success).toBe(true);

@@ -19,8 +19,8 @@ export const CLEANUP_GRACE_MS = 24 * 60 * 60_000;
 
 /** R-19 D-2: the template is routine-only, so nothing is carried into the judge's debrief (was 2 in R-18; the "Earlier day" chip code stays but never fires). */
 export const CARRY_OVER_MAX = 0;
-/** R-19 Q4: the hard stop of a sandbox demo day (started_at + this): 10 min, the escape hatch for a stuck judge (was 5 min in R-18). */
-export const DEMO_SESSION_MAX_MS = 600_000;
+/** R-19 Q4: the hard stop of a sandbox demo day (started_at + this): 20 min, the escape hatch for a stuck judge (was 5 min in R-18, 10 min in R-20). */
+export const DEMO_SESSION_MAX_MS = 1_200_000;
 /** R-19: the judge journey is 3 demo days; the sandbox clock jumps at most NEXT_DAY_MAX = DEMO_DAYS_TOTAL - 1 times. */
 export const DEMO_DAYS_TOTAL = 3;
 export const NEXT_DAY_MAX = 2;
