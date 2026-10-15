@@ -241,7 +241,7 @@ describe("/capture: the script card (plan 5.3-5.4)", () => {
     openGuide();
     expect(screen.getByText("Card 3 of 5")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "A phone order" })).toBeTruthy();
-    expect(screen.getAllByText("Staff").length).toBe(3);
+    expect(screen.getAllByText("Staff").length).toBe(2);
     expect((screen.getByRole("button", { name: "I have spoken this" }) as HTMLButtonElement).disabled).toBe(true);
     act(() => publishCaptureBridge(bridge({ phase: "listening", sessionId: "s2", linesThisSession: 8, profile: profile({ day: 2 }) })));
     expect((screen.getByRole("button", { name: "I have spoken this" }) as HTMLButtonElement).disabled).toBe(false);
