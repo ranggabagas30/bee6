@@ -6,7 +6,6 @@ import type { Category } from "@/lib/pipeline/categories";
 import type {
   DayCorrectionRow,
   DayQuestionRow,
-  DayStore,
   DayThreadRow,
   DayUnlabelledRow,
 } from "@/lib/day/service";
