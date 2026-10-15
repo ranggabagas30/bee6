@@ -206,6 +206,38 @@ describe("HomeApp", () => {
     expect(screen.getByRole("banner")).toBe(banner);
   });
 
+  // QA on PR-8 (second pass): on error -> 'Try again' -> ok the retry used to keep the error body (state stayed
+  // settled), so the reset area sat under the error text and jumped to the page bottom when the cards landed
+  // (CLS 0.06 at 360 px). The retry must go back through the loading state: "Loading…" feedback, no reset area,
+  // same top bar and nav nodes throughout.
+  it("'Try again' shows 'Loading…' with no reset area, then the reset area returns below the cards (nodes kept)", async () => {
+    authUserState = { status: "signed_in", user: userWith(DEMO_OWNER) } as unknown as AuthUserState;
+    authedGetJson.mockResolvedValueOnce({ kind: "error" });
+    renderApp();
+    await screen.findByRole("button", { name: "Reset the demo" });
+    const banner = screen.getByRole("banner");
+    const nav = screen.getByRole("navigation");
+
+    let resolveFetch: (v: unknown) => void = () => {};
+    authedGetJson.mockReturnValueOnce(new Promise((r) => (resolveFetch = r)));
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    await screen.findByText("Loading…");
+    expect(screen.queryByText("Could not load the notes.")).toBeNull();
+    expect(screen.queryByTestId("reset-area")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reset the demo" })).toBeNull();
+    expect(screen.getByRole("banner")).toBe(banner);
+    expect(screen.getByRole("navigation")).toBe(nav);
+
+    resolveFetch({ kind: "ok", data: makeData() });
+    await waitFor(() => expect(screen.getByText("Today in five lines")).not.toBeNull());
+    const button = await screen.findByRole("button", { name: "Reset the demo" });
+    const area = button.closest("[data-testid='reset-area']")!;
+    expect(area.parentElement!.lastElementChild).toBe(area);
+    expect(screen.getByRole("banner")).toBe(banner);
+    expect(screen.getByRole("navigation")).toBe(nav);
+  });
+
   it("renders the reset area in the error state too (a demo owner can still reset after a failed load)", async () => {
     authUserState = { status: "signed_in", user: userWith(DEMO_OWNER) } as unknown as AuthUserState;
     authedGetJson.mockResolvedValue({ kind: "error" });

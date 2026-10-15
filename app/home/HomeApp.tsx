@@ -25,7 +25,8 @@ import styles from "@/app/home/home.module.css";
  * area with PR-7's `ResetDemoButton` (it renders nothing unless the signed-in user is a demo owner, so the pilot never
  * sees it). While loading the reset area is not in the tree: a destructive control must not flash under "Loading…" at
  * the top of the first viewport and then jump to the page bottom when the cards land (QA on PR-8: a layout shift of
- * 0.06 at 360 px). Appearing fresh below the settled cards contributes no layout shift.
+ * 0.06 at 360 px). Appearing fresh below the settled cards contributes no layout shift. A retry from the error state
+ * goes back through loading for the same reason (`reload()`), so error -> "Try again" -> ok is shift-free too.
  * Both PR-7 pieces read the Firebase app this component already initialised, so they are mounted after it.
  */
 
@@ -81,6 +82,9 @@ export function HomeApp({ config }: { config: FirebaseWebConfig | null }) {
   }, [auth, uid, reloadTick, router]);
 
   function reload() {
+    // Back through the loading state (not only a refetch): "Try again" shows "Loading…" and the reset area leaves
+    // the tree until the data settles, so a retry contributes no layout shift either (QA on PR-8, second pass).
+    setState({ kind: "loading" });
     setReloadTick((n) => n + 1);
   }
 
