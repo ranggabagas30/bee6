@@ -645,6 +645,13 @@ describe("R-08 schemas", () => {
       expect(ProposalSchema.safeParse(goodProposal).success).toBe(true);
     });
 
+    it("R-20: generator.attempts allows up to 4 (two focuses x two attempts), not 5 or a negative", () => {
+      const withAttempts = (attempts: number) => ({ ...goodProposal, generator: { ...goodProposal.generator, attempts } });
+      for (const n of [0, 1, 2, 3, 4]) expect(ProposalSchema.safeParse(withAttempts(n)).success).toBe(true);
+      expect(ProposalSchema.safeParse(withAttempts(5)).success).toBe(false);
+      expect(ProposalSchema.safeParse(withAttempts(-1)).success).toBe(false);
+    });
+
     it("rejects suppressed with content set", () => {
       const bad = {
         ...goodProposal,
