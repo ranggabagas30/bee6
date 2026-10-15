@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { LangProvider } from "@/lib/i18n/context";
 import { FRESH_DEMO_SESSION, type DemoSessionProfile } from "@/lib/capture/contract";
+import { publishProposalsProgress, publishProposalsScreen } from "@/lib/demo/proposals-signal";
 import { createMemoryStorage } from "@/lib/demo/testing/memory-storage";
 import { DEMO_STATE_KEY } from "@/app/demo/demo-client";
 import { publishCaptureBridge, type CaptureBridge, type CaptureBridgeState } from "@/app/demo/guide-bridge";
@@ -91,6 +92,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   publishCaptureBridge(null);
+  publishProposalsScreen(null);
   vi.clearAllMocks();
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -478,6 +480,50 @@ describe("web routes: progress and the supervisor-visited flag", () => {
     openGuide();
     await act(async () => {});
     expect(screen.queryByRole("button", { name: "Reset the demo" })).toBeNull();
+  });
+
+  // After-merge wiring: /proposals reports its screen and its writes through lib/demo/proposals-signal.
+  it("/proposals follows the page's published screen at once: Asking Bee6 while generating, the hand-over on feasible, All decided for the owner", async () => {
+    pathname = "/proposals";
+    seedWeb("supervisor");
+    renderGuide();
+    const handle = () => screen.getByRole("button", { name: /Open the judge guide/ }).textContent;
+    await waitFor(() => expect(handle()).toContain("Ask Bee6 for a proposal"));
+    act(() => publishProposalsScreen("generating"));
+    expect(handle()).toContain("Asking Bee6");
+    act(() => publishProposalsScreen("feasible"));
+    expect(handle()).toContain("Over to the Owner");
+    act(() => publishProposalsScreen("list"));
+    expect(handle()).toContain("Ask Bee6 for a proposal");
+    cleanup();
+    seedWeb("owner");
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 2, feasible: 2, owner_decided: 1 } }), { status: 200 }));
+    renderGuide();
+    await waitFor(() => expect(handle()).toContain("Approve one, reject the other"));
+    act(() => publishProposalsScreen("all_decided"));
+    expect(handle()).toContain("All decided");
+  });
+
+  it("a published screen counts only on /proposals (a stale signal never changes another route's card)", async () => {
+    pathname = "/sop";
+    seedWeb("supervisor");
+    act(() => publishProposalsScreen("generating"));
+    renderGuide();
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("The shop's SOP");
+  });
+
+  it("re-reads the progress the moment the page reports a write (an ask, a feasible mark, a rejection, an approval), without reopening the guide", async () => {
+    pathname = "/proposals";
+    seedWeb("supervisor");
+    renderGuide();
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 1, feasible: 1, owner_decided: 0 } }), { status: 200 }));
+    act(() => publishProposalsProgress());
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(String(vi.mocked(fetch).mock.calls[1]![0])).toBe("/api/v1/demo/progress");
+    // the stage list moved on the fresh counters (every proposal feasible: Owner · approve)
+    await waitFor(() => expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("STAGE 5 OF 5"));
   });
 
   it("a failed progress fetch keeps the default card (no error text from the server)", async () => {

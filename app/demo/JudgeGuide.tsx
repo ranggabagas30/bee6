@@ -28,7 +28,7 @@ import { t, type DictKey } from "@/lib/i18n/dict";
 import type { Lang } from "@/lib/i18n/lang";
 import { Button, Kicker, Sheet, SidePanel, StepTick } from "@/app/ui";
 import { demoSnapshot, subscribeDemoState, viewFromSnapshot } from "@/app/demo/demo-client";
-import { useCaptureBridge, type CaptureBridge } from "@/app/demo/guide-bridge";
+import { useCaptureBridge, useProposalsSignal, type CaptureBridge } from "@/app/demo/guide-bridge";
 import { GUIDE_CONTROLS } from "@/app/demo/guide-controls";
 
 /**
@@ -164,8 +164,13 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
   const seg = pathname.split("/").filter(Boolean)[0] ?? "";
   const isEntry = seg === "" || seg === "sign-in" || seg === "pair";
   const isCapture = seg === "capture";
+  // The proposals page's own screen and write counter (after-merge wiring, lib/demo/proposals-signal). The screen
+  // counts only on /proposals; the counter re-reads the progress after an ask, a feasible mark, a rejection or an approval.
+  const proposals = useProposalsSignal();
+  const proposalsScreen = seg === "proposals" ? proposals.screen : null;
 
-  // ── web progress (supervisor / owner): on mount, on every route change, and each time the guide is opened ──
+  // ── web progress (supervisor / owner): on mount, on every route change, each time the guide is opened, and on
+  // every write the proposals page reports ──
   const [progress, setProgress] = useState<JourneyProgress | null>(null);
   const [open, setOpen] = useState(false);
   // "Supervisor visited" (plan 7.1): true the moment any supervisor page is on screen, and remembered in
@@ -187,7 +192,7 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
     return () => {
       cancelled = true;
     };
-  }, [isEntry, isCapture, webRole, config, pathname, open]);
+  }, [isEntry, isCapture, webRole, config, pathname, open, proposals.progressVersion]);
 
   // ── the one card ──────────────────────────────────────────────────────────────────────────────────────────
   // The session whose 5 cards are all marked spoken (reported by the script card); a new session id resets it.
@@ -198,7 +203,7 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
       ? { kind: "capture", phase: bridge.state.phase === "listening" && allSpoken ? "all_spoken" : bridge.state.phase }
       : null
     : webRole !== null
-      ? { kind: "web", role: webRole, progress: progress ? { ...progress, supervisor_visited: visited } : null }
+      ? { kind: "web", role: webRole, progress: progress ? { ...progress, supervisor_visited: visited } : null, screen: proposalsScreen }
       : null;
   const key = guideKeyFor(pathname, state);
   const day = bridge ? bridge.state.profile.day : null;
