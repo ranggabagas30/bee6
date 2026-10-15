@@ -69,6 +69,40 @@ export const proposalsID = {
   "C-lbl-current": "Pilihan Bee6", // PROVISIONAL
   "C-lbl-runner-up": "pilihan kedua", // PROVISIONAL
   "C-lbl-save": "Simpan label", // PROVISIONAL
+  // ── Owner approvals = page-1 W8 "Review in order" (PR-12b; boards D2-08, D2-08c, D2-08d, D2-08e) ──────────
+  "C-propa-back-home": "‹ Kembali ke beranda", // PROVISIONAL
+  "C-propa-sub": "Satu usulan sekaligus, sesuai urutan yang disarankan. Supervisor sudah memeriksa bahwa setiap usulan bisa dijalankan.", // PROVISIONAL
+  "C-propa-progress": "{done} dari {total} diputuskan", // PROVISIONAL (aria-label of the progress segments)
+  "C-propa-order": "URUTAN YANG DISARANKAN", // PROVISIONAL
+  "C-propa-st-waiting": "Menunggu Anda", // PROVISIONAL
+  "C-propa-now": "Sedang ditinjau", // PROVISIONAL (the current item in the order list)
+  "C-propa-why": "MENGAPA", // PROVISIONAL
+  "C-propa-extra": "KERJA TAMBAHAN UNTUK STAF", // PROVISIONAL
+  "C-propa-cost": "BIAYA", // PROVISIONAL
+  "C-propa-cost-value": "Belum diperkirakan", // PROVISIONAL
+  "C-propa-cost-soon": "segera hadir", // PROVISIONAL
+  "C-propa-starts-after": "Mulai sehari setelah disetujui", // PROVISIONAL
+  "C-propa-starts": "Mulai {date}", // PROVISIONAL
+  "C-propa-dates": "{starts} · tinjauan {review}", // PROVISIONAL
+  "C-propa-shipped": "Terbit sebagai SOP versi {version}", // PROVISIONAL
+  "C-propa-decided-on": "Diputuskan {date}", // PROVISIONAL
+  "C-propa-decision": "KEPUTUSAN ANDA", // PROVISIONAL
+  "C-propa-approve": "Setujui", // PROVISIONAL
+  "C-propa-approve-na": "Setujui · tidak tersedia", // PROVISIONAL
+  "C-propa-sop-changed": "SOP berubah setelah usulan ini dibuat. Anda masih bisa menolaknya dengan alasan.", // PROVISIONAL
+  "C-propa-reject-label": "Tolak — mengapa?", // PROVISIONAL
+  "C-propa-reject-hint": "Tulis alasan singkat dulu. Alasan itu menjadi aturan yang dipatuhi Bee6.", // PROVISIONAL
+  "C-propa-reject-send": "Tolak dengan alasan", // PROVISIONAL
+  "C-propa-done-approved": "Disetujui. Perubahan ini terbit sebagai versi SOP baru.", // PROVISIONAL
+  "C-propa-done-rejected": "Ditolak. Alasan Anda kini menjadi aturan yang dipatuhi Bee6.", // PROVISIONAL
+  "C-propa-all-both": "Keduanya sudah diputuskan.", // PROVISIONAL
+  "C-propa-all": "Semua sudah diputuskan.", // PROVISIONAL
+  "C-propa-rule": "Kini menjadi aturan: {reason}", // PROVISIONAL
+  "C-propa-rule-none": "Kini menjadi aturan yang dipatuhi Bee6.", // PROVISIONAL
+  "C-propa-next-h": "APA SELANJUTNYA", // PROVISIONAL
+  "C-propa-next-p": "Perubahan yang disetujui masuk ke SOP sejak tanggal mulainya. Bee6 memantau ukurannya sampai tanggal tinjauan, lalu tinjauan menunjukkan apakah perubahan itu berhasil. Setiap alasan yang Anda tulis menjadi aturan yang dipatuhi Bee6 pada usulan berikutnya.", // PROVISIONAL
+  "C-propa-home": "Kembali ke beranda", // PROVISIONAL
+  "C-propa-see-sop": "Lihat SOP", // PROVISIONAL
 } as const satisfies Record<string, string>;
 
 export const proposalsEN: Record<keyof typeof proposalsID, string> = {
@@ -120,4 +154,37 @@ export const proposalsEN: Record<keyof typeof proposalsID, string> = {
   "C-lbl-current": "Bee6 pick",
   "C-lbl-runner-up": "runner-up",
   "C-lbl-save": "Save label",
+  "C-propa-back-home": "‹ Back to home",
+  "C-propa-sub": "One proposal at a time, in the recommended order. The supervisor already checked that each one is workable.",
+  "C-propa-progress": "{done} of {total} decided",
+  "C-propa-order": "RECOMMENDED ORDER",
+  "C-propa-st-waiting": "Waiting for you",
+  "C-propa-now": "Reviewing now",
+  "C-propa-why": "WHY",
+  "C-propa-extra": "EXTRA WORK FOR STAFF",
+  "C-propa-cost": "COST",
+  "C-propa-cost-value": "Not estimated yet",
+  "C-propa-cost-soon": "coming soon",
+  "C-propa-starts-after": "Starts the day after approval",
+  "C-propa-starts": "Starts {date}",
+  "C-propa-dates": "{starts} · review {review}",
+  "C-propa-shipped": "Shipped as SOP version {version}",
+  "C-propa-decided-on": "Decided {date}",
+  "C-propa-decision": "YOUR DECISION",
+  "C-propa-approve": "Approve",
+  "C-propa-approve-na": "Approve · not available",
+  "C-propa-sop-changed": "The SOP changed after this was drafted. You can still reject it with a reason.",
+  "C-propa-reject-label": "Reject — why?",
+  "C-propa-reject-hint": "Write a short reason first. It becomes a rule Bee6 will respect.",
+  "C-propa-reject-send": "Reject with reason",
+  "C-propa-done-approved": "Approved. It ships as a new SOP version.",
+  "C-propa-done-rejected": "Rejected. Your reason is now a rule Bee6 will respect.",
+  "C-propa-all-both": "Both decided.",
+  "C-propa-all": "All decided.",
+  "C-propa-rule": "Now a rule: {reason}",
+  "C-propa-rule-none": "Now a rule Bee6 will respect.",
+  "C-propa-next-h": "WHAT HAPPENS NEXT",
+  "C-propa-next-p": "The approved change is in the SOP from its start date. Bee6 watches its metric until the review date, then the review shows whether it worked. Every reason you wrote is a rule Bee6 respects in future proposals.",
+  "C-propa-home": "Back to home",
+  "C-propa-see-sop": "See the SOP",
 };
