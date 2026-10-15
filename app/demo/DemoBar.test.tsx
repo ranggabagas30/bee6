@@ -118,6 +118,87 @@ describe("DemoBar visibility", () => {
   });
 });
 
+// Round-4 D1: the first-paint script guesses whether the bar will show from the stored record; once the bar has
+// mounted its own verdict wins, so the slot's reserve (`b6-topbar-reserved` on <html>) never outlives the bar.
+describe("DemoBar keeps the slot's reserve class on <html> in step with whether it shows", () => {
+  const reserved = () => document.documentElement.classList.contains("b6-topbar-reserved");
+  beforeEach(() => {
+    document.documentElement.className = "b6-topbar-reserved"; // as the first-paint script left it
+  });
+  afterEach(() => {
+    document.documentElement.className = "";
+  });
+
+  it("keeps the class while a live bar shows on a web route", () => {
+    seed("owner", Date.now() + 3_600_000);
+    renderBar();
+    expect(screen.getByText(/Demo · Signed in as Owner/)).toBeTruthy();
+    expect(reserved()).toBe(true);
+  });
+
+  it("adds the class when the bar shows and the script had not set it (a state written after first paint)", () => {
+    document.documentElement.className = "";
+    seed("owner", Date.now() + 3_600_000);
+    renderBar();
+    expect(reserved()).toBe(true);
+  });
+
+  it("drops the class on /sign-in once the demo has ended, where the bar hides its ended line (no blank band)", async () => {
+    seed("owner", Date.now() - 1000);
+    pathname = "/sign-in";
+    const { container } = renderBar();
+    await act(async () => {});
+    expect(container.innerHTML).toBe("");
+    expect(reserved()).toBe(false);
+  });
+
+  it("keeps the class on /pair once the demo has ended, where the ended line shows", async () => {
+    seed("owner", Date.now() - 1000);
+    pathname = "/pair";
+    renderBar();
+    await act(async () => {});
+    expect(screen.getByText("Your demo session has ended.")).toBeTruthy();
+    expect(reserved()).toBe(true);
+  });
+
+  it("drops the class on /, where the bar hides itself", () => {
+    seed("owner", Date.now() + 3_600_000);
+    pathname = "/";
+    renderBar();
+    expect(reserved()).toBe(false);
+  });
+
+  it("drops the class for a malformed record and with no record at all", () => {
+    window.localStorage.setItem(DEMO_STATE_KEY, "{oops");
+    renderBar();
+    expect(reserved()).toBe(false);
+    cleanup();
+    document.documentElement.className = "b6-topbar-reserved";
+    window.localStorage.removeItem(DEMO_STATE_KEY);
+    renderBar();
+    expect(reserved()).toBe(false);
+  });
+
+  it("drops the class at the instant the demo ends while /sign-in is open (the bar flips to hidden)", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-19T08:00:00Z") });
+    seed("owner", Date.now() + 5_000);
+    pathname = "/sign-in";
+    renderBar();
+    expect(reserved()).toBe(true);
+    await act(async () => void vi.advanceTimersByTime(5_001));
+    expect(screen.queryByText(/Demo · Signed in as/)).toBeNull();
+    expect(reserved()).toBe(false);
+  });
+
+  it("leaves other classes on <html> alone", () => {
+    document.documentElement.className = "font-a b6-topbar-reserved b6-panel-reserved";
+    seed("owner", Date.now() - 1000);
+    pathname = "/sign-in";
+    renderBar();
+    expect(Array.from(document.documentElement.classList).sort()).toEqual(["b6-panel-reserved", "font-a"]);
+  });
+});
+
 describe("DemoBar live session (R-19 PR-5: the role line and the expiry notice only; no Switch row)", () => {
   it("shows the role and the local end time, and offers no role switch (the judge signs out and picks again)", () => {
     const expires = Date.now() + 3_600_000;

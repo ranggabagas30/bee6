@@ -16,9 +16,9 @@ const DemoBar = dynamic(() => import("@/app/demo/DemoBar").then((m) => m.DemoBar
  * The slot the bar sits in is rendered on the server, so the page below it already has the bar's room when the
  * bar mounts after hydration (it is client-only: it reads this browser's demo state). Without that the bar
  * pushed `<main>` down by its own height on every page, a layout shift of 0.08 to 0.12. The room is reserved by
- * CSS only while `<html>` has `b6-topbar-reserved` (the layout's first-paint script sets it when this browser
- * holds a demo state), so a browser with none gets no gap; `/` reserves nothing because the bar hides itself
- * there. One case stays unreserved: the ended line on `/sign-in`, where the bar hides itself after the fact.
+ * CSS only while `<html>` has `b6-topbar-reserved`: the layout's first-paint script sets it when the stored demo
+ * record says the bar will show (live anywhere, ended anywhere but `/sign-in`), and DemoBar keeps it in step once
+ * mounted, so a browser with no bar gets no gap; `/` reserves nothing because the bar hides itself there.
  */
 export function DemoBarLoader({ config }: { config: FirebaseWebConfig | null }) {
   const reserve = usePathname() !== "/";

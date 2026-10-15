@@ -16,7 +16,8 @@ import { authOrNull } from "@/app/demo/useDemoStart";
  * HH:MM); past the end it says so. Nothing else: the Switch row and the "start a new demo" link are gone (the
  * judge changes role by signing out and picking again on the entry page, as the judge guide says), and the bar
  * never calls a demo route. Hidden on `/` (the entry page has its own controls) and, once ended, on `/sign-in`
- * (which carries the same ended line).
+ * (which carries the same ended line). While it shows it keeps `b6-topbar-reserved` on `<html>` (the slot's
+ * room, first set by the layout's first-paint script) and drops it the moment it hides.
  *
  * The ended-sandbox handling stays: once the demo has ended its credentials are of no use any more, so the judge
  * phone's device keys are removed (so /capture does not keep a dead credential) and the Firebase web user is
@@ -70,9 +71,18 @@ export function DemoBar({ config }: { config: FirebaseWebConfig | null }) {
     return () => clearTimeout(id);
   }, [expiresAt]);
 
-  if (pathname === "/") return null;
-  if (!view) return null;
-  if (ended && pathname === "/sign-in") return null;
+  // Hidden on `/` (its own controls), with no usable record, and once ended on `/sign-in` (the ended line is there).
+  const shown = pathname !== "/" && view !== null && !(ended && pathname === "/sign-in");
+
+  // The slot's room (`.b6-topbar-slot--reserve`, see DemoBarLoader) is held only while <html> carries
+  // `b6-topbar-reserved`. The first-paint script sets it from the stored record before anything paints; from here
+  // on the bar's own verdict keeps it in step, so the reserve never outlives the bar (round-4 D1: an ended state on
+  // /sign-in left a blank band) and a record written after first paint still gets its room.
+  useEffect(() => {
+    document.documentElement.classList.toggle("b6-topbar-reserved", shown);
+  }, [shown]);
+
+  if (!shown || view === null) return null;
 
   const live = view.state;
 

@@ -139,7 +139,7 @@ describe("RootLayout demo bar space (R-19 PR-5, CLS)", () => {
     expect(found[0]!.html).toContain("b6-topbar-reserved");
     expect(found[0]!.html).toContain("b6-panel-reserved");
     expect(found[0]!.html).toContain("catch");
-    expect(found[0]!.html.length).toBeLessThan(400);
+    expect(found[0]!.html.length).toBeLessThan(600); // round-4 D1: it now reads the record's expiry too
     expect((findHtml(tree) as unknown as ReactElement<{ suppressHydrationWarning?: boolean }>).props.suppressHydrationWarning).toBe(true);
   });
 
