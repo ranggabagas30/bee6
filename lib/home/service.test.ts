@@ -90,26 +90,8 @@ function proposalRow(
   return {
     proposal_id: uuid(),
     status,
-    supervisor_review:
-      supervisor === null
-        ? null
-        : {
-            decision: supervisor,
-            reason: supervisor === "rejected" ? "REASON-SENTINEL-S" : null,
-            constraint_id: supervisor === "rejected" ? uuid() : null,
-            acknowledged_constraint_ids: [],
-            decided_at_ms: decidedAtMs - 1,
-          },
-    owner_decision:
-      owner === null
-        ? null
-        : {
-            decision: owner,
-            reason: owner === "rejected" ? "REASON-SENTINEL-O" : null,
-            constraint_id: owner === "rejected" ? uuid() : null,
-            acknowledged_constraint_ids: [],
-            decided_at_ms: decidedAtMs,
-          },
+    supervisor_decision: supervisor,
+    owner_decision: owner === null ? null : { decision: owner, decided_at_ms: decidedAtMs },
     change_title: `TITLE-${status}`,
     updated_at_ms: decidedAtMs,
   };
@@ -384,7 +366,7 @@ describe("getOwnerHome", () => {
     expect(result.next_review).toEqual({ date: "2026-10-20", change_title: "SOON" });
   });
 
-  it("the JSON response carries no rejection reason or constraint text (rule 7 / rule 3: titles and counts only)", async () => {
+  it("the JSON response carries no decision timestamps or ids beyond proposal_id (rule 7: titles and counts only)", async () => {
     const store = new FakeDayStore(
       emptyFixture({
         decided: [proposalRow("rejected", "feasible", "rejected", at("11:00")), proposalRow("rejected", "rejected", null, at("11:10"))],
@@ -393,8 +375,9 @@ describe("getOwnerHome", () => {
     );
     const result = await getOwnerHome(store, { claims: OWNER_CLAIMS, now_ms: at("12:00") });
     const json = JSON.stringify(HomeResponseSchema.parse(result));
-    expect(json).not.toContain("REASON-SENTINEL");
     expect(json).not.toContain("decided_at_ms");
-    expect(json).not.toContain("constraint_id");
+    expect(json).not.toContain("updated_at_ms");
+    expect(json).not.toContain("supervisor_decision");
+    expect(json).not.toContain("owner_decision");
   });
 });

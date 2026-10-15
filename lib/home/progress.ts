@@ -1,6 +1,6 @@
 import { addDays, businessDateOf } from "@/lib/capture/calendar";
 import { HOME_WAITING_MAX, type HomeR19Extension, type Tally } from "@/lib/contracts/r19";
-import type { OwnerDecision, ProposalStatus, SupervisorReview } from "@/lib/firestore/schema";
+import type { ProposalStatus } from "@/lib/firestore/schema";
 
 /**
  * R-19 PR-8 (plan 9.2, W6): the owner Home's progress tallies, "waiting for your approval" list and next review date.
@@ -11,12 +11,17 @@ import type { OwnerDecision, ProposalStatus, SupervisorReview } from "@/lib/fire
  * decision slots are roles, never people.
  */
 
-/** The few proposal fields the Home reads (the store field-masks to these). */
+/**
+ * The few proposal fields the Home reads (the store field-masks to exactly these, so no rejection reason, no
+ * constraint id and no evidence ever enters this code path).
+ */
 export interface HomeProposalRow {
   proposal_id: string;
   status: ProposalStatus;
-  supervisor_review: SupervisorReview | null;
-  owner_decision: OwnerDecision | null;
+  /** `supervisor_review.decision`; null when the supervisor has not reviewed. */
+  supervisor_decision: "feasible" | "rejected" | null;
+  /** `owner_decision.{decision, decided_at_ms}`; null when the owner has not decided. */
+  owner_decision: { decision: "approved" | "rejected"; decided_at_ms: number } | null;
   /** `content.change_title`; null on a contentless doc. */
   change_title: string | null;
   updated_at_ms: number;
@@ -44,7 +49,7 @@ export function progressTallies(rows: readonly HomeProposalRow[], today: string,
   const since_start = emptyTally();
 
   for (const row of rows) {
-    if (row.supervisor_review?.decision !== "feasible") continue;
+    if (row.supervisor_decision !== "feasible") continue;
     const od = row.owner_decision;
     if (od === null) continue;
     const key = od.decision; // "approved" | "rejected"

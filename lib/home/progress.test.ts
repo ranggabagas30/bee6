@@ -33,23 +33,8 @@ function decided(
   return {
     proposal_id: uuid(),
     status,
-    supervisor_review: {
-      decision: supervisor,
-      reason: supervisor === "rejected" ? "REASON-SENTINEL" : null,
-      constraint_id: supervisor === "rejected" ? uuid() : null,
-      acknowledged_constraint_ids: [],
-      decided_at_ms: decidedAtMs - 1000,
-    },
-    owner_decision:
-      owner === null
-        ? null
-        : {
-            decision: owner,
-            reason: owner === "rejected" ? "REASON-SENTINEL" : null,
-            constraint_id: owner === "rejected" ? uuid() : null,
-            acknowledged_constraint_ids: [],
-            decided_at_ms: decidedAtMs,
-          },
+    supervisor_decision: supervisor,
+    owner_decision: owner === null ? null : { decision: owner, decided_at_ms: decidedAtMs },
     change_title: "Title",
     updated_at_ms: decidedAtMs,
     ...overrides,
@@ -60,7 +45,7 @@ function awaiting(title: string, updatedAtMs: number): HomeProposalRow {
   return {
     proposal_id: uuid(),
     status: "awaiting_owner",
-    supervisor_review: { decision: "feasible", reason: null, constraint_id: null, acknowledged_constraint_ids: [], decided_at_ms: updatedAtMs },
+    supervisor_decision: "feasible",
     owner_decision: null,
     change_title: title,
     updated_at_ms: updatedAtMs,
@@ -100,7 +85,7 @@ describe("progressTallies", () => {
   });
 
   it("an owner decision without a feasible supervisor review is not counted (defensive)", () => {
-    const rows = [decided("feasible", "approved", at(TODAY), { supervisor_review: null })];
+    const rows = [decided("feasible", "approved", at(TODAY), { supervisor_decision: null })];
     expect(progressTallies(rows, TODAY, JKT).since_start).toEqual({ approved: 0, rejected: 0 });
   });
 
@@ -146,7 +131,7 @@ describe("waitingApproval", () => {
     const rows = [
       awaiting("A", 10),
       decided("feasible", "approved", at(TODAY)),
-      { ...awaiting("S", 20), status: "awaiting_supervisor" as const, supervisor_review: null },
+      { ...awaiting("S", 20), status: "awaiting_supervisor" as const, supervisor_decision: null },
     ];
     const r = waitingApproval(rows);
     expect(r.count).toBe(1);
