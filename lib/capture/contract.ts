@@ -207,7 +207,8 @@ export const CaptureModeSchema = z.enum(["none", "room", "wearable"]);
  */
 export const DemoSessionProfileSchema = z
   .object({
-    max_ms: z.literal(DEMO_SESSION_MAX_MS),
+    /** R-21 O-3: range instead of literal so a stale judge tab (old JS bundle) doesn't fail config parsing after deploy. */
+    max_ms: z.number().int().min(60_000).max(3_600_000),
     // R-19 PR-5: the 3-day judge script (lib/demo/script.ts); v1 is gone.
     script_id: z.literal("bakery-v2"),
     day: z.union([z.literal(1), z.literal(2), z.literal(3)]),

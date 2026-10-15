@@ -7,6 +7,10 @@ const nextConfig: NextConfig = {
   // @google/adk statically reaches optional peers (express, MCP SDK, @google-cloud/storage, mikro-orm) through
   // modules R-08 never uses; Turbopack fails resolving them. Load ADK with native require instead (R-08 Task 0).
   serverExternalPackages: ["@google/adk"],
+  // R-21 D6: favicon.ico 404 fix. Clients (Safari, bots) that ask for /favicon.ico get the static app/icon.svg (served at /icon.svg).
+  async rewrites() {
+    return [{ source: "/favicon.ico", destination: "/icon.svg" }];
+  },
 };
 
 export default nextConfig;

@@ -71,8 +71,8 @@ export function DemoBar({ config }: { config: FirebaseWebConfig | null }) {
     return () => clearTimeout(id);
   }, [expiresAt]);
 
-  // Hidden on `/` (its own controls), with no usable record, and once ended on `/sign-in` (the ended line is there).
-  const shown = pathname !== "/" && view !== null && !(ended && pathname === "/sign-in");
+  // R-21 D5: Hidden on `/` (its own controls), `/sign-in` (page's own ended line carries "ends HH:MM"), and with no usable record.
+  const shown = pathname !== "/" && pathname !== "/sign-in" && view !== null;
 
   // The slot's room (`.b6-topbar-slot--reserve`, see DemoBarLoader) is held only while <html> carries
   // `b6-topbar-reserved`. The first-paint script sets it from the stored record before anything paints; from here

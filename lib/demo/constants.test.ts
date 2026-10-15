@@ -34,7 +34,7 @@ describe("demo constants (R-12 Task 4.1)", () => {
 
   it("R-19 journey constants (plan section 2.2)", () => {
     expect(C.CARRY_OVER_MAX).toBe(0);
-    expect(C.DEMO_SESSION_MAX_MS).toBe(600_000);
+    expect(C.DEMO_SESSION_MAX_MS).toBe(1_200_000);
     expect(C.DEMO_DAYS_TOTAL).toBe(3);
     expect(C.NEXT_DAY_MAX).toBe(2);
     expect(C.SEGMENT_PER_SANDBOX).toBe(150);
