@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import { authedGetJson } from "@/lib/auth/client/api";
 import { getClientAuth } from "@/lib/auth/client/firebase-client";
+import { useAuthUser } from "@/lib/auth/client/use-auth-user";
 import { postDemoNextDay, readDeviceAuth } from "@/lib/capture/browser/client";
 import { DEMO_DAYS_TOTAL } from "@/lib/demo/constants";
 import { DemoProgressResponseSchema, type NextDayRefusal } from "@/lib/demo/contract";
@@ -169,8 +170,11 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
   const proposals = useProposalsSignal();
   const proposalsScreen = seg === "proposals" ? proposals.screen : null;
 
-  // ── web progress (supervisor / owner): on mount, on every route change, each time the guide is opened, and on
-  // every write the proposals page reports ──
+  // ── web progress (supervisor / owner): once the Firebase user is restored, on every route change, each time the
+  // guide is opened, and on every write the proposals page reports. On a hard load the user arrives asynchronously;
+  // reading before that makes authedGetJson answer `signed_out` without a request and the pill stuck at stage 1 (R-21 D4). ──
+  const auth = config ? getClientAuth(config) : null;
+  const authStatus = useAuthUser(auth).status;
   const [progress, setProgress] = useState<JourneyProgress | null>(null);
   const [open, setOpen] = useState(false);
   // "Supervisor visited" (plan 7.1): true the moment any supervisor page is on screen, and remembered in
@@ -182,17 +186,17 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
     if (supervisorHere) writeLocal(SUPERVISOR_SEEN_KEY, "1");
   }, [supervisorHere]);
   useEffect(() => {
-    if (isEntry || isCapture || webRole === null || !config) return;
+    if (isEntry || isCapture || webRole === null || !auth || authStatus !== "signed_in") return;
     let cancelled = false;
     void (async () => {
-      const result = await authedGetJson(getClientAuth(config), "/api/v1/demo/progress", DemoProgressResponseSchema);
+      const result = await authedGetJson(auth, "/api/v1/demo/progress", DemoProgressResponseSchema);
       if (cancelled || result.kind !== "ok") return; // a failed read keeps the default card
       setProgress((prev) => ({ ...result.data, supervisor_visited: prev?.supervisor_visited ?? false }));
     })();
     return () => {
       cancelled = true;
     };
-  }, [isEntry, isCapture, webRole, config, pathname, open, proposals.progressVersion]);
+  }, [isEntry, isCapture, webRole, auth, authStatus, pathname, open, proposals.progressVersion]);
 
   // ── the one card ──────────────────────────────────────────────────────────────────────────────────────────
   // The session whose 5 cards are all marked spoken (reported by the script card); a new session id resets it.
@@ -284,6 +288,7 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
         bridge={bridge}
         open={open}
         onAllSpoken={setAllSpokenFor}
+        onFilled={() => setOpen(false)}
       />
     </>
   );
@@ -317,6 +322,7 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
         label={t(lang, "C-journey-guide-label")}
         open={open}
         onOpenChange={setOpen}
+        collapseOnOutsidePointerDown
         openLabel={t(lang, "C-journey-guide-open")}
         closeLabel={t(lang, "C-journey-guide-close")}
         bodyLabelledBy={`guide-card-${key}`}
@@ -347,9 +353,11 @@ interface GuideCardViewProps {
   open: boolean;
   /** Called with the session id once every card of the day is marked spoken. */
   onAllSpoken: (sessionId: string) => void;
+  /** The pair card's Fill in ran: the guide collapses so the page's Set up button is reachable. */
+  onFilled: () => void;
 }
 
-function GuideCardView({ guideKey, day, openClosingReached, lang, bridge, open, onAllSpoken }: GuideCardViewProps) {
+function GuideCardView({ guideKey, day, openClosingReached, lang, bridge, open, onAllSpoken, onFilled }: GuideCardViewProps) {
   const card = guideCard(guideKey, day, { openClosingReached });
   const action = card.action;
   return (
@@ -362,7 +370,7 @@ function GuideCardView({ guideKey, day, openClosingReached, lang, bridge, open, 
           {fill(pick(line, lang))}
         </p>
       ))}
-      {action?.kind === "fill_demo_code" ? <FillCode lang={lang} /> : null}
+      {action?.kind === "fill_demo_code" ? <FillCode lang={lang} onFilled={onFilled} /> : null}
       {action?.kind === "script_card" && bridge ? <ScriptCard lang={lang} bridge={bridge} onAllSpoken={onAllSpoken} /> : null}
       {action?.kind === "jump_closing" && bridge ? <JumpClosing lang={lang} bridge={bridge} /> : null}
       {action?.kind === "jump_tomorrow" && bridge ? <JumpTomorrow lang={lang} bridge={bridge} /> : null}
@@ -384,7 +392,7 @@ function RegisteredControl({ kind, lang }: { kind: "reset_demo"; lang: Lang }) {
 }
 
 /** Pair: puts the demo code in the page's 6-digit field without submitting (the field is `#pairing-code`, PairForm). */
-function FillCode({ lang }: { lang: Lang }) {
+function FillCode({ lang, onFilled }: { lang: Lang; onFilled: () => void }) {
   const [filled, setFilled] = useState(false);
   function onFill() {
     const input = document.getElementById("pairing-code");
@@ -394,6 +402,7 @@ function FillCode({ lang }: { lang: Lang }) {
     setter?.call(input, DEMO_STAFF_CODE);
     input.dispatchEvent(new Event("input", { bubbles: true }));
     setFilled(true);
+    onFilled(); // the open phone sheet covers Set up (R-21 D7): hand the page back
   }
   return (
     <div style={{ marginTop: 12 }}>

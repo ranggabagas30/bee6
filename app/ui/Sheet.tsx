@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { cx } from "@/app/ui/cx";
 
 export interface SheetProps {
@@ -18,6 +18,8 @@ export interface SheetProps {
   /** Id of the element that names the scrolling body (a card heading). Without it the body is named by the handle's action text ("Close the guide"), so it never repeats the sheet's own name. */
   bodyLabelledBy?: string;
   className?: string;
+  /** Phone only: a pointerdown outside the sheet collapses it. The event is not stopped, so the tap still lands on its target. */
+  collapseOnOutsidePointerDown?: boolean;
 }
 
 /**
@@ -25,9 +27,27 @@ export interface SheetProps {
  * Controlled and non-modal: no dialog role, no focus trap, the page behind stays usable. Escape closes it.
  * It holds no copy of its own: every string comes from the caller.
  */
-export function Sheet({ label, open, onOpenChange, openLabel, closeLabel, handle, children, bodyLabelledBy, className }: SheetProps) {
+export function Sheet({ label, open, onOpenChange, openLabel, closeLabel, handle, children, bodyLabelledBy, className, collapseOnOutsidePointerDown }: SheetProps) {
   const bodyId = useId();
   const handleRef = useRef<HTMLButtonElement>(null);
+  const sectionRef = useRef<HTMLElement>(null);
+
+  // R-21 F-2 / D7: the open sheet covers the page's next button (End confirm, Set up). Capture phase, never stopped:
+  // the tap that collapses the sheet still reaches its target. The handle is inside the section, so the opening tap
+  // never closes it. Not attached while collapsed.
+  useEffect(() => {
+    if (!open || !collapseOnOutsidePointerDown) return;
+    const onDown = (e: PointerEvent) => {
+      const el = sectionRef.current;
+      if (!el || !(e.target instanceof Element)) return;
+      // Ignore pointerdowns inside a modal dialog (portaled, aria-modal="true").
+      if (e.target.closest('[aria-modal="true"]')) return;
+      // Collapse if the tap is outside the sheet.
+      if (!el.contains(e.target)) onOpenChange(false);
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
+  }, [open, collapseOnOutsidePointerDown, onOpenChange]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
     if (e.key !== "Escape" || !open) return;
@@ -39,7 +59,7 @@ export function Sheet({ label, open, onOpenChange, openLabel, closeLabel, handle
   };
 
   return (
-    <section aria-label={label} className={cx("b6-sheet", className)} onKeyDown={onKeyDown}>
+    <section ref={sectionRef} aria-label={label} className={cx("b6-sheet", className)} onKeyDown={onKeyDown}>
       <button
         ref={handleRef}
         type="button"

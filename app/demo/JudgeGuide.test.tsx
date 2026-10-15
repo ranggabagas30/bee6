@@ -35,8 +35,10 @@ vi.mock("@/lib/auth/client/firebase-client", () => ({
 // The reset control (PR-7, registered in guide-controls) reads the signed-in user's claims through useAuthUser.
 let claims: Record<string, unknown> = {};
 const USER = { uid: "u1", getIdTokenResult: async () => ({ claims }) }; // one stable user object, as Firebase gives
+// R-21 D4: Firebase restores the user asynchronously on a hard load, so the guide must wait for `signed_in`.
+let authStatus: "loading" | "signed_in" = "signed_in";
 vi.mock("@/lib/auth/client/use-auth-user", () => ({
-  useAuthUser: () => ({ status: "signed_in", user: USER }),
+  useAuthUser: () => (authStatus === "signed_in" ? { status: "signed_in", user: USER } : { status: "loading" }),
 }));
 
 import { JudgeGuide } from "@/app/demo/JudgeGuide";
@@ -84,6 +86,7 @@ const openGuide = () => fireEvent.click(screen.getByRole("button", { name: /Open
 beforeEach(() => {
   pathname = "/";
   wide = false;
+  authStatus = "signed_in";
   stubMatchMedia();
   vi.stubGlobal("localStorage", createMemoryStorage());
   vi.stubGlobal("sessionStorage", createMemoryStorage());
@@ -187,6 +190,22 @@ describe("pair card: Fill in the demo code", () => {
     expect(screen.getByText("Filled in. Tap Set up.")).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalled();
     expect((screen.getByRole("button", { name: "Set up" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  // R-21 D7: on a 360 px phone the open sheet covers "Set up"; Fill in hands the page back.
+  it("Fill in collapses the sheet so Set up is reachable", () => {
+    pathname = "/pair";
+    render(
+      <LangProvider initial="en">
+        <PairForm />
+        <JudgeGuide config={CONFIG} />
+      </LangProvider>,
+    );
+    openGuide();
+    expect(screen.getByRole("button", { name: /Close the judge guide/ }).getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Fill in 000000" }));
+    expect((screen.getByLabelText("6-digit code") as HTMLInputElement).value).toBe("000000");
+    expect(screen.getByRole("button", { name: /Open the judge guide/ }).getAttribute("aria-expanded")).toBe("false");
   });
 });
 
@@ -295,6 +314,21 @@ describe("/capture: the script card (plan 5.3-5.4)", () => {
     // a later session (day 2) starts at card 1: the all-spoken state belongs to the session that spoke the cards
     act(() => publishCaptureBridge(listening(0, "s-day2")));
     expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("Read this card aloud");
+  });
+
+  // R-21 F-2: the End confirm is page content under the open sheet; a tap outside the sheet collapses it.
+  it("closing: a pointerdown outside the open sheet (the page's End today) collapses it; one inside does not", () => {
+    pathname = "/capture";
+    act(() => publishCaptureBridge(bridge({ phase: "closing", sessionId: "s1", linesThisSession: 5 })));
+    renderGuide();
+    const pageButton = document.createElement("button");
+    document.body.appendChild(pageButton);
+    openGuide();
+    fireEvent.pointerDown(screen.getByRole("heading", { name: /End today/ }));
+    expect(screen.getByRole("button", { name: /Close the judge guide/ }).getAttribute("aria-expanded")).toBe("true");
+    fireEvent.pointerDown(pageButton);
+    expect(screen.getByRole("button", { name: /Open the judge guide/ }).getAttribute("aria-expanded")).toBe("false");
+    pageButton.remove();
   });
 
   it("the mic hint appears only on engine trouble while nothing new was heard", () => {
@@ -440,6 +474,29 @@ describe("web routes: progress and the supervisor-visited flag", () => {
     openGuide();
     expect(screen.getByRole("heading", { name: "The day record" })).toBeTruthy();
     expect(screen.getByText(/fresh egg tarts question under Customer service/)).toBeTruthy();
+  });
+
+  // R-21 D4: on a hard load Firebase has not restored the user yet; authedGetJson would answer signed_out without a
+  // request and the pill would sit at stage 1 until the next route change.
+  it("D4: waits for the signed-in user before reading the progress, then reads it once and the pill shows the real stage", async () => {
+    pathname = "/sop";
+    seedWeb("supervisor");
+    authStatus = "loading";
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 0, feasible: 0, owner_decided: 0 } }), { status: 200 }));
+    const view = () => (
+      <LangProvider initial="en">
+        <JudgeGuide config={CONFIG} />
+      </LangProvider>
+    );
+    const { rerender } = render(view());
+    await act(async () => {});
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("STAGE 1 OF 5");
+    authStatus = "signed_in";
+    rerender(view());
+    await waitFor(() => expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("STAGE 4 OF 5"));
+    const progressCalls = vi.mocked(fetch).mock.calls.filter(([u]) => String(u) === "/api/v1/demo/progress");
+    expect(progressCalls).toHaveLength(1);
   });
 
   it("supervisor on /proposals after 2 days: Ask Bee6; owner on /proposals: the approvals card", async () => {
