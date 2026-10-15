@@ -144,7 +144,9 @@ describe("SupervisorProposals — list screen (D2-03, D2-03a, D2-03b)", () => {
     });
     renderScreen();
     await waitFor(() => expect(screen.getByText("Write the bake time")).not.toBeNull());
-    const openRow = screen.getByRole("listitem", { name: /Write the bake time/ });
+    // The row's visible h3 names it; the li carries no aria-label of its own (tech-lead PR-12a finding 6).
+    const openRow = screen.getByRole("heading", { level: 3, name: "Write the bake time" }).closest("li")!;
+    expect(openRow.getAttribute("aria-label")).toBeNull();
     expect(within(openRow).getByText("Waiting for your check")).not.toBeNull();
     expect(within(openRow).getByText("Display check")).not.toBeNull();
     expect(within(openRow).getByText("Customers asked if the egg tarts were fresh.")).not.toBeNull();

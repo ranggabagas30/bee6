@@ -82,7 +82,7 @@ function ProposalRow({ item, lang, onOpen }: { item: ProposalListItem; lang: Lan
   if (!content) return null;
   const dates = [...new Set(content.evidence.map((e) => e.date))].map((d) => dayLabel(d, lang)).join(", ");
   return (
-    <Card as="li" className={styles.row} aria-label={content.change_title}>
+    <Card as="li" className={styles.row}>
       <div className={styles.rowTop}>
         <Pill tone={STATUS_TONE[proposal.status]}>{t(lang, STATUS_KEY[proposal.status])}</Pill>
         <Chip>{content.target_step ? content.target_step.title : t(lang, "C-propd-step-new")}</Chip>
