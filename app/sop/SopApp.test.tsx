@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { LangProvider } from "@/lib/i18n/context";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import type { AuthUserState } from "@/lib/auth/client/use-auth-user";
@@ -211,5 +211,66 @@ describe("SopApp states", () => {
     await screen.findByText("Version 1");
     expect(authedGetJson).toHaveBeenCalledTimes(1);
     expect(authedGetJson).toHaveBeenCalledWith(FAKE_AUTH, "/api/v1/sop", expect.anything());
+  });
+});
+
+describe("SopApp version switch (R-19 PR-9a §9.1)", () => {
+  const v2 = (): SopOverview =>
+    overview({
+      latest: { version: 2, effective_from_date: "2026-10-16", steps: [step("a-01"), { ...step("stock-01"), text: "New text v2" }] },
+      in_force_version: 2,
+      changes: [changeView(2)],
+    });
+
+  it("lists versions by date, oldest first, with the newest marked current and selected", async () => {
+    authedGetJson.mockResolvedValue({ kind: "ok", data: v2() });
+    renderApp();
+    const group = await screen.findByRole("group", { name: "SOP version" });
+    const buttons = Array.from(group.querySelectorAll("button"));
+    expect(buttons.map((b) => b.textContent)).toEqual(["First version", "16/10/26 · current"]);
+    expect(buttons.map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "true"]);
+    expect(screen.getByRole("heading", { name: "Steps in version 2" })).not.toBeNull();
+    expect(screen.getByText("IMPROVED · NEW ON 16/10/26")).not.toBeNull();
+    expect(document.querySelector("del")?.textContent).toBe("Text stock-01");
+    // The steps list (the only <ol>) shows the new text; the Changes section below repeats it in its after block.
+    expect(document.querySelector("ol")!.textContent).toContain("New text v2");
+  });
+
+  it("switching to the first version shows its steps with the old wording and no badge", async () => {
+    authedGetJson.mockResolvedValue({ kind: "ok", data: v2() });
+    renderApp();
+    fireEvent.click(await screen.findByRole("button", { name: "First version" }));
+    expect(screen.getByRole("heading", { name: "Steps in version 1" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "First version" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByText(/NEW ON/)).toBeNull();
+    expect(document.querySelector("del")).toBeNull();
+    const items = Array.from(document.querySelector("ol")!.querySelectorAll("li"));
+    expect(document.querySelector("ol")!.textContent).not.toContain("New text v2");
+    expect(items.map((li) => li.querySelector("p")?.textContent)).toEqual(["Title a-01", "Title stock-01"]);
+    expect(items[1]!.textContent).toContain("Text stock-01");
+  });
+
+  it("a seed-only SOP shows 'First version · current' as plain text, with no switch", async () => {
+    renderApp();
+    await screen.findByText("First version · current");
+    expect(screen.queryByRole("group", { name: "SOP version" })).toBeNull();
+    expect(screen.queryByText(/NEW ON/)).toBeNull();
+  });
+
+  it("shows the read-only footer and no Add SOP, Download or Open in Sheets control", async () => {
+    authedGetJson.mockResolvedValue({ kind: "ok", data: v2() });
+    renderApp();
+    await screen.findByText("Read-only. Steps change only through an approved proposal.");
+    const controls = [...screen.getAllByRole("button"), ...screen.getAllByRole("link")].map((n) => n.textContent ?? "");
+    expect(controls.some((c) => /Add SOP|Download|Open in Sheets/i.test(c))).toBe(false);
+    expect(document.body.textContent).not.toMatch(/Add SOP page|Download|Open in Sheets/);
+  });
+
+  it("the empty state has no footer and no switch", async () => {
+    authedGetJson.mockResolvedValue({ kind: "ok", data: overview({ latest: null, in_force_version: null }) });
+    renderApp();
+    await screen.findByText("No SOP yet.");
+    expect(screen.queryByText("Read-only. Steps change only through an approved proposal.")).toBeNull();
+    expect(screen.queryByText(/First version/)).toBeNull();
   });
 });

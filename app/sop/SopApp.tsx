@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import { getClientAuth, signOut, type Auth } from "@/lib/auth/client/firebase-client";
@@ -8,17 +8,24 @@ import { authedGetJson } from "@/lib/auth/client/api";
 import { useAuthUser } from "@/lib/auth/client/use-auth-user";
 import { useLang } from "@/lib/i18n/context";
 import { t } from "@/lib/i18n/dict";
+import type { Lang } from "@/lib/i18n/lang";
 import { dayLabel } from "@/lib/i18n/format";
 import { SopOverviewSchema, type SopOverview } from "@/lib/sop/contract";
+import { Pill, Segmented } from "@/app/ui";
+import { cx } from "@/app/ui/cx";
 import { WebTopBar } from "@/app/web/WebTopBar";
-import { ROLE_KEY, SopChangeCard } from "@/app/sop/SopChangeCard";
 import { EmptyState } from "@/app/web/EmptyState";
+import { SopChangeCard } from "@/app/sop/SopChangeCard";
+import { SopVersionSteps } from "@/app/sop/SopVersionSteps";
+import { buildVersions, shortDate, type SopVersionView } from "@/app/sop/versions";
+import styles from "@/app/sop/sop.module.css";
 
 /**
- * /sop (R-10 Task 5.3). Owner and supervisor see the SOP header, the plain
- * before/after list of approved changes (newest first) and the latest steps.
- * The role read here is UI-only; the server (`sop:diff` + outlet) is the
- * boundary and still answers 403 for anyone else.
+ * /sop (R-10 Task 5.3; SOP book in R-19 PR-9a §9.1). Owner and supervisor see the same read-only screen: the
+ * version switch by date (dd/mm/yy, newest "· current"), the selected version's steps with the improved badge on the
+ * step that version changed, the plain before/after list of approved changes (newest first) and the read-only footer.
+ * No Add SOP, Download or Open in Sheets control (V7). The role read here is UI-only; the server (`sop:diff` +
+ * outlet) is the boundary and still answers 403 for anyone else.
  */
 
 type Role = "owner" | "supervisor" | "other";
@@ -29,10 +36,47 @@ type Outcome =
   | { kind: "forbidden" }
   | { kind: "error" };
 
-const PAGE_STYLE: CSSProperties = { maxWidth: 720, margin: "0 auto", padding: 16, boxSizing: "border-box" };
-const LINE_STYLE: CSSProperties = { margin: "0 0 8px 0", overflowWrap: "anywhere" };
-const LIST_STYLE: CSSProperties = { margin: "0 0 8px 0", paddingLeft: 20, overflowWrap: "anywhere" };
-const ITEM_STYLE: CSSProperties = { marginBottom: 12, overflowWrap: "anywhere" };
+/** "dd/mm/yy", "dd/mm/yy · current", or the seed's "First version" (its date is not in the contract). */
+function versionLabel(v: SopVersionView, newest: boolean, lang: Lang): string {
+  if (v.effective_from_date === null) return t(lang, newest ? "C-sop-book-first-current" : "C-sop-book-first");
+  const date = shortDate(v.effective_from_date);
+  return newest ? t(lang, "C-sop-book-current", { date }) : date;
+}
+
+function SopBook({ data, lang }: { data: SopOverview; lang: Lang }) {
+  // Oldest first, as the board reads left to right; the newest is selected until the reader picks another.
+  const versions = useMemo(() => buildVersions(data).reverse(), [data]);
+  const newest = versions[versions.length - 1]!;
+  const [selected, setSelected] = useState<number>(newest.version);
+  const view = versions.find((v) => v.version === selected) ?? newest;
+  const options = versions.map((v) => ({ value: String(v.version), label: versionLabel(v, v === newest, lang) }));
+
+  return (
+    <>
+      <div className={styles.switchRow}>
+        {versions.length > 1 ? (
+          <Segmented
+            label={t(lang, "C-sop-book-switch")}
+            variant="plain"
+            options={options}
+            value={String(view.version)}
+            onChange={(value) => setSelected(Number(value))}
+            className={styles.switch}
+          />
+        ) : (
+          <Pill tone="teal">{options[0]!.label}</Pill>
+        )}
+      </div>
+
+      <section aria-labelledby="sop-steps-heading">
+        <h2 id="sop-steps-heading" className={styles.sectionTitle}>
+          {t(lang, "C-sop-steps", { version: view.version })}
+        </h2>
+        <SopVersionSteps view={view} lang={lang} />
+      </section>
+    </>
+  );
+}
 
 export function SopApp({ config }: { config: FirebaseWebConfig | null }) {
   const { lang } = useLang();
@@ -96,7 +140,7 @@ export function SopApp({ config }: { config: FirebaseWebConfig | null }) {
 
   if (!config || !auth) {
     return (
-      <main style={PAGE_STYLE}>
+      <main className={styles.page}>
         <WebTopBar auth={null} showSignOut={false} />
         <p role="status" aria-live="polite">
           {t(lang, "C-signin-config")}
@@ -107,7 +151,7 @@ export function SopApp({ config }: { config: FirebaseWebConfig | null }) {
 
   if (authUser.status === "loading" || authUser.status === "signed_out" || role === null) {
     return (
-      <main style={PAGE_STYLE}>
+      <main className={styles.page}>
         <WebTopBar auth={auth} showSignOut current="sop" />
         <p role="status" aria-live="polite">
           {t(lang, "C-day-loading")}
@@ -118,9 +162,9 @@ export function SopApp({ config }: { config: FirebaseWebConfig | null }) {
 
   if (role === "other" || outcome.kind === "forbidden") {
     return (
-      <main style={PAGE_STYLE}>
+      <main className={styles.page}>
         <WebTopBar auth={auth} showSignOut current="sop" />
-        <h1>{t(lang, "C-sop-title")}</h1>
+        <h1 className={styles.title}>{t(lang, "C-sop-title")}</h1>
         <p role="status" aria-live="polite">
           {t(lang, "C-sop-err-forbidden")}
         </p>
@@ -130,9 +174,9 @@ export function SopApp({ config }: { config: FirebaseWebConfig | null }) {
 
   if (outcome.kind === "loading" || outcome.kind === "error") {
     return (
-      <main style={PAGE_STYLE}>
+      <main className={styles.page}>
         <WebTopBar auth={auth} showSignOut current="sop" />
-        <h1>{t(lang, "C-sop-title")}</h1>
+        <h1 className={styles.title}>{t(lang, "C-sop-title")}</h1>
         <p role="status" aria-live="polite">
           {outcome.kind === "loading" ? t(lang, "C-day-loading") : t(lang, "C-srv-generic")}
         </p>
@@ -143,9 +187,9 @@ export function SopApp({ config }: { config: FirebaseWebConfig | null }) {
   const { latest, in_force_version, changes } = outcome.data;
   if (latest === null) {
     return (
-      <main style={PAGE_STYLE}>
+      <main className={styles.page}>
         <WebTopBar auth={auth} showSignOut current="sop" />
-        <h1>{t(lang, "C-sop-title")}</h1>
+        <h1 className={styles.title}>{t(lang, "C-sop-title")}</h1>
         <EmptyState title={t(lang, "C-web-empty-sop-h")} detail={role === "owner" ? t(lang, "C-web-empty-sop-owner") : undefined} />
       </main>
     );
@@ -168,32 +212,25 @@ export function SopApp({ config }: { config: FirebaseWebConfig | null }) {
   }
 
   return (
-    <main style={PAGE_STYLE}>
+    <main className={styles.page}>
       <WebTopBar auth={auth} showSignOut current="sop" />
-      <h1>{t(lang, "C-sop-title")}</h1>
-      <p style={LINE_STYLE}>{header}</p>
+      <h1 className={styles.title}>{t(lang, "C-sop-title")}</h1>
+      <p className={styles.line}>{header}</p>
 
-      <section>
-        <h2>{t(lang, "C-sop-changes")}</h2>
+      <SopBook data={outcome.data} lang={lang} />
+
+      <section aria-labelledby="sop-changes-heading">
+        <h2 id="sop-changes-heading" className={styles.sectionTitle}>
+          {t(lang, "C-sop-changes")}
+        </h2>
         {changes.length === 0 ? (
-          <p style={LINE_STYLE}>{t(lang, "C-sop-changes-empty")}</p>
+          <p className={styles.line}>{t(lang, "C-sop-changes-empty")}</p>
         ) : (
           changes.map((change) => <SopChangeCard key={change.version} change={change} lang={lang} />)
         )}
       </section>
 
-      <section>
-        <h2>{t(lang, "C-sop-steps", { version: latest.version })}</h2>
-        <ol style={LIST_STYLE}>
-          {latest.steps.map((step) => (
-            <li key={step.step_id} style={ITEM_STYLE}>
-              <strong>{step.title}</strong>
-              <p style={LINE_STYLE}>{step.text}</p>
-              <p style={LINE_STYLE}>{t(lang, "C-sop-step-role", { role: t(lang, ROLE_KEY[step.role]) })}</p>
-            </li>
-          ))}
-        </ol>
-      </section>
+      <p className={cx(styles.line, styles.footer)}>{t(lang, "C-sop-book-readonly")}</p>
     </main>
   );
 }
