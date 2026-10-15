@@ -46,14 +46,14 @@ const overview = (o: Partial<SopOverview> = {}): SopOverview => ({
 });
 
 const stepIdsShown = () => Array.from(document.querySelectorAll("ol > li")).map((li) => li.querySelector("p")?.textContent);
-const contentsButtons = () => Array.from(screen.getByRole("navigation", { name: "Contents" }).querySelectorAll("button"));
+const contentsButtons = (nav = "Contents") => Array.from(screen.getByRole("navigation", { name: nav }).querySelectorAll("button"));
 
 describe("SopBookSpread (R-19 PR-9b §9.1)", () => {
   it("left page lists the chapters with their step counts and the legend; right page opens on chapter 1", () => {
     const versions = buildVersions(overview());
     render(<SopBookSpread view={versions[0]!} versions={versions} lang="en" />);
-    expect(contentsButtons().map((b) => b.textContent)).toEqual(["Opening & closing2 steps", "Production1 step", "Stock1 step", "Customer1 step"]);
-    expect(contentsButtons().map((b) => b.getAttribute("aria-label"))).toEqual(["Opening & closing, 2 steps", "Production, 1 step", "Stock, 1 step", "Customer, 1 step"]);
+    expect(contentsButtons().map((b) => b.textContent)).toEqual(["Opening & closing 2 steps", "Production 1 step", "Stock 1 step", "Customer 1 step"]);
+    expect(contentsButtons().map((b) => b.getAttribute("aria-label"))).toEqual([null, null, null, null]);
     expect(contentsButtons().map((b) => b.getAttribute("aria-current"))).toEqual(["page", null, null, null]);
     expect(screen.getByText("From your SOP").parentElement!.textContent).toContain("4");
     expect(screen.getByText("Improved with Bee6").parentElement!.textContent).toContain("1");
@@ -98,33 +98,44 @@ describe("SopBookSpread (R-19 PR-9b §9.1)", () => {
   it("a contents entry opens its chapter, marks itself current and moves focus to the chapter heading", () => {
     const versions = buildVersions(overview());
     render(<SopBookSpread view={versions[0]!} versions={versions} lang="en" />);
-    fireEvent.click(screen.getByRole("button", { name: "Stock, 1 step" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stock 1 step" }));
     const heading = screen.getByRole("heading", { level: 3, name: "Stock" });
     expect(contentsButtons().map((b) => b.getAttribute("aria-current"))).toEqual([null, null, "page", null]);
     expect(document.activeElement).toBe(heading);
     expect(screen.getByText("Page 3 of 4")).not.toBeNull();
   });
 
-  it("a contents entry's accessible name separates the chapter from its step count", () => {
+  it("a contents entry's accessible name is its visible text, chapter then count, with a space between (WCAG 2.5.3)", () => {
     const versions = buildVersions(overview());
     render(<SopBookSpread view={versions[0]!} versions={versions} lang="en" />);
-    expect(screen.getByRole("button", { name: "Stock, 1 step" })).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Opening & closing, 2 steps" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Stock 1 step" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Opening & closing 2 steps" })).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Stock1 step" })).toBeNull();
-    // The visible text is unchanged: name on the left, count on the right, no comma shown.
-    expect(screen.getByRole("button", { name: "Stock, 1 step" }).textContent).toBe("Stock1 step");
+    expect(screen.queryByRole("button", { name: "Stock, 1 step" })).toBeNull();
+    // Label in Name: for every entry the computed name equals the visible text (whitespace collapsed), so the
+    // repo's own axe version (where label-content-name-mismatch is experimental) cannot hide a drift.
+    for (const button of contentsButtons()) {
+      const visible = button.textContent!.replace(/\s+/g, " ").trim();
+      expect(visible).toMatch(/^\S.* \d+ (steps?|langkah)$/);
+      expect(screen.getByRole("button", { name: visible, exact: true })).toBe(button);
+      expect(button.getAttribute("aria-label")).toBeNull();
+    }
   });
 
-  it("Bahasa separates the name and the count the same way", () => {
+  it("Bahasa names the entries the same way", () => {
     const versions = buildVersions(overview());
     render(<SopBookSpread view={versions[0]!} versions={versions} lang="id" />);
-    expect(screen.getByRole("button", { name: "Buka & tutup, 2 langkah" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Buka & tutup 2 langkah" })).not.toBeNull();
+    for (const button of contentsButtons("Daftar isi")) {
+      const visible = button.textContent!.replace(/\s+/g, " ").trim();
+      expect(screen.getByRole("button", { name: visible, exact: true })).toBe(button);
+    }
   });
 
   it("re-clicking the open chapter's contents entry lands on the chapter heading", () => {
     const versions = buildVersions(overview());
     render(<SopBookSpread view={versions[0]!} versions={versions} lang="en" />);
-    const entry = screen.getByRole("button", { name: "Opening & closing, 2 steps" });
+    const entry = screen.getByRole("button", { name: "Opening & closing 2 steps" });
     entry.focus();
     fireEvent.click(entry);
     expect(document.activeElement).toBe(screen.getByRole("heading", { level: 3, name: "Opening & closing" }));
@@ -142,7 +153,7 @@ describe("SopBookSpread (R-19 PR-9b §9.1)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next page" }));
     fireEvent.click(screen.getByRole("button", { name: "Next page" }));
     expect(screen.getByRole("heading", { level: 3, name: "Customer" })).not.toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Customer, 1 step" }));
+    fireEvent.click(screen.getByRole("button", { name: "Customer 1 step" }));
     (document.activeElement as HTMLElement | null)?.blur();
     expect(document.activeElement).toBe(document.body);
     rerender(<SopBookSpread view={versions[1]!} versions={versions} lang="en" />);
@@ -185,8 +196,8 @@ describe("SopBookSpread (R-19 PR-9b §9.1)", () => {
       overview({ latest: { version: 1, effective_from_date: null, steps: [step("p-01"), step("p-02")] }, in_force_version: 1, changes: [] }),
     );
     render(<SopBookSpread view={versions[0]!} versions={versions} lang="en" />);
-    expect(contentsButtons().map((b) => b.textContent)).toEqual(["Other steps2 steps"]);
-    expect(screen.getByRole("button", { name: "Other steps, 2 steps" })).not.toBeNull();
+    expect(contentsButtons().map((b) => b.textContent)).toEqual(["Other steps 2 steps"]);
+    expect(screen.getByRole("button", { name: "Other steps 2 steps" })).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Next page" })).toBeNull();
     expect(screen.queryByText(/Page 1 of/)).toBeNull();
     expect(stepIdsShown()).toEqual(["Title p-01", "Title p-02"]);

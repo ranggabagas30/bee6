@@ -82,12 +82,14 @@ export function SopBookSpread({
                   type="button"
                   className={styles.contentsItem}
                   aria-current={i === index ? "page" : undefined}
-                  // The name and the count are two spans with no text between them, so the computed name would run
-                  // them together ("Stock1 step"); the label reads "Stock, 1 step" the same way in every engine.
-                  aria-label={`${chapterName(c)}, ${stepCount(c)}`}
                   onClick={() => turnTo(i)}
                 >
-                  <span className={styles.contentsName}>{chapterName(c)}</span>
+                  {/*
+                   * No aria-label (WCAG 2.5.3 Label in Name: the accessible name must contain the visible text). The
+                   * literal space between the two spans is dropped by the flex layout but kept in the DOM text, so every
+                   * engine names the entry from its content as "Stock 1 step", exactly what a sighted user reads.
+                   */}
+                  <span className={styles.contentsName}>{chapterName(c)}</span>{" "}
                   <span className={styles.contentsCount}>{stepCount(c)}</span>
                 </button>
               </li>
