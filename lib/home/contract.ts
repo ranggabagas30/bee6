@@ -1,14 +1,16 @@
 import { z } from "zod";
 import { dateString, DayStatusSchema, hm } from "@/lib/day/contract";
+import { HomeR19ExtensionSchema } from "@/lib/contracts/r19";
 import { WorkCategorySchema } from "@/lib/pipeline/categories";
 
 /**
  * Owner home API contract (web spec §4.4; R-06 Task 14a). "Today in 5 lines
- * (summaries only)" is the only slice with data today (§0 item 8); the
- * proposals-waiting (14b) and review-dates (14c) tiles are added later as a
- * strict extension of `HomeResponseSchema`, never guessed here. The home has
- * no cost-per-day tile (Rangga, v4 Q-F: next MVP) — no placeholder field for
- * one either.
+ * (summaries only)" was the only slice with data until R-19 PR-8 (plan 9.2,
+ * W6) added the strict extension from `lib/contracts/r19.ts`: `progress`
+ * (feasible-and-decided tallies per window), `waiting_approval` (the
+ * `awaiting_owner` list, titles only) and `next_review`. The home has no
+ * cost field: "Cost per outlet · coming soon" is a UI placeholder, never a
+ * number this contract could carry.
  */
 
 export const HOME_LINES = 5;
@@ -28,6 +30,7 @@ export const HomeResponseSchema = z
     fact_count: z.number().int().min(0),
     lines: z.array(HomeLineSchema).max(HOME_LINES),
     more: z.number().int().min(0), // facts not in `lines`
+    ...HomeR19ExtensionSchema.shape, // R-19 PR-8: progress, waiting_approval, next_review
   })
   .strict();
 
