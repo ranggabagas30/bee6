@@ -191,7 +191,7 @@ describe("ApprovalsReview — review in order", () => {
   it("picking #2 in the order shows #2 alone (one at a time)", async () => {
     renderScreen();
     await screen.findByRole("heading", { level: 2, name: "Proposal 1" });
-    fireEvent.click(screen.getByRole("button", { name: "Proposal 2 of 2: Proposal 2" }));
+    fireEvent.click(screen.getByRole("button", { name: /^#2 Proposal 2/ }));
     expect(screen.getByRole("heading", { level: 2, name: "Proposal 2" })).toBeTruthy();
     expect(screen.queryByRole("heading", { level: 2, name: "Proposal 1" })).toBeNull();
   });
@@ -252,7 +252,7 @@ describe("ApprovalsReview — approve", () => {
     await screen.findByRole("heading", { level: 2, name: "Proposal 1" });
     expect(screen.getByRole("button", { name: "Approve" }).hasAttribute("disabled")).toBe(true);
     expect(screen.getByText("Some of the evidence no longer holds. Generate again for these dates.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Proposal 2 of 2: Proposal 2" }));
+    fireEvent.click(screen.getByRole("button", { name: /^#2 Proposal 2/ }));
     expect(screen.getByText("No new trays.")).toBeTruthy();
     const approve = screen.getByRole("button", { name: "Approve" });
     expect(approve.hasAttribute("disabled")).toBe(true);
@@ -330,7 +330,7 @@ describe("ApprovalsReview — all decided", () => {
     expect(screen.getByText("WHAT HAPPENS NEXT")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Back to home" }).getAttribute("href")).toBe("/home");
     expect(screen.getByRole("link", { name: "See the SOP" }).getAttribute("href")).toBe("/sop");
-    expect(screen.queryByRole("button", { name: /Approve/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Approve/ })).toBeNull();
     expect(onBridge).toHaveBeenCalledWith({ type: "screen", screen: "all_decided" });
   });
 
@@ -346,9 +346,9 @@ describe("ApprovalsReview — all decided", () => {
     proposalsResult = ok([item(2, "awaiting_owner")], [item(1, "approved", { owner: APPROVED })]);
     renderScreen();
     await screen.findByRole("heading", { level: 2, name: "Proposal 2" });
-    fireEvent.click(screen.getByRole("button", { name: "Proposal 1 of 2: Proposal 1" }));
+    fireEvent.click(screen.getByRole("button", { name: /^#1 Proposal 1/ }));
     expect(screen.getByRole("heading", { level: 2, name: "Proposal 1" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Approve/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Approve/ })).toBeNull();
     expect(screen.queryByLabelText("Reject — why?")).toBeNull();
     expect(screen.getByText("Decided Tue 13 Oct")).toBeTruthy();
   });

@@ -94,19 +94,19 @@ function OrderList({
           const shipped = shippedChangeFor(item, sop);
           return (
             <li key={item.proposal.proposal_id}>
-              <button
-                type="button"
-                className={styles.orderBtn}
-                aria-current={current ? "true" : undefined}
-                aria-label={t(lang, "C-propa-order-aria", { n: index + 1, total: queue.length, title: content.change_title })}
-                onClick={() => onPick(item.proposal.proposal_id)}
-              >
-                <span className={styles.orderNum}>#{index + 1}</span>
-                <span className={styles.orderTitle}>{content.change_title}</span>
+              {/* Named by its visible content (#n, title, status) so the accessible name matches what is on screen (WCAG 2.5.3). */}
+              <button type="button" className={styles.orderBtn} aria-current={current ? "true" : undefined} onClick={() => onPick(item.proposal.proposal_id)}>
+                <span className={styles.orderNum}>#{index + 1}</span>{" "}
+                <span className={styles.orderTitle}>{content.change_title}</span>{" "}
                 <Pill tone={decided ? OWNER_STATUS_TONE[item.proposal.status] : current ? "teal" : "amber"}>
                   {decided ? t(lang, OWNER_STATUS_KEY[item.proposal.status]) : t(lang, current ? "C-propa-now" : "C-propa-st-waiting")}
                 </Pill>
-                {shipped && <span className={styles.orderShipped}>{t(lang, "C-propa-shipped", { version: shipped.version })}</span>}
+                {shipped && (
+                  <>
+                    {" "}
+                    <span className={styles.orderShipped}>{t(lang, "C-propa-shipped", { version: shipped.version })}</span>
+                  </>
+                )}
               </button>
             </li>
           );

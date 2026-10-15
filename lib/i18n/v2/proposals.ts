@@ -74,7 +74,6 @@ export const proposalsID = {
   "C-propa-sub": "Satu usulan sekaligus, sesuai urutan yang disarankan. Supervisor sudah memeriksa bahwa setiap usulan bisa dijalankan.", // PROVISIONAL
   "C-propa-progress": "{done} dari {total} diputuskan", // PROVISIONAL (aria-label of the progress segments)
   "C-propa-order": "URUTAN YANG DISARANKAN", // PROVISIONAL
-  "C-propa-order-aria": "Usulan {n} dari {total}: {title}", // PROVISIONAL
   "C-propa-st-waiting": "Menunggu Anda", // PROVISIONAL
   "C-propa-now": "Sedang ditinjau", // PROVISIONAL (the current item in the order list)
   "C-propa-why": "MENGAPA", // PROVISIONAL
@@ -159,7 +158,6 @@ export const proposalsEN: Record<keyof typeof proposalsID, string> = {
   "C-propa-sub": "One proposal at a time, in the recommended order. The supervisor already checked that each one is workable.",
   "C-propa-progress": "{done} of {total} decided",
   "C-propa-order": "RECOMMENDED ORDER",
-  "C-propa-order-aria": "Proposal {n} of {total}: {title}",
   "C-propa-st-waiting": "Waiting for you",
   "C-propa-now": "Reviewing now",
   "C-propa-why": "WHY",
