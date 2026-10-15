@@ -39,13 +39,22 @@ type Outcome =
   | { kind: "error" };
 
 /**
- * "dd/mm/yy" or "dd/mm/yy · current" (the seed is dated by first_version_date). "First version" is the fallback only
- * when the seed's date is not known.
+ * "dd/mm/yy" or with a state suffix (R-21 O-5). The seed is dated by first_version_date.
+ * "First version" is the fallback only when the seed's date is not known.
+ * State: the version's `version === in_force_version ? "current" : version > in_force_version ? "upcoming" : "past"`.
  */
-function versionLabel(v: SopVersionView, newest: boolean, lang: Lang): string {
-  if (v.effective_from_date === null) return t(lang, newest ? "C-sop-book-first-current" : "C-sop-book-first");
+function versionLabel(v: SopVersionView, inForceVersion: number | null | undefined, lang: Lang): string {
+  const inForce = inForceVersion ?? (v.version > 1 ? v.version - 1 : 1); // Fallback for missing in_force_version
+  const state = v.version === inForce ? "current" : v.version > inForce ? "upcoming" : "past";
+
+  if (v.effective_from_date === null) {
+    return state === "current" ? t(lang, "C-sop-book-first-current") : t(lang, "C-sop-book-first");
+  }
+
   const date = shortDate(v.effective_from_date);
-  return newest ? t(lang, "C-sop-book-current", { date }) : date;
+  if (state === "current") return t(lang, "C-sop-book-current", { date });
+  if (state === "upcoming") return t(lang, "C-sop-book-upcoming", { date });
+  return date;
 }
 
 /**
@@ -80,7 +89,7 @@ function SopBook({ data, lang }: { data: SopOverview; lang: Lang }) {
   const [mode, setMode] = useState<ViewMode>("book");
   const [chapter, setChapter] = useState(0);
   const view = versions.find((v) => v.version === selected) ?? newest;
-  const options = versions.map((v) => ({ value: String(v.version), label: versionLabel(v, v === newest, lang) }));
+  const options = versions.map((v) => ({ value: String(v.version), label: versionLabel(v, data.in_force_version, lang) }));
   const header = headerLine(data, versions.length > 1, lang);
   const modeOptions = [
     { value: "book" as const, label: t(lang, "C-sop-book-view-book") },
