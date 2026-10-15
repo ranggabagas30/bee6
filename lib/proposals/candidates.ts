@@ -1,7 +1,7 @@
 import { attributedBusinessDate, type AttributionSession } from "@/lib/day/attribution";
 import { localHmOf } from "@/lib/capture/calendar";
 import type { Category, WorkCategory } from "@/lib/pipeline/categories";
-import { EVIDENCE_EXCLUDED, MAX_CANDIDATES_IN_PROMPT } from "@/lib/proposals/constants";
+import { EVIDENCE_EXCLUDED, FACT_EXCERPT_MAX_CHARS, MAX_CANDIDATES_IN_PROMPT } from "@/lib/proposals/constants";
 
 /** The store's field-masked read of one thread for the generate range. */
 export interface ProposalThreadRow {
@@ -16,9 +16,14 @@ export interface ProposalThreadRow {
   first_line_start_ms: number;
   summary: string;
   fields?: Record<string, unknown>;
+  /** R-20: the thread's own work lines (already staff-name scrubbed and SDP-redacted at write time). */
+  lines?: Array<{ text: string }>;
 }
 
-/** One evidence candidate: no device id, no raw text, no line text. */
+/**
+ * One evidence candidate: no device id, no raw text, no audio. `excerpt` is only the thread's already
+ * scrubbed and redacted work lines, flattened to one line and capped (`excerptOf`); `""` when there is none.
+ */
 export interface Candidate {
   thread_id: string;
   local_date: string;
@@ -27,6 +32,29 @@ export interface Candidate {
   first_line_start_ms: number;
   summary: string;
   fields?: Record<string, unknown>;
+  excerpt: string;
+}
+
+/**
+ * R-20: flattens text for a prompt quote: whitespace (newlines included) collapsed to single spaces, trimmed,
+ * double quotes replaced by single quotes, capped at `max` code points with a trailing "…" (total = max).
+ * One physical line, so quoted text can never open a new prompt row or header.
+ */
+export function clampQuote(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, " ").trim().replace(/"/g, "'");
+  const points = Array.from(flat);
+  if (points.length <= max) return flat;
+  return `${points.slice(0, max - 1).join("")}\u2026`;
+}
+
+/**
+ * R-20: the quote the Proposal agent gets for one thread: its non-blank lines joined with " / " (a blank line is
+ * a NON_WORK line the tick blanked), then `clampQuote`d. `undefined` / no usable line gives `""`.
+ */
+export function excerptOf(lines: readonly { text: string }[] | undefined, max = FACT_EXCERPT_MAX_CHARS): string {
+  if (!lines) return "";
+  const parts = lines.map((l) => l.text.replace(/\s+/g, " ").trim()).filter((t) => t.length > 0);
+  return clampQuote(parts.join(" / "), max);
 }
 
 /**
@@ -64,6 +92,7 @@ export function selectCandidates(
       first_line_start_ms: row.first_line_start_ms,
       summary: row.summary,
       fields: row.fields,
+      excerpt: excerptOf(row.lines),
     });
   }
   return kept.sort((a, b) => {

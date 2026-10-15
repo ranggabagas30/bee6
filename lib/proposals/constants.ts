@@ -36,6 +36,15 @@ export const MAX_CITED_EVIDENCE = 10;
 export const REVIEW_AFTER_DAYS_MIN = 7;
 export const REVIEW_AFTER_DAYS_MAX = 28;
 
+/** R-20: per-fact quote of the thread's own (scrubbed, redacted) lines offered to the Proposal agent. Code points. */
+export const FACT_EXCERPT_MAX_CHARS = 320;
+
+/** R-20: per-fact staff debrief note (corrections.reason_text, already scrubbed + redacted). Code points. */
+export const FACT_REASON_MAX_CHARS = 200;
+
+/** R-20: an Ask tries at most this many READY focus categories when the model declines the first. */
+export const MAX_FOCUS_PER_ASK = 2;
+
 /** Single-flight proposal generation lease, per outlet. */
 export const PROPOSAL_LEASE_MS = 180_000;
 

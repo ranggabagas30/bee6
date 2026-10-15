@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { zonedTimeToEpochMs } from "@/lib/capture/calendar";
 import type { AttributionSession } from "@/lib/day/attribution";
-import { aliasCandidates, selectCandidates, type ProposalThreadRow } from "@/lib/proposals/candidates";
+import { aliasCandidates, excerptOf, selectCandidates, type ProposalThreadRow } from "@/lib/proposals/candidates";
+import { FACT_EXCERPT_MAX_CHARS } from "@/lib/proposals/constants";
+import { csDay1 } from "@/lib/proposals/testing/rehearsal-fixture";
 
 const TZ = "Asia/Jakarta";
 const DEVICE = "dev-1";
@@ -119,11 +121,65 @@ describe("selectCandidates", () => {
   });
 });
 
+describe("excerptOf (R-20)", () => {
+  it("joins lines with ' / ', skips blank (NON_WORK) lines, collapses whitespace and newlines", () => {
+    expect(excerptOf([{ text: "  Hello \n  there " }, { text: "" }, { text: "   " }, { text: "second\tline" }])).toBe(
+      "Hello there / second line",
+    );
+  });
+
+  it("undefined or no usable line -> empty string", () => {
+    expect(excerptOf(undefined)).toBe("");
+    expect(excerptOf([])).toBe("");
+    expect(excerptOf([{ text: "" }])).toBe("");
+  });
+
+  it("replaces double quotes with single quotes", () => {
+    expect(excerptOf([{ text: 'He said "ten" twice' }])).toBe("He said 'ten' twice");
+  });
+
+  it("caps at the limit in CODE POINTS (not UTF-16 units) with an ellipsis, total = max", () => {
+    const emoji = "\u{1F950}"; // 2 UTF-16 units, 1 code point
+    const out = excerptOf([{ text: emoji.repeat(400) }]);
+    expect(Array.from(out)).toHaveLength(FACT_EXCERPT_MAX_CHARS);
+    expect(out.endsWith("\u2026")).toBe(true);
+    expect(Array.from(out).slice(0, FACT_EXCERPT_MAX_CHARS - 1).every((c) => c === emoji)).toBe(true);
+    // exactly at the cap: untouched
+    const exact = "a".repeat(FACT_EXCERPT_MAX_CHARS);
+    expect(excerptOf([{ text: exact }])).toBe(exact);
+  });
+
+  it("respects an explicit max", () => {
+    expect(excerptOf([{ text: "abcdefghij" }], 5)).toBe("abcd\u2026");
+  });
+});
+
+describe("selectCandidates carries the excerpt (R-20)", () => {
+  it("Candidate.excerpt comes from the thread lines; a row without lines gets ''", () => {
+    const withLines = row({
+      thread_id: "t-with",
+      lines: csDay1.lines,
+      first_line_start_ms: zonedTimeToEpochMs("2026-10-07", "10:00", TZ),
+    });
+    const noLines = row({ thread_id: "t-none", first_line_start_ms: zonedTimeToEpochMs("2026-10-07", "10:05", TZ) });
+    const out = selectCandidates([withLines, noLines], [session()], TZ, RANGE);
+    expect(out.map((c) => c.thread_id)).toEqual(["t-with", "t-none"]);
+    expect(out[0]?.excerpt).toContain("nobody writes the baking time on the tray");
+    expect(out[0]?.excerpt).toContain(" / ");
+    expect(out[1]?.excerpt).toBe("");
+  });
+
+  it("filters are unchanged: ROUTINE_OPS with lines is still dropped", () => {
+    const rows = [row({ category: "ROUTINE_OPS", lines: [{ text: "oven on" }] })];
+    expect(selectCandidates(rows, [session()], TZ, RANGE)).toHaveLength(0);
+  });
+});
+
 describe("aliasCandidates", () => {
   it("returns all candidates when <= 80, aliased E1..En in order", () => {
     const candidates = [
-      { thread_id: "a", local_date: "2026-10-07", start_hm: "10:00", category: "ROUTINE_OPS" as const, first_line_start_ms: 1, summary: "a" },
-      { thread_id: "b", local_date: "2026-10-07", start_hm: "10:05", category: "ROUTINE_OPS" as const, first_line_start_ms: 2, summary: "b" },
+      { thread_id: "a", local_date: "2026-10-07", start_hm: "10:00", category: "ROUTINE_OPS" as const, first_line_start_ms: 1, summary: "a", excerpt: "" },
+      { thread_id: "b", local_date: "2026-10-07", start_hm: "10:05", category: "ROUTINE_OPS" as const, first_line_start_ms: 2, summary: "b", excerpt: "" },
     ];
     const aliased = aliasCandidates(candidates);
     expect(aliased.map((a) => a.alias)).toEqual(["E1", "E2"]);
@@ -138,6 +194,7 @@ describe("aliasCandidates", () => {
       category: "ROUTINE_OPS" as const,
       first_line_start_ms: i,
       summary: `s${i}`,
+      excerpt: "",
     }));
     const aliased = aliasCandidates(candidates);
     expect(aliased).toHaveLength(80);
