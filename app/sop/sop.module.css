@@ -338,6 +338,7 @@
 .td {
   display: grid;
   grid-template-columns: minmax(72px, 32%) 1fr;
+  justify-items: start; /* the code chip keeps its own width instead of stretching across the value column */
   gap: 10px;
   padding: 4px 0;
   font-size: var(--b6-fs-body);
