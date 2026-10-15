@@ -6,6 +6,7 @@ import {
   DEMO_PROJECT_ID,
   buildCaseInput,
   exitCodeFor,
+  findTextViolations,
   formatReport,
   judgeCase,
   parseArgs,
@@ -169,5 +170,72 @@ describe("exit codes and args", () => {
 
   it("the project guard constant is the demo project", () => {
     expect(DEMO_PROJECT_ID).toBe("bee6-playground");
+  });
+});
+
+describe("R-21 --texts grep gate", () => {
+  const clean = { change_title: "Record phone orders", change_text: "Write the order details and pickup time on a slip.", rationale: "Seen on two days." };
+
+  it("findTextViolations flags [staff], (role:, ISO dates, 'phone number' and 'name' in any of the three texts", () => {
+    expect(findTextViolations(clean)).toEqual([]);
+    expect(findTextViolations({ ...clean, change_text: "[staff] Take a phone order" })).toEqual(["change_text: [staff]"]);
+    expect(findTextViolations({ ...clean, change_text: "(role: staff) Take" })).toEqual(["change_text: (role:"]);
+    expect(findTextViolations({ ...clean, rationale: "On 2026-10-14 and later" })).toEqual(["rationale: ISO date"]);
+    expect(findTextViolations({ ...clean, change_text: "Write their Phone Number down" })).toEqual(["change_text: phone number"]);
+    expect(findTextViolations({ ...clean, change_title: "Write the customer's name" })).toEqual(["change_title: name"]);
+  });
+
+  it("R-21 PR-C: 'name' pattern uses word boundaries and customer context to avoid false positives", () => {
+    // False positives (should NOT flag):
+    expect(findTextViolations({ ...clean, change_text: "Check all item names in the order" })).toEqual([]); // "names", not "name"
+    expect(findTextViolations({ ...clean, change_text: "Rename the menu category" })).toEqual([]); // "rename", not "name"
+    expect(findTextViolations({ ...clean, change_text: "Assign a menu item name to each product" })).toEqual([]); // "menu item name", not customer name
+    expect(findTextViolations({ ...clean, change_text: "The file name is auto-generated" })).toEqual([]); // "file name", not customer name
+
+    // True positives (should flag):
+    expect(findTextViolations({ ...clean, change_text: "Write the customer's name on the slip" })).toEqual(["change_text: name"]);
+    expect(findTextViolations({ ...clean, change_text: "Ask for their name and contact info" })).toEqual(["change_text: name"]);
+    expect(findTextViolations({ ...clean, change_text: "Record the caller's name" })).toEqual(["change_text: name"]);
+    expect(findTextViolations({ ...clean, change_text: "Get the person's name for the order" })).toEqual(["change_text: name"]);
+    expect(findTextViolations({ ...clean, change_text: "name and phone number are required" })).toEqual(["change_text: phone number", "change_text: name"]);
+  });
+
+  it("parseArgs: --texts is a flag and combines with --runs in any order", () => {
+    expect(parseArgs([]).texts).toBe(false);
+    expect(parseArgs(["--texts"]).texts).toBe(true);
+    expect(parseArgs(["--runs", "5", "--texts"])).toEqual({ runs: 5, texts: true });
+    expect(parseArgs(["--texts", "--runs", "5"])).toEqual({ runs: 5, texts: true });
+    expect(() => parseArgs(["--runs"])).toThrow();
+  });
+
+  it("with --texts: the report prints each proposed text and a violation fails the run (exit 2); without, no text is printed", async () => {
+    const dirty = (category: string) => propose(category, { change_title: "Phone orders", change_text: "[staff] Write the name down", rationale: "On 2026-10-14 it happened" });
+    const model = vi.fn<ProposalModel>().mockImplementation(async (input) => {
+      const u = input.userContent;
+      if (u.includes("Two croissants") || u.includes("paper bag")) return DECLINE;
+      return dirty(u.includes("PHONE_CALL") ? "PHONE_CALL" : "CUSTOMER_SERVICE");
+    });
+    const withTexts = await runEval({ runs: 2, texts: true }, { model, library, sleep: async () => {} });
+    expect(withTexts.text_violations).toBeGreaterThan(0);
+    expect(exitCodeFor(withTexts)).toBe(2);
+    const printed = formatReport(withTexts);
+    expect(printed).toContain("change_text: [staff] Write the name down");
+    expect(printed).toContain("rationale: On 2026-10-14 it happened");
+    expect(printed).toContain("violation");
+
+    const without = await runEval({ runs: 2 }, { model, library, sleep: async () => {} });
+    expect(formatReport(without)).not.toContain("Write the name down");
+    expect(exitCodeFor(without)).toBe(without.cases.some((c) => c.status === "FAIL") ? 2 : 0);
+  });
+
+  it("with --texts and clean model text: zero violations, exit 0", async () => {
+    const model = vi.fn<ProposalModel>().mockImplementation(async (input) => {
+      const u = input.userContent;
+      if (u.includes("Two croissants") || u.includes("paper bag")) return DECLINE;
+      return propose(u.includes("PHONE_CALL") ? "PHONE_CALL" : "CUSTOMER_SERVICE", clean);
+    });
+    const report = await runEval({ runs: 3, texts: true }, { model, library, sleep: async () => {} });
+    expect(report.text_violations).toBe(0);
+    expect(exitCodeFor(report)).toBe(0);
   });
 });
