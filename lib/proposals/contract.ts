@@ -36,12 +36,8 @@ export const ProposalViewSchema = z
     status: z.enum(PROPOSAL_STATUSES),
     created_at_ms: z.number().int(),
     range: z.object({ from_date: dateString, to_date: dateString }).strict(),
-    /**
-     * R-19 §3.3: the one category this proposal is about; null on a suppressed doc or a pre-R-19 doc. The server
-     * always sets the key; it is optional on the wire type only so existing screen fixtures (PR-12a's files) keep
-     * compiling until that PR tightens it.
-     */
-    focus_category: WorkCategorySchema.nullable().optional(),
+    /** R-19 §3.3: the one category this proposal is about; null on a suppressed doc or a pre-R-19 doc. Required since PR-12a. */
+    focus_category: WorkCategorySchema.nullable(),
     suppression: z
       .object({
         reason: z.enum(SUPPRESSION_REASONS),
@@ -55,7 +51,13 @@ export const ProposalViewSchema = z
       .object({
         intervention: labelled,
         rubric: z.array(labelled).min(1),
-        target_step: z.object({ step_id: z.string(), title: z.string() }).strict().nullable(), // null = new step
+        /**
+         * null = new step. `text` is the step's wording in the SOP version the proposal was generated against
+         * (`generator.sop_version_id`; the review service falls back to the current version only when that one is
+         * missing). The detail screen strikes it through next to `change_text` (R-19 §9.5); null only when the step id
+         * is not in that version.
+         */
+        target_step: z.object({ step_id: z.string(), title: z.string(), text: z.string().nullable() }).strict().nullable(),
         change_title: z.string(),
         change_text: z.string(),
         rationale: z.string(),

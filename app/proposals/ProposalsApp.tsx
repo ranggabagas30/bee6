@@ -14,15 +14,14 @@ import { WebTopBar } from "@/app/web/WebTopBar";
 import { ProposalCard } from "@/app/proposals/ProposalCard";
 import { ConstraintsPanel } from "@/app/proposals/ConstraintsPanel";
 import { ProposalList } from "@/app/proposals/ProposalList";
+import { SupervisorProposals } from "@/app/proposals/SupervisorProposals";
 
 /**
- * /proposals (R-08 Task 7.3). Owner AND supervisor land on the same page,
- * the same Generate panel, the same read-only result card (v2, Q-10) — no
- * owner-only variant, no role-specific route. The server is still the only
- * authority: a role read here is UI-only (two details — the owner note, and
- * Task 8's constraint-form visibility, not built in this PR), never the
- * security boundary. A forged/stale role still gets a server 403, which maps
- * to the same `forbidden` outcome as the client-side gate below.
+ * /proposals (R-08 Task 7.3; R-19 PR-12a splits the roles). One route, two screens by the ID token's role claim:
+ * the supervisor gets `SupervisorProposals` (watch panel, ask, detail, feasible / reject; plan 9.5), the owner
+ * keeps the Generate panel + list + constraints below until PR-12b's W8 review-in-order screen replaces it.
+ * The server is still the only authority: the role read here is UI-only, never the security boundary. A
+ * forged/stale role still gets a server 403, which maps to the same `forbidden` outcome as the client-side gate.
  */
 
 type Role = "owner" | "supervisor" | "other";
@@ -212,6 +211,15 @@ export function ProposalsApp({ config }: { config: FirebaseWebConfig | null }) {
         <p role="status" aria-live="polite">
           {t(lang, "C-prop-err-forbidden")}
         </p>
+      </main>
+    );
+  }
+
+  if (role === "supervisor") {
+    return (
+      <main style={PAGE_STYLE}>
+        <WebTopBar auth={auth} showSignOut current="proposals" />
+        <SupervisorProposals auth={auth} lang={lang} />
       </main>
     );
   }

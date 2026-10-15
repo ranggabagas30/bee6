@@ -54,7 +54,9 @@ export function toProposalView(
               ? null
               : (() => {
                   const step = sop.steps.find((s) => s.step_id === stored.content!.target_step_id);
-                  return step ? { step_id: step.step_id, title: step.title } : { step_id: stored.content!.target_step_id!, title: stored.content!.target_step_id! };
+                  return step
+                    ? { step_id: step.step_id, title: step.title, text: step.text }
+                    : { step_id: stored.content!.target_step_id!, title: stored.content!.target_step_id!, text: null };
                 })(),
           change_title: stored.content.change_title,
           change_text: stored.content.change_text,

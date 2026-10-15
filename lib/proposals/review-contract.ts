@@ -84,11 +84,8 @@ export const ListProposalsResponseSchema = z
   .object({
     open: z.array(ProposalListItemSchema).max(LIST_OPEN_MAX),
     decided: z.array(ProposalListItemSchema).max(LIST_DECIDED_MAX),
-    /**
-     * R-19 §3.5 "What Bee6 is watching". The server always sets it; optional on the wire type only so the
-     * existing screen fixtures (PR-12a's files) keep compiling until that PR builds the panel and tightens it.
-     */
-    watch: ProposalsWatchSchema.optional(),
+    /** R-19 §3.5 "What Bee6 is watching": counts per category over the last 7 business dates. Required since PR-12a. */
+    watch: ProposalsWatchSchema,
   })
   .strict();
 export { ProposalsWatchSchema, WatchRowSchema, type ProposalsWatch, type WatchRow } from "@/lib/contracts/r19";

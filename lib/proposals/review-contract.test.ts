@@ -87,6 +87,7 @@ describe("ListProposalsResponseSchema", () => {
       status: "suppressed",
       created_at_ms: 1,
       range: { from_date: "2026-10-01", to_date: "2026-10-02" },
+      focus_category: null,
       suppression: {
         reason: "insufficient_evidence",
         model_reason: null,
@@ -102,9 +103,14 @@ describe("ListProposalsResponseSchema", () => {
     expect(ProposalListItemSchema.safeParse(item).success).toBe(true);
     expect(ProposalListItemSchema.safeParse({ ...item, extra: 1 }).success).toBe(false);
   });
+  const watch = { from_date: "2026-10-01", to_date: "2026-10-07", categories: [] };
   it("rejects 21 open items", () => {
     const open = Array.from({ length: 21 }, () => item);
-    expect(ListProposalsResponseSchema.safeParse({ open, decided: [] }).success).toBe(false);
-    expect(ListProposalsResponseSchema.safeParse({ open: open.slice(0, 20), decided: [] }).success).toBe(true);
+    expect(ListProposalsResponseSchema.safeParse({ open, decided: [], watch }).success).toBe(false);
+    expect(ListProposalsResponseSchema.safeParse({ open: open.slice(0, 20), decided: [], watch }).success).toBe(true);
+  });
+  it("R-19 PR-12a: `watch` is required on the wire", () => {
+    expect(ListProposalsResponseSchema.safeParse({ open: [], decided: [] }).success).toBe(false);
+    expect(ListProposalsResponseSchema.safeParse({ open: [], decided: [], watch }).success).toBe(true);
   });
 });
