@@ -46,8 +46,8 @@ export interface DemoDeps {
   randomBytes?: (n: number) => Buffer;
   generateToken?: () => string;
   hashToken?: (token: string) => Promise<string>;
-  /** Overrides for the daily caps (env DEMO_SANDBOX_DAILY_CAP / DEMO_SWITCH_IP_CAP). */
-  caps?: { sandboxDaily?: number; switchIpDaily?: number };
+  /** Overrides for the daily caps (env DEMO_SANDBOX_DAILY_CAP / DEMO_SWITCH_IP_CAP / DEMO_SANDBOX_IP_CAP). */
+  caps?: { sandboxDaily?: number; switchIpDaily?: number; sandboxIpDaily?: number };
   log?: (event: string, fields: Record<string, unknown>) => void;
 }
 
@@ -125,10 +125,11 @@ async function createSandbox(store: DemoStore, deps: DemoDeps, input: IssueInput
   const counterExpiry = new Date(now_ms + COUNTER_TTL_MS).toISOString();
   const retry = secondsToUtcMidnight(now_ms);
   const dayCap = deps.caps?.sandboxDaily ?? SANDBOX_DAILY;
+  const ipCap = deps.caps?.sandboxIpDaily ?? SANDBOX_IP_DAILY;
   const dayCounterId = `sandbox_day:${day}`;
   const dayRefused = () => new LockedError(retry, "The demo has reached today's limit", "demo_daily_cap");
   if ((await store.readCounter(dayCounterId)) >= dayCap) throw dayRefused();
-  if (!(await store.bumpCounter(ipBucketKey(input.ip, day, input.salt), "sandbox_ip", day, SANDBOX_IP_DAILY, counterExpiry))) {
+  if (!(await store.bumpCounter(ipBucketKey(input.ip, day, input.salt), "sandbox_ip", day, ipCap, counterExpiry))) {
     throw new LockedError(retry, "Too many demo sessions from this network today", "rate_limited");
   }
   if (!(await store.bumpCounter(dayCounterId, "sandbox_day", day, dayCap, counterExpiry))) throw dayRefused();

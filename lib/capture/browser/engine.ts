@@ -16,8 +16,9 @@ import type { CaptureEvent } from "@/lib/capture/browser/event-log";
  * Offline behaviour (web spec §5 "10 min offline → every segment exactly once"):
  * a connectivity loss (upload resolves `null`) retries indefinitely — only the
  * 10-minute queue *capacity* prunes segments, never an attempt count. A repeated
- * server error (5xx/429) still gives up after `maxAttempts` so one poison segment
- * can't block the queue forever. `abort()` interrupts any wait so `stop()` returns
+ * server error (5xx/429) still gives up after `maxAttempts` (default 8, R-22) so one
+ * poison segment can't block the queue forever. Retry waits are jittered so several
+ * phones that fail together do not retry in lockstep (R-22). `abort()` interrupts any wait so `stop()` returns
  * promptly even while offline.
  */
 
@@ -95,6 +96,8 @@ export interface CaptureEngineOptions {
   genSegId?: () => string;
   maxAttempts?: number;
   sleep?: SleepFn;
+  /** RNG in [0,1) for retry jitter; defaults to Math.random. Injectable for tests. */
+  rng?: () => number;
   onStatusChange?: (status: CaptureStatus) => void;
   /** DEV-01 dev-panel event log; optional, no behavior change when omitted. */
   onEvent?: (event: CaptureEvent) => void;
@@ -115,6 +118,7 @@ export class CaptureEngine {
   private readonly genSegId: () => string;
   private readonly maxAttempts: number;
   private readonly sleep: SleepFn;
+  private readonly rng: () => number;
   private readonly onStatusChange?: (status: CaptureStatus) => void;
   private readonly onEvent?: (event: CaptureEvent) => void;
   private readonly encode: EncodeFn;
@@ -159,8 +163,9 @@ export class CaptureEngine {
     this.batcher = options.batcher ?? new SegmentBatcher();
     this.queue = options.queue ?? new InMemoryQueue<QueuedSegment>();
     this.genSegId = options.genSegId ?? defaultGenSegId;
-    this.maxAttempts = options.maxAttempts ?? 6;
+    this.maxAttempts = options.maxAttempts ?? 8;
     this.sleep = options.sleep ?? defaultSleep;
+    this.rng = options.rng ?? Math.random;
     this.onStatusChange = options.onStatusChange;
     this.onEvent = options.onEvent;
   }
@@ -378,7 +383,8 @@ export class CaptureEngine {
         if (this.stopping) break;
         await this.sleepOrAbort(
           backoffDelayMs(this.headAttempt.count, {
-            jitter: false,
+            jitter: true,
+            rng: this.rng,
             maxMs: MAX_BACKOFF_MS,
           }),
         );
