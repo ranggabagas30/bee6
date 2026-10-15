@@ -100,7 +100,8 @@ beforeEach(() => {
   proposalsResult = { kind: "ok", data: { open: [], decided: [], watch: EMPTY_WATCH } };
   authUserState = { status: "signed_in", user: FAKE_USER } as unknown as AuthUserState;
   getClientAuth.mockReturnValue(FAKE_AUTH);
-  getIdTokenResult.mockResolvedValue({ claims: { role: "supervisor" } });
+  // The owner keeps the legacy Generate form until PR-12b; the supervisor branch is `SupervisorProposals` (its own suite).
+  getIdTokenResult.mockResolvedValue({ claims: { role: "owner" } });
   // Only `Date` is faked — `setTimeout`/`MutationObserver` stay real so
   // Testing Library's `waitFor`/`findBy*` polling (used throughout this
   // file) is not itself frozen by the same mock.
@@ -149,12 +150,16 @@ describe("ProposalsApp — auth / role gate", () => {
     expect(screen.getByText("New proposals go to a supervisor first. You approve them after the supervisor marks them feasible.")).not.toBeNull();
   });
 
-  it("supervisor claims: the form renders, no owner note", async () => {
+  it("supervisor claims: the supervisor screen renders (watch panel, no date form, no owner note)", async () => {
     getIdTokenResult.mockResolvedValue({ claims: { role: "supervisor" } });
-    await renderReady();
+    renderApp();
+    await waitFor(() => expect(screen.getByText("WHAT BEE6 IS WATCHING")).not.toBeNull());
+    expect(screen.queryByRole("button", { name: "Generate proposal" })).toBeNull();
+    expect(screen.queryByLabelText("From")).toBeNull();
     expect(
       screen.queryByText("New proposals go to a supervisor first. You approve them after the supervisor marks them feasible."),
     ).toBeNull();
+    expect(screen.getByRole("navigation")).not.toBeNull();
   });
 
   it("a staff-role token shows the forbidden message and no form", async () => {
@@ -302,7 +307,7 @@ function getsTo(path: string): number {
 
 describe("ProposalsApp — proposals list and decisions (R-09 8.2)", () => {
   it("mounts the list between the generate result and the constraints panel", async () => {
-    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [], watch: EMPTY_WATCH } };
+    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_owner")], decided: [], watch: EMPTY_WATCH } };
     constraintsResult = { kind: "ok", data: { constraints: [] } };
     await renderReady();
     await waitFor(() => expect(screen.getByRole("heading", { name: "Open proposals" })).not.toBeNull());
@@ -337,10 +342,7 @@ describe("ProposalsApp — proposals list and decisions (R-09 8.2)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Yes" }));
   }
 
-  it.each([
-    ["supervisor", "awaiting_supervisor"],
-    ["owner", "awaiting_owner"],
-  ] as const)(
+  it.each([["owner", "awaiting_owner"]] as const)(
     "a %s rejection reloads the list and the constraints, shows the banner, and Use these dates fills the range without generating",
     async (role, status) => {
       getIdTokenResult.mockResolvedValue({ claims: { role } });
@@ -370,41 +372,41 @@ describe("ProposalsApp — proposals list and decisions (R-09 8.2)", () => {
     },
   );
 
-  it("a feasible decision reloads the list only (no constraints reload, no Use these dates)", async () => {
-    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [], watch: EMPTY_WATCH } };
+  it("an approve decision reloads the list only (no constraints reload, no Use these dates)", async () => {
+    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_owner")], decided: [], watch: EMPTY_WATCH } };
     constraintsResult = { kind: "ok", data: { constraints: [] } };
-    authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "feasible", status: "awaiting_owner" } });
+    authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "approved", status: "approved" } });
     await renderReady();
     await waitFor(() => expect(getsTo("/api/v1/constraints")).toBe(1));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Feasible" })).not.toBeNull());
-    fireEvent.click(screen.getByRole("button", { name: "Feasible" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Approve" })).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     fireEvent.click(screen.getByRole("button", { name: "Yes" }));
-    expect(await screen.findByText("Marked feasible. Sent to the owner.")).not.toBeNull();
+    expect(await screen.findByText("Approved. The new SOP version is in force from tomorrow.")).not.toBeNull();
     await waitFor(() => expect(getsTo("/api/v1/proposals")).toBe(2));
     expect(getsTo("/api/v1/constraints")).toBe(1);
     expect(screen.queryByRole("button", { name: "Use these dates" })).toBeNull();
   });
 
   it("a decision clears the generate result card so its old status line does not linger", async () => {
-    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [], watch: EMPTY_WATCH } };
+    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_owner")], decided: [], watch: EMPTY_WATCH } };
     authedPostJson.mockImplementation(async (...args: unknown[]) =>
       args[1] === "/api/v1/proposals/generate"
         ? { kind: "ok", data: makeResponse() }
-        : { kind: "ok", data: { result: "feasible", status: "awaiting_owner" } },
+        : { kind: "ok", data: { result: "approved", status: "approved" } },
     );
     await renderReady();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Feasible" })).not.toBeNull());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Approve" })).not.toBeNull());
     fireEvent.click(screen.getByRole("button", { name: "Generate proposal" }));
     // Generate card + the listed card both show the proposal.
     await waitFor(() => expect(screen.getAllByText("Add a greeting script")).toHaveLength(2));
-    fireEvent.click(screen.getByRole("button", { name: "Feasible" }));
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     fireEvent.click(screen.getByRole("button", { name: "Yes" }));
-    expect(await screen.findByText("Marked feasible. Sent to the owner.")).not.toBeNull();
+    expect(await screen.findByText("Approved. The new SOP version is in force from tomorrow.")).not.toBeNull();
     await waitFor(() => expect(screen.getAllByText("Add a greeting script")).toHaveLength(1));
   });
 
   it("tapping Generate clears the decision banner and its Use these dates button", async () => {
-    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [], watch: EMPTY_WATCH } };
+    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_owner")], decided: [], watch: EMPTY_WATCH } };
     authedPostJson.mockImplementation(async (...args: unknown[]) =>
       args[1] === "/api/v1/proposals/generate"
         ? { kind: "error" }
@@ -421,13 +423,13 @@ describe("ProposalsApp — proposals list and decisions (R-09 8.2)", () => {
   });
 
   it("after a decision keyboard focus lands on the banner, not on the document body", async () => {
-    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [], watch: EMPTY_WATCH } };
-    authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "feasible", status: "awaiting_owner" } });
+    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_owner")], decided: [], watch: EMPTY_WATCH } };
+    authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "approved", status: "approved" } });
     await renderReady();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Feasible" })).not.toBeNull());
-    fireEvent.click(screen.getByRole("button", { name: "Feasible" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Approve" })).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     fireEvent.click(screen.getByRole("button", { name: "Yes" }));
-    const banner = await screen.findByText("Marked feasible. Sent to the owner.");
+    const banner = await screen.findByText("Approved. The new SOP version is in force from tomorrow.");
     await waitFor(() => expect(getsTo("/api/v1/proposals")).toBe(2));
     expect(banner.getAttribute("tabindex")).toBe("-1");
     expect(document.activeElement).toBe(banner);
@@ -454,32 +456,32 @@ describe("ProposalsApp — proposals list and decisions (R-09 8.2)", () => {
   });
 
   it("a conflict answer shows its message in the banner and reloads the list", async () => {
-    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [], watch: EMPTY_WATCH } };
+    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_owner")], decided: [], watch: EMPTY_WATCH } };
     authedPostJson.mockResolvedValue({ kind: "conflict", code: "ALREADY_DECIDED" });
     await renderReady();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Feasible" })).not.toBeNull());
-    fireEvent.click(screen.getByRole("button", { name: "Feasible" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Approve" })).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     fireEvent.click(screen.getByRole("button", { name: "Yes" }));
     expect(await screen.findByText("This proposal was already decided. The list is updated.")).not.toBeNull();
     await waitFor(() => expect(getsTo("/api/v1/proposals")).toBe(2));
   });
   it("a decision during an in-flight generate does not clobber the busy state", async () => {
-    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [], watch: EMPTY_WATCH } };
+    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_owner")], decided: [], watch: EMPTY_WATCH } };
     let resolveGenerate: (value: unknown) => void = () => {};
     authedPostJson.mockImplementation((...args: unknown[]) =>
       args[1] === "/api/v1/proposals/generate"
         ? new Promise((resolve) => { resolveGenerate = resolve; })
-        : Promise.resolve({ kind: "ok", data: { result: "feasible", status: "awaiting_owner" } }),
+        : Promise.resolve({ kind: "ok", data: { result: "approved", status: "approved" } }),
     );
     await renderReady();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Feasible" })).not.toBeNull());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Approve" })).not.toBeNull());
     fireEvent.click(screen.getByRole("button", { name: "Generate proposal" }));
     const generate = screen.getByRole("button", { name: "Generate proposal" }) as HTMLButtonElement;
     expect(generate.disabled).toBe(true);
 
-    fireEvent.click(screen.getByRole("button", { name: "Feasible" }));
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     fireEvent.click(screen.getByRole("button", { name: "Yes" }));
-    expect(await screen.findByText("Marked feasible. Sent to the owner.")).not.toBeNull();
+    expect(await screen.findByText("Approved. The new SOP version is in force from tomorrow.")).not.toBeNull();
     await waitFor(() => expect(getsTo("/api/v1/proposals")).toBe(2));
 
     // The generate request is still running: the form must stay locked.
