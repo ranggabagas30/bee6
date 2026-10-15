@@ -10,8 +10,9 @@ import { discardCaptureSession, readJsonBody } from "@/lib/capture/session-api";
  * ("Batalkan sesi"): writes a tombstone, then deletes the session's segments. A session
  * already ended (Selesai, auto-stop or lost) is a 409 `session_ended`. Device-only.
  *
- * 202 `cleanup: "pending"` while Cancel-B (derived threads and questions) has not run.
- * P1 never runs Cancel-B, so every successful discard answers 202 for now.
+ * Every successful discard answers 202 `cleanup: "pending"`. Cancel-B (R-20) runs in the pipeline
+ * tick under the device lease: it deletes the derived threads, questions and answers (and any leftover
+ * segments of the session) within one tick and sets `cleanup_done_at_ms`. This route never waits for it.
  */
 
 export const runtime = "nodejs";

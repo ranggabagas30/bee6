@@ -13,6 +13,7 @@ import { buildWindows, planLabelUnits, earliestLineStartMs, type LabelUnit, type
 import { buildThreads, openThreadsAt, type BuiltThread, type OpenThread, type LabelOutput } from "@/lib/pipeline/threads";
 import { evaluateGate, applyGateDecision } from "@/lib/pipeline/gate";
 import { remapOpenThreadAliases } from "@/lib/pipeline/tick/alias";
+import { isSegmentDiscarded, selectDiscardGhosts } from "@/lib/pipeline/tick/discard-cleanup";
 import { threadQuestionId } from "@/lib/pipeline/question-ids";
 import type {
   LedgerWrite,
@@ -92,6 +93,8 @@ export interface DeviceTickResult {
   failed_units: number;
   /** R-07: questions expired to `unverified` by this device's own debrief end this tick. 0 when the lease was held. */
   questions_expired: number;
+  /** R-20: discard tombstones whose derived docs this device's tick cleaned (counts only). 0 when the lease was held. */
+  discard_cleanups: number;
 }
 
 export interface RunTickResult {
@@ -516,16 +519,43 @@ async function processOneDevice(
       questions_written: 0,
       failed_units: 0,
       questions_expired: 0,
+      discard_cleanups: 0,
     };
   }
 
   try {
+    // R-20 (Cancel-B): discard cleanup comes FIRST under the lease, before the expiry pass and before
+    // any segment is read. The lease already serialises everything that writes threads/questions for
+    // this device, so a ghost can only be written by a tick that started before the tombstone, and
+    // the pending tombstone (cleanup_done_at_ms still null) makes the NEXT tick delete it before
+    // labelling anything. `discardedSessionIds` is assigned before the cleanup loop on purpose: if a
+    // cleanup throws, the discarded sessions' segments are still excluded from windowing below.
+    let cleanups = 0;
+    let discardedSessionIds = new Set<string>();
+    try {
+      const tombstones = await store.listDiscardedSessions(outlet_id, device_id);
+      discardedSessionIds = new Set(tombstones.map((t) => t.session_id));
+      for (const tombstone of tombstones.filter((t) => t.cleanup_pending)) {
+        const candidates = await store.listGhostCandidates(outlet_id, device_id, tombstone.started_at_ms);
+        const plan = selectDiscardGhosts(tombstone, candidates);
+        await store.applyDiscardCleanup(outlet_id, device_id, plan, now_ms);
+        cleanups += 1;
+      }
+    } catch (error) {
+      console.error("[pipeline-tick] discard cleanup failed", {
+        device_id,
+        error_class: classifyUnexpectedError(error),
+      });
+    }
+
     // R-07: right after the lease, BEFORE listSegmentsForDevice, so a device
     // with no segments this tick still expires its own stale questions. A
     // failure here never stops labelling (its own try/catch; logged by
     // error class only — same discipline as the rest of this file).
     let questionsExpired = 0;
     try {
+      // A cancelled day expires nothing (technical spec §8, debrief expiry). The questions a cancelled
+      // session left behind are not expired here: the cleanup above deletes them.
       const last = await store.getLastEnded(outlet_id, device_id);
       if (last?.debrief_ends_at_ms != null && last.end_reason !== "discarded" && last.debrief_ends_at_ms <= now_ms) {
         questionsExpired = await store.expireOpenQuestions(outlet_id, device_id, last.debrief_ends_at_ms, now_ms);
@@ -537,7 +567,11 @@ async function processOneDevice(
       });
     }
 
-    const segments = await store.listSegmentsForDevice(outlet_id, device_id);
+    // R-20: a discarded session's segments are never windowed, even while the route's own
+    // deleteSegments is still running or a cleanup failed above.
+    const segments = (await store.listSegmentsForDevice(outlet_id, device_id)).filter(
+      (s) => !isSegmentDiscarded(s, discardedSessionIds),
+    );
     if (segments.length === 0) {
       return {
         outlet_id,
@@ -548,6 +582,7 @@ async function processOneDevice(
         questions_written: 0,
         failed_units: 0,
         questions_expired: questionsExpired,
+        discard_cleanups: cleanups,
       };
     }
 
@@ -562,6 +597,7 @@ async function processOneDevice(
         questions_written: 0,
         failed_units: 0,
         questions_expired: questionsExpired,
+        discard_cleanups: cleanups,
       };
     }
 
@@ -644,6 +680,7 @@ async function processOneDevice(
       questions_written: questionsWritten,
       failed_units: failedUnits,
       questions_expired: questionsExpired,
+      discard_cleanups: cleanups,
     };
   } finally {
     await store.releaseLease(outlet_id, device_id, leaseToken);
@@ -696,6 +733,7 @@ export async function runTick(deps: RunTickDeps): Promise<RunTickResult> {
         questions_written: 0,
         failed_units: 0,
         questions_expired: 0,
+        discard_cleanups: 0,
       });
     }
   }

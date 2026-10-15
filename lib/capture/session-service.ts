@@ -356,6 +356,8 @@ export async function discardSession(
   // still removes segments. Segments written before the tombstone are found here, and
   // each batch raises the audit count in the same commit as its deletes.
   await store.deleteSegments(key, audit_id);
-  // Cancel-B (derived data cleanup) has not landed, so the response is always "pending".
+  // The derived data (threads, questions, answers) is cleaned by the pipeline tick under the device lease
+  // (R-20, `lib/pipeline/tick/discard-cleanup.ts`), which then sets `cleanup_done_at_ms`; so the response
+  // is always "pending" here.
   return { ok: true, cleanup: "pending" };
 }
