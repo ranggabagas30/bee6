@@ -39,6 +39,7 @@ import {
 import { hashPin } from "@/lib/auth/pin";
 import { generatePairingCode, pairingCodeExpiry } from "@/lib/auth/pairing";
 import { normalizeStaffName } from "@/lib/auth/staff-name";
+import { addDays, localDateOf, zonedTimeToEpochMs } from "@/lib/capture/calendar";
 import { DEMO_SOP_V1 } from "@/scripts/demo-sop";
 
 // ── seed config shape ────────────────────────────────────────────────────────
@@ -83,7 +84,38 @@ export const SeedConfigSchema = z
      * present, the seed writes `sop_versions/{outlet_id}:v1` once (never
      * overwritten — SOP versions are immutable, hard rule #9).
      */
-    sop_v1: z.object({ steps: z.array(SopStepSchema).min(1).max(200) }).strict().optional(),
+    sop_v1: z
+      .object({
+        steps: z.array(SopStepSchema).min(1).max(200),
+        /**
+         * R-19 (demo template only): date SOP v1 this many whole days BEFORE the template's last captured
+         * day, at 09:00 outlet-local, instead of the seed time. See `sopV1CreatedAtMs` for the arithmetic.
+         */
+        created_days_before_last_day: z.number().int().min(0).max(3650).optional(),
+        /** R-19: absolute alternative (outlet-local `YYYY-MM-DD`, stamped 09:00). Mutually exclusive with the relative one. */
+        created_date: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional(),
+      })
+      .strict()
+      .refine((s) => s.created_days_before_last_day === undefined || s.created_date === undefined, {
+        message: "sop_v1: set created_days_before_last_day or created_date, not both",
+      })
+      .refine((s) => {
+        if (s.created_date === undefined) return true;
+        try {
+          // Validate that the date string is a real calendar date by round-tripping through addDays.
+          // An impossible date like "2026-02-30" will roll over to "2026-03-02" in Date.UTC.
+          return addDays(s.created_date, 0) === s.created_date;
+        } catch {
+          // If addDays fails (e.g., on a truly malformed date that passed the regex), reject it.
+          return false;
+        }
+      }, {
+        message: "sop_v1.created_date is not a calendar date",
+      })
+      .optional(),
   })
   .strict();
 export type SeedConfig = z.infer<typeof SeedConfigSchema>;
@@ -122,7 +154,9 @@ export const DEMO_TEMPLATE_SEED: SeedConfig = {
   supervisors: [{ email: "demo-tpl-supervisor@example.com" }],
   staff: DEMO_SEED.staff,
   device: { device_id: "demo-tpl-phone", label: "Demo shop phone" },
-  sop_v1: DEMO_SEED.sop_v1,
+  // R-19: the judge's SOP screen must show the first version as "judge day 1 minus 7 days" (05/10/26 for a
+  // Mon 12 Oct judge day 1) whatever day the template is re-seeded. 6 = 7 - 1; derivation in `sopV1CreatedAtMs`.
+  sop_v1: { ...DEMO_SOP_V1, created_days_before_last_day: 6 },
 };
 
 // ── document builder (pure; unit-tested) ─────────────────────────────────────
@@ -136,11 +170,46 @@ export interface SeedDocuments {
   sopVersion: SopVersion | null;
 }
 
-/** Pure: builds the `sop_versions/{outlet_id}:v1` doc from a config's `sop_v1` block. */
+/** Outlet-local wall-clock time stamped on a back-dated SOP v1 (R-19). */
+export const SEED_SOP_CREATED_HM = "09:00";
+
+/**
+ * R-19: the instant SOP v1 is "created" at. Default: the seed time (pilot and plain demo, unchanged).
+ *
+ * `created_days_before_last_day: N` dates it N whole days before the template's last captured day, at
+ * 09:00 outlet-local. The seed does not read plan.json, so it relies on the runbook: `demo-seed-template`
+ * runs on the same outlet-local day S as this seed and its plan ends with `offset_days: -1`, so the
+ * template's last day is D = S - 1 (`scripts/demo-seed-template.ts`, `addDays(today, offset_days)`).
+ *
+ * Why N = 6 shows "judge day 1 minus 7" (`DEMO_TEMPLATE_SEED`): `lib/demo/clone.ts` moves every instant
+ * by k whole days so that D lands on the sandbox's yesterday, k = (T - 1) - D, where T is the sandbox's
+ * today (judge day 1). The SOP's `created_at_ms` moves with it (`shiftDeep`, `*_ms` rule):
+ *
+ *   C  = D - N = S - 1 - N              (what this seed stamps)
+ *   C' = C + k = (D - N) + (T - 1 - D) = T - 1 - N
+ *   C' = T - 7  <=>  N = 6
+ *
+ * e.g. judge day 1 = Mon 12 Oct 2026: C' = 5 Oct, shown as 05/10/26 (`lib/sop/service.ts` derives
+ * `first_version_date = localDateOf(v1.created_at_ms, tz)`), for any seed day S <= T. The clone's cap-at-now
+ * never bites (T - 7 is in the past), and Asia/Jakarta has no DST so the 09:00 wall clock survives the shift.
+ *
+ * `created_date: 'YYYY-MM-DD'` is the absolute escape hatch (same 09:00 stamp); it does not track re-seeds.
+ */
+export function sopV1CreatedAtMs(sopV1: NonNullable<SeedConfig["sop_v1"]>, nowMs: number, tz: string): number {
+  if (sopV1.created_date !== undefined) return zonedTimeToEpochMs(sopV1.created_date, SEED_SOP_CREATED_HM, tz);
+  if (sopV1.created_days_before_last_day !== undefined) {
+    const lastDay = addDays(localDateOf(nowMs, tz), -1);
+    return zonedTimeToEpochMs(addDays(lastDay, -sopV1.created_days_before_last_day), SEED_SOP_CREATED_HM, tz);
+  }
+  return nowMs;
+}
+
+/** Pure: builds the `sop_versions/{outlet_id}:v1` doc from a config's `sop_v1` block (`tz` = the outlet's). */
 export function buildSopVersionDoc(
   outletId: string,
   sopV1: NonNullable<SeedConfig["sop_v1"]>,
   nowMs: number,
+  tz: string,
 ): SopVersion {
   return SopVersionSchema.parse({
     outlet_id: outletId,
@@ -149,7 +218,7 @@ export function buildSopVersionDoc(
     steps: sopV1.steps,
     source: "seed",
     source_proposal_id: null,
-    created_at_ms: nowMs,
+    created_at_ms: sopV1CreatedAtMs(sopV1, nowMs, tz),
   });
 }
 
@@ -229,7 +298,7 @@ export async function buildSeedDocuments(
   });
 
   const sopVersion = config.sop_v1
-    ? buildSopVersionDoc(outlet.outlet_id, config.sop_v1, opts.now.getTime())
+    ? buildSopVersionDoc(outlet.outlet_id, config.sop_v1, opts.now.getTime(), outlet.timezone)
     : null;
 
   return { outlet, users, staff, device, pairingCode: opts.pairingCode, sopVersion };
