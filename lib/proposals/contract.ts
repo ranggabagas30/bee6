@@ -52,8 +52,10 @@ export const ProposalViewSchema = z
         intervention: labelled,
         rubric: z.array(labelled).min(1),
         /**
-         * null = new step. `text` is the step's current wording (the detail screen strikes it through next to
-         * `change_text`, R-19 §9.5); null only when the step id is no longer in the current SOP version.
+         * null = new step. `text` is the step's wording in the SOP version the proposal was generated against
+         * (`generator.sop_version_id`; the review service falls back to the current version only when that one is
+         * missing). The detail screen strikes it through next to `change_text` (R-19 §9.5); null only when the step id
+         * is not in that version.
          */
         target_step: z.object({ step_id: z.string(), title: z.string(), text: z.string().nullable() }).strict().nullable(),
         change_title: z.string(),
