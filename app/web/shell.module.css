@@ -25,16 +25,24 @@
   min-width: 0;
 }
 
-/* A tap target: a 44 x 44 px minimum box around the 20 px wordmark (the bar is 48 px, so the row does not grow). */
+/* A tap target: a 44 x 44 px minimum box around the 20 px wordmark. Under 900 px the bar wraps and the brand's row is
+   24 px tall, so a plain 44 px box would make that row taller (measured: the header grew 81 -> 100 px). The negative
+   block margins keep the margin box at the 24 px line (the row keeps its height) while the border box, what a finger
+   hits and what axe measures, is 44 px. The 20 px overhang is 13 px up (inside the page's 16 px top padding) and 7 px
+   down (inside the 8 px row gap, 1 px clear of the controls row; a 10/10 split measured 2 px into the language
+   switch), and the 6 px top padding leaves the wordmark exactly where it was. */
 .brand {
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   min-height: 44px;
   min-width: 44px;
+  margin-block: -13px -7px;
+  padding-top: 6px;
   color: inherit;
   text-decoration: none;
   font-size: 20px;
+  line-height: 24px;
   font-weight: 700;
   letter-spacing: -0.2px;
 }
