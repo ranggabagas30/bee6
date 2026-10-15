@@ -61,6 +61,9 @@ export function SopBookSpread({ view, versions, lang }: { view: SopVersionView; 
                   onClick={() => turnTo(i)}
                 >
                   <span className={styles.contentsName}>{chapterName(c)}</span>
+                  {/* The count sits on the right; a screen reader needs "Stock, 1 step". The space is a bare text node
+                      (not rendered by the flex row); the comma is visually hidden. */}
+                  <span className="b6-sr-only">,</span>{" "}
                   <span className={styles.contentsCount}>
                     {c.steps.length === 1 ? t(lang, "C-sop-book-steps-1") : t(lang, "C-sop-book-steps-n", { n: c.steps.length })}
                   </span>

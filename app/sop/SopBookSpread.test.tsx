@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { SopChangeView, SopOverview, SopStepView } from "@/lib/sop/contract";
 import { axeViolations } from "@/lib/testing/axe";
@@ -52,7 +52,7 @@ describe("SopBookSpread (R-19 PR-9b §9.1)", () => {
   it("left page lists the chapters with their step counts and the legend; right page opens on chapter 1", () => {
     const versions = buildVersions(overview());
     render(<SopBookSpread view={versions[0]!} versions={versions} lang="en" />);
-    expect(contentsButtons().map((b) => b.textContent)).toEqual(["Opening & closing2 steps", "Production1 step", "Stock1 step", "Customer1 step"]);
+    expect(contentsButtons().map((b) => b.textContent)).toEqual(["Opening & closing, 2 steps", "Production, 1 step", "Stock, 1 step", "Customer, 1 step"]);
     expect(contentsButtons().map((b) => b.getAttribute("aria-current"))).toEqual(["page", null, null, null]);
     expect(screen.getByText("From your SOP").parentElement!.textContent).toContain("4");
     expect(screen.getByText("Improved with Bee6").parentElement!.textContent).toContain("1");
@@ -97,11 +97,62 @@ describe("SopBookSpread (R-19 PR-9b §9.1)", () => {
   it("a contents entry opens its chapter, marks itself current and moves focus to the chapter heading", () => {
     const versions = buildVersions(overview());
     render(<SopBookSpread view={versions[0]!} versions={versions} lang="en" />);
-    fireEvent.click(screen.getByRole("button", { name: "Stock1 step" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stock, 1 step" }));
     const heading = screen.getByRole("heading", { level: 3, name: "Stock" });
     expect(contentsButtons().map((b) => b.getAttribute("aria-current"))).toEqual([null, null, "page", null]);
     expect(document.activeElement).toBe(heading);
     expect(screen.getByText("Page 3 of 4")).not.toBeNull();
+  });
+
+  it("a contents entry's accessible name separates the chapter from its step count", () => {
+    const versions = buildVersions(overview());
+    render(<SopBookSpread view={versions[0]!} versions={versions} lang="en" />);
+    expect(screen.getByRole("button", { name: "Stock, 1 step" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Opening & closing, 2 steps" })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Stock1 step" })).toBeNull();
+  });
+
+  it("re-clicking the open chapter's contents entry lands on the chapter heading", () => {
+    const versions = buildVersions(overview());
+    render(<SopBookSpread view={versions[0]!} versions={versions} lang="en" />);
+    const entry = screen.getByRole("button", { name: "Opening & closing, 2 steps" });
+    entry.focus();
+    fireEvent.click(entry);
+    expect(document.activeElement).toBe(screen.getByRole("heading", { level: 3, name: "Opening & closing" }));
+    expect(screen.getByText("Page 1 of 4")).not.toBeNull();
+  });
+
+  it("re-clicking the open chapter does not steal focus on a later version switch that clamps the page", () => {
+    const versions = buildVersions(
+      overview({
+        latest: { version: 2, effective_from_date: "2026-10-12", steps: [step("open-01"), step("stock-01"), step("serve-02")] },
+        changes: [change(2, { kind: "add", before: null, after: step("serve-02") })],
+      }),
+    );
+    const { rerender } = render(<SopBookSpread view={versions[0]!} versions={versions} lang="en" />);
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    expect(screen.getByRole("heading", { level: 3, name: "Customer" })).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Customer, 1 step" }));
+    (document.activeElement as HTMLElement | null)?.blur();
+    expect(document.activeElement).toBe(document.body);
+    rerender(<SopBookSpread view={versions[1]!} versions={versions} lang="en" />);
+    expect(screen.getByRole("heading", { level: 3, name: "Stock" })).not.toBeNull();
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it("the open chapter can be controlled by the parent so it outlives a remount", () => {
+    const versions = buildVersions(overview());
+    const onChapterChange = vi.fn();
+    const { rerender } = render(<SopBookSpread view={versions[0]!} versions={versions} lang="en" chapter={2} onChapterChange={onChapterChange} />);
+    expect(screen.getByRole("heading", { level: 3, name: "Stock" })).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    expect(onChapterChange).toHaveBeenCalledWith(3);
+    // Controlled: the page does not move until the parent passes the new index.
+    expect(screen.getByRole("heading", { level: 3, name: "Stock" })).not.toBeNull();
+    rerender(<SopBookSpread view={versions[0]!} versions={versions} lang="en" chapter={3} onChapterChange={onChapterChange} />);
+    expect(screen.getByRole("heading", { level: 3, name: "Customer" })).not.toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("heading", { level: 3, name: "Customer" }));
   });
 
   it("the page clamps when a version with fewer chapters is shown", () => {
@@ -125,7 +176,7 @@ describe("SopBookSpread (R-19 PR-9b §9.1)", () => {
       overview({ latest: { version: 1, effective_from_date: null, steps: [step("p-01"), step("p-02")] }, in_force_version: 1, changes: [] }),
     );
     render(<SopBookSpread view={versions[0]!} versions={versions} lang="en" />);
-    expect(contentsButtons().map((b) => b.textContent)).toEqual(["Other steps2 steps"]);
+    expect(contentsButtons().map((b) => b.textContent)).toEqual(["Other steps, 2 steps"]);
     expect(screen.queryByRole("button", { name: "Next page" })).toBeNull();
     expect(screen.queryByText(/Page 1 of/)).toBeNull();
     expect(stepIdsShown()).toEqual(["Title p-01", "Title p-02"]);

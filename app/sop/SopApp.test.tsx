@@ -269,7 +269,7 @@ describe("SopApp version switch (R-19 PR-9a §9.1)", () => {
     expect(document.querySelector("ol")!.textContent).not.toContain("New text v2");
     expect(items.map((li) => li.querySelector("p")?.textContent)).toEqual(["Title stock-01"]);
     expect(items[0]!.textContent).toContain("Text stock-01");
-    expect(screen.getByRole("button", { name: "Other steps1 step" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Other steps, 1 step" })).not.toBeNull();
   });
 
   it("a seed-only SOP shows its date '· current' as plain text, with no switch", async () => {
@@ -374,7 +374,7 @@ describe("SopApp Book/Table toggle (R-19 PR-9b §9.1)", () => {
     renderApp();
     await screen.findByRole("group", { name: "View" });
     expect(screen.getByText("Page 1 of 4")).not.toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Stock1 step" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stock, 1 step" }));
     expect(screen.getByText("IMPROVED · NEW ON 16/10/26")).not.toBeNull();
     expect(document.querySelector("del")?.textContent).toBe("Text stock-01");
     fireEvent.click(screen.getByRole("button", { name: "05/10/26" }));
@@ -386,8 +386,22 @@ describe("SopApp Book/Table toggle (R-19 PR-9b §9.1)", () => {
   it("the toggle is still shown for a seed-only SOP, with a single 'Other steps' chapter and no page navigation", async () => {
     renderApp();
     await screen.findByRole("group", { name: "View" });
-    expect(screen.getByRole("button", { name: "Other steps2 steps" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Other steps, 2 steps" })).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Next page" })).toBeNull();
+  });
+
+  it("the open chapter survives a Book -> Table -> Book round trip", async () => {
+    authedGetJson.mockResolvedValue({ kind: "ok", data: demo() });
+    renderApp();
+    await screen.findByRole("group", { name: "View" });
+    fireEvent.click(screen.getByRole("button", { name: "Stock, 1 step" }));
+    expect(screen.getByText("Page 3 of 4")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Table" }));
+    expect(screen.queryByRole("navigation", { name: "Contents" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Book" }));
+    expect(screen.getByRole("heading", { level: 3, name: "Stock" })).not.toBeNull();
+    expect(screen.getByText("Page 3 of 4")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Stock, 1 step" }).getAttribute("aria-current")).toBe("page");
   });
 
   it("Bahasa labels the toggle Buku / Tabel", async () => {
