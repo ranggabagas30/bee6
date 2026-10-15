@@ -183,4 +183,36 @@ describe("HomeApp", () => {
     expect(screen.getByRole("banner")).toBe(banner);
     expect(screen.getByRole("navigation")).toBe(nav);
   });
+
+  // QA on PR-8: the reset area used to render under "Loading…" (top of the first viewport) and then jump to the page
+  // bottom when data landed — a destructive control flashing near the top plus layout shift. It is now part of the
+  // settled states only, so while loading it is not in the tree at all (CLS contribution 0).
+  it("does not render the reset area while loading; it appears at the bottom once data lands", async () => {
+    authUserState = { status: "signed_in", user: userWith(DEMO_OWNER) } as unknown as AuthUserState;
+    let resolveFetch: (v: unknown) => void = () => {};
+    authedGetJson.mockReturnValue(new Promise((r) => (resolveFetch = r)));
+    renderApp();
+    await screen.findByText("Loading…");
+    const banner = screen.getByRole("banner");
+    expect(screen.queryByTestId("reset-area")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reset the demo" })).toBeNull();
+
+    resolveFetch({ kind: "ok", data: makeData() });
+    const button = await screen.findByRole("button", { name: "Reset the demo" });
+    const area = button.closest("[data-testid='reset-area']");
+    expect(area).not.toBeNull();
+    // Last child of <main>: below every settled card, never between the top bar and the body.
+    expect(area!.parentElement!.lastElementChild).toBe(area);
+    expect(screen.getByRole("banner")).toBe(banner);
+  });
+
+  it("renders the reset area in the error state too (a demo owner can still reset after a failed load)", async () => {
+    authUserState = { status: "signed_in", user: userWith(DEMO_OWNER) } as unknown as AuthUserState;
+    authedGetJson.mockResolvedValue({ kind: "error" });
+    renderApp();
+    await waitFor(() => expect(screen.getByText("Could not load the notes.")).not.toBeNull());
+    const button = await screen.findByRole("button", { name: "Reset the demo" });
+    const area = button.closest("[data-testid='reset-area']")!;
+    expect(area.parentElement!.lastElementChild).toBe(area);
+  });
 });

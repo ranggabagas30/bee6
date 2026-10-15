@@ -21,8 +21,11 @@ import styles from "@/app/home/home.module.css";
  * supervisor's start page), since this screen is owner-only and the server, not the client, decides that.
  *
  * One tree for every state (the top bar and nav never remount): the mist ground, the top bar, PR-7's `ResetNotice`
- * ("Demo reset to day 1" after `/home?demo_reset=1`), the state's body, and the reset area with PR-7's
- * `ResetDemoButton` (it renders nothing unless the signed-in user is a demo owner, so the pilot never sees it).
+ * ("Demo reset to day 1" after `/home?demo_reset=1`), the state's body, and — in the settled states only — the reset
+ * area with PR-7's `ResetDemoButton` (it renders nothing unless the signed-in user is a demo owner, so the pilot never
+ * sees it). While loading the reset area is not in the tree: a destructive control must not flash under "Loading…" at
+ * the top of the first viewport and then jump to the page bottom when the cards land (QA on PR-8: a layout shift of
+ * 0.06 at 360 px). Appearing fresh below the settled cards contributes no layout shift.
  * Both PR-7 pieces read the Firebase app this component already initialised, so they are mounted after it.
  */
 
@@ -81,6 +84,8 @@ export function HomeApp({ config }: { config: FirebaseWebConfig | null }) {
     setReloadTick((n) => n + 1);
   }
 
+  const settled = state.kind !== "loading";
+
   let body: ReactNode;
   if (!config || !auth) {
     body = (
@@ -116,7 +121,7 @@ export function HomeApp({ config }: { config: FirebaseWebConfig | null }) {
         <WebTopBar auth={auth} showSignOut={auth !== null} current="home" />
         {auth ? <ResetNotice lang={lang} /> : null}
         {body}
-        {auth ? (
+        {auth && settled ? (
           <div className={styles.reset} data-testid="reset-area">
             <ResetDemoButton lang={lang} />
           </div>
