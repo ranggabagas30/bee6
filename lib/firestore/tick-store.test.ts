@@ -39,6 +39,8 @@ interface FakeTx {
 }
 interface FakeDocRef {
   id: string;
+  /** Collection name (lets `getAll`/`batch` resolve a ref back to its collection). */
+  collectionName: string;
   get(): Promise<FakeDocSnap>;
   create(data: Record<string, unknown>): Promise<void>;
   set(data: Record<string, unknown>): Promise<void>;
@@ -81,16 +83,31 @@ function fakeDb(seed: Record<string, Record<string, Record<string, unknown>>> = 
     return c;
   }
 
-  function query(name: string, filters: [string, string, unknown][]) {
+  /** Size (op count) of every committed write batch. */
+  const batchSizes: number[] = [];
+  /** Every `.get()` of a query, so a test can assert which queries ran and with what shape. */
+  const queryLog: Array<{ collection: string; filters: [string, string, unknown][]; select: string[] | null }> = [];
+
+  function query(name: string, filters: [string, string, unknown][], limitN?: number, selectFields?: string[]) {
     return {
       where(field: string, op: string, value: unknown) {
-        return query(name, [...filters, [field, op, value]]);
+        return query(name, [...filters, [field, op, value]], limitN, selectFields);
+      },
+      limit(n: number) {
+        return query(name, filters, n, selectFields);
+      },
+      select(...fields: string[]) {
+        return query(name, filters, limitN, fields);
       },
       async get() {
-        const entries = Array.from(col(name).entries()).filter(([, data]) =>
+        queryLog.push({ collection: name, filters, select: selectFields ?? null });
+        let entries = Array.from(col(name).entries()).filter(([, data]) =>
           filters.every(([f, o, v]) => matches(data, f, o, v)),
         );
-        return { docs: entries.map(([id, data]) => ({ id, data: () => data, exists: true })) };
+        if (limitN !== undefined) entries = entries.slice(0, limitN);
+        const project = (data: Record<string, unknown>) =>
+          selectFields ? Object.fromEntries(selectFields.filter((f) => f in data).map((f) => [f, data[f]])) : data;
+        return { docs: entries.map(([id, data]) => ({ id, data: () => project(data), exists: true, ref: doc(name, id) })), empty: entries.length === 0, size: entries.length };
       },
     };
   }
@@ -98,6 +115,7 @@ function fakeDb(seed: Record<string, Record<string, Record<string, unknown>>> = 
   function doc(name: string, id: string): FakeDocRef {
     return {
       id,
+      collectionName: name,
       async get() {
         const data = col(name).get(id);
         return { id, exists: data !== undefined, data: () => data };
@@ -133,6 +151,39 @@ function fakeDb(seed: Record<string, Record<string, Record<string, unknown>>> = 
         },
       };
     },
+    async getAll(...args: unknown[]) {
+      const refs = args.filter((a): a is FakeDocRef => typeof a === "object" && a !== null && "collectionName" in a);
+      return refs.map((ref) => {
+        const data = col(ref.collectionName).get(ref.id);
+        return { id: ref.id, exists: data !== undefined, data: () => data, ref };
+      });
+    },
+    batch() {
+      const ops: Array<() => void> = [];
+      const b = {
+        delete(ref: FakeDocRef) {
+          ops.push(() => col(ref.collectionName).delete(ref.id));
+          return b;
+        },
+        set(ref: FakeDocRef, data: Record<string, unknown>) {
+          ops.push(() => col(ref.collectionName).set(ref.id, data));
+          return b;
+        },
+        update(ref: FakeDocRef, patch: Record<string, unknown>) {
+          ops.push(() => {
+            const existing = col(ref.collectionName).get(ref.id);
+            if (!existing) throw new Error("NOT_FOUND");
+            col(ref.collectionName).set(ref.id, { ...existing, ...patch });
+          });
+          return b;
+        },
+        async commit() {
+          batchSizes.push(ops.length);
+          for (const op of ops) op();
+        },
+      };
+      return b;
+    },
     async runTransaction(fn: (tx: FakeTx) => Promise<unknown>) {
       const tx: FakeTx = {
         get: (ref) => ref.get(),
@@ -150,7 +201,7 @@ function fakeDb(seed: Record<string, Record<string, Record<string, unknown>>> = 
     },
   };
 
-  return { db: db as unknown as Firestore, collections };
+  return { db: db as unknown as Firestore, collections, queryLog, batchSizes };
 }
 
 const OUTLET = "outlet-1";
@@ -310,6 +361,7 @@ describe("firestoreTickStore.listSegmentsForDevice", () => {
         device_end: seg.device_end,
         received_at: seg.received_at,
         lines: seg.lines,
+        session_id: null,
       },
     ]);
   });
@@ -1014,5 +1066,387 @@ describe("firestoreTickStore.expireOpenQuestions (R-07)", () => {
       label_source: "supervisor_rejected",
       excluded_from_evidence: true,
     });
+  });
+});
+
+// ── R-20 (Cancel-B): discard tombstones, ghost candidates, cleanup ───────────
+
+const S_DISCARDED = "11111111-1111-4111-8111-111111111111";
+const S_OTHER = "22222222-2222-4222-8222-222222222222";
+
+function makeCaptureSession(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const sessionId = (overrides.session_id as string | undefined) ?? S_DISCARDED;
+  return {
+    outlet_id: OUTLET,
+    device_id: DEVICE,
+    session_id: sessionId,
+    started_at_ms: 1_000_000,
+    ended_at_ms: 2_000_000,
+    end_reason: "discarded",
+    local_date: "2026-10-15",
+    auto_stop_at_ms: 9_000_000,
+    debrief_ends_at_ms: null,
+    received_start_at: "2026-10-15T10:00:00.000Z",
+    received_end_at: "2026-10-15T10:10:00.000Z",
+    cleanup_done_at_ms: null,
+    ...overrides,
+  };
+}
+
+function sessionKey(sessionId: string, deviceId = DEVICE): string {
+  return `${deviceId}:${sessionId}`;
+}
+
+function makeQuestionDoc(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    outlet_id: OUTLET,
+    device_id: DEVICE,
+    question_id: "q1",
+    thread_id: null,
+    kind: "unlabelled_unit",
+    status: "open",
+    category: null,
+    window_start_ms: 1_500_000,
+    window_end_ms: 1_600_000,
+    created_at_ms: 1_700_000,
+    ...overrides,
+  };
+}
+
+describe("firestoreTickStore.listSegmentsForDevice: session_id (R-20)", () => {
+  it("carries the segment's session_id, and null for a pre-P1 segment without one", async () => {
+    const { db } = fakeDb({
+      [COLLECTIONS.segments]: {
+        a: asDoc({ ...makeSegment({ seg_id: "a" }), session_id: S_DISCARDED }),
+        b: asDoc(makeSegment({ seg_id: "b" })),
+      },
+    });
+    const result = await firestoreTickStore(db).listSegmentsForDevice(OUTLET, DEVICE);
+    expect(result.find((s) => s.seg_id === "a")!.session_id).toBe(S_DISCARDED);
+    expect(result.find((s) => s.seg_id === "b")!.session_id).toBeNull();
+  });
+});
+
+describe("firestoreTickStore.listDiscardedSessions (R-20)", () => {
+  it("returns only this device's discarded tombstones (equality-only query), with cleanup_pending from cleanup_done_at_ms", async () => {
+    const { db, queryLog } = fakeDb({
+      [COLLECTIONS.captureSessions]: {
+        [sessionKey(S_DISCARDED)]: asDoc(makeCaptureSession()),
+        [sessionKey(S_OTHER)]: asDoc(makeCaptureSession({ session_id: S_OTHER, started_at_ms: 1_500_000, cleanup_done_at_ms: 5_000_000 })),
+        // not discarded, another device, another outlet: never returned
+        "dev-1:33333333-3333-4333-8333-333333333333": asDoc(
+          makeCaptureSession({ session_id: "33333333-3333-4333-8333-333333333333", end_reason: "selesai" }),
+        ),
+        "dev-2:44444444-4444-4444-8444-444444444444": asDoc(
+          makeCaptureSession({ session_id: "44444444-4444-4444-8444-444444444444", device_id: "dev-2" }),
+        ),
+        "dev-1:55555555-5555-4555-8555-555555555555": asDoc(
+          makeCaptureSession({ session_id: "55555555-5555-4555-8555-555555555555", outlet_id: "outlet-2" }),
+        ),
+      },
+    });
+    const result = await firestoreTickStore(db).listDiscardedSessions(OUTLET, DEVICE);
+    // newest-first by started_at_ms
+    expect(result.map((t) => [t.session_id, t.cleanup_pending])).toEqual([
+      [S_OTHER, false],
+      [S_DISCARDED, true],
+    ]);
+    // Equality-only filters: no composite index needed.
+    const q = queryLog.find((l) => l.collection === COLLECTIONS.captureSessions)!;
+    expect(q.filters.every(([, op]) => op === "==")).toBe(true);
+  });
+
+  it("treats an absent cleanup_done_at_ms (a pre-Cancel-B tombstone) as pending", async () => {
+    const doc = makeCaptureSession();
+    delete doc.cleanup_done_at_ms;
+    const { db } = fakeDb({ [COLLECTIONS.captureSessions]: { [sessionKey(S_DISCARDED)]: asDoc(doc) } });
+    const [t] = await firestoreTickStore(db).listDiscardedSessions(OUTLET, DEVICE);
+    expect(t!.cleanup_pending).toBe(true);
+  });
+
+  it("uses the attribution interval: end is min(ended_at_ms, auto_stop_at_ms)", async () => {
+    const { db } = fakeDb({
+      [COLLECTIONS.captureSessions]: {
+        [sessionKey(S_DISCARDED)]: asDoc(makeCaptureSession({ ended_at_ms: 9_500_000, auto_stop_at_ms: 3_000_000 })),
+      },
+    });
+    const [t] = await firestoreTickStore(db).listDiscardedSessions(OUTLET, DEVICE);
+    expect(t).toMatchObject({ started_at_ms: 1_000_000, ended_at_ms: 3_000_000 });
+  });
+
+  it("skips a malformed tombstone (logging only doc id and error class) and still returns the valid ones", async () => {
+    const { db } = fakeDb({
+      [COLLECTIONS.captureSessions]: {
+        [sessionKey(S_DISCARDED)]: asDoc(makeCaptureSession()),
+        bad: asDoc({ outlet_id: OUTLET, device_id: DEVICE, end_reason: "discarded" }),
+      },
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const result = await firestoreTickStore(db).listDiscardedSessions(OUTLET, DEVICE);
+    expect(result.map((t) => t.session_id)).toEqual([S_DISCARDED]);
+    expect(errorSpy).toHaveBeenCalledWith("[tick-store] skipping malformed capture_session doc", {
+      doc_id: "bad",
+      error_class: "ZodError",
+    });
+    errorSpy.mockRestore();
+  });
+
+  it("returns the 50 newest tombstones first when the device has more", async () => {
+    const docs: Record<string, Record<string, unknown>> = {};
+    for (let i = 0; i < 55; i++) {
+      const sid = `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`;
+      docs[sessionKey(sid)] = asDoc(makeCaptureSession({ session_id: sid, started_at_ms: 1000 + i, ended_at_ms: 2000 + i }));
+    }
+    const { db } = fakeDb({ [COLLECTIONS.captureSessions]: docs });
+    const result = await firestoreTickStore(db).listDiscardedSessions(OUTLET, DEVICE);
+    expect(result).toHaveLength(50);
+    expect(result[0]!.started_at_ms).toBe(1054);
+    expect(result[49]!.started_at_ms).toBe(1005);
+  });
+});
+
+describe("firestoreTickStore.listGhostCandidates (R-20)", () => {
+  it("returns ids and timestamps only (field-masked), this device's threads at or after sinceMs and all of its questions", async () => {
+    const { db, queryLog } = fakeDb({
+      [COLLECTIONS.threads]: {
+        t_in: asDoc(makeThread({ thread_id: "t_in", first_line_start_ms: 1_100_000, last_line_end_ms: 1_200_000 })),
+        t_old: asDoc(makeThread({ thread_id: "t_old", first_line_start_ms: 10, last_line_end_ms: 20 })),
+        t_other_dev: asDoc(makeThread({ thread_id: "t_other_dev", device_id: "dev-2", last_line_end_ms: 1_200_000 })),
+        t_other_outlet: asDoc(makeThread({ thread_id: "t_other_outlet", outlet_id: "outlet-2", last_line_end_ms: 1_200_000 })),
+      },
+      [COLLECTIONS.questions]: {
+        q1: asDoc(makeQuestionDoc({ question_id: "q1" })),
+        q2: asDoc(
+          makeQuestionDoc({ question_id: "q2", status: "answered", answer: "yes", answered_at_ms: 1_800_000 }),
+        ),
+        q_other_dev: asDoc(makeQuestionDoc({ question_id: "q_other_dev", device_id: "dev-2" })),
+        q_other_outlet: asDoc(makeQuestionDoc({ question_id: "q_other_outlet", outlet_id: "outlet-2" })),
+      },
+    });
+
+    const result = await firestoreTickStore(db).listGhostCandidates(OUTLET, DEVICE, 1_000_000);
+
+    expect(result.threads).toEqual([{ thread_id: "t_in", first_line_start_ms: 1_100_000 }]);
+    expect(result.questions.map((q) => q.question_id).sort()).toEqual(["q1", "q2"]);
+    expect(result.questions[0]).toEqual({
+      question_id: expect.any(String),
+      thread_id: null,
+      kind: "unlabelled_unit",
+      window_start_ms: 1_500_000,
+    });
+
+    // Never reads text: both queries are field-masked, none of lines/summary/reason_text.
+    for (const l of queryLog.filter((x) => x.collection === COLLECTIONS.threads || x.collection === COLLECTIONS.questions)) {
+      expect(l.select).not.toBeNull();
+      expect(l.select).not.toContain("lines");
+      expect(l.select).not.toContain("summary");
+    }
+    // Question query is equality-only (no composite index).
+    const qq = queryLog.find((l) => l.collection === COLLECTIONS.questions)!;
+    expect(qq.filters.every(([, op]) => op === "==")).toBe(true);
+    // Thread query has exactly the listRecentThreads shape (existing composite index).
+    const tq = queryLog.find((l) => l.collection === COLLECTIONS.threads)!;
+    expect(tq.filters).toEqual([
+      ["outlet_id", "==", OUTLET],
+      ["device_id", "==", DEVICE],
+      ["last_line_end_ms", ">=", 1_000_000],
+    ]);
+  });
+
+  it("skips a malformed thread or question doc and still returns the valid ones", async () => {
+    const { db } = fakeDb({
+      [COLLECTIONS.threads]: {
+        t_ok: asDoc(makeThread({ thread_id: "t_ok", last_line_end_ms: 1_200_000 })),
+        t_bad: asDoc({ outlet_id: OUTLET, device_id: DEVICE, last_line_end_ms: 1_200_000 }),
+      },
+      [COLLECTIONS.questions]: {
+        q_ok: asDoc(makeQuestionDoc({ question_id: "q_ok" })),
+        q_bad: asDoc({ outlet_id: OUTLET, device_id: DEVICE }),
+      },
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const result = await firestoreTickStore(db).listGhostCandidates(OUTLET, DEVICE, 0);
+    expect(result.threads.map((t) => t.thread_id)).toEqual(["t_ok"]);
+    expect(result.questions.map((q) => q.question_id)).toEqual(["q_ok"]);
+    errorSpy.mockRestore();
+  });
+});
+
+describe("firestoreTickStore.applyDiscardCleanup (R-20)", () => {
+  const NOW = 5_000_000;
+  const AUDIT_ID = `${DEVICE}:${S_DISCARDED}:capture.session_cleanup`;
+
+  function plan(overrides: Partial<{ thread_ids: string[]; question_ids: string[]; correction_ids: string[] }> = {}) {
+    const question_ids = overrides.question_ids ?? ["q_thread_t1", "q_unit_1"];
+    return {
+      session_id: S_DISCARDED,
+      thread_ids: ["t1"],
+      question_ids,
+      correction_ids: [...question_ids],
+      ...overrides,
+    };
+  }
+
+  function seeded() {
+    return fakeDb({
+      [COLLECTIONS.captureSessions]: {
+        [sessionKey(S_DISCARDED)]: asDoc(makeCaptureSession()),
+        [sessionKey(S_OTHER)]: asDoc(makeCaptureSession({ session_id: S_OTHER })),
+      },
+      [COLLECTIONS.threads]: { t1: asDoc(makeThread({ thread_id: "t1" })), t_keep: asDoc(makeThread({ thread_id: "t_keep" })) },
+      [COLLECTIONS.questions]: {
+        q_thread_t1: asDoc(makeQuestionDoc({ question_id: "q_thread_t1", kind: "gate", thread_id: "t1" })),
+        q_unit_1: asDoc(makeQuestionDoc({ question_id: "q_unit_1" })),
+        q_keep: asDoc(makeQuestionDoc({ question_id: "q_keep" })),
+      },
+      [COLLECTIONS.corrections]: {
+        q_thread_t1: asDoc({ outlet_id: OUTLET, question_id: "q_thread_t1", reason_text: "ghost answer" }),
+        q_keep: asDoc({ outlet_id: OUTLET, question_id: "q_keep", reason_text: "real answer" }),
+      },
+      [COLLECTIONS.segments]: {
+        left1: asDoc({ ...makeSegment({ seg_id: "left1" }), session_id: S_DISCARDED }),
+        left2: asDoc({ ...makeSegment({ seg_id: "left2" }), session_id: S_DISCARDED }),
+        keep: asDoc({ ...makeSegment({ seg_id: "keep" }), session_id: S_OTHER }),
+        legacy: asDoc(makeSegment({ seg_id: "legacy" })),
+      },
+    });
+  }
+
+  it("deletes the plan's threads, questions and corrections by id, leaving everything else", async () => {
+    const { db, collections } = seeded();
+    await firestoreTickStore(db).applyDiscardCleanup(OUTLET, DEVICE, plan(), NOW);
+
+    expect([...collections.get(COLLECTIONS.threads)!.keys()]).toEqual(["t_keep"]);
+    expect([...collections.get(COLLECTIONS.questions)!.keys()]).toEqual(["q_keep"]);
+    expect([...collections.get(COLLECTIONS.corrections)!.keys()]).toEqual(["q_keep"]);
+  });
+
+  it("deletes leftover segments of that session only (other sessions and legacy segments stay)", async () => {
+    const { db, collections } = seeded();
+    await firestoreTickStore(db).applyDiscardCleanup(OUTLET, DEVICE, plan(), NOW);
+    expect([...collections.get(COLLECTIONS.segments)!.keys()].sort()).toEqual(["keep", "legacy"]);
+  });
+
+  it("sets cleanup_done_at_ms on the tombstone and writes one counts-only capture.session_cleanup audit under a fixed id", async () => {
+    const { db, collections } = seeded();
+    await firestoreTickStore(db).applyDiscardCleanup(OUTLET, DEVICE, plan(), NOW);
+
+    expect(collections.get(COLLECTIONS.captureSessions)!.get(sessionKey(S_DISCARDED))).toMatchObject({
+      cleanup_done_at_ms: NOW,
+    });
+    // Another session's tombstone is untouched.
+    expect(collections.get(COLLECTIONS.captureSessions)!.get(sessionKey(S_OTHER))).toMatchObject({ cleanup_done_at_ms: null });
+
+    const audits = collections.get(COLLECTIONS.auditLog)!;
+    expect([...audits.keys()]).toEqual([AUDIT_ID]);
+    expect(audits.get(AUDIT_ID)).toEqual({
+      outlet_id: OUTLET,
+      ts: new Date(NOW).toISOString(),
+      actor_role: "system",
+      action: "capture.session_cleanup",
+      target_type: "capture_session",
+      target_id: S_DISCARDED,
+      details: { threads_deleted: 1, questions_deleted: 2, corrections_deleted: 1, segments_deleted: 2 },
+    });
+  });
+
+  it("counts only docs that actually existed: a missing doc is a no-op", async () => {
+    const { db, collections } = seeded();
+    await firestoreTickStore(db).applyDiscardCleanup(
+      OUTLET,
+      DEVICE,
+      plan({ thread_ids: ["gone"], question_ids: ["q_missing"] }),
+      NOW,
+    );
+    expect(collections.get(COLLECTIONS.auditLog)!.get(AUDIT_ID)).toMatchObject({
+      details: { threads_deleted: 0, questions_deleted: 0, corrections_deleted: 0, segments_deleted: 2 },
+    });
+    // Nothing else was deleted by accident.
+    expect(collections.get(COLLECTIONS.threads)!.size).toBe(2);
+  });
+
+  it("never deletes a doc of another outlet that happens to share an id", async () => {
+    const { db, collections } = fakeDb({
+      [COLLECTIONS.captureSessions]: { [sessionKey(S_DISCARDED)]: asDoc(makeCaptureSession()) },
+      [COLLECTIONS.threads]: { t1: asDoc(makeThread({ thread_id: "t1", outlet_id: "outlet-2" })) },
+      [COLLECTIONS.questions]: { q_thread_t1: asDoc(makeQuestionDoc({ question_id: "q_thread_t1", outlet_id: "outlet-2" })) },
+      [COLLECTIONS.corrections]: { q_thread_t1: asDoc({ outlet_id: "outlet-2", question_id: "q_thread_t1" }) },
+    });
+    await firestoreTickStore(db).applyDiscardCleanup(OUTLET, DEVICE, plan({ question_ids: ["q_thread_t1"] }), NOW);
+    expect(collections.get(COLLECTIONS.threads)!.has("t1")).toBe(true);
+    expect(collections.get(COLLECTIONS.questions)!.has("q_thread_t1")).toBe(true);
+    expect(collections.get(COLLECTIONS.corrections)!.has("q_thread_t1")).toBe(true);
+  });
+
+  it("is idempotent: a second run is safe, keeps one audit doc (overwritten), and still marks the tombstone done", async () => {
+    const { db, collections } = seeded();
+    const store = firestoreTickStore(db);
+    await store.applyDiscardCleanup(OUTLET, DEVICE, plan(), NOW);
+    await store.applyDiscardCleanup(OUTLET, DEVICE, plan(), NOW + 1000);
+
+    expect(collections.get(COLLECTIONS.auditLog)!.size).toBe(1);
+    expect(collections.get(COLLECTIONS.auditLog)!.get(AUDIT_ID)).toMatchObject({
+      details: { threads_deleted: 0, questions_deleted: 0, corrections_deleted: 0, segments_deleted: 0 },
+    });
+    expect(collections.get(COLLECTIONS.captureSessions)!.get(sessionKey(S_DISCARDED))).toMatchObject({
+      cleanup_done_at_ms: NOW + 1000,
+    });
+  });
+
+  it("writes in batches of at most 400 operations", async () => {
+    const threadDocs: Record<string, Record<string, unknown>> = {};
+    const ids: string[] = [];
+    for (let i = 0; i < 450; i++) {
+      ids.push(`t${i}`);
+      threadDocs[`t${i}`] = asDoc(makeThread({ thread_id: `t${i}` }));
+    }
+    const { db, collections, batchSizes } = fakeDb({
+      [COLLECTIONS.captureSessions]: { [sessionKey(S_DISCARDED)]: asDoc(makeCaptureSession()) },
+      [COLLECTIONS.threads]: threadDocs,
+    });
+    await firestoreTickStore(db).applyDiscardCleanup(
+      OUTLET,
+      DEVICE,
+      { session_id: S_DISCARDED, thread_ids: ids, question_ids: [], correction_ids: [] },
+      NOW,
+    );
+    expect(collections.get(COLLECTIONS.threads)!.size).toBe(0);
+    expect(Math.max(...batchSizes)).toBeLessThanOrEqual(400);
+    expect(batchSizes.reduce((a, b) => a + b, 0)).toBeGreaterThanOrEqual(450);
+  });
+
+  it("does not mark the tombstone done when a delete step fails (the next tick retries the whole plan)", async () => {
+    const { db, collections } = seeded();
+    (db as unknown as { getAll: () => Promise<never> }).getAll = () => Promise.reject(new Error("unavailable"));
+    await expect(firestoreTickStore(db).applyDiscardCleanup(OUTLET, DEVICE, plan(), NOW)).rejects.toThrow("unavailable");
+    expect(collections.get(COLLECTIONS.captureSessions)!.get(sessionKey(S_DISCARDED))).toMatchObject({
+      cleanup_done_at_ms: null,
+    });
+    expect(collections.get(COLLECTIONS.auditLog)?.size ?? 0).toBe(0);
+  });
+
+  it("does nothing when the tombstone is missing, not a discard, or another outlet's", async () => {
+    for (const session of [
+      undefined,
+      makeCaptureSession({ end_reason: "selesai" }),
+      makeCaptureSession({ outlet_id: "outlet-2" }),
+    ]) {
+      const { db, collections } = fakeDb({
+        [COLLECTIONS.captureSessions]: session ? { [sessionKey(S_DISCARDED)]: asDoc(session) } : {},
+        [COLLECTIONS.threads]: { t1: asDoc(makeThread({ thread_id: "t1" })) },
+      });
+      await firestoreTickStore(db).applyDiscardCleanup(OUTLET, DEVICE, plan(), NOW);
+      expect(collections.get(COLLECTIONS.threads)!.has("t1")).toBe(true);
+      expect(collections.get(COLLECTIONS.auditLog)?.size ?? 0).toBe(0);
+    }
+  });
+
+  it("never puts text, a name or an id other than the session id into the audit", async () => {
+    const { db, collections } = seeded();
+    await firestoreTickStore(db).applyDiscardCleanup(OUTLET, DEVICE, plan(), NOW);
+    const audit = JSON.stringify(collections.get(COLLECTIONS.auditLog)!.get(AUDIT_ID));
+    expect(audit).not.toContain("ghost answer");
+    expect(audit).not.toContain("t1");
+    expect(audit).not.toContain("q_thread");
   });
 });
