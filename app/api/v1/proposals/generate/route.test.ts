@@ -1,5 +1,5 @@
 import { inspect } from "node:util";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { POST } from "./route";
 import type { ProposalStore } from "@/lib/proposals/service";
@@ -59,7 +59,22 @@ import { firestoreProposalStore } from "@/lib/firestore/proposal-store";
 import { firestoreDemoStore } from "@/lib/firestore/demo-store";
 import { fakeStore } from "@/lib/demo/testing/fake-store";
 
+/**
+ * The route reads the real clock (`now_ms: Date.now()`) and `validateRange` only accepts a range
+ * ending today or earlier and starting within the outlet's retention window (14 days). Pin the
+ * clock to 12:00 on 2026-10-02 in Asia/Jakarta (the outlet zone used below) so `VALID_BODY`
+ * (2026-10-01 .. 2026-10-02) stays valid whatever the calendar says: `to_date` is "today", which
+ * also exercises the `to <= today` boundary. Only `Date` is faked; timers stay real.
+ */
+const FIXED_NOW = new Date("2026-10-02T05:00:00.000Z");
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(FIXED_NOW);
+});
+
 afterEach(() => {
+  vi.useRealTimers();
   verifyIdToken.mockReset();
   modelFn.mockReset();
   vi.unstubAllEnvs();
