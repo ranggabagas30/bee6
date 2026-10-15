@@ -166,7 +166,7 @@ describe("buildProposalPrompt", () => {
       expect(systemInstruction).toContain("Never tell staff to ask for or write down a customer's name, phone number or other personal details");
       expect(systemInstruction).toContain("order details and pickup time");
       expect(systemInstruction).toContain("Do not write calendar dates, clock times or ISO dates in any text");
-      expect(systemInstruction).toContain("change_text never starts with the step id, a role tag");
+      expect(systemInstruction).toContain("change_text never starts with the step id, a role tag such as [staff] or (role: staff), or the step title, and never contains a role tag anywhere");
       expect(systemInstruction).not.toMatch(/[{}]/);
     });
   });

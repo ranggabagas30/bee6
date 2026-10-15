@@ -44,7 +44,8 @@ const SYSTEM_INSTRUCTION = [
   "    Do not write calendar dates, clock times or ISO dates in any text; say 'on two days' or 'on several days'.",
   "11. change_text is the complete text of the step after the change, as staff will read it in the SOP. It replaces",
   "    the step's current text, so keep everything from the current text that still applies. For a NEW step, it is the whole new step.",
-  "    change_text never starts with the step id, a role tag such as [staff] or (role: staff), or the step title; those are separate fields.",
+  "    change_text never starts with the step id, a role tag such as [staff] or (role: staff), or the step title, and never contains a role tag anywhere;",
+  "    those are separate fields. Write plain step text with no labels or prefixes.",
 ].join("\n");
 
 /**
