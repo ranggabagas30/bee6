@@ -33,6 +33,7 @@ function overview(o: Partial<SopOverview> = {}): SopOverview {
     today: "2026-10-15",
     latest: { version: 1, effective_from_date: null, steps: [step("open-01"), step("stock-01")] },
     in_force_version: 1,
+    first_version_date: "2026-10-05",
     changes: [],
     ...o,
   };
@@ -47,11 +48,16 @@ describe("shortDate", () => {
 });
 
 describe("buildVersions", () => {
-  it("a seed-only SOP is one version with no date and no change", () => {
+  it("a seed-only SOP is one version dated by the seed's creation date, with no change", () => {
     const versions = buildVersions(overview());
     expect(versions).toHaveLength(1);
-    expect(versions[0]).toMatchObject({ version: 1, effective_from_date: null, change: null });
+    expect(versions[0]).toMatchObject({ version: 1, effective_from_date: "2026-10-05", change: null });
     expect(versions[0]!.steps.map((s) => s.step_id)).toEqual(["open-01", "stock-01"]);
+  });
+
+  it("the seed version has no date when the overview carries none", () => {
+    const versions = buildVersions(overview({ first_version_date: null }));
+    expect(versions[0]).toMatchObject({ version: 1, effective_from_date: null, change: null });
   });
 
   it("a modify change rebuilds the previous version with the old wording in the same place", () => {
@@ -65,7 +71,7 @@ describe("buildVersions", () => {
     expect(versions.map((v) => v.version)).toEqual([2, 1]);
     expect(versions[0]).toMatchObject({ effective_from_date: "2026-10-12", change: { version: 2 } });
     expect(versions[0]!.steps[1]!.text).toBe("new text v2");
-    expect(versions[1]).toMatchObject({ effective_from_date: null, change: null });
+    expect(versions[1]).toMatchObject({ effective_from_date: "2026-10-05", change: null });
     expect(versions[1]!.steps.map((s) => [s.step_id, s.text])).toEqual([
       ["open-01", "Text open-01"],
       ["stock-01", "old text"],
@@ -98,7 +104,7 @@ describe("buildVersions", () => {
     expect(versions.map((v) => [v.version, v.effective_from_date, v.change?.version ?? null])).toEqual([
       [3, "2026-10-13", 3],
       [2, "2026-10-12", 2],
-      [1, null, null],
+      [1, "2026-10-05", null],
     ]);
     expect(versions[1]!.steps.map((s) => s.text)).toEqual(["Text open-01", "new text v2"]);
     expect(versions[2]!.steps.map((s) => s.text)).toEqual(["Text open-01", "old text"]);
@@ -112,9 +118,25 @@ describe("buildVersions", () => {
         changes: [change(3, { before: step("open-01"), after: step("open-01", "open v3") })],
       }),
     );
-    // Version 2's change is not in the list, so version 2 is rebuilt but version 1 is not.
-    expect(versions.map((v) => v.version)).toEqual([3, 2]);
-    expect(versions[1]!.change).toBeNull();
+    // Version 2's change is not in the list: version 2 has no date to show, so neither it nor version 1 is listed.
+    expect(versions.map((v) => v.version)).toEqual([3]);
+  });
+
+  it("shows only versions it can date: a gap in the middle of the chain ends the walk", () => {
+    const versions = buildVersions(
+      overview({
+        latest: { version: 4, effective_from_date: "2026-10-14", steps: [step("open-01", "open v4")] },
+        in_force_version: 4,
+        changes: [
+          change(4, { before: step("open-01", "open v3"), after: step("open-01", "open v4") }),
+          change(3, { before: step("open-01"), after: step("open-01", "open v3") }),
+        ],
+      }),
+    );
+    expect(versions.map((v) => [v.version, v.effective_from_date])).toEqual([
+      [4, "2026-10-14"],
+      [3, "2026-10-13"],
+    ]);
   });
 
   it("no SOP yields no versions", () => {

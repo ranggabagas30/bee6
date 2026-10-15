@@ -5,16 +5,20 @@ import type { SopChangeView, SopOverview, SopStepView } from "@/lib/sop/contract
  *
  * GET /api/v1/sop carries the latest version's steps and the approved changes (newest first, one step each). Older
  * versions are rebuilt here by undoing each change in turn: a `modify` puts the old wording back in the same place, an
- * `add` removes the added step. The walk stops at the seed (no change for that version) or at the first version whose
- * change is not in the list (the list is capped at SOP_CHANGES_MAX), so every version shown is exact.
+ * `add` removes the added step. The walk stops at the seed (version 1, dated by `first_version_date`) or before the
+ * first version whose change is not in the list (the list is capped at SOP_CHANGES_MAX, and a malformed doc is
+ * skipped): a version without its change has no date to show, so only versions that can be dated are listed.
  */
 
 export interface SopVersionView {
   version: number;
-  /** Outlet-local business date the version is in force from; null on the seed version (not in the contract). */
+  /**
+   * Outlet-local business date the version is in force from. On the seed this is `first_version_date` (its creation
+   * date); null only when the overview does not carry that date.
+   */
   effective_from_date: string | null;
   steps: SopStepView[];
-  /** The change that made this version, or null on the seed (and on an older version whose change is unavailable). */
+  /** The change that made this version, or null on the seed. */
   change: SopChangeView | null;
 }
 
@@ -33,21 +37,26 @@ function undo(change: SopChangeView, steps: SopStepView[]): SopStepView[] {
 
 /** Every version the overview can show exactly, newest first. */
 export function buildVersions(overview: SopOverview): SopVersionView[] {
-  const { latest, changes } = overview;
+  const { latest, changes, first_version_date } = overview;
   if (latest === null) return [];
   const byVersion = new Map(changes.map((c) => [c.version, c]));
   const out: SopVersionView[] = [];
   let version = latest.version;
   let steps = latest.steps;
-  let date: string | null = latest.effective_from_date;
+  let date: string | null = version === 1 ? first_version_date : latest.effective_from_date;
   for (;;) {
     const change = byVersion.get(version) ?? null;
     out.push({ version, effective_from_date: date, steps, change });
     if (change === null || version <= 1) break;
     steps = undo(change, steps);
     version -= 1;
+    if (version === 1) {
+      date = first_version_date;
+      continue;
+    }
     const older = byVersion.get(version);
-    date = older ? older.effective_from_date : null;
+    if (!older) break; // its change is missing, so it cannot be dated: show only versions that can be
+    date = older.effective_from_date;
   }
   return out;
 }
