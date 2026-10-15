@@ -10,7 +10,7 @@ const ROOT = join(__dirname, "..", "..");
 const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
 
 describe("page ground CSS", () => {
-  for (const rel of ["app/pair/pair.module.css", "app/web/entry.module.css"]) {
+  for (const rel of ["app/pair/pair.module.css", "app/web/entry.module.css", "app/home/home.module.css"]) {
     it(`${rel} scopes the body-margin reset to the page and uses no negative margin`, () => {
       const css = read(rel);
       expect(css).toContain(":global(body):has(.page)");
