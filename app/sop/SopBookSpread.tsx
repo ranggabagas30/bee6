@@ -40,6 +40,12 @@ export function SopBookSpread({ view, versions, lang }: { view: SopVersionView; 
   }, [index]);
 
   const turnTo = (next: number) => {
+    if (next === index) {
+      // Already open (the contents entry of the current chapter): no index change, so the effect would never run and
+      // the pending flag would leak into the next clamp. Land on the heading now instead.
+      headingRef.current?.focus();
+      return;
+    }
     focusPending.current = true;
     setRequested(next);
   };
