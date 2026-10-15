@@ -353,7 +353,7 @@ describe("runTick", () => {
     store.devices = [{ outlet_id: "o1", device_id: "d1" }];
     // Skew larger than 60s: should trigger log
     const largeSkewMs = 65_000;
-    const seg = makeSegment({ segId: "s1", deviceStartMs: 0, text: "text" });
+    const seg = makeSegment({ segId: "s1", deviceStartMs: 0, text: "irrelevant text" });
     seg.received_at = new Date(new Date(seg.device_end).getTime() + largeSkewMs).toISOString();
     store.segmentsByDevice.set("o1:d1", [seg]);
 
@@ -372,7 +372,10 @@ describe("runTick", () => {
     // Large skew triggers log
     expect(logSkew).toHaveBeenCalledTimes(1);
     const entry = logSkew.mock.calls[0]![0];
+    expect(Object.keys(entry).sort()).toEqual(["device_id", "n_segments", "skew_min_ms", "skew_newest_ms"].sort());
+    expect(entry.device_id).toBe("d1");
     expect(Math.abs(entry.skew_newest_ms)).toBeGreaterThan(60_000);
+    expect(JSON.stringify(entry)).not.toMatch(/irrelevant/i);
   });
 
   it("skips a device whose lease is already held by a concurrent tick", async () => {
