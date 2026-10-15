@@ -90,6 +90,14 @@ describe("SopTable (R-19 PR-9b §9.1)", () => {
     expect(first.map((td) => td.getAttribute("data-label"))).toEqual(["CODE", "STEP", "CHAPTER", "WHO", "WHEN", "WHERE IT CAME FROM"]);
   });
 
+  it("the STEP cell keeps title and text in one block, so the stacked phone layout shows both in the value column", () => {
+    const versions = buildVersions(overview());
+    const { container } = render(<SopTable view={versions[0]!} versions={versions} lang="en" />);
+    const stepCell = container.querySelectorAll("tbody tr")[0]!.querySelectorAll("td")[1]!;
+    expect(stepCell.children).toHaveLength(1);
+    expect(stepCell.children[0]!.textContent).toBe("Title open-01Text open-01");
+  });
+
   it("model text renders as literal text, never HTML", () => {
     const versions = buildVersions(
       overview({

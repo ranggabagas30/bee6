@@ -355,6 +355,12 @@
   padding-top: 2px;
 }
 
+/* Title and text are one grid item, so both sit in the value column of the stacked layout. */
+.tdStep {
+  display: block;
+  min-width: 0;
+}
+
 .tdTitle {
   display: block;
   font-weight: 600;
@@ -412,18 +418,28 @@
     font-weight: 500;
     letter-spacing: 0.3px;
     color: var(--b6-muted);
-    white-space: nowrap;
   }
 
+  /* break-word (not anywhere): a column is never squeezed below its longest word, so dates and names stay whole. */
   .td {
     display: table-cell;
     padding: 12px;
     border-bottom: 1px solid var(--b6-line);
     font-size: var(--b6-fs-ui);
+    overflow-wrap: break-word;
   }
 
   .td::before {
     content: none;
+  }
+
+  /*
+   * Codes, roles and dates never wrap. The other columns are auto: the spare width goes where the text is longest
+   * (STEP, then WHERE IT CAME FROM, then CHAPTER), and a word is never split.
+   */
+  .tdKeep {
+    white-space: nowrap;
+    width: 1%;
   }
 
   .tr:last-child .td {

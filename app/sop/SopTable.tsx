@@ -2,6 +2,7 @@ import type { Lang } from "@/lib/i18n/lang";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import { chapterOf, type ChapterId } from "@/lib/sop/chapters";
 import { Chip } from "@/app/ui";
+import { cx } from "@/app/ui/cx";
 import { ROLE_KEY } from "@/app/sop/SopChangeCard";
 import { shortDate, stepOrigins, type SopVersionView } from "@/app/sop/versions";
 import styles from "@/app/sop/sop.module.css";
@@ -59,16 +60,22 @@ export function SopTable({ view, versions, lang }: { view: SopVersionView; versi
           const from = origin ? t(lang, "C-sop-book-from-bee6", { date: shortDate(origin.approved_date) }) : t(lang, "C-sop-book-from-sop");
           return (
             <tr key={step.step_id} role="row" className={styles.tr}>
-              <td {...cell(0)}>
+              <td {...cell(0)} className={cx(styles.td, styles.tdKeep)}>
                 <Chip>{step.step_id}</Chip>
               </td>
               <td {...cell(1)}>
-                <span className={styles.tdTitle}>{step.title}</span>
-                <span className={styles.tdText}>{step.text}</span>
+                <span className={styles.tdStep}>
+                  <span className={styles.tdTitle}>{step.title}</span>
+                  <span className={styles.tdText}>{step.text}</span>
+                </span>
               </td>
               <td {...cell(2)}>{t(lang, CHAPTER_KEY[chapterOf(step.step_id)])}</td>
-              <td {...cell(3)}>{t(lang, ROLE_KEY[step.role])}</td>
-              <td {...cell(4)}>{when}</td>
+              <td {...cell(3)} className={cx(styles.td, styles.tdKeep)}>
+                {t(lang, ROLE_KEY[step.role])}
+              </td>
+              <td {...cell(4)} className={cx(styles.td, styles.tdKeep)}>
+                {when}
+              </td>
               <td {...cell(5)}>{from}</td>
             </tr>
           );
