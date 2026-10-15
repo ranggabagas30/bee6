@@ -28,11 +28,37 @@ import type {
  *
  * The call is audio-only (no text prompt / system instruction / structured
  * output), VERBATIM mode, with an optional language hint and custom vocabulary.
- * A ~30 s AbortSignal bounds a stuck upstream so the route returns 503 quickly.
+ * A ~30 s TOTAL budget (R-22): transient upstream failures (429/500/502/503/504)
+ * are retried inside that budget with jittered backoff (1 s -> 4 s, 4 attempts),
+ * reusing the same in-memory payload. A timeout or any other failure is not
+ * retried, so the route still answers 503 within ~30 s and the phone retries.
  */
 
 export const TRANSCRIBE_MODEL = "gemini-3.5-transcribe-preview";
 const DEFAULT_TIMEOUT_MS = 30_000;
+/** Headroom kept for the next attempt: do not sleep if less than this would remain after it. */
+const MIN_ATTEMPT_HEADROOM_MS = 2_000;
+
+export interface TranscribeRetryOptions {
+  /** Total attempts including the first. */
+  attempts: number;
+  baseMs: number;
+  factor: number;
+  maxDelayMs: number;
+  /** Upstream HTTP statuses that are retried. Timeouts and everything else are NOT. */
+  statuses: readonly number[];
+  /** Per-attempt abort; the whole sequence is still bounded by `timeoutMs` (30 s). */
+  attemptTimeoutMs: number;
+}
+
+export const TRANSCRIBE_RETRY: TranscribeRetryOptions = {
+  attempts: 4,
+  baseMs: 1_000,
+  factor: 2,
+  maxDelayMs: 4_000,
+  statuses: [429, 500, 502, 503, 504],
+  attemptTimeoutMs: 15_000,
+};
 
 /**
  * Test seam: performs one `generateContent` call. `ctx` carries the project and
@@ -56,7 +82,35 @@ export interface GeminiTranscriberDeps {
   project?: string;
   /** Resolves a model's location. Defaults to config/regions.yaml. */
   resolveLocation?: (model: string) => string;
+  /** Retry policy for transient upstream failures (429/5xx) inside ONE request. Defaults in TRANSCRIBE_RETRY. */
+  retry?: Partial<TranscribeRetryOptions>;
+  /** Injectable sleep (tests pass an instant one). */
+  sleep?: (ms: number) => Promise<void>;
+  /** Injectable RNG in [0,1) for jitter. */
+  rng?: () => number;
 }
+
+type Upstream = number | "timeout" | "unknown";
+
+/**
+ * Reduce an upstream error to a status code or a timeout signal, never message
+ * text (the message could carry request data; hard rule #2).
+ */
+function classifyUpstream(error: unknown): Upstream {
+  const status =
+    error && typeof error === "object" && "status" in error
+      ? (error as { status?: unknown }).status
+      : undefined;
+  if (error instanceof Error) {
+    if (error.name === "AbortError" || error.message.includes("timeout")) {
+      return "timeout";
+    }
+  }
+  return typeof status === "number" ? status : "unknown";
+}
+
+const defaultSleep = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** The default caller: a Vertex-mode client (ADC), one `generateContent`. */
 const realVertexGenerate: TranscribeGenerate = async (params, ctx) => {
@@ -77,19 +131,26 @@ export function geminiTranscriber(deps: GeminiTranscriberDeps = {}): Transcriber
   const resolveLocation =
     deps.resolveLocation ?? ((model: string) => getModelLocation(model).location);
   const vocabulary = deps.vocabulary ?? loadCustomVocabulary();
+  const retry: TranscribeRetryOptions = { ...TRANSCRIBE_RETRY, ...deps.retry };
+  const sleep = deps.sleep ?? defaultSleep;
+  const rng = deps.rng ?? Math.random;
 
   return {
     async transcribe(input: TranscribeInput): Promise<TranscribeResult> {
       const location = resolveLocation(TRANSCRIBE_MODEL);
       const project = deps.project ?? process.env.GOOGLE_CLOUD_PROJECT ?? "";
 
-      const params: GenerateContentParameters = {
+      const deadline = Date.now() + timeoutMs;
+      // Encoded once and reused by every attempt; never logged (hard rule #2).
+      const data = input.audio.toString("base64");
+
+      const buildParams = (): GenerateContentParameters => ({
         model: TRANSCRIBE_MODEL,
         // Audio only — no text prompt, no system instruction, no structured output.
         contents: [
           {
             inlineData: {
-              data: input.audio.toString("base64"),
+              data,
               mimeType: input.mimeType,
             },
           },
@@ -102,40 +163,46 @@ export function geminiTranscriber(deps: GeminiTranscriberDeps = {}): Transcriber
               : {}),
             ...(vocabulary.length > 0 ? { customVocabulary: vocabulary } : {}),
           },
-          abortSignal: AbortSignal.timeout(timeoutMs),
+          // Per attempt, always clipped to what is left of the total budget.
+          abortSignal: AbortSignal.timeout(
+            Math.max(1, Math.min(retry.attemptTimeoutMs, deadline - Date.now())),
+          ),
         },
-      };
+      });
 
-      let response: GenerateContentResponse;
-      try {
-        response = await generate(params, { project, location });
-      } catch (error) {
-        // Sanitised: do NOT interpolate the upstream error — it could be large and
-        // we never risk the audio/base64 reaching an Error (hard rule #2). Every
-        // failure (5xx/429/timeout/400/network) becomes a retryable 503.
-        // Extract upstream status code or timeout signal without message text.
-        let upstream: number | "timeout" | "unknown" = "unknown";
-        // Check for timeout first (highest priority)
-        if (error instanceof Error) {
-          if (error.name === "AbortError" || error.message.includes("timeout")) {
-            upstream = "timeout";
-          } else if (
-            error &&
-            typeof error === "object" &&
-            "status" in error &&
-            typeof (error as { status?: unknown }).status === "number"
-          ) {
-            upstream = (error as { status?: unknown }).status as number;
+      let response: GenerateContentResponse | undefined;
+      for (let attempt = 1; ; attempt++) {
+        try {
+          response = await generate(buildParams(), { project, location });
+          break;
+        } catch (error) {
+          // Sanitised: do NOT interpolate the upstream error — it could be large and
+          // we never risk the audio/base64 reaching an Error (hard rule #2). Only the
+          // numeric status or a timeout signal survives.
+          const upstream = classifyUpstream(error);
+          const retryable =
+            typeof upstream === "number" &&
+            retry.statuses.includes(upstream) &&
+            attempt < retry.attempts;
+          if (retryable) {
+            const raw = Math.min(
+              retry.maxDelayMs,
+              retry.baseMs * retry.factor ** (attempt - 1),
+            );
+            const delayMs = Math.round(raw / 2 + rng() * (raw / 2));
+            if (Date.now() + delayMs + MIN_ATTEMPT_HEADROOM_MS <= deadline) {
+              // Whitelisted fields only: no message, body, text or audio.
+              console.warn("transcribe.retry", { attempt, upstream, delayMs });
+              await sleep(delayMs);
+              continue;
+            }
           }
-        } else if (
-          error &&
-          typeof error === "object" &&
-          "status" in error &&
-          typeof (error as { status?: unknown }).status === "number"
-        ) {
-          upstream = (error as { status?: unknown }).status as number;
+          throw new ServiceUnavailableError(
+            "Transcription upstream unavailable",
+            "transcribe",
+            upstream,
+          );
         }
-        throw new ServiceUnavailableError("Transcription upstream unavailable", "transcribe", upstream);
       }
 
       // Empty/missing text is a valid result (silence / non-speech), not an error.
