@@ -114,6 +114,12 @@ export interface CardOutcome {
   as_fact: boolean;
   /** The category of the thread holding most of the card's lines; null when no line reached a thread. */
   category: string | null;
+  /**
+   * R-21 (F-1): every line of the card that reached a thread sits in the SAME thread. false when the card's lines
+   * were split across threads (e.g. the phone remark opening its own CORRECTION thread) or none reached a thread.
+   * `correct` takes the majority thread, so a 1/1 split still reads correct; this metric is what sees the split.
+   */
+  one_thread: boolean;
 }
 
 export interface RunOutcome {
@@ -144,6 +150,7 @@ export function classifyRun(
   results: ReadonlyArray<{ plan: UnitPlan; wire: LabelWireOutput | null; failure?: CallFailure }>,
 ): RunOutcome {
   const verdictOfLine = new Map<string, LineVerdict>();
+  const threadOfLine = new Map<string, string>();
   let questions = 0;
   let failed_calls = 0;
   let retryable_failures = 0;
@@ -165,7 +172,10 @@ export function classifyRun(
       });
       const fact = gate.verdict === "fact";
       if (!fact) questions += 1;
-      for (const id of thread.line_ids) verdictOfLine.set(id, { category: thread.category, fact });
+      for (const id of thread.line_ids) {
+        verdictOfLine.set(id, { category: thread.category, fact });
+        threadOfLine.set(id, thread.thread_id);
+      }
     }
   }
 
@@ -197,7 +207,13 @@ export function classifyRun(
     const card = cards.find((c) => c.kind === kind);
     if (!card) return null;
     const v = cardVerdict(card.id);
-    return { correct: v?.category === expected, as_fact: v?.category === expected && v.fact, category: v?.category ?? null };
+    const threadIds = new Set((linesOfCard.get(card.id) ?? []).flatMap((lineId) => threadOfLine.get(lineId) ?? []));
+    return {
+      correct: v?.category === expected,
+      as_fact: v?.category === expected && v.fact,
+      category: v?.category ?? null,
+      one_thread: threadIds.size === 1,
+    };
   };
 
   let contaminated = false;
@@ -228,6 +244,9 @@ export interface CellSummary {
   a_correct: number;
   a_fact: number;
   b_correct: number;
+  /** R-21: runs in which the card's lines all sat in one thread (see `CardOutcome.one_thread`). */
+  a_one_thread: number;
+  b_one_thread: number;
   contamination: number;
   /** Runs with at most QUESTIONS_PER_DAY_MAX questions. */
   questions_ok: number;
@@ -248,6 +267,8 @@ export function summarizeRuns(outcomes: readonly RunOutcome[]): CellSummary {
     a_correct: 0,
     a_fact: 0,
     b_correct: 0,
+    a_one_thread: 0,
+    b_one_thread: 0,
     contamination: 0,
     questions_ok: 0,
     max_questions: 0,
@@ -260,11 +281,13 @@ export function summarizeRuns(outcomes: readonly RunOutcome[]): CellSummary {
     if (o.a) {
       if (o.a.correct) s.a_correct += 1;
       if (o.a.as_fact) s.a_fact += 1;
+      if (o.a.one_thread) s.a_one_thread += 1;
       const k = o.a.category ?? "none";
       s.a_categories[k] = (s.a_categories[k] ?? 0) + 1;
     }
     if (o.b) {
       if (o.b.correct) s.b_correct += 1;
+      if (o.b.one_thread) s.b_one_thread += 1;
       const k = o.b.category ?? "none";
       s.b_categories[k] = (s.b_categories[k] ?? 0) + 1;
     }
@@ -280,7 +303,8 @@ export function summarizeRuns(outcomes: readonly RunOutcome[]): CellSummary {
 /**
  * Acceptance of section 10.1, scaled to the run count N (identical to the plan at N = 5).
  * Exact script: A correct N/N (days 1-2) with A a fact in >= ceil(0.6 N); B correct N/N (days 2-3);
- * contamination 0; questions <= 5 in N/N. Variants: A and B correct >= ceil(0.8 N); contamination <= floor(0.2 N).
+ * contamination 0; questions <= 5 in N/N; each problem card in one thread in >= ceil(0.8 N) runs (R-21).
+ * Variants: A and B correct >= ceil(0.8 N); contamination <= floor(0.2 N).
  * A cell where any unit failed with a retryable error is INCONCLUSIVE whatever else it shows (the numbers are
  * not trustworthy without that call); otherwise PASS or FAIL by the thresholds.
  */
@@ -300,6 +324,12 @@ export function judgeCell(input: {
     const needFact = Math.ceil(0.6 * n);
     if (s.a_fact < needFact) failures.push(`A as fact ${s.a_fact}/${n} (need ${needFact})`);
   }
+  // R-21 (F-1): exact script only; the variants report the counts without a threshold. A is a regression guard.
+  const needOneThread = Math.ceil(0.8 * n);
+  if (exact && s.a_applicable && s.a_one_thread < needOneThread)
+    failures.push(`A one thread ${s.a_one_thread}/${n} (need ${needOneThread})`);
+  if (exact && s.b_applicable && s.b_one_thread < needOneThread)
+    failures.push(`B one thread ${s.b_one_thread}/${n} (need ${needOneThread})`);
   const maxContam = exact ? 0 : Math.floor(0.2 * n);
   if (s.contamination > maxContam) failures.push(`contamination ${s.contamination}/${n} (max ${maxContam})`);
   if (exact && s.questions_ok < n) failures.push(`questions <= ${QUESTIONS_PER_DAY_MAX} in ${s.questions_ok}/${n} (max seen ${s.max_questions})`);
@@ -466,6 +496,8 @@ export function formatReport(report: ScenarioReport): string {
       `A ${cell(s.a_applicable, `${s.a_correct}/${n}`)}`.padEnd(9),
       `Afact ${cell(s.a_applicable, `${s.a_fact}/${n}`)}`.padEnd(11),
       `B ${cell(s.b_applicable, `${s.b_correct}/${n}`)}`.padEnd(9),
+      `A one thread ${cell(s.a_applicable, `${s.a_one_thread}/${n}`)}`.padEnd(17),
+      `B one thread ${cell(s.b_applicable, `${s.b_one_thread}/${n}`)}`.padEnd(17),
       `contam ${s.contamination}/${n}`.padEnd(13),
       `q<=5 ${s.questions_ok}/${n} (max ${s.max_questions})`.padEnd(20),
       `failed calls ${s.failed_calls}`.padEnd(16),
