@@ -233,6 +233,10 @@ describe("SupervisorProposals — ask (D2-03d)", () => {
     authedPostJson.mockImplementation(() => new Promise(() => {}));
     renderScreen();
     const ask = await screen.findByRole("button", { name: "Ask for another proposal" });
+    // The panel the hold measures is loaded by its own GET and is not in the DOM until that lands (ConstraintsPanel
+    // renders nothing while loading). Under CPU load React commits the two loads in separate tasks, so the Ask
+    // button can be on screen before the panel is: wait for the panel itself, not only the button.
+    await screen.findByRole("heading", { name: "Constraints" });
     // jsdom has no layout: the panel reads 900 px from the top at the ask, 700 px once the asking block (250 px
     // tall) stands in for the list, so the block must grow by 200 px.
     let panelReads = 0;
