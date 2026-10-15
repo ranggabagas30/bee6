@@ -265,13 +265,19 @@ export interface CaptureGuideState {
   phase: CapturePhase;
 }
 
+/**
+ * The screen the proposals page reports itself (lib/demo/proposals-signal): PR-12a's supervisor screens and PR-12b's
+ * owner screens. A screen of the other role (a stale signal) is ignored by `proposalsKey`.
+ */
+export type ProposalsGuideScreen = "list" | "generating" | "detail" | "feasible" | "empty" | "review" | "all_decided";
+
 export interface WebGuideState {
   kind: "web";
   role: "supervisor" | "owner";
   /** GET /api/v1/demo/progress; null until it loads (the default card is shown). */
   progress: JourneyProgress | null;
-  /** A screen the proposals page reports itself (PR-12a); it wins over the counters. */
-  screen?: "generating" | "detail" | "feasible" | null;
+  /** The proposals page's own screen; it wins over the counters where it says more than they do. */
+  screen?: ProposalsGuideScreen | null;
 }
 
 export type GuideState = CaptureGuideState | WebGuideState;
@@ -290,6 +296,8 @@ const CAPTURE_KEY: Record<CapturePhase, GuideKey> = {
 function proposalsKey(state: WebGuideState): GuideKey {
   const p = state.progress;
   if (state.role === "owner") {
+    // The page's own "all decided" screen wins at once: the progress refetch it triggers may still be in flight.
+    if (state.screen === "all_decided") return "approvals_done";
     return p !== null && p.proposals_with_content > 0 && p.owner_decided >= p.proposals_with_content ? "approvals_done" : "approvals";
   }
   if (state.screen === "generating") return "proposals_generating";

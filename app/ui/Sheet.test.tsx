@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Sheet } from "@/app/ui/Sheet";
@@ -72,6 +73,26 @@ describe("Sheet", () => {
     fireEvent.keyDown(inside, { key: "Escape" });
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(document.activeElement).toBe(screen.getByRole("button", { name: /Open the helper/ }));
+  });
+
+  // R-19 wiring: the reset dialog is portaled to document.body from inside the guide's card. React synthetic events
+  // climb the React tree, not the DOM, so a keydown inside the portal reaches this onKeyDown too; it must not close
+  // the sheet (the dialog decides what Escape does, and while a request is in flight it ignores it).
+  it("Escape from a child portaled outside the section neither closes the sheet nor moves focus", () => {
+    const onOpenChange = vi.fn();
+    function Portaled() {
+      return createPortal(<button type="button">In a portal</button>, document.body);
+    }
+    render(
+      <Sheet label="Helper" open onOpenChange={onOpenChange} openLabel="o" closeLabel="c" handle={<span>h</span>}>
+        <Portaled />
+      </Sheet>,
+    );
+    const inPortal = screen.getByRole("button", { name: "In a portal" });
+    inPortal.focus();
+    fireEvent.keyDown(inPortal, { key: "Escape" });
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(inPortal);
   });
 
   it("Escape does nothing while collapsed", () => {

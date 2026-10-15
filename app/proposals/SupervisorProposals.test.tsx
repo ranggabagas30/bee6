@@ -194,6 +194,79 @@ describe("SupervisorProposals — ask (D2-03d)", () => {
     expect(getsTo("/api/v1/proposals")).toBe(2);
   });
 
+  // Integration QA D2 (CLS 0.18 at 360 px): the answer used to land in two frames, the written line plus the OLD list
+  // first and the reloaded rows ~10 ms later, right after the line's focus had scrolled the constraints panel into
+  // view. The asking state now holds until the reloaded list is on screen: rows, line and focus arrive in one frame.
+  it("D2: Asking Bee6… holds until the reloaded list has landed; the row and the written line then appear together", async () => {
+    proposalsResult = listOk({ open: [], decided: [], watch: watchOf([row("CUSTOMER_SERVICE", 2, "ready")]) });
+    renderScreen();
+    const ask = await screen.findByRole("button", { name: "Ask Bee6 for a proposal" });
+    await waitFor(() => expect(getsTo("/api/v1/constraints")).toBe(1));
+    // the reload after the ask is held back
+    let releaseList: (v: unknown) => void = () => {};
+    authedGetJson.mockImplementationOnce(() => new Promise((r) => { releaseList = r; }));
+    authedPostJson.mockResolvedValue({ kind: "ok", data: { proposal: view(3, "awaiting_supervisor", "Write the bake time"), reused: false } });
+    fireEvent.click(ask);
+    await waitFor(() => expect(getsTo("/api/v1/proposals")).toBe(2));
+    // the POST has answered, the GET has not: still asking, no written line, no row
+    expect(screen.getByText("Asking Bee6…", { selector: "p" })).not.toBeNull();
+    expect(screen.queryByText("Bee6 wrote a proposal. Open it to read the evidence.")).toBeNull();
+    expect(screen.queryByText("Write the bake time")).toBeNull();
+    await act(async () => {
+      releaseList(listOk({ open: [item(3, "awaiting_supervisor", "Write the bake time")], decided: [], watch: watchOf([row("CUSTOMER_SERVICE", 2, "proposed")]) }));
+    });
+    expect(screen.getByText("Write the bake time")).not.toBeNull();
+    expect(screen.getByText("Bee6 wrote a proposal. Open it to read the evidence.")).not.toBeNull();
+    expect(screen.queryByText("Asking Bee6…", { selector: "p" })).toBeNull();
+    // The line takes focus (and scrolls into view) one painted frame AFTER the rows landed: Chrome counts a scroll
+    // that lands in the same frame as the rows as a layout shift of whatever the scroll uncovers.
+    expect(document.activeElement).toBe(document.body);
+    await waitFor(() => expect(document.activeElement?.textContent).toBe("Bee6 wrote a proposal. Open it to read the evidence."));
+  });
+
+  it("D2: while asking, the generating block grows until the constraints panel under it sits where it sat before the ask", async () => {
+    proposalsResult = listOk({
+      open: [item(2, "awaiting_supervisor", "Write the bake time")],
+      decided: [],
+      watch: watchOf([row("CUSTOMER_SERVICE", 2, "proposed"), row("PHONE_CALL", 2, "ready")]),
+    });
+    authedPostJson.mockImplementation(() => new Promise(() => {}));
+    renderScreen();
+    const ask = await screen.findByRole("button", { name: "Ask for another proposal" });
+    // The panel the hold measures is loaded by its own GET and is not in the DOM until that lands (ConstraintsPanel
+    // renders nothing while loading). Under CPU load React commits the two loads in separate tasks, so the Ask
+    // button can be on screen before the panel is: wait for the panel itself, not only the button.
+    await screen.findByRole("heading", { name: "Constraints" });
+    // jsdom has no layout: the panel reads 900 px from the top at the ask, 700 px once the asking block (250 px
+    // tall) stands in for the list, so the block must grow by 200 px.
+    let panelReads = 0;
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const isPanel = this.tagName === "SECTION" && (this.textContent ?? "").includes("Constraints");
+      const top = isPanel ? (panelReads++ === 0 ? 900 : 700) : 400;
+      const height = this.querySelector("[role='status']") ? 250 : 351;
+      return { top, height, bottom: top + height, left: 0, right: 360, width: 360, x: 0, y: top, toJSON: () => ({}) } as DOMRect;
+    });
+    try {
+      fireEvent.click(ask);
+    } finally {
+      rect.mockRestore();
+    }
+    const block = screen.getByText("Asking Bee6…", { selector: "p" }).closest("[role='status']") as HTMLElement;
+    expect(block.style.minHeight).toBe("450px");
+  });
+
+  it("D2: while asking, the cleared status line keeps one line of height, so the rows do not move down when the answer fills it", async () => {
+    proposalsResult = listOk({ open: [], decided: [], watch: watchOf([row("CUSTOMER_SERVICE", 2, "ready")]) });
+    authedPostJson.mockImplementation(() => new Promise(() => {}));
+    renderScreen();
+    const ask = await screen.findByRole("button", { name: "Ask Bee6 for a proposal" });
+    const line = () => screen.getAllByRole("status").find((el) => el.tagName === "P" && el.getAttribute("tabindex") === "-1") as HTMLElement;
+    expect(line().className).not.toContain("statusHold");
+    fireEvent.click(ask);
+    expect(line().textContent).toBe("");
+    expect(line().className).toContain("statusHold");
+  });
+
   it("once a proposal exists, Ask for another sends another: true; a suppressed answer reads 'No other problem is ready yet.'", async () => {
     proposalsResult = listOk({
       open: [item(2, "awaiting_supervisor", "Write the bake time")],
@@ -322,7 +395,7 @@ describe("SupervisorProposals — detail, feasible, reject", () => {
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "The oven only holds two trays." } });
     fireEvent.click(screen.getByRole("button", { name: "Reject proposal" }));
     const banner = await screen.findByText("Rejected. Your reason is now a rule Bee6 will respect.");
-    expect(document.activeElement).toBe(banner);
+    await waitFor(() => expect(document.activeElement).toBe(banner)); // one painted frame later (D2)
     expect(screen.getByText("WHAT BEE6 IS WATCHING")).not.toBeNull();
     await waitFor(() => expect(getsTo("/api/v1/proposals")).toBe(2));
     await waitFor(() => expect(getsTo("/api/v1/constraints")).toBe(2));

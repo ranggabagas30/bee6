@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { LangProvider } from "@/lib/i18n/context";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import type { AuthUserState } from "@/lib/auth/client/use-auth-user";
+import { PROPOSALS_PROGRESS_EVENT, PROPOSALS_SCREEN_EVENT, publishProposalsScreen, readProposalsProgressVersion, readProposalsScreen } from "@/lib/demo/proposals-signal";
 import { ProposalsApp } from "@/app/proposals/ProposalsApp";
 
 /**
@@ -188,5 +189,63 @@ describe("ProposalsApp — auth / role gate", () => {
     renderApp("id");
     await waitFor(() => expect(screen.getByText("Tidak ada yang menunggu Anda.")).not.toBeNull());
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Persetujuan");
+  });
+});
+
+/**
+ * After-merge wiring (R-19): on a demo sandbox principal (the ID token carries `demo_exp_ms`), the page passes its
+ * screen's `onBridge` into lib/demo/proposals-signal, so the judge guide follows the screen and refetches the progress
+ * after a write. The pilot's principals carry no `demo_exp_ms`: nothing is ever published there.
+ */
+describe("ProposalsApp — the judge guide signal", () => {
+  const DEMO_EXP = Date.now() + 3_600_000;
+  let heard: string[] = [];
+  const onScreen = () => void heard.push("screen");
+  const onProgress = () => void heard.push("progress");
+
+  beforeEach(() => {
+    heard = [];
+    window.addEventListener(PROPOSALS_SCREEN_EVENT, onScreen);
+    window.addEventListener(PROPOSALS_PROGRESS_EVENT, onProgress);
+  });
+  afterEach(() => {
+    window.removeEventListener(PROPOSALS_SCREEN_EVENT, onScreen);
+    window.removeEventListener(PROPOSALS_PROGRESS_EVENT, onProgress);
+    publishProposalsScreen(null);
+  });
+
+  it("a demo supervisor publishes the list screen; unmounting clears it", async () => {
+    getIdTokenResult.mockResolvedValue({ claims: { role: "supervisor", demo_exp_ms: DEMO_EXP } });
+    const view = renderApp();
+    await waitFor(() => expect(readProposalsScreen()).toBe("list"));
+    expect(heard).toContain("screen");
+    view.unmount();
+    expect(readProposalsScreen()).toBeNull();
+  });
+
+  it("a demo owner publishes the review screen, then a progress change after Approve", async () => {
+    getIdTokenResult.mockResolvedValue({ claims: { role: "owner", demo_exp_ms: DEMO_EXP } });
+    proposalsResult = { kind: "ok", data: { open: [waiting(1)], decided: [], watch: EMPTY_WATCH } };
+    authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "approved", status: "approved" } });
+    renderApp();
+    await screen.findByRole("heading", { level: 2, name: "Proposal 1" });
+    expect(readProposalsScreen()).toBe("review");
+    const before = readProposalsProgressVersion();
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    await waitFor(() => expect(readProposalsProgressVersion()).toBe(before + 1));
+    expect(heard).toContain("progress");
+  });
+
+  it("a pilot principal (no demo_exp_ms) publishes nothing, whatever its role", async () => {
+    for (const role of ["supervisor", "owner"] as const) {
+      getIdTokenResult.mockResolvedValue({ claims: { role } });
+      renderApp();
+      await waitFor(() => expect(screen.getByRole("heading", { level: 1 })).toBeTruthy());
+      await waitFor(() => expect(authedGetJson).toHaveBeenCalled());
+      await act(async () => {});
+      expect(readProposalsScreen()).toBeNull();
+      expect(heard).toEqual([]);
+      cleanup();
+    }
   });
 });

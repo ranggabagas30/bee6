@@ -2,7 +2,8 @@ import { useSyncExternalStore } from "react";
 import type { DemoSessionProfile } from "@/lib/capture/contract";
 import { DEBRIEF_DONE_EVENT, DEBRIEF_DONE_FLAG_KEY, DEBRIEF_VIEW_EVENT } from "@/lib/debrief/constants";
 import { readDebriefView, type DebriefViewKind } from "@/lib/debrief/view-signal";
-import type { CapturePhase } from "@/lib/demo/guide";
+import type { CapturePhase, ProposalsGuideScreen } from "@/lib/demo/guide";
+import { PROPOSALS_PROGRESS_EVENT, PROPOSALS_SCREEN_EVENT, readProposalsProgressVersion, readProposalsScreen } from "@/lib/demo/proposals-signal";
 import type { DictKey } from "@/lib/i18n/dict";
 
 /**
@@ -60,6 +61,40 @@ function subscribeDebriefViewEvent(onChange: () => void): () => void {
  */
 export function useDebriefView(): DebriefViewKind | null {
   return useSyncExternalStore(subscribeDebriefViewEvent, readDebriefView, () => null);
+}
+
+export interface ProposalsSignal {
+  /** The proposals page's own screen (lib/demo/proposals-signal); null while no sandbox proposals page is mounted. */
+  screen: ProposalsGuideScreen | null;
+  /** Bumped by the page after every write that moves the journey counters; the guide re-reads the progress on each bump. */
+  progressVersion: number;
+}
+
+const NO_PROPOSALS_SIGNAL: ProposalsSignal = { screen: null, progressVersion: 0 };
+// useSyncExternalStore needs a stable snapshot: one object per distinct (screen, version) pair.
+let proposalsSnapshot: ProposalsSignal = NO_PROPOSALS_SIGNAL;
+function readProposalsSignal(): ProposalsSignal {
+  const screen = readProposalsScreen();
+  const progressVersion = readProposalsProgressVersion();
+  if (proposalsSnapshot.screen !== screen || proposalsSnapshot.progressVersion !== progressVersion) proposalsSnapshot = { screen, progressVersion };
+  return proposalsSnapshot;
+}
+function subscribeProposalsSignalEvents(onChange: () => void): () => void {
+  window.addEventListener(PROPOSALS_SCREEN_EVENT, onChange);
+  window.addEventListener(PROPOSALS_PROGRESS_EVENT, onChange);
+  return () => {
+    window.removeEventListener(PROPOSALS_SCREEN_EVENT, onChange);
+    window.removeEventListener(PROPOSALS_PROGRESS_EVENT, onChange);
+  };
+}
+
+/**
+ * The proposals page's screen and progress signal (after-merge wiring, PR-12a/12b `onBridge`): re-read the moment
+ * ProposalsApp publishes, so the guide's card flips with the page and the stage list refetches the progress right
+ * after an ask, a feasible mark, a rejection or an approval instead of on the next open. Empty on the server.
+ */
+export function useProposalsSignal(): ProposalsSignal {
+  return useSyncExternalStore(subscribeProposalsSignalEvents, readProposalsSignal, () => NO_PROPOSALS_SIGNAL);
 }
 
 export interface CaptureBridgeState {

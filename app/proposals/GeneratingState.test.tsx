@@ -17,4 +17,14 @@ describe("GeneratingState (D2-03d)", () => {
     render(<GeneratingState lang="id" />);
     expect(screen.getByText("Menanyakan Bee6…")).not.toBeNull();
   });
+
+  // Integration QA D2: the block stands in for the proposal list; it keeps at least that list's height so nothing
+  // below it (the constraints panel) is pulled up while Bee6 works and pushed back down when the rows return.
+  it("reserves the height of the list it replaces; nothing is reserved without one", () => {
+    const { unmount } = render(<GeneratingState lang="en" minHeight={420} />);
+    expect(screen.getByRole("status").style.minHeight).toBe("420px");
+    unmount();
+    render(<GeneratingState lang="en" />);
+    expect(screen.getByRole("status").style.minHeight).toBe("");
+  });
 });

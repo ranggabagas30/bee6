@@ -31,6 +31,9 @@ export function Sheet({ label, open, onOpenChange, openLabel, closeLabel, handle
 
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
     if (e.key !== "Escape" || !open) return;
+    // React synthetic events climb the React tree, so a keydown inside a child's portal (a modal dialog on
+    // document.body) lands here too. Only a key pressed inside the sheet's own DOM closes it: the portal owns its Escape.
+    if (!e.currentTarget.contains(e.target as Node)) return;
     onOpenChange(false);
     handleRef.current?.focus();
   };

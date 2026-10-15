@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { LangProvider } from "@/lib/i18n/context";
 import { FRESH_DEMO_SESSION, type DemoSessionProfile } from "@/lib/capture/contract";
+import { publishProposalsProgress, publishProposalsScreen } from "@/lib/demo/proposals-signal";
 import { createMemoryStorage } from "@/lib/demo/testing/memory-storage";
 import { DEMO_STATE_KEY } from "@/app/demo/demo-client";
 import { publishCaptureBridge, type CaptureBridge, type CaptureBridgeState } from "@/app/demo/guide-bridge";
@@ -26,8 +27,16 @@ vi.mock("@/lib/capture/browser/client", async (importOriginal) => ({
 }));
 
 const getIdToken = vi.fn(async () => "id-token");
+const FAKE_AUTH = { currentUser: { getIdToken } };
 vi.mock("@/lib/auth/client/firebase-client", () => ({
-  getClientAuth: () => ({ currentUser: { getIdToken } }),
+  getClientAuth: () => FAKE_AUTH,
+  getExistingClientAuth: () => FAKE_AUTH,
+}));
+// The reset control (PR-7, registered in guide-controls) reads the signed-in user's claims through useAuthUser.
+let claims: Record<string, unknown> = {};
+const USER = { uid: "u1", getIdTokenResult: async () => ({ claims }) }; // one stable user object, as Firebase gives
+vi.mock("@/lib/auth/client/use-auth-user", () => ({
+  useAuthUser: () => ({ status: "signed_in", user: USER }),
 }));
 
 import { JudgeGuide } from "@/app/demo/JudgeGuide";
@@ -83,6 +92,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   publishCaptureBridge(null);
+  publishProposalsScreen(null);
   vi.clearAllMocks();
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -432,7 +442,7 @@ describe("web routes: progress and the supervisor-visited flag", () => {
     expect(screen.getByText(/fresh egg tarts question under Customer service/)).toBeTruthy();
   });
 
-  it("supervisor on /proposals after 2 days: Ask Bee6; owner on /proposals: the approvals card; /home: the owner card with no reset control registered yet", async () => {
+  it("supervisor on /proposals after 2 days: Ask Bee6; owner on /proposals: the approvals card", async () => {
     pathname = "/proposals";
     seedWeb("supervisor");
     renderGuide();
@@ -443,12 +453,129 @@ describe("web routes: progress and the supervisor-visited flag", () => {
     renderGuide();
     await waitFor(() => expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("STAGE 5 OF 5"));
     expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("Approve one, reject the other");
-    cleanup();
+  });
+
+  it("/home: the owner card carries PR-7's Reset control, mounted only while the guide is open (one trigger, no second notice); a supervisor's claims get no control", async () => {
     pathname = "/home";
+    seedWeb("owner");
+    claims = { role: "owner", outlet_id: "sbx-1", demo_exp_ms: Date.now() + 3_600_000 };
+    renderGuide();
+    await waitFor(() => expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("Owner home"));
+    // Collapsed: the control is not in the tree at all (not merely hidden), so it reads the Firebase app only once the
+    // page has initialised it and the judge opens the card.
+    expect(screen.queryByRole("button", { name: "Reset the demo", hidden: true })).toBeNull();
+    openGuide();
+    expect(await screen.findAllByRole("button", { name: "Reset the demo" })).toHaveLength(1);
+    expect(document.body.textContent).not.toContain("Demo reset to day 1");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reset the demo" }));
+    expect(screen.getAllByRole("alertdialog")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: /Close the judge guide/ }));
+    expect(screen.queryByRole("button", { name: "Reset the demo", hidden: true })).toBeNull();
+    cleanup();
+    claims = { role: "supervisor", outlet_id: "sbx-1", demo_exp_ms: Date.now() + 3_600_000 };
     renderGuide();
     await waitFor(() => expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("Owner home"));
     openGuide();
-    expect(screen.queryByRole("button", { name: /Reset/ })).toBeNull();
+    await act(async () => {});
+    expect(screen.queryByRole("button", { name: "Reset the demo" })).toBeNull();
+  });
+
+  // The reset dialog is portaled to document.body, and React synthetic events climb the React tree: an Escape pressed
+  // inside the dialog also reaches the Sheet / SidePanel keydown. The shells ignore a keydown from outside their own
+  // DOM, so the dialog alone decides what Escape does (dismiss when idle, nothing while a request is in flight).
+  describe.each([
+    ["phone sheet", false],
+    ["laptop panel", true],
+  ])("/home, %s: Escape inside the reset dialog never collapses the guide", (_shell, isWide) => {
+    const guideStaysOpen = () => {
+      if (isWide) expect(screen.getByRole("complementary", { name: "Judge guide" })).toBeTruthy();
+      else expect(screen.getByRole("button", { name: /Close the judge guide/ }).getAttribute("aria-expanded")).toBe("true");
+    };
+    async function openResetDialog() {
+      pathname = "/home";
+      wide = isWide;
+      seedWeb("owner");
+      claims = { role: "owner", outlet_id: "sbx-1", demo_exp_ms: Date.now() + 3_600_000 };
+      renderGuide();
+      openGuide();
+      await screen.findByRole("heading", { name: "Owner home" }); // the pill names only the stage, so wait on the open card
+      const trigger = await screen.findByRole("button", { name: "Reset the demo" });
+      fireEvent.click(trigger);
+      expect(screen.getByRole("alertdialog")).toBeTruthy();
+      return trigger;
+    }
+
+    it("Escape on the dialog's Cancel closes only the dialog: the guide stays open and the trigger has focus", async () => {
+      const trigger = await openResetDialog();
+      const cancel = screen.getByRole("button", { name: "Cancel" });
+      expect(document.activeElement).toBe(cancel);
+      fireEvent.keyDown(cancel, { key: "Escape" });
+      expect(screen.queryByRole("alertdialog")).toBeNull();
+      guideStaysOpen();
+      expect(document.activeElement).toBe(trigger);
+    });
+
+    it("Escape while the reset request is in flight leaves the dialog on screen and the guide open", async () => {
+      vi.mocked(fetch).mockImplementation(async (url) =>
+        String(url).endsWith("/api/v1/demo/reset")
+          ? new Promise<Response>(() => {}) // never settles: the dialog stays busy
+          : new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 2, feasible: 2, owner_decided: 2 } }), { status: 200 }),
+      );
+      await openResetDialog();
+      fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+      const busy = await screen.findByRole("button", { name: "Resetting…" });
+      expect((busy as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.keyDown(screen.getByRole("alertdialog"), { key: "Escape" });
+      expect(screen.getByRole("alertdialog")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Resetting…" })).toBeTruthy();
+      guideStaysOpen();
+    });
+  });
+
+  // After-merge wiring: /proposals reports its screen and its writes through lib/demo/proposals-signal.
+  it("/proposals follows the page's published screen at once: Asking Bee6 while generating, the hand-over on feasible, All decided for the owner", async () => {
+    pathname = "/proposals";
+    seedWeb("supervisor");
+    renderGuide();
+    const handle = () => screen.getByRole("button", { name: /Open the judge guide/ }).textContent;
+    await waitFor(() => expect(handle()).toContain("Ask Bee6 for a proposal"));
+    act(() => publishProposalsScreen("generating"));
+    expect(handle()).toContain("Asking Bee6");
+    act(() => publishProposalsScreen("feasible"));
+    expect(handle()).toContain("Over to the Owner");
+    act(() => publishProposalsScreen("list"));
+    expect(handle()).toContain("Ask Bee6 for a proposal");
+    cleanup();
+    seedWeb("owner");
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 2, feasible: 2, owner_decided: 1 } }), { status: 200 }));
+    renderGuide();
+    await waitFor(() => expect(handle()).toContain("Approve one, reject the other"));
+    act(() => publishProposalsScreen("all_decided"));
+    expect(handle()).toContain("All decided");
+  });
+
+  it("a published screen counts only on /proposals (a stale signal never changes another route's card)", async () => {
+    pathname = "/sop";
+    seedWeb("supervisor");
+    act(() => publishProposalsScreen("generating"));
+    renderGuide();
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("The shop's SOP");
+  });
+
+  it("re-reads the progress the moment the page reports a write (an ask, a feasible mark, a rejection, an approval), without reopening the guide", async () => {
+    pathname = "/proposals";
+    seedWeb("supervisor");
+    renderGuide();
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 1, feasible: 1, owner_decided: 0 } }), { status: 200 }));
+    act(() => publishProposalsProgress());
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(String(vi.mocked(fetch).mock.calls[1]![0])).toBe("/api/v1/demo/progress");
+    // the stage list moved on the fresh counters (every proposal feasible: Owner · approve)
+    await waitFor(() => expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("STAGE 5 OF 5"));
   });
 
   it("a failed progress fetch keeps the default card (no error text from the server)", async () => {
@@ -460,6 +587,71 @@ describe("web routes: progress and the supervisor-visited flag", () => {
     await waitFor(() => expect(fetch).toHaveBeenCalled());
     expect(screen.getByRole("heading", { name: "Waiting for evidence" })).toBeTruthy();
     expect(document.body.textContent).not.toContain("oops");
+  });
+});
+
+// Integration QA D1 (wiring branch): opening the guide re-reads the progress; when the counters had moved since the
+// last read, the new card's key tripped the collapse-on-card-change rule and the guide shut itself ~50 ms after the
+// tap. A card change that comes only from a progress read never collapses the guide; page-driven changes still do.
+describe("D1: a progress-driven card change never collapses the guide", () => {
+  const STALE = { day: 2, days_done: 2, proposals_with_content: 0, feasible: 0, owner_decided: 0 };
+  const MOVED = { day: 3, days_done: 3, proposals_with_content: 2, feasible: 0, owner_decided: 0 };
+  const progressResponse = (p: object) => new Response(JSON.stringify({ data: p }), { status: 200 });
+
+  describe.each([
+    ["phone sheet", false],
+    ["laptop panel", true],
+  ])("%s", (_shell, isWide) => {
+    const guideIsOpen = () =>
+      isWide
+        ? screen.queryByRole("complementary", { name: "Judge guide" }) !== null
+        : screen.getByRole("button", { name: /judge guide/ }).getAttribute("aria-expanded") === "true";
+
+    it("counters changed since the last read (no page signal): ONE tap opens it, the re-read moves the card, and it stays open", async () => {
+      pathname = "/proposals";
+      wide = isWide;
+      seedWeb("supervisor");
+      vi.mocked(fetch).mockResolvedValue(progressResponse(STALE));
+      renderGuide();
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      // Two proposals were written meanwhile (the QA probe mutates the sandbox behind the page's back).
+      vi.mocked(fetch).mockResolvedValue(progressResponse(MOVED));
+      openGuide();
+      expect(guideIsOpen()).toBe(true);
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+      expect(await screen.findByRole("heading", { name: "Check each proposal" })).toBeTruthy();
+      expect(guideIsOpen()).toBe(true);
+    });
+
+    it("a page-signalled progress re-read while the guide is open moves the card without closing it", async () => {
+      pathname = "/proposals";
+      wide = isWide;
+      seedWeb("supervisor");
+      vi.mocked(fetch).mockResolvedValue(progressResponse(STALE));
+      renderGuide();
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      openGuide();
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+      expect(await screen.findByRole("heading", { name: "Ask Bee6 for a proposal" })).toBeTruthy();
+      vi.mocked(fetch).mockResolvedValue(progressResponse(MOVED));
+      act(() => publishProposalsProgress());
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+      expect(await screen.findByRole("heading", { name: "Check each proposal" })).toBeTruthy();
+      expect(guideIsOpen()).toBe(true);
+    });
+
+    it("a page-driven card change still collapses it: the list turns into Asking Bee6 after an Ask", async () => {
+      pathname = "/proposals";
+      wide = isWide;
+      seedWeb("supervisor");
+      vi.mocked(fetch).mockResolvedValue(progressResponse(STALE));
+      renderGuide();
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      openGuide();
+      expect(await screen.findByRole("heading", { name: "Ask Bee6 for a proposal" })).toBeTruthy();
+      act(() => publishProposalsScreen("generating"));
+      expect(guideIsOpen()).toBe(false);
+    });
   });
 });
 

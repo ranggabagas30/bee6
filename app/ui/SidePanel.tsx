@@ -57,7 +57,11 @@ export function SidePanel({ label, open, onOpenChange, openLabel, closeLabel, pi
   }, [open]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
-    if (e.key === "Escape" && open) onOpenChange(false);
+    if (e.key !== "Escape" || !open) return;
+    // React synthetic events climb the React tree, so a keydown inside a child's portal (a modal dialog on
+    // document.body) lands here too. Only a key pressed inside the panel's own DOM closes it: the portal owns its Escape.
+    if (!e.currentTarget.contains(e.target as Node)) return;
+    onOpenChange(false);
   };
 
   if (!open) {

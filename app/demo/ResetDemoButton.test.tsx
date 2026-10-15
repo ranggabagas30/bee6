@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { Auth, User } from "firebase/auth";
 import { DemoResetResponseSchema } from "@/lib/demo/contract";
 import { ResetDemoButton, ResetNotice } from "@/app/demo/ResetDemoButton";
@@ -144,6 +144,24 @@ describe("ResetDemoButton confirm dialog", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("The reset did not finish.");
   });
 
+  // Wiring-PR QA note: a live region must not sit in the tree as an EMPTY role=alert (screen readers announce "alert"
+  // for nothing, and axe flags it). The failure line is mounted only with its text; the busy line is a polite region.
+  it("renders no role=alert while nothing failed: not with the trigger alone, not with the dialog open, not while the request is in flight", async () => {
+    let finish!: (v: unknown) => void;
+    authedPostJson.mockReturnValue(new Promise((r) => (finish = r)));
+    await renderOwner();
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reset the demo" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(document.querySelectorAll("[role='alert']")).toHaveLength(0);
+    await act(async () => finish({ kind: "conflict", code: "busy" }));
+    // and when a failure does land, the alert carries its text from the first render (never an empty alert first)
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent?.trim()).not.toBe("");
+  });
+
   it("Bahasa copy (PROVISIONAL) follows the lang prop", async () => {
     await renderOwner("id");
     fireEvent.click(screen.getByRole("button", { name: "Atur ulang demo" }));
@@ -159,6 +177,64 @@ describe("ResetDemoButton confirm dialog", () => {
     expect(dialog.style.maxWidth).toBe("100%");
     for (const name of ["Cancel", "Reset"]) expect(Number.parseInt(screen.getByRole("button", { name }).style.minHeight, 10)).toBeGreaterThanOrEqual(44);
     expect(dialog.parentElement!.style.padding).not.toBe("");
+  });
+});
+
+describe("two mounted controls (the Home page's and the judge guide's) share ONE dialog", () => {
+  async function renderTwo() {
+    signedIn(OWNER);
+    render(
+      <>
+        <section aria-label="page">
+          <ResetDemoButton lang="en" navigate={vi.fn()} />
+        </section>
+        <section aria-label="guide">
+          <ResetDemoButton lang="en" navigate={vi.fn()} />
+        </section>
+      </>,
+    );
+    await screen.findAllByRole("button", { name: "Reset the demo" });
+    return {
+      pageTrigger: within(screen.getByRole("region", { name: "page" })).getByRole("button", { name: "Reset the demo" }),
+      guideTrigger: within(screen.getByRole("region", { name: "guide" })).getByRole("button", { name: "Reset the demo" }),
+    };
+  }
+
+  it("opening from the guide puts exactly one alertdialog in the DOM, and the page's trigger adds none while it is open", async () => {
+    const { pageTrigger, guideTrigger } = await renderTwo();
+    fireEvent.click(guideTrigger);
+    expect(screen.getAllByRole("alertdialog")).toHaveLength(1);
+    fireEvent.click(pageTrigger);
+    expect(screen.getAllByRole("alertdialog")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(document.activeElement).toBe(guideTrigger); // focus goes back to the trigger that opened it
+    // closed: the other trigger can open it again, still only one
+    fireEvent.click(pageTrigger);
+    expect(screen.getAllByRole("alertdialog")).toHaveLength(1);
+  });
+
+  it("unmounting the control that opened the dialog (the guide collapsing) closes it, so the other one is not locked out", async () => {
+    signedIn(OWNER);
+    const { rerender } = render(
+      <>
+        <ResetDemoButton lang="en" navigate={vi.fn()} />
+        <section aria-label="guide">
+          <ResetDemoButton lang="en" navigate={vi.fn()} />
+        </section>
+      </>,
+    );
+    await screen.findAllByRole("button", { name: "Reset the demo" });
+    fireEvent.click(within(screen.getByRole("region", { name: "guide" })).getByRole("button", { name: "Reset the demo" }));
+    expect(screen.getAllByRole("alertdialog")).toHaveLength(1);
+    rerender(
+      <>
+        <ResetDemoButton lang="en" navigate={vi.fn()} />
+      </>,
+    );
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reset the demo" }));
+    expect(screen.getAllByRole("alertdialog")).toHaveLength(1);
   });
 });
 

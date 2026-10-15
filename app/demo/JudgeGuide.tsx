@@ -28,7 +28,7 @@ import { t, type DictKey } from "@/lib/i18n/dict";
 import type { Lang } from "@/lib/i18n/lang";
 import { Button, Kicker, Sheet, SidePanel, StepTick } from "@/app/ui";
 import { demoSnapshot, subscribeDemoState, viewFromSnapshot } from "@/app/demo/demo-client";
-import { useCaptureBridge, type CaptureBridge } from "@/app/demo/guide-bridge";
+import { useCaptureBridge, useProposalsSignal, type CaptureBridge } from "@/app/demo/guide-bridge";
 import { GUIDE_CONTROLS } from "@/app/demo/guide-controls";
 
 /**
@@ -164,8 +164,13 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
   const seg = pathname.split("/").filter(Boolean)[0] ?? "";
   const isEntry = seg === "" || seg === "sign-in" || seg === "pair";
   const isCapture = seg === "capture";
+  // The proposals page's own screen and write counter (after-merge wiring, lib/demo/proposals-signal). The screen
+  // counts only on /proposals; the counter re-reads the progress after an ask, a feasible mark, a rejection or an approval.
+  const proposals = useProposalsSignal();
+  const proposalsScreen = seg === "proposals" ? proposals.screen : null;
 
-  // ── web progress (supervisor / owner): on mount, on every route change, and each time the guide is opened ──
+  // ── web progress (supervisor / owner): on mount, on every route change, each time the guide is opened, and on
+  // every write the proposals page reports ──
   const [progress, setProgress] = useState<JourneyProgress | null>(null);
   const [open, setOpen] = useState(false);
   // "Supervisor visited" (plan 7.1): true the moment any supervisor page is on screen, and remembered in
@@ -187,7 +192,7 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
     return () => {
       cancelled = true;
     };
-  }, [isEntry, isCapture, webRole, config, pathname, open]);
+  }, [isEntry, isCapture, webRole, config, pathname, open, proposals.progressVersion]);
 
   // ── the one card ──────────────────────────────────────────────────────────────────────────────────────────
   // The session whose 5 cards are all marked spoken (reported by the script card); a new session id resets it.
@@ -198,7 +203,7 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
       ? { kind: "capture", phase: bridge.state.phase === "listening" && allSpoken ? "all_spoken" : bridge.state.phase }
       : null
     : webRole !== null
-      ? { kind: "web", role: webRole, progress: progress ? { ...progress, supervisor_visited: visited } : null }
+      ? { kind: "web", role: webRole, progress: progress ? { ...progress, supervisor_visited: visited } : null, screen: proposalsScreen }
       : null;
   const key = guideKeyFor(pathname, state);
   const day = bridge ? bridge.state.profile.day : null;
@@ -214,15 +219,21 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
   const stage = currentStage(journey);
   const stageN = stageIndex(stage) + 1;
 
-  // Collapsed on every route change and card change; listening -> all spoken is one flow and keeps it open.
-  const prevRef = useRef({ pathname, key });
+  // Collapsed on every route change and on every card change the PAGE drives (a capture phase, the proposals page's
+  // screen, the role); listening -> all spoken is one flow and keeps it open. A card change that comes only from a
+  // progress read (the re-read on open, or the one a page write signals) never collapses it: the guide re-reads the
+  // counters the moment it opens, and shutting itself on that read was integration QA D1 (one tap opened it, the
+  // moved card closed it ~50 ms later, a second tap was needed).
+  const pageSig = `${pathname}|${bridge?.state.phase ?? ""}|${proposalsScreen ?? ""}|${webRole ?? ""}`;
+  const prevRef = useRef({ pathname, key, pageSig });
   useEffect(() => {
     const prev = prevRef.current;
-    prevRef.current = { pathname, key };
+    prevRef.current = { pathname, key, pageSig };
     if (prev.pathname === pathname && prev.key === key) return;
+    if (prev.pageSig === pageSig) return; // only the progress data moved: the open card updates in place
     const sameFlow = prev.pathname === pathname && prev.key === "capture_listening" && key === "capture_all_spoken";
     if (!sameFlow) setOpen(false);
-  }, [pathname, key]);
+  }, [pathname, key, pageSig]);
 
   // ── config refetches: once on every debrief phase change (End, preparing -> questions, debrief end), and a
   // 10 s re-poll while the next-day reason is transient (`busy`, `preparing`): a line, never a retry tap. ──────
@@ -271,6 +282,7 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
         openClosingReached={openClosingReached}
         lang={lang}
         bridge={bridge}
+        open={open}
         onAllSpoken={setAllSpokenFor}
       />
     </>
@@ -331,11 +343,13 @@ interface GuideCardViewProps {
   openClosingReached: boolean | undefined;
   lang: Lang;
   bridge: CaptureBridge | null;
+  /** The sheet / panel is open: a registered control is mounted only then (see `RegisteredControl`). */
+  open: boolean;
   /** Called with the session id once every card of the day is marked spoken. */
   onAllSpoken: (sessionId: string) => void;
 }
 
-function GuideCardView({ guideKey, day, openClosingReached, lang, bridge, onAllSpoken }: GuideCardViewProps) {
+function GuideCardView({ guideKey, day, openClosingReached, lang, bridge, open, onAllSpoken }: GuideCardViewProps) {
   const card = guideCard(guideKey, day, { openClosingReached });
   const action = card.action;
   return (
@@ -352,12 +366,18 @@ function GuideCardView({ guideKey, day, openClosingReached, lang, bridge, onAllS
       {action?.kind === "script_card" && bridge ? <ScriptCard lang={lang} bridge={bridge} onAllSpoken={onAllSpoken} /> : null}
       {action?.kind === "jump_closing" && bridge ? <JumpClosing lang={lang} bridge={bridge} /> : null}
       {action?.kind === "jump_tomorrow" && bridge ? <JumpTomorrow lang={lang} bridge={bridge} /> : null}
-      {action?.kind === "reset_demo" ? <RegisteredControl kind="reset_demo" lang={lang} /> : null}
+      {action?.kind === "reset_demo" && open ? <RegisteredControl kind="reset_demo" lang={lang} /> : null}
       {card.footnote ? <p style={FOOTNOTE}>{fill(pick(card.footnote, lang))}</p> : null}
     </article>
   );
 }
 
+/**
+ * A registered control gets only `{ lang }` and reads the Firebase app the page initialised, at its own mount (the
+ * reset control's `useIsDemoOwner` reads `getExistingClientAuth()` in render and nothing re-renders it when the app
+ * appears later). The guide's body is rendered collapsed too, so the control is mounted only once the card is OPEN:
+ * by then the page has long initialised the app, including after a hard reload of an owner page.
+ */
 function RegisteredControl({ kind, lang }: { kind: "reset_demo"; lang: Lang }) {
   const Control = GUIDE_CONTROLS[kind];
   return Control ? <Control lang={lang} /> : null;

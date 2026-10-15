@@ -142,7 +142,8 @@
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  margin: 16px 0;
+  /* The top margin matches .sectionTitle's, so the rows land exactly where the block stood (D2). */
+  margin: 20px 0 16px;
   padding: 28px 20px;
   text-align: center;
 }
@@ -259,6 +260,12 @@
 
 .statusEmpty {
   margin: 0;
+}
+
+/* The cleared status line while Bee6 is asked: one line of height, so the rows under it do not move when the
+   answer fills it (integration QA D2, layout shift at 360 px). */
+.statusHold {
+  min-height: 1.5em;
 }
 
 /* ---- detail ---- */

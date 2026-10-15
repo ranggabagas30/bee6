@@ -85,6 +85,27 @@ function useIsDemoOwner(): { auth: Auth | null; owner: boolean } {
   return { auth, owner: user !== null && owner !== null && owner.user === user && owner.ok };
 }
 
+/**
+ * ONE dialog for the whole page: the owner Home mounts this control at its bottom and the judge guide's card mounts
+ * it again (after-merge wiring, `GUIDE_CONTROLS.reset_demo`). The dialog's "who opened it" is a module-level store
+ * shared by every instance: the instance whose id is here renders the portal, a tap on any other trigger while it is
+ * open does nothing (the dialog is modal and already on screen), and an instance that unmounts mid-dialog (the guide
+ * collapsing) releases it. Only an instance id crosses this seam: no key, token or text.
+ */
+let dialogOwner: string | null = null;
+const dialogListeners = new Set<() => void>();
+function setDialogOwner(next: string | null): void {
+  if (next === dialogOwner) return;
+  dialogOwner = next;
+  for (const l of [...dialogListeners]) l();
+}
+function subscribeDialogOwner(onChange: () => void): () => void {
+  dialogListeners.add(onChange);
+  return () => void dialogListeners.delete(onChange);
+}
+const readDialogOwner = () => dialogOwner;
+const noDialogOwner = () => null;
+
 export interface ResetDemoButtonProps {
   lang: Lang;
   /** Where to go after a reset; tests inject it. Default: a full page load, so every screen and the guide read the fresh sandbox. */
@@ -93,11 +114,19 @@ export interface ResetDemoButtonProps {
 
 export function ResetDemoButton({ lang, navigate = (url) => window.location.assign(url) }: ResetDemoButtonProps) {
   const { auth, owner } = useIsDemoOwner();
-  const [open, setOpen] = useState(false);
+  const id = useId();
+  const open = useSyncExternalStore(subscribeDialogOwner, readDialogOwner, noDialogOwner) === id;
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<FailKey | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const flight = useRef(false);
+  // Unmounting while this instance holds the dialog releases it (nothing else could close it otherwise).
+  useEffect(
+    () => () => {
+      if (dialogOwner === id) setDialogOwner(null);
+    },
+    [id],
+  );
 
   async function confirm() {
     if (flight.current || !auth) return;
@@ -124,7 +153,14 @@ export function ResetDemoButton({ lang, navigate = (url) => window.location.assi
   if (!owner) return null;
   return (
     <div>
-      <Button ref={triggerRef} variant="secondary" block onClick={() => setOpen(true)}>
+      <Button
+        ref={triggerRef}
+        variant="secondary"
+        block
+        onClick={() => {
+          if (dialogOwner === null) setDialogOwner(id);
+        }}
+      >
         {t(lang, "C-home-reset-open")}
       </Button>
       {open
@@ -135,7 +171,7 @@ export function ResetDemoButton({ lang, navigate = (url) => window.location.assi
               failure={failure}
               onConfirm={() => void confirm()}
               onDismiss={() => {
-                setOpen(false);
+                setDialogOwner(null);
                 setFailure(null);
                 triggerRef.current?.focus();
               }}
