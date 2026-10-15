@@ -110,9 +110,10 @@ const PHASE_KEY: Record<UploadView["phase"], DictKey> = {
 export const UPLOAD_TOAST_MS = 3000;
 
 /**
- * True for UPLOAD_TOAST_MS after a success row (or a lost line cleared) that
- * follows a failure: a retry row or an open loss. The failure flag survives the
- * "uploading" phase in between, so retry → uploading → succeeded still toasts.
+ * True for UPLOAD_TOAST_MS after a success row that follows a failure: a retry
+ * row or a raised loss. Dismissing the sticky lost notice is not a recovery.
+ * The failure flag survives the "uploading" phase in between, so
+ * retry → uploading → succeeded still toasts.
  */
 function useRecoveryToast(phase: UploadView["phase"] | undefined, lost: boolean): boolean {
   const [visible, setVisible] = useState(false);
@@ -121,15 +122,12 @@ function useRecoveryToast(phase: UploadView["phase"] | undefined, lost: boolean)
   const succeededShown = phase === "succeeded";
 
   useEffect(() => {
-    // A 2xx that clears the lost line also recovers the upload, even when no
-    // succeeded row is shown (after a stop the succeeded row is not carried).
-    const lossCleared = wasLostRef.current && !lost;
     // R-23: the notice is sticky, so only the moment it is RAISED counts as a failure; otherwise every
     // later routine success under it would toast "Upload working again" again.
     const lossRaised = !wasLostRef.current && lost;
     wasLostRef.current = lost;
     if (phase === "retrying" || lossRaised) failedSinceSuccessRef.current = true;
-    if ((succeededShown || lossCleared) && failedSinceSuccessRef.current) {
+    if (succeededShown && failedSinceSuccessRef.current) {
       failedSinceSuccessRef.current = false;
       setVisible(true);
     }

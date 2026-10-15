@@ -354,6 +354,13 @@ describe("UploadStatusLine recovery toast (C-u-toast, UX-03 section 5.7)", () =>
     expect(screen.queryByTestId("upload-toast")).toBeNull();
   });
 
+  it("Dismiss with no success in between shows no toast", () => {
+    const { rerender } = render(withLang("en", <UploadStatusLine view={null} />));
+    rerender(withLang("en", <UploadStatusLine view={null} lost={true} />));
+    rerender(withLang("en", <UploadStatusLine view={null} lost={false} />));
+    expect(screen.queryByTestId("upload-toast")).toBeNull();
+  });
+
   it("never toasts a routine success", () => {
     render(withLang("en", <UploadStatusLine view={{ phase: "succeeded" }} />));
     expect(screen.queryByTestId("upload-toast")).toBeNull();
