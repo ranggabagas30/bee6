@@ -1494,7 +1494,11 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       fireEvent.click(screen.getByRole("button", { name: "End today" }));
       fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
       await waitFor(() => expect(fetchCaptureConfig).toHaveBeenCalledTimes(1));
-      expect(screen.getByText("Preparing your questions")).toBeTruthy(); // the refreshed config does not undo the local end
+      // The refreshed config does not undo the local end. The debrief mounts closed and shows this line only once
+      // its own questions fetch (stubbed above) has resolved: a chain independent of the config re-fetch awaited
+      // just above, so it is awaited here too (a synchronous read raced it under load).
+      await waitFor(() => expect(screen.getByText("Preparing your questions")).toBeTruthy());
+      expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
     });
 
     it("after Cancel session on a sandbox the config is fetched again", async () => {
