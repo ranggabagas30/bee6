@@ -95,6 +95,18 @@ describe("STAGES and GUIDE data", () => {
     }
   });
 
+  it("the debrief card's example reason names the problem (R-21 F-1 safety net): not reading the order back to the caller", () => {
+    for (const day of [2, 3] as const) {
+      const body = guideCard("debrief_question", day).body[0]!;
+      expect(body.en, `day ${day}`).toBe(
+        "Answer what really happened in today's script. The phone order did happen, so answer Yes and type a few words why, for example: I did not read the order back to the caller.",
+      );
+      expect(body.id, `day ${day}`).toBe(body.en);
+      expect(body.en.length, `day ${day}`).toBeLessThanOrEqual(240);
+      expect(body.en, `day ${day}`).not.toMatch(/big order/);
+    }
+  });
+
   it("the day-1 debrief card never mentions the phone order (day 1 has no phone-order card): answer what really happened", () => {
     const text = guideCard("debrief_question", 1).body.map((b) => b.en).join(" ");
     expect(text).not.toMatch(/phone order/i);
