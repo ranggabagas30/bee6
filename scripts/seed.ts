@@ -102,6 +102,19 @@ export const SeedConfigSchema = z
       .refine((s) => s.created_days_before_last_day === undefined || s.created_date === undefined, {
         message: "sop_v1: set created_days_before_last_day or created_date, not both",
       })
+      .refine((s) => {
+        if (s.created_date === undefined) return true;
+        try {
+          // Validate that the date string is a real calendar date by round-tripping through addDays.
+          // An impossible date like "2026-02-30" will roll over to "2026-03-02" in Date.UTC.
+          return addDays(s.created_date, 0) === s.created_date;
+        } catch {
+          // If addDays fails (e.g., on a truly malformed date that passed the regex), reject it.
+          return false;
+        }
+      }, {
+        message: "sop_v1.created_date is not a calendar date",
+      })
       .optional(),
   })
   .strict();

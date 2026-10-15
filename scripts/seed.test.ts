@@ -333,6 +333,20 @@ describe("R-19: SOP v1 creation date (sop_v1.created_days_before_last_day / crea
     expect(withSop({ steps: STEPS, created_date: "05/10/2026" })).toBe(false);
   });
 
+  it("created_date must be a real calendar date, not an impossible one like 2026-02-30", () => {
+    const base = { ...DEMO_TEMPLATE_SEED };
+    const withSop = (sop_v1: unknown) => SeedConfigSchema.safeParse({ ...base, sop_v1 }).success;
+    // Valid dates
+    expect(withSop({ steps: STEPS, created_date: "2026-02-28" })).toBe(true);
+    expect(withSop({ steps: STEPS, created_date: "2028-02-29" })).toBe(true); // leap year
+    expect(withSop({ steps: STEPS, created_date: "2026-10-05" })).toBe(true);
+    // Invalid dates that pass regex but are impossible
+    expect(withSop({ steps: STEPS, created_date: "2026-02-30" })).toBe(false);
+    expect(withSop({ steps: STEPS, created_date: "2026-13-45" })).toBe(false);
+    expect(withSop({ steps: STEPS, created_date: "2026-00-10" })).toBe(false);
+    expect(withSop({ steps: STEPS, created_date: "2027-02-29" })).toBe(false); // not a leap year
+  });
+
   it("the demo template sets created_days_before_last_day: 6; the plain demo and (by shape) the pilot do not", () => {
     expect(DEMO_TEMPLATE_SEED.sop_v1?.created_days_before_last_day).toBe(6);
     expect(DEMO_TEMPLATE_SEED.sop_v1?.created_date).toBeUndefined();
