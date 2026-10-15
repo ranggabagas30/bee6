@@ -131,6 +131,29 @@ describe("SidePanel", () => {
     expect(document.documentElement.classList.contains("b6-panel-open")).toBe(false);
   });
 
+  it("while collapsed to the pill it pushes every page down below the pill (a class on <html>, top padding on <body>); open or unmounted removes it", () => {
+    const rule = ruleDeclarations(css, ".b6-panel-collapsed body");
+    // pill height + its 14 px top offset + 8 px of air = 70 px
+    expect(tokens["--b6-panel-pill-h"]).toBe("48px");
+    expect(rule["padding-top"]).toBe("calc(var(--b6-panel-pill-h) + 14px + 8px)");
+    expect(rule["padding-right"]).toBeUndefined();
+    expect(ruleDeclarations(css, ".b6-panel-open body")["padding-top"]).toBeUndefined();
+    expect(minHeightPx(ruleDeclarations(css, ".b6-panel-pill"), tokens)).toBe(48);
+    const root = document.documentElement;
+    const { unmount } = render(<Harness />);
+    expect(root.classList.contains("b6-panel-collapsed")).toBe(true);
+    expect(root.classList.contains("b6-panel-open")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: /Open the helper/ }));
+    expect(root.classList.contains("b6-panel-collapsed")).toBe(false);
+    expect(root.classList.contains("b6-panel-open")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Close the helper" }));
+    expect(root.classList.contains("b6-panel-collapsed")).toBe(true);
+    expect(root.classList.contains("b6-panel-open")).toBe(false);
+    unmount();
+    expect(root.classList.contains("b6-panel-collapsed")).toBe(false);
+    expect(root.classList.contains("b6-panel-open")).toBe(false);
+  });
+
   it("has no axe violations collapsed or open", async () => {
     const closed = render(<Harness />);
     expect(await axeViolations(closed.container)).toEqual([]);

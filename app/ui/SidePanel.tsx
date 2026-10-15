@@ -48,6 +48,14 @@ export function SidePanel({ label, open, onOpenChange, openLabel, closeLabel, pi
     return () => root.classList.remove("b6-panel-open");
   }, [open]);
 
+  // While collapsed the pill sits fixed at the top right: tell the page to start below it (see globals.css).
+  useEffect(() => {
+    if (open) return;
+    const root = document.documentElement;
+    root.classList.add("b6-panel-collapsed");
+    return () => root.classList.remove("b6-panel-collapsed");
+  }, [open]);
+
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
     if (e.key === "Escape" && open) onOpenChange(false);
   };

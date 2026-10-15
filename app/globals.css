@@ -96,6 +96,7 @@
   /* layout */
   --b6-tap: 44px;
   --b6-panel-w: 360px;
+  --b6-panel-pill-h: 48px;
   --b6-z-overlay: 40;
   --b6-z-dialog: 50;
 }
@@ -518,13 +519,20 @@
   padding-right: var(--b6-panel-w);
 }
 
+/* While it is collapsed the pill (fixed, top 14, right 20) would sit on the page header controls at laptop widths:
+   SidePanel puts this class on <html> for exactly as long as the pill is shown, and every page starts below it
+   (pill height + its 14 px offset + 8 px of air). The open panel uses the right inset above instead. */
+.b6-panel-collapsed body {
+  padding-top: calc(var(--b6-panel-pill-h) + 14px + 8px);
+}
+
 .b6-panel-pill {
   position: fixed;
   top: 14px;
   right: 20px;
   z-index: var(--b6-z-overlay);
   width: auto;
-  min-height: 48px;
+  min-height: var(--b6-panel-pill-h);
   display: flex;
   align-items: center;
   gap: 10px;
