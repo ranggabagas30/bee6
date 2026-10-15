@@ -169,6 +169,14 @@ describe("STAGES and GUIDE data", () => {
     expect(lines[3]).toMatch(/After the 5 cards.*Jump to closing time unlocks End/);
   });
 
+  it("capture_ready line 4 includes the R-23 stagger rule: No more than 4 people, wait for 5 cards", () => {
+    const line4 = GUIDE.capture_ready.body[3]!.en;
+    expect(line4).toMatch(/No more than 4 people should read cards at the same time/);
+    expect(line4).toMatch(/wait until someone has finished their 5 cards/);
+    expect(line4).toMatch(/about 2 minutes/);
+    expect(line4.length).toBeLessThanOrEqual(240);
+  });
+
   it("capture_listening has a footnote instructing to pause for a slow count of three between lines", () => {
     const card = GUIDE.capture_listening;
     expect(card.footnote?.en).toBe("Pause for a slow count of three between lines.");
