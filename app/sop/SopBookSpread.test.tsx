@@ -117,7 +117,7 @@ describe("SopBookSpread (R-19 PR-9b §9.1)", () => {
     for (const button of contentsButtons()) {
       const visible = button.textContent!.replace(/\s+/g, " ").trim();
       expect(visible).toMatch(/^\S.* \d+ (steps?|langkah)$/);
-      expect(screen.getByRole("button", { name: visible, exact: true })).toBe(button);
+      expect(screen.getByRole("button", { name: visible })).toBe(button);
       expect(button.getAttribute("aria-label")).toBeNull();
     }
   });
@@ -128,7 +128,7 @@ describe("SopBookSpread (R-19 PR-9b §9.1)", () => {
     expect(screen.getByRole("button", { name: "Buka & tutup 2 langkah" })).not.toBeNull();
     for (const button of contentsButtons("Daftar isi")) {
       const visible = button.textContent!.replace(/\s+/g, " ").trim();
-      expect(screen.getByRole("button", { name: visible, exact: true })).toBe(button);
+      expect(screen.getByRole("button", { name: visible })).toBe(button);
     }
   });
 
