@@ -89,8 +89,8 @@ export function capFromEnv(value: string | undefined, fallback: number): number 
  * Killable (a value of 0 refuses): DEMO_MODEL_DAILY_CAP, DEMO_SEGMENT_SANDBOX_CAP, DEMO_SEGMENT_DAILY_CAP,
  * DEMO_GENERATE_SANDBOX_CAP, DEMO_GENERATE_DAILY_CAP, DEMO_REDACT_SANDBOX_CAP.
  * NOT killable (0 falls back to the default, they use capFromEnv): DEMO_FAST_FORWARD_SANDBOX_CAP and
- * DEMO_NEXT_DAY_SANDBOX_CAP (no model spend), DEMO_SANDBOX_DAILY_CAP (sandbox creation, bounded by the outlet-read rule below) and
- * DEMO_SWITCH_IP_CAP (the per-IP switch limit). To stop the demo, turn DEMO_MODE off instead.
+ * DEMO_NEXT_DAY_SANDBOX_CAP (no model spend), DEMO_SANDBOX_DAILY_CAP (sandbox creation, bounded by the outlet-read rule below),
+ * DEMO_SANDBOX_IP_CAP (per-IP sandbox creation limit), and DEMO_SWITCH_IP_CAP (the per-IP switch limit). To stop the demo, turn DEMO_MODE off instead.
  */
 export function killableCapFromEnv(value: string | undefined, fallback: number): number {
   return value?.trim() === "0" ? 0 : capFromEnv(value, fallback);

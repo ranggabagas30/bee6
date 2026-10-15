@@ -285,14 +285,14 @@ describe("issueDemoSession: new sandbox", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("6.T7 counts the IP (salted daily hash) then the day; the 11th sandbox from one IP is 429 rate_limited with retryAfterSeconds; another IP passes", async () => {
+  it("R-22 6.T7 counts the IP (salted daily hash) then the day; the 31st sandbox from one IP is 429 rate_limited with retryAfterSeconds; another IP passes", async () => {
     const f = fakeStore();
     const { d } = deps();
-    for (let i = 0; i < 10; i++) await issueDemoSession(f.store, d, input({ role: "owner" }));
+    for (let i = 0; i < 30; i++) await issueDemoSession(f.store, d, input({ role: "owner" }));
     const err = (await expectCode(issueDemoSession(f.store, d, input({ role: "owner" })), LockedError, "rate_limited")) as LockedError;
     expect(err.statusCode).toBe(429);
     expect(err.retryAfterSeconds).toBe(secondsToUtcMidnight(NOW));
-    expect(f.sandboxes.size).toBe(10);
+    expect(f.sandboxes.size).toBe(30);
     await expect(issueDemoSession(f.store, d, input({ role: "owner" }, { ip: "198.51.100.5" }))).resolves.toBeDefined();
     // the IP counter id is the salted daily hash, never the IP
     const ipBump = f.bumps.find((b) => b.kind === undefined || b.id === ipBucketKey(IP, utcDay(NOW), SALT));
@@ -314,10 +314,30 @@ describe("issueDemoSession: new sandbox", () => {
   it("when the IP limit refuses, the daily counter is not touched and nothing is written", async () => {
     const f = fakeStore();
     const { d } = deps();
-    for (let i = 0; i < 10; i++) await issueDemoSession(f.store, d, input({ role: "owner" }));
+    for (let i = 0; i < 30; i++) await issueDemoSession(f.store, d, input({ role: "owner" }));
     const dayBefore = f.counters.get(`sandbox_day:${utcDay(NOW)}`);
     await expectCode(issueDemoSession(f.store, d, input({ role: "owner" })), LockedError, "rate_limited");
     expect(f.counters.get(`sandbox_day:${utcDay(NOW)}`)).toBe(dayBefore);
+  });
+
+  it("R-22 the 31st sandbox from one IP in a UTC day is refused with 429 rate_limited; the 30th is issued", async () => {
+    const f = fakeStore();
+    const { d } = deps();
+    for (let i = 0; i < 30; i++) await issueDemoSession(f.store, d, input({ role: "owner" }));
+    expect(f.sandboxes.size).toBe(30);
+    const err = (await expectCode(issueDemoSession(f.store, d, input({ role: "owner" })), LockedError, "rate_limited")) as LockedError;
+    expect(err.statusCode).toBe(429);
+    expect(f.sandboxes.size).toBe(30);
+  });
+
+  it("R-22 caps.sandboxIpDaily: 2 refuses the 3rd sandbox from one IP", async () => {
+    const f = fakeStore();
+    const { d } = deps({ caps: { sandboxIpDaily: 2 } });
+    await issueDemoSession(f.store, d, input({ role: "owner" }));
+    await issueDemoSession(f.store, d, input({ role: "owner" }));
+    const err = (await expectCode(issueDemoSession(f.store, d, input({ role: "owner" })), LockedError, "rate_limited")) as LockedError;
+    expect(err.statusCode).toBe(429);
+    expect(f.sandboxes.size).toBe(2);
   });
 
   it("M2 at the daily cap the request is refused with NO write: neither the IP nor the day counter is bumped", async () => {
@@ -334,7 +354,7 @@ describe("issueDemoSession: new sandbox", () => {
   it("counters roll over with the UTC day", async () => {
     const f = fakeStore();
     const { d } = deps();
-    for (let i = 0; i < 10; i++) await issueDemoSession(f.store, d, input({ role: "owner" }));
+    for (let i = 0; i < 30; i++) await issueDemoSession(f.store, d, input({ role: "owner" }));
     await expectCode(issueDemoSession(f.store, d, input({ role: "owner" })), LockedError, "rate_limited");
     await expect(issueDemoSession(f.store, d, input({ role: "owner" }, { now_ms: NOW + 86_400_000 }))).resolves.toBeDefined();
   });

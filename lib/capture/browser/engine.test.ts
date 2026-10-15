@@ -127,6 +127,112 @@ describe("CaptureEngine", () => {
     expect(engine.status.droppedCount).toBe(1);
   });
 
+  describe("R-22 PR-B: jittered backoff and a larger server-error budget", () => {
+    /** One segment against an upload that always answers `status`; returns the waits. */
+    async function runAlwaysFailing(
+      status: number | null,
+      overrides: Partial<CaptureEngineOptions> = {},
+    ) {
+      const waits: number[] = [];
+      const upload = vi.fn(async () => status);
+      const { engine } = makeEngine({
+        upload,
+        sleep: async (ms) => {
+          waits.push(ms);
+        },
+        ...overrides,
+      });
+      engine.pushFrame(frame(0));
+      engine.flush();
+      await engine.drain();
+      return { engine, upload, waits };
+    }
+
+    it("defaults to 8 attempts: 7 server errors keep the segment, a 200 on the 8th delivers it", async () => {
+      let calls = 0;
+      const upload = vi.fn(async () => {
+        calls += 1;
+        return calls <= 7 ? 503 : 200;
+      });
+      const { engine } = makeEngine({ upload });
+      engine.pushFrame(frame(0));
+      engine.flush();
+      await engine.drain();
+
+      expect(upload).toHaveBeenCalledTimes(8);
+      expect(engine.status.droppedCount).toBe(0);
+      expect(engine.status.queuedCount).toBe(0);
+    });
+
+    it("drops only after the 8th server error by default", async () => {
+      const { engine, upload } = await runAlwaysFailing(503);
+
+      expect(upload).toHaveBeenCalledTimes(8);
+      expect(engine.status.droppedCount).toBe(1);
+      expect(engine.status.queuedCount).toBe(0);
+    });
+
+    it("backoff is jittered into [raw/2, raw]: rng=0 gives the lower half bound", async () => {
+      const { waits } = await runAlwaysFailing(503, { rng: () => 0 });
+
+      // raw: 500, 1000, 2000, 4000, 8000, 16000, 30000 (capped); no wait after the dropping 8th.
+      expect(waits).toEqual([250, 500, 1_000, 2_000, 4_000, 8_000, 15_000]);
+    });
+
+    it("backoff with rng just under 1 approaches the raw delay and respects the 30 s cap", async () => {
+      const { waits } = await runAlwaysFailing(503, { rng: () => 0.999 });
+      const raw = [500, 1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
+
+      expect(waits).toHaveLength(7);
+      waits.forEach((ms, i) => {
+        const r = raw[i] ?? 0;
+        expect(ms).toBeGreaterThanOrEqual(r / 2);
+        expect(ms).toBeLessThanOrEqual(r);
+        expect(ms).toBeGreaterThan(r * 0.99);
+      });
+      expect(Math.max(...waits)).toBeLessThanOrEqual(30_000);
+    });
+
+    it("two phones with different rngs do not retry in lockstep", async () => {
+      const seq = (values: number[]) => {
+        let i = 0;
+        return () => values[i++ % values.length] ?? 0;
+      };
+      const a = await runAlwaysFailing(503, { rng: seq([0.1, 0.9, 0.3, 0.7, 0.5, 0.2, 0.8]) });
+      const b = await runAlwaysFailing(503, { rng: seq([0.8, 0.2, 0.6, 0.1, 0.9, 0.4, 0.3]) });
+
+      expect(a.waits).toHaveLength(7);
+      expect(b.waits).toHaveLength(7);
+      // Every one of the first six waits differs (the 30 s cap can tie the last).
+      for (let i = 0; i < 6; i++) expect(a.waits[i]).not.toBe(b.waits[i]);
+    });
+
+    it("uses Math.random by default (waits stay inside the jitter band)", async () => {
+      const { waits } = await runAlwaysFailing(503);
+
+      expect(waits[0]).toBeGreaterThanOrEqual(250);
+      expect(waits[0]).toBeLessThanOrEqual(500);
+    });
+
+    it("network failures (null) never consume the server budget, even 20 in a row (B-4 guard)", async () => {
+      let calls = 0;
+      const upload = vi.fn(async () => {
+        calls += 1;
+        if (calls <= 20) return null;
+        if (calls === 21) return 503;
+        return 200;
+      });
+      const { engine } = makeEngine({ upload });
+      engine.pushFrame(frame(0));
+      engine.flush();
+      await engine.drain();
+
+      expect(upload).toHaveBeenCalledTimes(22);
+      expect(engine.status.droppedCount).toBe(0);
+      expect(engine.status.queuedCount).toBe(0);
+    });
+  });
+
   it("survives a long offline outage without dropping any segment (finding #2)", async () => {
     // Connectivity is down (null) for many attempts, then recovers. With small
     // segments the 10-min capacity is never reached, so nothing is pruned and
