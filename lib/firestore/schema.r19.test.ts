@@ -99,7 +99,7 @@ describe("R-19 ProposalSchema focus_category and generator.floor_version", () =>
       location: "global",
       agent_version: "proposal-v1",
       gate_version: "pgate-v1" as const,
-      library_version: { interventions: 1, rubric: 1 },
+      library_version: { interventions: 2, rubric: 1 },
       sop_version_id: "demo-outlet:v1",
       attempts: 0,
     },

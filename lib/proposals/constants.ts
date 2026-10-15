@@ -36,8 +36,21 @@ export const MAX_CITED_EVIDENCE = 10;
 export const REVIEW_AFTER_DAYS_MIN = 7;
 export const REVIEW_AFTER_DAYS_MAX = 28;
 
-/** Single-flight proposal generation lease, per outlet. */
-export const PROPOSAL_LEASE_MS = 180_000;
+/** R-20: per-fact quote of the thread's own (scrubbed, redacted) lines offered to the Proposal agent. Code points. */
+export const FACT_EXCERPT_MAX_CHARS = 320;
+
+/** R-20: per-fact staff debrief note (corrections.reason_text, already scrubbed + redacted). Code points. */
+export const FACT_REASON_MAX_CHARS = 200;
+
+/** R-20: an Ask tries at most this many READY focus categories when the model declines the first. */
+export const MAX_FOCUS_PER_ASK = 2;
+
+/**
+ * Single-flight proposal generation lease, per outlet. Must outlast the worst-case Ask: up to
+ * `MAX_FOCUS_PER_ASK` focuses x (a model call raced at `MODEL_TIMEOUT_MS` + 5 s, then a slow decline) = 260 s,
+ * so an expired lease can never let a second Ask commit a duplicate doc. Fits Cloud Run's 300 s request timeout.
+ */
+export const PROPOSAL_LEASE_MS = 300_000;
 
 export const MODEL_TIMEOUT_MS = 60_000;
 

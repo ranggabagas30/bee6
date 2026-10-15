@@ -1,4 +1,4 @@
-# config/interventions.yaml — intervention library v0 (file `version: 1`), the real library R-08 loads.
+# config/interventions.yaml — intervention library v0 (file `version: 2`), the real library R-08 loads.
 #
 # AUTHORED BY: tech-lead (AI agent), 10 Oct 2026, on Rangga's explicit instruction (R-08 §11 Q-2 (c)).
 # NOT authored or reviewed by Tiffany yet. Tiffany (T-502) reviews and revises it; her revision bumps `version`.
@@ -15,7 +15,7 @@
 # keep `definition` and `when_to_use` ≤ 600 characters each. Category names in `when_to_use` are the fact
 # categories in config/categories*.yaml (the metric is a daily count of one of them).
 kind: interventions
-version: 1
+version: 2
 status: final
 entries:
   - id: change_quantity_time
@@ -89,3 +89,17 @@ entries:
       about how something was said, customers not told about a wait or a substitute, or staff repeatedly asking
       a supervisor what to say (COMPLAINT, CUSTOMER_SERVICE or STAFF_CONSULT facts). Not for problems where the
       work itself, not the words, has to change.
+  - id: add_record_step
+    label_en: Add record step
+    label_id: Tambah langkah pencatatan
+    definition: >-
+      Add a step that writes down one fact at the moment it is known (a time, a quantity, an order, a
+      name of an item) in a place the next person can read it: a label, a board, an order slip, a log.
+      The record is what later steps and other roles rely on; the step says who writes it, what, where
+      and when.
+    when_to_use: >-
+      Facts on two or more dates show staff unable to answer a question, repeating or losing information,
+      or working from memory because something was not written down (for example not knowing when a tray
+      was baked, or an order taken by phone not read back or noted). Usually a NEW step, or target the
+      existing step where the fact first becomes known. Not for counting unmet requests (use
+      capture_unmet_request) and not for how something is said (use add_script).

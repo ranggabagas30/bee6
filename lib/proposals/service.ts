@@ -22,10 +22,16 @@ import {
 } from "@/lib/firestore/schema";
 import { LibraryNotReadyError, type ProposalLibrary } from "@/config/proposal-library";
 import { PROPOSAL_AGENT_VERSION, PROPOSAL_MODEL, type ProposalModel } from "@/lib/agents/proposal-agent";
-import { FLOOR_VERSION, MODEL_TIMEOUT_MS, PROPOSAL_GATE_VERSION, PROPOSAL_LEASE_MS } from "@/lib/proposals/constants";
+import {
+  FLOOR_VERSION,
+  MAX_FOCUS_PER_ASK,
+  MODEL_TIMEOUT_MS,
+  PROPOSAL_GATE_VERSION,
+  PROPOSAL_LEASE_MS,
+} from "@/lib/proposals/constants";
 import { evidenceReadWindow, validateRange } from "@/lib/proposals/range";
 import { aliasCandidates, selectCandidates, type Candidate, type ProposalThreadRow } from "@/lib/proposals/candidates";
-import { checkEvidenceFloor, evidenceByCategory, followupFor } from "@/lib/proposals/precheck";
+import { checkEvidenceFloor, evidenceByCategory, followupFor, type CategoryEvidence } from "@/lib/proposals/precheck";
 import { reviewDate } from "@/lib/proposals/baseline";
 import { countWindow } from "@/lib/reviews/metric";
 import { checkProposal, type ProposalGateContext } from "@/lib/proposals/proposal-gate";
@@ -66,6 +72,8 @@ export interface ProposalStore {
   getThreads(
     ids: readonly string[],
   ): Promise<Map<string, Pick<ProposalThreadRow, "status" | "excluded_from_evidence" | "label_source" | "summary" | "first_line_start_ms">>>;
+  /** R-20: `corrections/{threadQuestionId(thread_id)}` with answer "yes", outlet-checked -> reason_text. Missing, TTL-deleted, "no" or malformed -> absent. */
+  listStaffReasons(threadIds: readonly string[]): Promise<Map<string, string>>;
   listStaffScrubNames(): Promise<string[]>;
   /** Transaction on `proposal_locks/{outlet}`: missing/malformed/expired -> write a new lease, return its token; live -> null. */
   acquireLock(nowMs: number, leaseMs: number): Promise<string | null>;
@@ -237,11 +245,11 @@ async function generateProposalCore(
     const cited = new Set(openProposals.flatMap((p) => (p.content?.evidence ?? []).map((e) => e.thread_id)));
     const taken = new Set(openProposals.map((p) => p.focus_category).filter((c): c is WorkCategory => !!c));
     const pool = all.filter((c) => !cited.has(c.thread_id));
-    const focus = evidenceByCategory(pool).find((r) => r.ready && !taken.has(r.category)) ?? null;
+    // R-20: every READY, not-taken category in floor order. The Ask tries at most MAX_FOCUS_PER_ASK of them: a decline
+    // moves on to the next one, a proposal or a gate block stops the loop.
+    const readyRows = evidenceByCategory(pool).filter((r) => r.ready && !taken.has(r.category));
 
     // 8b. evidence floor (hard rule #10: plain code decides sufficiency; the model is never called for this).
-    // `floor` = the numbers written on the doc: the focus row's when a proposal is made, else the pool's first row.
-    const floor = focus ? { passed: true, facts: focus.facts, dates: focus.dates } : checkEvidenceFloor(pool);
     const location = deps.resolveLocation(PROPOSAL_MODEL);
     const generatorOf = (attempts: number) => ({
       kind: deps.generatorKind,
@@ -254,7 +262,9 @@ async function generateProposalCore(
       attempts,
       floor_version: FLOOR_VERSION,
     });
-    if (!focus) {
+    if (readyRows.length === 0) {
+      // `floor` = the pool's first row: the closest problem, which the result card shows ("1 of 2 days").
+      const floor = checkEvidenceFloor(pool);
       const proposalId = deps.newId();
       const proposal: Proposal = ProposalSchema.parse({
         outlet_id: outlet.outlet_id,
@@ -298,120 +308,168 @@ async function generateProposalCore(
       return { proposal: toProposalView(stored, summaries, library, sop, tz), reused: false };
     }
 
-    // 8c. prompt + schema.
-    if (constraints === null) constraints = await store.listConstraints();
-    const constraintAliased = constraints.map((c, i) => ({ alias: `C${i + 1}`, c }));
-    const focused = pool.filter((c) => c.category === focus.category);
-    const aliased = aliasCandidates(focused);
-    const aliasToCandidate = new Map(aliased.map(({ alias, c }) => [alias, c]));
+    // 8c. shared inputs. Staff names are read here (not after the model call) so every quote and note offered to the
+    // model is re-scrubbed at prompt time (hard rule #7), covering a staff member added after the thread was labelled.
+    const constraintList: Constraint[] = constraints ?? (await store.listConstraints());
+    const constraintAliased = constraintList.map((c, i) => ({ alias: `C${i + 1}`, c }));
+    const staffNames = await store.listStaffScrubNames();
 
-    const wireCtx: WireContext = {
-      interventionIds: library.interventions.entries.map((e) => e.id),
-      rubricIds: library.rubric.entries.map((e) => e.id),
-      evidenceAliases: aliased.map((a) => a.alias),
-      stepIds: sop.steps.map((s) => s.step_id),
-      constraintAliases: constraintAliased.map((c) => c.alias),
-    };
-    const wireSchema = buildProposalWireSchema(wireCtx);
-    const jsonSchema = generateProposalJsonSchema(wireCtx);
-    const basePrompt = buildProposalPrompt({
-      library,
-      sop,
-      aliased,
-      constraints: constraintAliased.map(({ alias, c }) => ({ alias, text: c.text })),
-      range,
-    });
-    const gateCtx: ProposalGateContext = {
-      aliasToCandidate,
-      interventionIds: new Set(wireCtx.interventionIds),
-      rubricIds: new Set(wireCtx.rubricIds),
-      stepIds: new Set(wireCtx.stepIds),
-      constraintAliases: wireCtx.constraintAliases,
-    };
-
-    // 8d. attempt loop (at most 2).
     const inputTokens: Array<number | null> = [];
     const outputTokens: Array<number | null> = [];
     const thoughtsTokens: Array<number | null> = [];
 
-    let wire: ProposalWire | null = null;
-    let passedGateChecks: ReturnType<typeof checkProposal>["checks"] | null = null;
-    let lastFailureCode = "invalid_output";
+    type GateChecks = ReturnType<typeof checkProposal>["checks"];
+    type FocusOutcome =
+      | { kind: "proposed"; wire: ProposalWire; passedGateChecks: GateChecks; aliasToCandidate: Map<string, Candidate>; attempts: number }
+      | { kind: "declined"; reason: ProposalWire["no_proposal_reason"]; attempts: number }
+      | { kind: "blocked"; rule: string; checks: GateChecks; attempts: number };
+
+    /** One focus category: prompt + wire schema, then the attempt loop (at most 2). Model errors twice -> throws 503. */
+    const tryFocus = async (focus: CategoryEvidence): Promise<FocusOutcome> => {
+      const focused = pool.filter((c) => c.category === focus.category);
+      const aliased = aliasCandidates(focused);
+      const aliasToCandidate = new Map(aliased.map(({ alias, c }) => [alias, c]));
+
+      // R-20: the staff's confirmed debrief notes for exactly the facts offered. An enrichment: if the read fails the
+      // Ask still runs without notes (log by class); it never fails open on redaction (the scrub below is mandatory).
+      let reasons = new Map<string, string>();
+      try {
+        reasons = await store.listStaffReasons(aliased.map(({ c }) => c.thread_id));
+      } catch (err) {
+        console.error("[proposal] staff reasons unavailable", {
+          outlet_id: outlet.outlet_id,
+          error_class: err instanceof Error ? err.constructor.name : "unknown",
+        });
+      }
+      const scrubbedAliased = aliased.map(({ alias, c }) => ({
+        alias,
+        c: { ...c, excerpt: scrubStaffNames(c.excerpt, staffNames) },
+      }));
+      const scrubbedReasons = new Map([...reasons].map(([id, text]) => [id, scrubStaffNames(text, staffNames)]));
+
+      const wireCtx: WireContext = {
+        interventionIds: library.interventions.entries.map((e) => e.id),
+        rubricIds: library.rubric.entries.map((e) => e.id),
+        evidenceAliases: aliased.map((a) => a.alias),
+        stepIds: sop.steps.map((s) => s.step_id),
+        constraintAliases: constraintAliased.map((c) => c.alias),
+      };
+      const wireSchema = buildProposalWireSchema(wireCtx);
+      const jsonSchema = generateProposalJsonSchema(wireCtx);
+      const basePrompt = buildProposalPrompt({
+        library,
+        sop,
+        aliased: scrubbedAliased,
+        reasons: scrubbedReasons,
+        constraints: constraintAliased.map(({ alias, c }) => ({ alias, text: c.text })),
+        range,
+      });
+      const gateCtx: ProposalGateContext = {
+        aliasToCandidate,
+        interventionIds: new Set(wireCtx.interventionIds),
+        rubricIds: new Set(wireCtx.rubricIds),
+        stepIds: new Set(wireCtx.stepIds),
+        constraintAliases: wireCtx.constraintAliases,
+      };
+
+      let lastFailureCode = "invalid_output";
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        const userContent =
+          attempt === 1
+            ? basePrompt.userContent
+            : `${basePrompt.userContent}\nPREVIOUS ANSWER REJECTED: ${lastFailureCode}. Fix it or answer no_proposal.`;
+
+        const res = await deps.model(
+          { systemInstruction: basePrompt.systemInstruction, userContent, responseJsonSchema: jsonSchema },
+          { project: deps.project, location, timeoutMs: MODEL_TIMEOUT_MS },
+        );
+
+        if (res.kind === "error") {
+          console.error("[proposal] model error", {
+            outlet_id: outlet.outlet_id,
+            error_class: res.error_class,
+            attempt,
+          });
+          if (attempt === 2) {
+            throw new ServiceUnavailableError("Proposal model unavailable");
+          }
+          lastFailureCode = "invalid_output";
+          continue;
+        }
+
+        inputTokens.push(res.usage.input_tokens);
+        outputTokens.push(res.usage.output_tokens);
+        thoughtsTokens.push(res.usage.thoughts_tokens);
+
+        let parsedJson: unknown;
+        try {
+          parsedJson = JSON.parse(res.text);
+        } catch {
+          if (attempt === 2) return { kind: "blocked", rule: "schema_invalid", checks: [], attempts: attempt };
+          lastFailureCode = "invalid_output";
+          continue;
+        }
+        const parsed = wireSchema.safeParse(parsedJson);
+        if (!parsed.success) {
+          if (attempt === 2) return { kind: "blocked", rule: "schema_invalid", checks: [], attempts: attempt };
+          lastFailureCode = "invalid_output";
+          continue;
+        }
+
+        if (parsed.data.decision === "no_proposal") {
+          return { kind: "declined", reason: parsed.data.no_proposal_reason, attempts: attempt };
+        }
+
+        const gateResult = checkProposal(parsed.data, gateCtx);
+        if (!gateResult.passed) {
+          if (attempt === 2) {
+            // `rule` is the gate's own fired rule (never schema_invalid here).
+            return { kind: "blocked", rule: gateResult.fired_rule ?? "invalid_output", checks: gateResult.checks, attempts: attempt };
+          }
+          lastFailureCode = gateResult.fired_rule ?? "invalid_output";
+          continue;
+        }
+
+        return { kind: "proposed", wire: parsed.data, passedGateChecks: gateResult.checks, aliasToCandidate, attempts: attempt };
+      }
+      // Unreachable: attempt 2 always returns or throws above.
+      throw new Error("generateProposal: attempt loop ended with no decision");
+    };
+
+    // 8d. focus loop (R-20): a decline tries the next READY category; a proposal or a block stops.
     let attempts = 0;
+    let focusesTried = 0;
+    let focus: CategoryEvidence = readyRows[0]!;
+    let wire: ProposalWire | null = null;
+    let passedGateChecks: GateChecks | null = null;
+    let aliasToCandidate = new Map<string, Candidate>();
     let modelDeclined: { reason: ProposalWire["no_proposal_reason"] } | null = null;
     let blockedRule: string | null = null;
-    /** Only set when `blockedRule` came from the gate itself (never schema_invalid). */
-    let lastGateChecks: ReturnType<typeof checkProposal>["checks"] | null = null;
+    let lastGateChecks: GateChecks | null = null;
 
-    for (attempts = 1; attempts <= 2; attempts++) {
-      const userContent =
-        attempts === 1
-          ? basePrompt.userContent
-          : `${basePrompt.userContent}\nPREVIOUS ANSWER REJECTED: ${lastFailureCode}. Fix it or answer no_proposal.`;
-
-      const res = await deps.model(
-        { systemInstruction: basePrompt.systemInstruction, userContent, responseJsonSchema: jsonSchema },
-        { project: deps.project, location, timeoutMs: MODEL_TIMEOUT_MS },
-      );
-
-      if (res.kind === "error") {
-        console.error("[proposal] model error", {
-          outlet_id: outlet.outlet_id,
-          error_class: res.error_class,
-          attempt: attempts,
-        });
-        if (attempts === 2) {
-          throw new ServiceUnavailableError("Proposal model unavailable");
-        }
-        lastFailureCode = "invalid_output";
+    for (const row of readyRows.slice(0, MAX_FOCUS_PER_ASK)) {
+      const outcome = await tryFocus(row);
+      attempts += outcome.attempts;
+      focusesTried += 1;
+      if (outcome.kind === "declined") {
+        modelDeclined = { reason: outcome.reason }; // the LAST decline's reason is the one recorded
         continue;
       }
-
-      inputTokens.push(res.usage.input_tokens);
-      outputTokens.push(res.usage.output_tokens);
-      thoughtsTokens.push(res.usage.thoughts_tokens);
-
-      let parsedJson: unknown;
-      try {
-        parsedJson = JSON.parse(res.text);
-      } catch {
-        if (attempts === 2) {
-          blockedRule = "schema_invalid";
-          break;
-        }
-        lastFailureCode = "invalid_output";
-        continue;
+      modelDeclined = null;
+      focus = row;
+      if (outcome.kind === "blocked") {
+        blockedRule = outcome.rule;
+        lastGateChecks = outcome.checks.length > 0 ? outcome.checks : null;
+      } else {
+        wire = outcome.wire;
+        passedGateChecks = outcome.passedGateChecks;
+        aliasToCandidate = outcome.aliasToCandidate;
       }
-      const parsed = wireSchema.safeParse(parsedJson);
-      if (!parsed.success) {
-        if (attempts === 2) {
-          blockedRule = "schema_invalid";
-          break;
-        }
-        lastFailureCode = "invalid_output";
-        continue;
-      }
-
-      if (parsed.data.decision === "no_proposal") {
-        modelDeclined = { reason: parsed.data.no_proposal_reason };
-        break;
-      }
-
-      const gateResult = checkProposal(parsed.data, gateCtx);
-      if (!gateResult.passed) {
-        if (attempts === 2) {
-          blockedRule = gateResult.fired_rule;
-          lastGateChecks = gateResult.checks;
-          break;
-        }
-        lastFailureCode = gateResult.fired_rule ?? "invalid_output";
-        continue;
-      }
-
-      wire = parsed.data;
-      passedGateChecks = gateResult.checks;
       break;
     }
+
+    // `floor` = the numbers written on the doc: the row of the focus that produced a proposal or a block, else the first ready row.
+    const floor = { passed: true, facts: focus.facts, dates: focus.dates };
 
     const totalInputTokens = sumUsage(inputTokens);
     const totalOutputTokens = sumUsage(outputTokens);
@@ -432,6 +490,7 @@ async function generateProposalCore(
         model: PROPOSAL_MODEL,
         location,
         attempts: statedAttempts,
+        focuses_tried: focusesTried,
         input_tokens: totalInputTokens,
         output_tokens: totalOutputTokens,
         thoughts_tokens: totalThoughtsTokens,
@@ -451,7 +510,7 @@ async function generateProposalCore(
         focus_category: null,
         generator: generatorOf(attempts),
         gate: { passed: false, fired_rule: null, checks: [] },
-        counts: { candidate_facts: floor.facts, candidate_dates: floor.dates, constraints: constraints.length },
+        counts: { candidate_facts: floor.facts, candidate_dates: floor.dates, constraints: constraintList.length },
         suppression: { reason: "model_declined", model_reason: modelDeclined.reason, followup: followupFor(pool) },
         content: null,
         created_at_ms: input.now_ms,
@@ -480,7 +539,7 @@ async function generateProposalCore(
         focus_category: focus.category,
         generator: generatorOf(attempts),
         gate: { passed: false, fired_rule: blockedRule, checks: lastGateChecks ?? [] },
-        counts: { candidate_facts: floor.facts, candidate_dates: floor.dates, constraints: constraints.length },
+        counts: { candidate_facts: floor.facts, candidate_dates: floor.dates, constraints: constraintList.length },
         suppression: null,
         content: null,
         created_at_ms: input.now_ms,
@@ -505,8 +564,7 @@ async function generateProposalCore(
       throw new Error("generateProposal: attempt loop ended with no decision");
     }
 
-    // 8e. redaction.
-    const staffNames = await store.listStaffScrubNames();
+    // 8e. redaction (staff names were read at 8c).
     const rawTexts: Record<string, string> = {
       change_title: wire.change_title,
       change_text: wire.change_text,
@@ -540,7 +598,7 @@ async function generateProposalCore(
         focus_category: focus.category,
         generator: generatorOf(attempts),
         gate: { passed: false, fired_rule: "output_too_long", checks: [] },
-        counts: { candidate_facts: floor.facts, candidate_dates: floor.dates, constraints: constraints.length },
+        counts: { candidate_facts: floor.facts, candidate_dates: floor.dates, constraints: constraintList.length },
         suppression: null,
         content: null,
         created_at_ms: input.now_ms,
@@ -583,7 +641,7 @@ async function generateProposalCore(
           focus_category: focus.category,
           generator: generatorOf(attempts),
           gate: { passed: false, fired_rule: "evidence_stale", checks: [] },
-          counts: { candidate_facts: floor.facts, candidate_dates: floor.dates, constraints: constraints!.length },
+          counts: { candidate_facts: floor.facts, candidate_dates: floor.dates, constraints: constraintList.length },
           suppression: null,
           content: null,
           created_at_ms: input.now_ms,
@@ -626,7 +684,7 @@ async function generateProposalCore(
           fired_rule: null,
           checks: [...passedGateChecks!, { rule: "evidence_stale", passed: true }],
         },
-        counts: { candidate_facts: floor.facts, candidate_dates: floor.dates, constraints: constraints!.length },
+        counts: { candidate_facts: floor.facts, candidate_dates: floor.dates, constraints: constraintList.length },
         suppression: null,
         content: {
           intervention_id: wire!.intervention_id!,
@@ -646,7 +704,7 @@ async function generateProposalCore(
           review_after_days: wire!.review_after_days!,
           review_date: reviewDate(today, wire!.review_after_days!),
           evidence,
-          constraint_ids_acknowledged: constraints!.map((c) => c.constraint_id),
+          constraint_ids_acknowledged: constraintList.map((c) => c.constraint_id),
           censored_floor: true,
         },
         created_at_ms: input.now_ms,

@@ -926,7 +926,7 @@ export const ProposalSchema = z
         gate_version: z.literal("pgate-v1"),
         library_version: z.object({ interventions: z.number().int(), rubric: z.number().int() }).strict(),
         sop_version_id: z.string().min(1),
-        attempts: z.number().int().min(0).max(2), // 0 = suppressed before any model call
+        attempts: z.number().int().min(0).max(4), // 0 = suppressed before any model call; R-20: up to MAX_FOCUS_PER_ASK focuses x 2 attempts
         /** R-19: the evidence-floor rule that produced this doc; absent = the old any-category floor. */
         floor_version: z.literal("floor-v2").optional(),
       })

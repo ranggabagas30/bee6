@@ -6,6 +6,7 @@ import { firestoreConstraintStore } from "@/lib/firestore/constraint-store";
 import { firestoreTickStore } from "@/lib/firestore/tick-store";
 import {
   CaptureSessionSchema,
+  CorrectionSchema,
   ProposalLockSchema,
   ProposalSchema,
   SopVersionSchema,
@@ -17,6 +18,7 @@ import {
 } from "@/lib/firestore/schema";
 import type { AttributionSession } from "@/lib/day/attribution";
 import { MAX_CONSTRAINTS, MAX_THREADS_READ } from "@/lib/proposals/constants";
+import { threadQuestionId } from "@/lib/pipeline/question-ids";
 import type { FreshThread, ProposalStore } from "@/lib/proposals/service";
 import type { ProposalThreadRow } from "@/lib/proposals/candidates";
 
@@ -44,6 +46,7 @@ const THREAD_FIELDS = [
   "first_line_start_ms",
   "summary",
   "fields",
+  "lines", // R-20: the work lines behind the candidate excerpt (already scrubbed + redacted at write time)
 ] as const;
 
 const THREAD_ROW_SHAPE = ThreadSchema.pick({
@@ -58,7 +61,7 @@ const THREAD_ROW_SHAPE = ThreadSchema.pick({
   first_line_start_ms: true,
   summary: true,
   fields: true,
-});
+}).extend({ lines: ThreadSchema.shape.lines.optional() }); // optional: a row without lines is still evidence, just without a quote
 
 const FRESH_THREAD_FIELDS = ["outlet_id", "status", "excluded_from_evidence", "label_source"] as const;
 const FRESH_THREAD_SHAPE = ThreadSchema.pick({
@@ -84,6 +87,11 @@ const GET_THREADS_SHAPE = ThreadSchema.pick({
   summary: true,
   first_line_start_ms: true,
 });
+
+/** R-20 `listStaffReasons`: only what the prompt needs; never `answered_device_id`. */
+const CORRECTION_REASON_FIELDS = ["outlet_id", "thread_id", "answer", "reason_text"] as const;
+const CORRECTION_REASON_SHAPE = CorrectionSchema.pick({ outlet_id: true, thread_id: true, answer: true, reason_text: true });
+const GET_ALL_CHUNK = 100;
 
 const PROPOSAL_LOCK_COLLECTION = COLLECTIONS.proposalLocks;
 
@@ -229,6 +237,31 @@ export function firestoreProposalStore(outletId: string, db: Firestore = adminDb
           summary: result.data.summary,
           first_line_start_ms: result.data.first_line_start_ms,
         });
+      }
+      return map;
+    },
+
+    async listStaffReasons(threadIds) {
+      const map = new Map<string, string>();
+      if (threadIds.length === 0) return map;
+      const col = db.collection(COLLECTIONS.corrections);
+      for (let i = 0; i < threadIds.length; i += GET_ALL_CHUNK) {
+        const chunk = threadIds.slice(i, i + GET_ALL_CHUNK);
+        const snaps = await db.getAll(...chunk.map((id) => col.doc(threadQuestionId(id))), {
+          fieldMask: [...CORRECTION_REASON_FIELDS],
+        });
+        for (const snap of snaps) {
+          if (!snap.exists) continue;
+          const result = CORRECTION_REASON_SHAPE.safeParse(snap.data());
+          if (!result.success) {
+            logSkippedDoc("correction", snap.id);
+            continue;
+          }
+          const { outlet_id, thread_id, answer, reason_text } = result.data;
+          if (outlet_id !== outletId || answer !== "yes" || thread_id === null) continue;
+          if (snap.id !== threadQuestionId(thread_id)) continue; // the doc id is the question id: keyed by the thread it names
+          map.set(thread_id, reason_text);
+        }
       }
       return map;
     },

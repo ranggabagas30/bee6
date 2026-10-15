@@ -16,7 +16,7 @@ import { ThinkingLevel, type GenerateContentResponseUsageMetadata } from "@googl
  */
 
 export const PROPOSAL_MODEL = "gemini-3.5-flash";
-export const PROPOSAL_AGENT_VERSION = "proposal-v2";
+export const PROPOSAL_AGENT_VERSION = "proposal-v3"; // R-20: facts carry a quote and the staff note; rule 8 defines a repeated problem
 
 /**
  * Thinking ruling (tech-lead, 10 Oct; Task 0 saw default thinking ON: 284

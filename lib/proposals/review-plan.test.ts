@@ -40,7 +40,7 @@ function makeProposal(overrides: Record<string, unknown> = {}): Proposal {
       location: "global",
       agent_version: "proposal-v1",
       gate_version: "pgate-v1",
-      library_version: { interventions: 1, rubric: 1 },
+      library_version: { interventions: 2, rubric: 1 },
       sop_version_id: "o1:v1",
       attempts: 1,
     },
