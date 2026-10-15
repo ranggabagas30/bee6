@@ -71,10 +71,9 @@ const DAY_1: readonly ScriptCardV2[] = DaySchema.parse([
     id: "d1-c3",
     title: same("A customer at the display"),
     lines: [
-      customer("Excuse me, are these egg tarts fresh today? When were they baked?"),
-      staff("Hmm, I am not sure when this tray was baked. There is no time written on the tray. I think it was this morning, but I cannot say for sure."),
-      customer("Okay, that is fine. I will take two, please."),
-      staff("Two egg tarts. Here you go, thank you."),
+      customer("Excuse me, I have a question about the egg tarts on the display. Are they fresh today, and do you know what time they were baked?"),
+      staff("I am not sure when this tray was baked, because nobody writes the baking time on the tray. I think it was this morning, but I cannot say for sure."),
+      customer("Okay, no problem, I will take two anyway."),
     ],
     problem: "A",
   },
@@ -103,21 +102,19 @@ const DAY_2: readonly ScriptCardV2[] = DaySchema.parse([
     id: "d2-c2",
     title: same("A customer at the counter"),
     lines: [
-      customer("Hi. Is this egg tart from today? How fresh is it?"),
-      staff("Sorry, I do not know exactly when it was baked. Nobody wrote the baking time on the tray. It should be from this morning."),
-      customer("Alright, I will have one."),
-      staff("One egg tart. Enjoy."),
+      customer("Hi there. I would like to ask about this egg tart before I buy it. Is it from today, and do you know what time it was baked?"),
+      staff("Sorry, I do not know exactly when it was baked. Nobody wrote the baking time on the tray, so I can only guess that it was this morning."),
+      customer("Alright, that is fine, I will have one anyway."),
     ],
     problem: "A",
   },
   {
-    // Rewrite round 1 (14 Oct, Task R): lines 1 and 3 changed so the label model hears a phone call.
+    // Rewrite round 2 (15 Oct, R-20): combined first two lines, problem now explicit in first staff line.
     id: "d2-c3",
     title: same("A phone order"),
     lines: [
-      staff("Hello, Demo Bakery, thanks for calling."),
-      staff("Yes, fifty egg tarts for tomorrow morning. Pickup at ten. Okay, got it. Thank you, bye."),
-      staff("I did not read that phone order back to the caller. I will write it down later."),
+      staff("Hello, Demo Bakery, thanks for calling. Yes, we can do fifty egg tarts for tomorrow morning, pickup at ten o'clock. Okay, got it. Thank you, bye."),
+      staff("That was a phone order for tomorrow. I did not read the order back to the caller before hanging up, so I am not sure the quantity and the pickup time are right."),
     ],
     problem: "B",
   },
@@ -143,13 +140,12 @@ const DAY_3: readonly ScriptCardV2[] = DaySchema.parse([
     problem: null,
   },
   {
-    // Rewrite round 1 (14 Oct): same reason as d2-c3.
+    // Rewrite round 2 (15 Oct, R-20): combined first two lines, problem now explicit in first staff line.
     id: "d3-c2",
     title: same("Another phone order"),
     lines: [
-      staff("Hello, Demo Bakery, thanks for calling."),
-      staff("A birthday cake and twenty croissants for Saturday. Pickup at three or four? Sorry, the phone line is bad. Okay, four o'clock. Bye."),
-      staff("I hung up without reading the order back to the caller. I hope I got the time right."),
+      staff("Hello, Demo Bakery, thanks for calling. A birthday cake and twenty croissants for Saturday. Pickup at three or four? Sorry, the line is bad. Okay, four o'clock. Bye."),
+      staff("That was another phone order. I hung up without reading the order back to the caller, so I hope I got the pickup time right."),
     ],
     problem: "B",
   },
