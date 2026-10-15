@@ -120,7 +120,7 @@ export function singleDateIsBlockedByFloor(): boolean {
 }
 
 export type RunResult =
-  | { kind: "propose_pass"; cited?: string[] }
+  | { kind: "propose_pass"; cited?: string[]; intervention?: string }
   | { kind: "propose_blocked"; rule: string }
   | { kind: "declined"; reason: string | null }
   | { kind: "invalid_output" }
@@ -160,7 +160,7 @@ async function runOne(input: CaseInput, deps: EvalDeps): Promise<RunResult> {
     if (parsed.data.decision === "no_proposal") return { kind: "declined", reason: parsed.data.no_proposal_reason };
     const gate = checkProposal(parsed.data, input.gateCtx);
     if (!gate.passed) return { kind: "propose_blocked", rule: gate.fired_rule ?? "unknown" };
-    return { kind: "propose_pass", cited: [...new Set(parsed.data.evidence)] };
+    return { kind: "propose_pass", cited: [...new Set(parsed.data.evidence)], intervention: parsed.data.intervention_id ?? undefined };
   }
   return { kind: "model_error", error_class: errorClass };
 }
@@ -208,7 +208,7 @@ export function exitCodeFor(report: EvalReport): 0 | 2 | 3 {
   return 0;
 }
 
-/** Counts, fired rules, error classes and aliases only: never fixture or model text. */
+/** Counts, fired rules, error classes, library ids and aliases only: never fixture or model text. */
 export function formatReport(report: EvalReport): string {
   const lines: string[] = [];
   for (const c of report.cases) {
@@ -220,7 +220,7 @@ export function formatReport(report: EvalReport): string {
       if (r.kind === "propose_blocked") return [`run ${i + 1}: gate rule ${r.rule}`];
       if (r.kind === "declined") return [`run ${i + 1}: declined ${r.reason ?? "-"}`];
       if (r.kind === "model_error") return [`run ${i + 1}: error ${r.error_class}`];
-      if (r.kind === "propose_pass") return [`run ${i + 1}: cited ${(r.cited ?? []).join(",")}`];
+      if (r.kind === "propose_pass") return [`run ${i + 1}: cited ${(r.cited ?? []).join(",")} via ${r.intervention ?? "-"}`];
       return [`run ${i + 1}: invalid output`];
     });
     lines.push(...notes.map((n) => `             ${n}`));
