@@ -141,6 +141,19 @@ describe("ThreadActions", () => {
     expect(screen.getByRole("dialog")).not.toBeNull();
   });
 
+  it("a stale 409 (NOT_REVIEWABLE) on a label save closes the dialog, shows the stale line under the row and calls onDone", async () => {
+    authedPostJson.mockResolvedValueOnce({ kind: "conflict", code: "NOT_REVIEWABLE" });
+    const onDone = vi.fn();
+    renderActions(thread({ category: "ROUTINE_OPS" }), onDone);
+    fireEvent.click(screen.getByText("Change category"));
+    fireEvent.click(screen.getByRole("radio", { name: /Customer complaint/ }));
+    fireEvent.click(screen.getByText("Save label"));
+    const status = await screen.findByRole("status");
+    expect(status.textContent).toBe("This note changed. Showing the latest.");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
   it("GATE_BLOCKED -> shows the blocked message, onDone not called", async () => {
     authedPostJson.mockResolvedValueOnce({ kind: "conflict", code: "GATE_BLOCKED" });
     const onDone = vi.fn();

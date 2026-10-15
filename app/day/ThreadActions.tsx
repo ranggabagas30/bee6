@@ -26,7 +26,8 @@ import { ChangeLabelDialog } from "@/app/day/ChangeLabelDialog";
  * R-19 PR-12a (plan 9.5, board D2-02b): "Change category" opens
  * `ChangeLabelDialog` (a radio list of the work categories) instead of the
  * inline select; Save sends the same `override` action. A failed save
- * (GATE_BLOCKED, generic) shows inside the dialog, which stays open.
+ * (GATE_BLOCKED, generic) shows inside the dialog, which stays open; a
+ * stale 409 closes it and shows the stale line under the row instead.
  */
 
 const BUTTON_ROW_STYLE: CSSProperties = { display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 };
@@ -88,7 +89,10 @@ export function ThreadActions({
       return;
     }
     if (result.kind === "conflict") {
+      // The row is stale: close any open panel so the stale line shows under the row (not inside a dialog
+      // that would otherwise stay open over the reloaded day), then reload.
       setPhase("idle");
+      setPanel("none");
       setMessageKey("C-act-stale");
       onDone();
       return;
