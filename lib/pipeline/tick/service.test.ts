@@ -326,9 +326,10 @@ describe("runTick", () => {
     expect(store.releaseLeaseCalls).toBe(1);
   });
 
-  it("logs exactly {device_id, skew_newest_ms, skew_min_ms, n_segments} per device, no text content", async () => {
+  it("logs exactly {device_id, skew_newest_ms, skew_min_ms, n_segments} per device, no text content, only when skew > threshold", async () => {
     const store = new FakeTickStore();
     store.devices = [{ outlet_id: "o1", device_id: "d1" }];
+    // Small skew (2 s): should NOT trigger log (R-21 O-6)
     store.segmentsByDevice.set("o1:d1", [makeSegment({ segId: "s1", deviceStartMs: 0, text: "irrelevant text" })]);
 
     const logSkew = vi.fn();
@@ -343,11 +344,35 @@ describe("runTick", () => {
       logSkew,
     });
 
+    // Small skew does not trigger log
+    expect(logSkew).not.toHaveBeenCalled();
+  });
+
+  it("R-21 O-6: logs only when |skew_newest_ms| > 60_000 or skew_min_ms < -60_000", async () => {
+    const store = new FakeTickStore();
+    store.devices = [{ outlet_id: "o1", device_id: "d1" }];
+    // Skew larger than 60s: should trigger log
+    const largeSkewMs = 65_000;
+    const seg = makeSegment({ segId: "s1", deviceStartMs: 0, text: "text" });
+    seg.received_at = new Date(new Date(seg.device_end).getTime() + largeSkewMs).toISOString();
+    store.segmentsByDevice.set("o1:d1", [seg]);
+
+    const logSkew = vi.fn();
+    const generate = vi.fn().mockResolvedValue(fakeResponse(JSON.stringify(okWire())));
+
+    await runTick({
+      store,
+      now_ms: SERVER_NOW_MS,
+      config: CONFIG,
+      labelClientDeps: { generate, project: "proj", resolveLocation: () => "global" },
+      sanitizeDeps: { redactBatch: async (texts) => [...texts] },
+      logSkew,
+    });
+
+    // Large skew triggers log
     expect(logSkew).toHaveBeenCalledTimes(1);
     const entry = logSkew.mock.calls[0]![0];
-    expect(Object.keys(entry).sort()).toEqual(["device_id", "n_segments", "skew_min_ms", "skew_newest_ms"].sort());
-    expect(entry.device_id).toBe("d1");
-    expect(JSON.stringify(entry)).not.toMatch(/irrelevant/i);
+    expect(Math.abs(entry.skew_newest_ms)).toBeGreaterThan(60_000);
   });
 
   it("skips a device whose lease is already held by a concurrent tick", async () => {

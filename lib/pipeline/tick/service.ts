@@ -62,6 +62,8 @@ export const DEFAULT_LEASE_TTL_MS = 1_800_000; // 30 min — see comment above
 export const DEFAULT_LABEL_MAX_ATTEMPTS = 3;
 /** Covers every category's GRACE_MS (max 600s, TRAINING) with margin. */
 export const DEFAULT_RECENT_THREAD_LOOKBACK_MS = 900_000;
+/** R-21 O-6: log skew only when above this threshold to reduce noise from normal ~2–4 s upload latency. */
+export const SKEW_LOG_THRESHOLD_MS = 60_000;
 
 export interface RunTickDeps {
   store: TickStore;
@@ -623,12 +625,15 @@ async function processOneDevice(
       };
     }
 
-    logSkew({
-      device_id,
-      skew_newest_ms: asOf.skew_newest_ms,
-      skew_min_ms: asOf.skew_min_ms,
-      n_segments: segments.length,
-    });
+    // R-21 O-6: only log when skew exceeds threshold
+    if (Math.abs(asOf.skew_newest_ms) > SKEW_LOG_THRESHOLD_MS || asOf.skew_min_ms < -SKEW_LOG_THRESHOLD_MS) {
+      logSkew({
+        device_id,
+        skew_newest_ms: asOf.skew_newest_ms,
+        skew_min_ms: asOf.skew_min_ms,
+        n_segments: segments.length,
+      });
+    }
 
     const windows = buildWindows({
       device_id,
