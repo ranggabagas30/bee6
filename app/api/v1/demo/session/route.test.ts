@@ -29,6 +29,7 @@ beforeEach(() => {
   process.env.DEMO_IP_SALT = "route-test-salt-0123";
   delete process.env.DEMO_XFF_FROM_END;
   delete process.env.DEMO_SANDBOX_DAILY_CAP;
+  delete process.env.DEMO_SANDBOX_IP_CAP;
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -36,6 +37,7 @@ afterEach(() => {
   delete process.env.DEMO_IP_SALT;
   delete process.env.DEMO_XFF_FROM_END;
   delete process.env.DEMO_SANDBOX_DAILY_CAP;
+  delete process.env.DEMO_SANDBOX_IP_CAP;
   hoisted.mint.mockReset();
   hoisted.storeFactory.mockReset();
   consoleSpies.forEach((s) => s.mockClear());
@@ -230,8 +232,8 @@ describe("on-demo", () => {
     noStore(res);
   });
 
-  it("429 with Retry-After and code rate_limited on the 11th sandbox from one IP; another IP passes", async () => {
-    for (let i = 0; i < 10; i++) expect((await POST(req({ role: "owner" }))).status).toBe(200);
+  it("R-22 429 with Retry-After and code rate_limited on the 31st sandbox from one IP; another IP passes", async () => {
+    for (let i = 0; i < 30; i++) expect((await POST(req({ role: "owner" }))).status).toBe(200);
     const res = await POST(req({ role: "owner" }));
     expect(res.status).toBe(429);
     expect((await res.json()).error.code).toBe("rate_limited");
@@ -268,6 +270,24 @@ describe("on-demo", () => {
     delete process.env.DEMO_SWITCH_IP_CAP;
   });
 
+  it("R-22 DEMO_SANDBOX_IP_CAP=2 refuses the 3rd sandbox from one IP", async () => {
+    process.env.DEMO_SANDBOX_IP_CAP = "2";
+    expect((await POST(req({ role: "owner" }))).status).toBe(200);
+    expect((await POST(req({ role: "owner" }))).status).toBe(200);
+    const res = await POST(req({ role: "owner" }));
+    expect(res.status).toBe(429);
+    expect((await res.json()).error.code).toBe("rate_limited");
+    delete process.env.DEMO_SANDBOX_IP_CAP;
+  });
+
+  it("R-22 garbage DEMO_SANDBOX_IP_CAP falls back to the default (30)", async () => {
+    process.env.DEMO_SANDBOX_IP_CAP = "not-a-number";
+    for (let i = 0; i < 30; i++) expect((await POST(req({ role: "owner" }))).status).toBe(200);
+    const res = await POST(req({ role: "owner" }));
+    expect(res.status).toBe(429);
+    delete process.env.DEMO_SANDBOX_IP_CAP;
+  });
+
   it("6.T10 503 demo_not_ready with an empty DEMO_IP_SALT (never an unsalted hash) and with a missing template", async () => {
     process.env.DEMO_IP_SALT = "";
     const noSalt = await POST(req({ role: "owner" }));
@@ -296,8 +316,8 @@ describe("on-demo", () => {
     for (const ip of ["203.0.113.50", "6.6.6.6"]) expect(everything).not.toContain(ip);
   });
 
-  it("H1 a hostile client-supplied prefix cannot choose the bucket: ten requests with ten different forged heads share one", async () => {
-    for (let i = 0; i < 10; i++) {
+  it("H1 a hostile client-supplied prefix cannot choose the bucket: thirty requests with thirty different forged heads share one", async () => {
+    for (let i = 0; i < 30; i++) {
       expect((await POST(req({ role: "owner" }, { "x-forwarded-for": `a, b${i}, 198.51.100.77` }))).status).toBe(200);
     }
     const res = await POST(req({ role: "owner" }, { "x-forwarded-for": "9.9.9.9, a, 198.51.100.77" }));

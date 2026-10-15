@@ -40,6 +40,7 @@ Suggested path:
    In the demo you can start at any time of day and end at once, and a session hard-stops 5 minutes after
    Start. Then answer the debrief questions. Up to two questions from the fictional bakery's earlier days are added to
    your own, marked "Earlier day".
+   If several people start at the same time, start about a minute apart; the transcription service shares capacity.
 2. **Supervisor.** Use the bar at the top to switch role inside the same sandbox. Open the day record, the questions
    queue and Proposals. Generate a proposal (the sandbox's earlier days already hold enough evidence), then mark it
    feasible or reject it.
@@ -166,7 +167,7 @@ Names only; values live in Secret Manager or an untracked `.env.local`, never in
 - Internal routes: `TASKS_INVOKER_SA`, `PIPELINE_TICK_AUDIENCE`, `REVIEW_RUN_AUDIENCE`
 - Thread action handles: `THREAD_HANDLE_KEY`
 - Demo project only (`DEMO_MODE` must stay unset on the pilot): `DEMO_MODE`, `DEMO_IP_SALT`, `DEMO_XFF_FROM_END`,
-  `DEMO_SWITCH_IP_CAP`, `DEMO_SANDBOX_DAILY_CAP`, `DEMO_SEGMENT_SANDBOX_CAP`, `DEMO_SEGMENT_DAILY_CAP`,
+  `DEMO_SWITCH_IP_CAP`, `DEMO_SANDBOX_DAILY_CAP`, `DEMO_SANDBOX_IP_CAP` (default 30), `DEMO_SEGMENT_SANDBOX_CAP`, `DEMO_SEGMENT_DAILY_CAP`,
   `DEMO_GENERATE_SANDBOX_CAP`, `DEMO_GENERATE_DAILY_CAP`, `DEMO_FAST_FORWARD_SANDBOX_CAP`,
   `DEMO_REDACT_SANDBOX_CAP`, `DEMO_MODEL_DAILY_CAP`
 - Development only: `NEXT_PUBLIC_DEV_CONTROLS` (the `/capture` dev panel; keep it off everywhere real)

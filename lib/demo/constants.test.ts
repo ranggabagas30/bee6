@@ -14,7 +14,7 @@ describe("demo constants (R-12 Task 4.1)", () => {
   });
 
   it("the documented defaults (Q-3)", () => {
-    expect(C.SANDBOX_IP_DAILY).toBe(10);
+    expect(C.SANDBOX_IP_DAILY).toBe(30); // R-22: was 10
     expect(C.SANDBOX_DAILY).toBe(300);
     expect(C.SWITCHES_PER_SANDBOX).toBe(30);
     expect(C.GENERATE_PER_SANDBOX).toBe(8);
