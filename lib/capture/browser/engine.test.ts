@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   CaptureEngine,
+  HEAD_BUDGET_MS,
   type CaptureEngineOptions,
 } from "@/lib/capture/browser/engine";
 import { SegmentBatcher } from "@/lib/capture/batcher";
@@ -13,9 +14,20 @@ function frame(ts: number, n = 1_600, speech = true) {
   return { ts, speech, samples: new Float32Array(n).fill(0.1) };
 }
 
-/** Builds an engine with instant sleep + deterministic seg ids + fakes. */
+/**
+ * Builds an engine with a fake clock (R-23): `sleep` advances the clock
+ * instantly, `now` reads it, so a time-based head budget runs deterministically
+ * with no real waiting. Deterministic seg ids + fakes.
+ */
 function makeEngine(overrides: Partial<CaptureEngineOptions> = {}) {
   let seq = 0;
+  let t = 0;
+  const clock = {
+    now: () => t,
+    advance: (ms: number) => {
+      t += ms;
+    },
+  };
   const encode = vi.fn(async () => ({
     bytes: new Uint8Array([1, 2, 3]),
     contentType: "audio/webm;codecs=opus",
@@ -27,13 +39,16 @@ function makeEngine(overrides: Partial<CaptureEngineOptions> = {}) {
     upload,
     sampleRate: SR,
     genSegId: () => `seg-${++seq}`,
-    sleep: async () => {},
+    now: clock.now,
+    sleep: async (ms) => {
+      t += ms;
+    },
     // Small cap so a couple of speech frames + flush produce a segment fast.
     batcher: new SegmentBatcher({ maxSegmentMs: 1_000, prerollMs: 0 }),
     onStatusChange: (s) => statuses.push(s.state),
     ...overrides,
   });
-  return { engine, encode, upload, statuses };
+  return { engine, encode, upload, statuses, clock };
 }
 
 describe("CaptureEngine", () => {
@@ -69,7 +84,7 @@ describe("CaptureEngine", () => {
       calls += 1;
       return calls < 3 ? null : 200; // two network errors, then success
     });
-    const { engine } = makeEngine({ upload, maxAttempts: 6 });
+    const { engine } = makeEngine({ upload });
     engine.pushFrame(frame(0));
     engine.flush();
     await engine.drain();
@@ -79,15 +94,87 @@ describe("CaptureEngine", () => {
     expect(engine.status.state).toBe("listening");
   });
 
-  it("gives up after maxAttempts on a repeated SERVER error and counts it", async () => {
+  it("drops the head once it has been refused for headBudgetMs", async () => {
     const upload = vi.fn(async () => 500 as number | null); // poison 5xx
-    const { engine } = makeEngine({ upload, maxAttempts: 3 });
+    const { engine, clock } = makeEngine({
+      upload,
+      headBudgetMs: 10_000,
+      rng: () => 1,
+    });
+    engine.pushFrame(frame(0));
+    engine.flush();
+    await engine.drain();
+
+    // waits 500, 1000, 2000, 4000, 8000 -> the drop lands on the 6th attempt at t = 15.5 s
+    expect(upload).toHaveBeenCalledTimes(6);
+    expect(clock.now()).toBeGreaterThanOrEqual(10_000);
+    expect(engine.status.queuedCount).toBe(0);
+    expect(engine.status.droppedCount).toBe(1);
+  });
+
+  it("a 200 inside the budget delivers the segment", async () => {
+    let calls = 0;
+    const upload = vi.fn(async () => {
+      calls += 1;
+      return calls <= 4 ? 503 : 200;
+    });
+    const { engine } = makeEngine({ upload, headBudgetMs: 60_000 });
+    engine.pushFrame(frame(0));
+    engine.flush();
+    await engine.drain();
+
+    expect(upload).toHaveBeenCalledTimes(5);
+    expect(engine.status.queuedCount).toBe(0);
+    expect(engine.status.droppedCount).toBe(0);
+    expect(engine.status.state).toBe("listening");
+  });
+
+  it("the budget counts the PUT's own duration", async () => {
+    // Each PUT takes 30 s before answering 503. Attempt 1 errors at t = 30 s
+    // (the budget starts), attempt 2 at 60.5 s (elapsed 30.5 s, kept), attempt 3
+    // at 91.5 s (elapsed 61.5 s >= 50 s) -> dropped on the 3rd attempt.
+    const slow: { advance: (ms: number) => void } = { advance: () => {} };
+    const upload = vi.fn(async () => {
+      slow.advance(30_000);
+      return 503 as number | null;
+    });
+    const { engine, clock } = makeEngine({
+      upload,
+      headBudgetMs: 50_000,
+      rng: () => 1,
+    });
+    slow.advance = clock.advance;
     engine.pushFrame(frame(0));
     engine.flush();
     await engine.drain();
 
     expect(upload).toHaveBeenCalledTimes(3);
-    expect(engine.status.queuedCount).toBe(0);
+    expect(clock.now()).toBe(91_500);
+    expect(engine.status.droppedCount).toBe(1);
+  });
+
+  it("headBudgetMs 0 drops on the first server error", async () => {
+    const upload = vi.fn(async () => 503 as number | null);
+    const { engine } = makeEngine({ upload, headBudgetMs: 0 });
+    engine.pushFrame(frame(0));
+    engine.flush();
+    await engine.drain();
+
+    expect(upload).toHaveBeenCalledTimes(1);
+    expect(engine.status.droppedCount).toBe(1);
+  });
+
+  it("default budget is 240 s: a permanently refused head is dropped on the 14th attempt", async () => {
+    expect(HEAD_BUDGET_MS).toBe(240_000);
+    const upload = vi.fn(async () => 503 as number | null);
+    const { engine, clock } = makeEngine({ upload, rng: () => 1 });
+    engine.pushFrame(frame(0));
+    engine.flush();
+    await engine.drain();
+
+    // waits 0.5+1+2+4+8+16 = 31.5 s, then 30 s each: attempt 14 lands at 241.5 s
+    expect(upload).toHaveBeenCalledTimes(14);
+    expect(clock.now()).toBe(241_500);
     expect(engine.status.droppedCount).toBe(1);
   });
 
@@ -96,7 +183,7 @@ describe("CaptureEngine", () => {
     // consume the server-error attempt budget. Before the fix, `count`
     // counted every attempt including network failures, so a single 5xx
     // arriving right after reconnect could push an already-high count past
-    // maxAttempts and drop the segment immediately.
+    // the budget and drop the segment immediately.
     let calls = 0;
     const upload = vi.fn(async () => {
       calls += 1;
@@ -104,7 +191,7 @@ describe("CaptureEngine", () => {
       if (calls === 6) return 500; // one real server error after reconnecting
       return 200; // then it recovers
     });
-    const { engine } = makeEngine({ upload, maxAttempts: 3 });
+    const { engine } = makeEngine({ upload, headBudgetMs: 5_000 });
     engine.pushFrame(frame(0));
     engine.flush();
     await engine.drain();
@@ -114,31 +201,21 @@ describe("CaptureEngine", () => {
     expect(engine.status.queuedCount).toBe(0);
   });
 
-  it("still drops a segment after maxAttempts worth of REAL server errors (B-4 regression guard)", async () => {
-    // The fix must not loosen the ceiling for genuine repeated 5xx/429s —
-    // only network failures should be excluded from the budget.
-    const upload = vi.fn(async () => 503 as number | null);
-    const { engine } = makeEngine({ upload, maxAttempts: 3 });
-    engine.pushFrame(frame(0));
-    engine.flush();
-    await engine.drain();
-
-    expect(upload).toHaveBeenCalledTimes(3);
-    expect(engine.status.droppedCount).toBe(1);
-  });
-
-  describe("R-22 PR-B: jittered backoff and a larger server-error budget", () => {
+  describe("R-22 PR-B / R-23: jittered backoff under a time-based budget", () => {
     /** One segment against an upload that always answers `status`; returns the waits. */
     async function runAlwaysFailing(
       status: number | null,
       overrides: Partial<CaptureEngineOptions> = {},
     ) {
       const waits: number[] = [];
+      let t = 0; // fake clock: the budget is time-based, so sleeping must advance it
       const upload = vi.fn(async () => status);
       const { engine } = makeEngine({
         upload,
+        now: () => t,
         sleep: async (ms) => {
           waits.push(ms);
+          t += ms;
         },
         ...overrides,
       });
@@ -148,44 +225,21 @@ describe("CaptureEngine", () => {
       return { engine, upload, waits };
     }
 
-    it("defaults to 8 attempts: 7 server errors keep the segment, a 200 on the 8th delivers it", async () => {
-      let calls = 0;
-      const upload = vi.fn(async () => {
-        calls += 1;
-        return calls <= 7 ? 503 : 200;
-      });
-      const { engine } = makeEngine({ upload });
-      engine.pushFrame(frame(0));
-      engine.flush();
-      await engine.drain();
-
-      expect(upload).toHaveBeenCalledTimes(8);
-      expect(engine.status.droppedCount).toBe(0);
-      expect(engine.status.queuedCount).toBe(0);
-    });
-
-    it("drops only after the 8th server error by default", async () => {
-      const { engine, upload } = await runAlwaysFailing(503);
-
-      expect(upload).toHaveBeenCalledTimes(8);
-      expect(engine.status.droppedCount).toBe(1);
-      expect(engine.status.queuedCount).toBe(0);
-    });
-
     it("backoff is jittered into [raw/2, raw]: rng=0 gives the lower half bound", async () => {
       const { waits } = await runAlwaysFailing(503, { rng: () => 0 });
 
-      // raw: 500, 1000, 2000, 4000, 8000, 16000, 30000 (capped); no wait after the dropping 8th.
-      expect(waits).toEqual([250, 500, 1_000, 2_000, 4_000, 8_000, 15_000]);
+      // raw: 500, 1000, 2000, 4000, 8000, 16000, 30000 (capped, then stays capped).
+      expect(waits.slice(0, 7)).toEqual([250, 500, 1_000, 2_000, 4_000, 8_000, 15_000]);
+      expect(waits.slice(6).every((ms) => ms === 15_000)).toBe(true);
     });
 
     it("backoff with rng just under 1 approaches the raw delay and respects the 30 s cap", async () => {
       const { waits } = await runAlwaysFailing(503, { rng: () => 0.999 });
       const raw = [500, 1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
 
-      expect(waits).toHaveLength(7);
+      expect(waits.length).toBeGreaterThanOrEqual(7);
       waits.forEach((ms, i) => {
-        const r = raw[i] ?? 0;
+        const r = raw[Math.min(i, raw.length - 1)] ?? 0;
         expect(ms).toBeGreaterThanOrEqual(r / 2);
         expect(ms).toBeLessThanOrEqual(r);
         expect(ms).toBeGreaterThan(r * 0.99);
@@ -201,8 +255,8 @@ describe("CaptureEngine", () => {
       const a = await runAlwaysFailing(503, { rng: seq([0.1, 0.9, 0.3, 0.7, 0.5, 0.2, 0.8]) });
       const b = await runAlwaysFailing(503, { rng: seq([0.8, 0.2, 0.6, 0.1, 0.9, 0.4, 0.3]) });
 
-      expect(a.waits).toHaveLength(7);
-      expect(b.waits).toHaveLength(7);
+      expect(a.waits.length).toBeGreaterThanOrEqual(7);
+      expect(b.waits.length).toBeGreaterThanOrEqual(7);
       // Every one of the first six waits differs (the 30 s cap can tie the last).
       for (let i = 0; i < 6; i++) expect(a.waits[i]).not.toBe(b.waits[i]);
     });
@@ -214,7 +268,7 @@ describe("CaptureEngine", () => {
       expect(waits[0]).toBeLessThanOrEqual(500);
     });
 
-    it("network failures (null) never consume the server budget, even 20 in a row (B-4 guard)", async () => {
+    it("network failures (null) never start or consume the budget, even 20 in a row (B-4 guard)", async () => {
       let calls = 0;
       const upload = vi.fn(async () => {
         calls += 1;
@@ -222,7 +276,7 @@ describe("CaptureEngine", () => {
         if (calls === 21) return 503;
         return 200;
       });
-      const { engine } = makeEngine({ upload });
+      const { engine } = makeEngine({ upload, headBudgetMs: 5_000 });
       engine.pushFrame(frame(0));
       engine.flush();
       await engine.drain();
@@ -247,7 +301,7 @@ describe("CaptureEngine", () => {
     });
     const { engine } = makeEngine({
       upload,
-      maxAttempts: 3, // would have dropped after 3 with the old bug
+      headBudgetMs: 0, // would drop on the first server error; null never counts
       batcher: new SegmentBatcher({ maxSegmentMs: 1_000, prerollMs: 0 }),
     });
     // Three short segments queued during the outage.
