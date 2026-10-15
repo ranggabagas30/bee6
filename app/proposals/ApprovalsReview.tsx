@@ -178,7 +178,9 @@ export function ApprovalsReview({
 }) {
   const [reloadKey, setReloadKey] = useState(0);
   const list = useProposalList(auth, reloadKey);
-  const [pick, setPick] = useState<string | null>(initialId ?? null);
+  // `from_url`: the pick came from `?id=` (opens only a still-undecided proposal); a tap in the order may open a
+  // decided one read-only.
+  const [pick, setPick] = useState<{ id: string; from_url: boolean } | null>(initialId ? { id: initialId, from_url: true } : null);
   const [notice, setNotice] = useState<DictKey | null>(null);
   // Bumped on every settled decision so the answer takes focus again even when the message key repeats
   // (reject → reject, or two 409s): keying the effect on `notice` alone would not re-run it.
@@ -198,9 +200,10 @@ export function ApprovalsReview({
   const hasApproved = queue.some((i) => i.proposal.status === "approved");
   const sop = useSopOverview(auth, hasApproved, reloadKey);
 
-  const picked = pick === null ? null : (queue.find((i) => i.proposal.proposal_id === pick) ?? null);
-  // The picked proposal left the queue (a reload after a decision elsewhere): back to the recommended order. Adjusted
-  // during render, the React-recommended way to derive state from a data change (no effect, no extra frame).
+  const picked = pick === null ? null : (queue.find((i) => i.proposal.proposal_id === pick.id && !(pick.from_url && isOwnerDecided(i))) ?? null);
+  // The picked proposal left the queue (a reload after a decision elsewhere), or `?id=` named an unknown or already
+  // decided proposal: back to the recommended order. Adjusted during render, the React-recommended way to derive
+  // state from a data change (no effect, no extra frame).
   if (pick !== null && data && picked === null) setPick(null);
   const current = picked ?? firstUndecided(queue);
   const done = queue.filter(isOwnerDecided).length;
@@ -268,7 +271,7 @@ export function ApprovalsReview({
                 sop={sop}
                 onPick={(id) => {
                   setNotice(null);
-                  setPick(id);
+                  setPick({ id, from_url: false });
                 }}
               />
               <div className={styles.main}>

@@ -210,6 +210,17 @@ describe("ApprovalsReview — review in order", () => {
     expect(screen.queryByRole("heading", { level: 2, name: "Proposal 2" })).toBeNull();
   });
 
+  it("the id of an owner-decided proposal falls back to the first undecided (not the read-only view)", async () => {
+    proposalsResult = ok([item(2, "awaiting_owner")], [item(1, "approved", { owner: APPROVED })]);
+    render(<ApprovalsReview auth={AUTH} lang="en" initialId={uuid(1)} />);
+    expect(await screen.findByRole("heading", { level: 2, name: "Proposal 2" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { level: 2, name: "Proposal 1" })).toBeNull();
+    expect(screen.getByRole("button", { name: /^#2 Proposal 2/ }).getAttribute("aria-current")).toBe("true");
+    expect(screen.getByRole("button", { name: /^#1 Proposal 1/ }).getAttribute("aria-current")).toBeNull();
+    expect(screen.queryByText(/^Decided /)).toBeNull();
+    expect(screen.getByRole("button", { name: "Approve" })).toBeTruthy();
+  });
+
   it("reports the screen to the bridge", async () => {
     const onBridge = vi.fn();
     renderScreen(onBridge);
