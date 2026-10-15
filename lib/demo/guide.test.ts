@@ -40,18 +40,19 @@ describe("STAGES and GUIDE data", () => {
     for (const s of STAGES) expect(s.title.id.trim().length).toBeGreaterThan(0);
   });
 
-  it("has one card per guide key, every card valid against the strict schema (1-3 body lines)", () => {
+  it("has one card per guide key, every card valid against the strict schema (1-4 body lines)", () => {
     expect(Object.keys(GUIDE).sort()).toEqual([...GUIDE_KEYS].sort());
     for (const key of GUIDE_KEYS) {
       const card = GUIDE[key];
       expect(() => GuideCardSchema.parse(card), key).not.toThrow();
-      expect(card.body.length, key).toBeLessThanOrEqual(3);
+      expect(card.body.length, key).toBeLessThanOrEqual(4);
     }
   });
 
-  it("the schema refuses a 4-line body and an unknown action kind", () => {
+  it("the schema allows up to 4 body lines but refuses 5 or more, and refuses an unknown action kind", () => {
     const ok = GUIDE.entry;
-    expect(GuideCardSchema.safeParse({ ...ok, body: [...ok.body, ok.body[0], ok.body[0], ok.body[0]] }).success).toBe(false);
+    expect(GuideCardSchema.safeParse({ ...ok, body: [...ok.body, ok.body[0]] }).success).toBe(true); // 4 lines: allowed
+    expect(GuideCardSchema.safeParse({ ...ok, body: [...ok.body, ok.body[0], ok.body[0]] }).success).toBe(false); // 5 lines: refused
     expect(GuideCardSchema.safeParse({ ...ok, action: { kind: "nope" } }).success).toBe(false);
     expect(GuideCardSchema.safeParse({ ...ok, extra: 1 }).success).toBe(false);
   });
@@ -139,11 +140,26 @@ describe("STAGES and GUIDE data", () => {
     for (const key of GUIDE_KEYS) {
       for (const day of [1, 2, 3, null] as const) {
         expect(() => GuideCardSchema.parse(guideCard(key, day)), `${key} day ${day}`).not.toThrow();
-        expect(guideCard(key, day).body.length, `${key} day ${day}`).toBeLessThanOrEqual(3);
+        expect(guideCard(key, day).body.length, `${key} day ${day}`).toBeLessThanOrEqual(4);
       }
       expect(guideCard(key, null), key).toBe(GUIDE[key]);
       if (key !== "debrief_question" && key !== "debrief_done") expect(guideCard(key, 1), key).toBe(GUIDE[key]);
     }
+  });
+
+  it("capture_ready has 4 body lines guiding the judge to read one line at a time with pauses", () => {
+    const card = GUIDE.capture_ready;
+    expect(card.body).toHaveLength(4);
+    const lines = card.body.map((b) => b.en);
+    expect(lines[0]).toMatch(/Tap Start.*one script card at a time/);
+    expect(lines[1]).toMatch(/Read each card aloud and play every voice.*speaker tag is not spoken/);
+    expect(lines[2]).toMatch(/Read one line at a time.*count slowly to three/);
+    expect(lines[3]).toMatch(/After the 5 cards.*Jump to closing time unlocks End/);
+  });
+
+  it("capture_listening has a footnote instructing to pause for a slow count of three between lines", () => {
+    const card = GUIDE.capture_listening;
+    expect(card.footnote?.en).toBe("Pause for a slow count of three between lines.");
   });
 });
 

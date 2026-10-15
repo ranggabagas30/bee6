@@ -8,6 +8,9 @@ import {
 } from "@/lib/pipeline/tick/service";
 import type {
   ActiveDevice,
+  DiscardCleanupPlan,
+  DiscardTombstone,
+  GhostCandidates,
   RecentThreadSummary,
   SegmentForTick,
   StoredThread,
@@ -70,6 +73,7 @@ function makeSegment(input: {
   deviceStartMs: number;
   text: string;
   durationMs?: number;
+  sessionId?: string | null;
 }): SegmentForTick {
   const durationMs = input.durationMs ?? 15_000;
   return {
@@ -78,6 +82,7 @@ function makeSegment(input: {
     device_end: new Date(input.deviceStartMs + durationMs).toISOString(),
     received_at: new Date(input.deviceStartMs + durationMs).toISOString(), // no latency, no clock skew
     lines: [{ text: input.text, start: 0, end: durationMs / 1000 }],
+    session_id: input.sessionId ?? null,
   };
 }
 
@@ -107,8 +112,50 @@ class FakeTickStore implements TickStore {
   expireOpenQuestionsResult = 0;
   expireOpenQuestionsError: Error | null = null;
 
+  // R-20 (Cancel-B): discard tombstones, ghost candidates, and a call log to assert ordering.
+  tombstonesByDevice = new Map<string, DiscardTombstone[]>();
+  ghostCandidatesByDevice = new Map<string, GhostCandidates>();
+  listGhostCandidatesCalls: Array<{ outletId: string; deviceId: string; sinceMs: number }> = [];
+  applyDiscardCleanupCalls: Array<{ outletId: string; deviceId: string; plan: DiscardCleanupPlan; nowMs: number }> = [];
+  /** Doc ids "deleted" by `applyDiscardCleanup`, by collection. */
+  deleted = { threads: [] as string[], questions: [] as string[], corrections: [] as string[] };
+  listDiscardedSessionsError: Error | null = null;
+  applyDiscardCleanupError: Error | null = null;
+  /** Ordered store-call log: "listDiscardedSessions", "applyDiscardCleanup", "expireOpenQuestions", "listSegmentsForDevice", "listRecentThreads". */
+  callLog: string[] = [];
+  /** `storedThreads` ids at the moment `listRecentThreads` ran (proves a ghost was gone before labelling). */
+  threadIdsAtListRecent: string[][] = [];
+
   private key(outletId: string, deviceId: string): string {
     return `${outletId}:${deviceId}`;
+  }
+
+  async listDiscardedSessions(outletId: string, deviceId: string): Promise<DiscardTombstone[]> {
+    this.callLog.push("listDiscardedSessions");
+    if (this.listDiscardedSessionsError) throw this.listDiscardedSessionsError;
+    return (this.tombstonesByDevice.get(this.key(outletId, deviceId)) ?? []).map((t) => ({ ...t }));
+  }
+
+  async listGhostCandidates(outletId: string, deviceId: string, sinceMs: number): Promise<GhostCandidates> {
+    this.callLog.push("listGhostCandidates");
+    this.listGhostCandidatesCalls.push({ outletId, deviceId, sinceMs });
+    return this.ghostCandidatesByDevice.get(this.key(outletId, deviceId)) ?? { threads: [], questions: [] };
+  }
+
+  async applyDiscardCleanup(outletId: string, deviceId: string, plan: DiscardCleanupPlan, nowMs: number): Promise<void> {
+    this.callLog.push("applyDiscardCleanup");
+    this.applyDiscardCleanupCalls.push({ outletId, deviceId, plan, nowMs });
+    if (this.applyDiscardCleanupError) throw this.applyDiscardCleanupError;
+    for (const id of plan.thread_ids) {
+      this.storedThreads.delete(id);
+      this.deleted.threads.push(id);
+    }
+    this.deleted.questions.push(...plan.question_ids);
+    this.deleted.corrections.push(...plan.correction_ids);
+    // Mark the tombstone done, like the real store does after the deletes commit.
+    for (const t of this.tombstonesByDevice.get(this.key(outletId, deviceId)) ?? []) {
+      if (t.session_id === plan.session_id) t.cleanup_pending = false;
+    }
   }
 
   async listActiveDevices(): Promise<ActiveDevice[]> {
@@ -120,6 +167,7 @@ class FakeTickStore implements TickStore {
   }
 
   async listSegmentsForDevice(outletId: string, deviceId: string): Promise<SegmentForTick[]> {
+    this.callLog.push("listSegmentsForDevice");
     return this.segmentsByDevice.get(this.key(outletId, deviceId)) ?? [];
   }
 
@@ -128,6 +176,8 @@ class FakeTickStore implements TickStore {
   }
 
   async listRecentThreads(outletId: string, deviceId: string, sinceMs: number): Promise<RecentThreadSummary[]> {
+    this.callLog.push("listRecentThreads");
+    this.threadIdsAtListRecent.push(Array.from(this.storedThreads.keys()));
     const result: RecentThreadSummary[] = [];
     for (const thread of this.storedThreads.values()) {
       if (thread.last_line_end_ms >= sinceMs) {
@@ -169,6 +219,7 @@ class FakeTickStore implements TickStore {
     debriefEndsAtMs: number,
     nowMs: number,
   ): Promise<number> {
+    this.callLog.push("expireOpenQuestions");
     this.expireOpenQuestionsCalls.push({ outletId, deviceId, debriefEndsAtMs, nowMs });
     if (this.expireOpenQuestionsError) throw this.expireOpenQuestionsError;
     return this.expireOpenQuestionsResult;
@@ -655,6 +706,7 @@ describe("runTick", () => {
         { text: "Checked the oven", start: 0, end: 5 },
         { text: "A customer complained about the wait", start: 5, end: 10 },
       ],
+      session_id: null,
     };
     store.segmentsByDevice.set("o1:d1", [conflictSegment]);
 
@@ -1007,6 +1059,339 @@ describe("runTick", () => {
       expect(d1.skipped_reason).toBeNull();
       expect(d1.threads_written).toBeGreaterThanOrEqual(1); // labelling still ran
       errorSpy.mockRestore();
+    });
+  });
+
+  describe("R-20: discard cleanup (Cancel-B) under the device lease", () => {
+    const NOW = SERVER_NOW_MS;
+    const S_DISCARDED = "11111111-1111-4111-8111-111111111111";
+    const S_REAL = "22222222-2222-4222-8222-222222222222";
+    const T0 = NOW - 3_000_000; // the cancelled session started here
+    const T1 = NOW - 2_400_000; // ... and was cancelled here
+
+    function tombstone(overrides: Partial<DiscardTombstone> = {}): DiscardTombstone {
+      return { session_id: S_DISCARDED, started_at_ms: T0, ended_at_ms: T1, cleanup_pending: true, ...overrides };
+    }
+
+    function setup() {
+      const store = new FakeTickStore();
+      store.devices = [{ outlet_id: "o1", device_id: "d1" }];
+      const generate = vi.fn().mockResolvedValue(fakeResponse(JSON.stringify(okWire())));
+      const deps = {
+        store,
+        now_ms: NOW,
+        config: CONFIG,
+        labelClientDeps: { generate, project: "proj", resolveLocation: () => "global" },
+        sanitizeDeps: { redactBatch: async (texts: readonly string[]) => [...texts] },
+      };
+      return { store, generate, deps };
+    }
+
+    it("a pending tombstone is cleaned BEFORE the expiry pass and BEFORE listSegmentsForDevice; the result counts it", async () => {
+      const { store, deps } = setup();
+      store.tombstonesByDevice.set("o1:d1", [tombstone()]);
+      store.ghostCandidatesByDevice.set("o1:d1", {
+        threads: [{ thread_id: "ghost1", first_line_start_ms: T0 + 1000 }],
+        questions: [],
+      });
+
+      const result = await runTick(deps);
+
+      expect(result.devices[0]!.discard_cleanups).toBe(1);
+      expect(store.listGhostCandidatesCalls).toEqual([{ outletId: "o1", deviceId: "d1", sinceMs: T0 }]);
+      expect(store.applyDiscardCleanupCalls).toHaveLength(1);
+      expect(store.applyDiscardCleanupCalls[0]!.nowMs).toBe(NOW);
+      expect(store.applyDiscardCleanupCalls[0]!.plan.thread_ids).toEqual(["ghost1"]);
+      expect(store.callLog.indexOf("applyDiscardCleanup")).toBeGreaterThanOrEqual(0);
+      expect(store.callLog.indexOf("applyDiscardCleanup")).toBeLessThan(store.callLog.indexOf("listSegmentsForDevice"));
+    });
+
+    it("runs before expireOpenQuestions when a debrief end has passed", async () => {
+      const { store, deps } = setup();
+      store.tombstonesByDevice.set("o1:d1", [tombstone()]);
+      store.lastEndedByDevice.set("o1:d1", {
+        business_date: "2026-10-07",
+        end_reason: "selesai",
+        ended_at_ms: NOW - 3_600_000,
+        debrief_ends_at_ms: NOW - 1000,
+      });
+
+      await runTick(deps);
+
+      expect(store.callLog.indexOf("applyDiscardCleanup")).toBeLessThan(store.callLog.indexOf("expireOpenQuestions"));
+    });
+
+    it("a second tick (tombstone now reports cleanup_pending false) does not clean again", async () => {
+      const { store, deps } = setup();
+      store.tombstonesByDevice.set("o1:d1", [tombstone()]);
+
+      const first = await runTick(deps);
+      const second = await runTick(deps);
+
+      expect(first.devices[0]!.discard_cleanups).toBe(1);
+      expect(second.devices[0]!.discard_cleanups).toBe(0);
+      expect(store.applyDiscardCleanupCalls).toHaveLength(1);
+      expect(store.listGhostCandidatesCalls).toHaveLength(1);
+    });
+
+    it("excludes a discarded session's segments from windowing (no label call for them); other sessions and pre-P1 segments are labelled", async () => {
+      const { store, generate, deps } = setup();
+      store.tombstonesByDevice.set("o1:d1", [tombstone({ cleanup_pending: false })]);
+      store.segmentsByDevice.set("o1:d1", [
+        makeSegment({ segId: "ghost-seg", deviceStartMs: T0 + 10_000, text: "cancelled day line", sessionId: S_DISCARDED }),
+        makeSegment({ segId: "real-seg", deviceStartMs: NOW - 1_800_000, text: "real day line", sessionId: S_REAL }),
+        makeSegment({ segId: "old-seg", deviceStartMs: NOW - 1_200_000, text: "pre P1 line", sessionId: null }),
+      ]);
+
+      await runTick(deps);
+
+      const prompts = generate.mock.calls.map((c) => extractUserText(c[0] as GenerateContentParameters)).join("\n");
+      expect(prompts).not.toContain("cancelled day line");
+      expect(prompts).toContain("real day line");
+      expect(prompts).toContain("pre P1 line");
+      const ledgerLineIds = store.writes.flatMap((w) => w.batch.ledger.line_ids);
+      expect(ledgerLineIds).not.toContain("ghost-seg#0");
+      expect(ledgerLineIds).toContain("real-seg#0");
+      expect(ledgerLineIds).toContain("old-seg#0");
+    });
+
+    it("race: the route's deleteSegments has not finished (segments of the tombstoned session still listed): cleanup runs, the segments are never labelled", async () => {
+      const { store, generate, deps } = setup();
+      store.tombstonesByDevice.set("o1:d1", [tombstone()]);
+      store.segmentsByDevice.set("o1:d1", [
+        makeSegment({ segId: "leftover", deviceStartMs: T0 + 5_000, text: "leftover cancelled line", sessionId: S_DISCARDED }),
+      ]);
+
+      const result = await runTick(deps);
+
+      expect(result.devices[0]!.discard_cleanups).toBe(1);
+      expect(generate).not.toHaveBeenCalled();
+      expect(store.writes).toHaveLength(0);
+    });
+
+    it("race: a ghost written by a tick that was mid-labelling when the discard landed is removed by the next tick before it labels anything, and cannot be continued by the new session's first unit", async () => {
+      const { store, generate, deps } = setup();
+      // Tick N (no tombstone yet): labels the about-to-be-cancelled session's segment, writing a ghost thread.
+      store.segmentsByDevice.set("o1:d1", [
+        makeSegment({ segId: "ghost-seg", deviceStartMs: T0 + 10_000, text: "cancelled day line", sessionId: S_DISCARDED }),
+      ]);
+      await runTick(deps);
+      const ghostThreadIds = Array.from(store.storedThreads.keys());
+      expect(ghostThreadIds).toHaveLength(1);
+
+      // The discard lands (tombstone pending; the new session has started and spoken).
+      store.tombstonesByDevice.set("o1:d1", [tombstone()]);
+      store.ghostCandidatesByDevice.set("o1:d1", {
+        threads: ghostThreadIds.map((id) => ({ thread_id: id, first_line_start_ms: T0 + 10_000 })),
+        questions: [],
+      });
+      store.segmentsByDevice.set("o1:d1", [
+        makeSegment({ segId: "ghost-seg", deviceStartMs: T0 + 10_000, text: "cancelled day line", sessionId: S_DISCARDED }),
+        makeSegment({ segId: "real-seg", deviceStartMs: T1 + 60_000, text: "real day line", sessionId: S_REAL }),
+      ]);
+      store.threadIdsAtListRecent.length = 0;
+      generate.mockClear();
+
+      // Tick N+1.
+      await runTick(deps);
+
+      expect(store.deleted.threads).toEqual(ghostThreadIds);
+      expect(store.deleted.questions).toEqual(ghostThreadIds.map((id) => `q_thread_${id}`));
+      // The ghost was already gone when the open-thread pool was read for the new unit.
+      expect(store.threadIdsAtListRecent).toHaveLength(1);
+      for (const id of ghostThreadIds) expect(store.threadIdsAtListRecent[0]).not.toContain(id);
+      // Only the real session's line reached the label model.
+      const prompts = generate.mock.calls.map((c) => extractUserText(c[0] as GenerateContentParameters)).join("\n");
+      expect(prompts).toContain("real day line");
+      expect(prompts).not.toContain("cancelled day line");
+    });
+
+    it("an answered ghost: its correction id is in the plan and deleted with its question", async () => {
+      const { store, deps } = setup();
+      store.tombstonesByDevice.set("o1:d1", [tombstone()]);
+      store.ghostCandidatesByDevice.set("o1:d1", {
+        threads: [{ thread_id: "ghost1", first_line_start_ms: T0 + 1000 }],
+        questions: [
+          { question_id: "q_thread_ghost1", thread_id: "ghost1", kind: "gate", window_start_ms: T0 + 1000 },
+          { question_id: "q_unit_x", thread_id: null, kind: "unlabelled_unit", window_start_ms: T0 + 2000 },
+        ],
+      });
+
+      await runTick(deps);
+
+      expect(store.deleted.corrections).toEqual(["q_thread_ghost1", "q_unit_x"]);
+      expect(store.deleted.questions).toEqual(["q_thread_ghost1", "q_unit_x"]);
+      expect(store.deleted.threads).toEqual(["ghost1"]);
+    });
+
+    it("a cleanup that throws skips the device with cleanup_failed: no labelling, lease released, error logged by class only", async () => {
+      const { store, generate, deps } = setup();
+      store.tombstonesByDevice.set("o1:d1", [tombstone()]);
+      store.applyDiscardCleanupError = new Error("Firestore down: secret detail");
+      store.segmentsByDevice.set("o1:d1", [
+        makeSegment({ segId: "ghost-seg", deviceStartMs: T0 + 10_000, text: "cancelled day line", sessionId: S_DISCARDED }),
+        makeSegment({ segId: "real-seg", deviceStartMs: NOW - 1_800_000, text: "real day line", sessionId: S_REAL }),
+      ]);
+
+      const result = await runTick(deps);
+
+      const d1 = result.devices[0]!;
+      expect(d1.skipped_reason).toBe("cleanup_failed");
+      expect(d1.discard_cleanups).toBe(0);
+      expect(d1.units_processed).toBe(0);
+      expect(d1.threads_written).toBe(0);
+      expect(d1.questions_written).toBe(0);
+      // A half-done cleanup must never be followed by labelling: the ghost thread could be continued.
+      expect(generate).not.toHaveBeenCalled();
+      expect(store.callLog).not.toContain("listSegmentsForDevice");
+      expect(store.releaseLeaseCalls).toBe(1);
+      expect(store.leases.has("o1:d1")).toBe(false);
+      expect(consoleErrorSpy).toHaveBeenCalledWith("[pipeline-tick] discard cleanup failed", {
+        device_id: "d1",
+        error_class: "Error",
+      });
+      expect(JSON.stringify(consoleErrorSpy.mock.calls)).not.toContain("secret detail");
+    });
+
+    it("the next tick after a failed cleanup completes the cleanup, then labels the real session only", async () => {
+      const { store, generate, deps } = setup();
+      store.tombstonesByDevice.set("o1:d1", [tombstone()]);
+      store.ghostCandidatesByDevice.set("o1:d1", {
+        threads: [{ thread_id: "ghost1", first_line_start_ms: T0 + 1000 }],
+        questions: [],
+      });
+      store.applyDiscardCleanupError = new Error("Firestore down");
+      store.segmentsByDevice.set("o1:d1", [
+        makeSegment({ segId: "ghost-seg", deviceStartMs: T0 + 10_000, text: "cancelled day line", sessionId: S_DISCARDED }),
+        makeSegment({ segId: "real-seg", deviceStartMs: NOW - 1_800_000, text: "real day line", sessionId: S_REAL }),
+      ]);
+
+      const first = await runTick(deps);
+      expect(first.devices[0]!.skipped_reason).toBe("cleanup_failed");
+      expect(generate).not.toHaveBeenCalled();
+
+      // Firestore recovers; the tombstone is still pending, so tick N+1 retries it.
+      store.applyDiscardCleanupError = null;
+      const second = await runTick(deps);
+
+      const d1 = second.devices[0]!;
+      expect(d1.skipped_reason).toBeNull();
+      expect(d1.discard_cleanups).toBe(1);
+      expect(d1.units_processed).toBeGreaterThanOrEqual(1);
+      // One failed attempt (tick N) and one successful retry (tick N+1); the ghost is gone before labelling.
+      expect(store.applyDiscardCleanupCalls).toHaveLength(2);
+      expect(store.deleted.threads).toEqual(["ghost1"]);
+      expect(store.callLog.lastIndexOf("applyDiscardCleanup")).toBeLessThan(store.callLog.indexOf("listSegmentsForDevice"));
+      const prompts = generate.mock.calls.map((c) => extractUserText(c[0] as GenerateContentParameters)).join("\n");
+      expect(prompts).toContain("real day line");
+      expect(prompts).not.toContain("cancelled day line");
+    });
+
+    it("a failing tombstone read skips the device with cleanup_failed: no labelling, lease released, error logged by class only", async () => {
+      const { store, generate, deps } = setup();
+      store.listDiscardedSessionsError = new Error("Firestore down: secret detail");
+      store.segmentsByDevice.set("o1:d1", [
+        makeSegment({ segId: "real-seg", deviceStartMs: NOW - 1_800_000, text: "real day line", sessionId: S_REAL }),
+      ]);
+
+      const result = await runTick(deps);
+
+      const d1 = result.devices[0]!;
+      expect(d1.skipped_reason).toBe("cleanup_failed");
+      expect(d1.discard_cleanups).toBe(0);
+      expect(d1.units_processed).toBe(0);
+      expect(d1.threads_written).toBe(0);
+      expect(d1.questions_written).toBe(0);
+      // Without the tombstones nothing is known to be half-done, so a pending ghost could be continued.
+      expect(generate).not.toHaveBeenCalled();
+      expect(store.callLog).not.toContain("listSegmentsForDevice");
+      expect(store.releaseLeaseCalls).toBe(1);
+      expect(store.leases.has("o1:d1")).toBe(false);
+      expect(consoleErrorSpy).toHaveBeenCalledWith("[pipeline-tick] discard tombstone read failed", {
+        device_id: "d1",
+        error_class: "Error",
+      });
+      expect(JSON.stringify(consoleErrorSpy.mock.calls)).not.toContain("secret detail");
+    });
+
+    it("the next tick after a failed tombstone read cleans the pending ghost, then labels the real session only", async () => {
+      const { store, generate, deps } = setup();
+      store.tombstonesByDevice.set("o1:d1", [tombstone()]);
+      store.ghostCandidatesByDevice.set("o1:d1", {
+        threads: [{ thread_id: "ghost1", first_line_start_ms: T0 + 1000 }],
+        questions: [],
+      });
+      store.listDiscardedSessionsError = new Error("Firestore down");
+      store.segmentsByDevice.set("o1:d1", [
+        makeSegment({ segId: "ghost-seg", deviceStartMs: T0 + 10_000, text: "cancelled day line", sessionId: S_DISCARDED }),
+        makeSegment({ segId: "real-seg", deviceStartMs: NOW - 1_800_000, text: "real day line", sessionId: S_REAL }),
+      ]);
+
+      const first = await runTick(deps);
+      expect(first.devices[0]!.skipped_reason).toBe("cleanup_failed");
+      expect(generate).not.toHaveBeenCalled();
+      expect(store.applyDiscardCleanupCalls).toHaveLength(0);
+
+      // Firestore recovers; the tombstone is still pending, so tick N+1 cleans before labelling.
+      store.listDiscardedSessionsError = null;
+      const second = await runTick(deps);
+
+      const d1 = second.devices[0]!;
+      expect(d1.skipped_reason).toBeNull();
+      expect(d1.discard_cleanups).toBe(1);
+      expect(d1.units_processed).toBeGreaterThanOrEqual(1);
+      expect(store.deleted.threads).toEqual(["ghost1"]);
+      expect(store.callLog.lastIndexOf("applyDiscardCleanup")).toBeLessThan(store.callLog.indexOf("listSegmentsForDevice"));
+      const prompts = generate.mock.calls.map((c) => extractUserText(c[0] as GenerateContentParameters)).join("\n");
+      expect(prompts).toContain("real day line");
+      expect(prompts).not.toContain("cancelled day line");
+    });
+
+    it("two tombstones, one pending: only that one is cleaned; another device's tombstone is untouched", async () => {
+      const { store, deps } = setup();
+      store.devices = [
+        { outlet_id: "o1", device_id: "d1" },
+        { outlet_id: "o1", device_id: "d2" },
+      ];
+      const S_OTHER = "33333333-3333-4333-8333-333333333333";
+      store.tombstonesByDevice.set("o1:d1", [
+        tombstone({ session_id: S_OTHER, cleanup_pending: false }),
+        tombstone({ session_id: S_DISCARDED, cleanup_pending: true }),
+      ]);
+      // d2 has only an already-cleaned tombstone: nothing to do there.
+      store.tombstonesByDevice.set("o1:d2", [tombstone({ session_id: S_OTHER, cleanup_pending: false })]);
+
+      const result = await runTick(deps);
+
+      expect(store.applyDiscardCleanupCalls.map((c) => [c.deviceId, c.plan.session_id])).toEqual([["d1", S_DISCARDED]]);
+      expect(result.devices.find((d) => d.device_id === "d1")!.discard_cleanups).toBe(1);
+      expect(result.devices.find((d) => d.device_id === "d2")!.discard_cleanups).toBe(0);
+    });
+
+    it("a lease held by another tick never cleans", async () => {
+      const { store, deps } = setup();
+      store.tombstonesByDevice.set("o1:d1", [tombstone()]);
+      await store.acquireLease("o1", "d1", NOW - 10_000, 1_800_000);
+
+      const result = await runTick(deps);
+
+      expect(result.devices[0]!.skipped_reason).toBe("lease_held");
+      expect(result.devices[0]!.discard_cleanups).toBe(0);
+      expect(store.callLog).not.toContain("listDiscardedSessions");
+      expect(store.applyDiscardCleanupCalls).toHaveLength(0);
+    });
+
+    it("the device with only discarded segments and a done tombstone ends as no_segments, never labelling", async () => {
+      const { store, generate, deps } = setup();
+      store.tombstonesByDevice.set("o1:d1", [tombstone({ cleanup_pending: false })]);
+      store.segmentsByDevice.set("o1:d1", [
+        makeSegment({ segId: "ghost-seg", deviceStartMs: T0 + 10_000, text: "cancelled day line", sessionId: S_DISCARDED }),
+      ]);
+
+      const result = await runTick(deps);
+
+      expect(result.devices[0]!.skipped_reason).toBe("no_segments");
+      expect(generate).not.toHaveBeenCalled();
     });
   });
 });

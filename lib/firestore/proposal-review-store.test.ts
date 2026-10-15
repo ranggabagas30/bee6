@@ -291,7 +291,7 @@ function makeProposal(overrides: Partial<Proposal> = {}): Proposal {
       location: "global",
       agent_version: "proposal-v1",
       gate_version: "pgate-v1",
-      library_version: { interventions: 1, rubric: 1 },
+      library_version: { interventions: 2, rubric: 1 },
       sop_version_id: `${OUTLET_ID}:v1`,
       attempts: 1,
     },

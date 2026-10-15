@@ -22,6 +22,15 @@ import {
 } from "@/lib/firestore/schema";
 import type { ProposalModel, ProposalModelResult } from "@/lib/agents/proposal-agent";
 import type { ProposalThreadRow } from "@/lib/proposals/candidates";
+import {
+  csDay1,
+  csDay2,
+  phoneDay2,
+  phoneDay3,
+  phoneReasons,
+  weakCs1,
+  weakCs2,
+} from "@/lib/proposals/testing/rehearsal-fixture";
 import { generateProposal, type FreshThread, type ProposalDeps, type ProposalStore } from "@/lib/proposals/service";
 
 const TZ = "Asia/Jakarta";
@@ -123,6 +132,10 @@ interface FakeStoreState {
   openProposals: Proposal[];
   threadSummaries: Map<string, string | null>;
   staffNames: string[];
+  /** R-20: confirmed debrief notes by thread_id; `reasonsError` makes the read throw. */
+  reasons: Map<string, string>;
+  reasonsError: Error | null;
+  reasonCalls: Array<readonly string[]>;
   lockHeld: boolean;
   lockToken: string | null;
   freshOverride: Map<string, FreshThread> | null;
@@ -143,6 +156,9 @@ function makeFakeStore(state: Partial<FakeStoreState> = {}): { store: ProposalSt
     openProposals: [],
     threadSummaries: new Map(),
     staffNames: [],
+    reasons: new Map(),
+    reasonsError: null,
+    reasonCalls: [],
     lockHeld: false,
     lockToken: null,
     freshOverride: null,
@@ -184,6 +200,11 @@ function makeFakeStore(state: Partial<FakeStoreState> = {}): { store: ProposalSt
         map.set(id, { status: "fact", summary, first_line_start_ms: 1 });
       }
       return map;
+    },
+    async listStaffReasons(ids) {
+      s.reasonCalls.push([...ids]);
+      if (s.reasonsError) throw s.reasonsError;
+      return new Map([...s.reasons].filter(([id]) => ids.includes(id)));
     },
     async listStaffScrubNames() {
       return s.staffNames;
@@ -354,7 +375,7 @@ describe("generateProposal", () => {
         location: "asia-southeast1",
         agent_version: "proposal-v1",
         gate_version: "pgate-v1",
-        library_version: { interventions: 1, rubric: 1 },
+        library_version: { interventions: 2, rubric: 1 },
         sop_version_id: SOP.sop_version_id,
         attempts: 1,
       },
@@ -497,7 +518,7 @@ describe("generateProposal", () => {
         location: "asia-southeast1",
         agent_version: "proposal-v1",
         gate_version: "pgate-v1",
-        library_version: { interventions: 1, rubric: 1 },
+        library_version: { interventions: 2, rubric: 1 },
         sop_version_id: SOP.sop_version_id,
         attempts: 1,
       },
@@ -552,7 +573,7 @@ describe("generateProposal", () => {
         location: "asia-southeast1",
         agent_version: "proposal-v1",
         gate_version: "pgate-v1",
-        library_version: { interventions: 1, rubric: 1 },
+        library_version: { interventions: 2, rubric: 1 },
         sop_version_id: SOP.sop_version_id,
         attempts: 0,
       },
@@ -587,7 +608,7 @@ describe("generateProposal", () => {
         location: "asia-southeast1",
         agent_version: "proposal-v1",
         gate_version: "pgate-v1",
-        library_version: { interventions: 1, rubric: 1 },
+        library_version: { interventions: 2, rubric: 1 },
         sop_version_id: SOP.sop_version_id,
         attempts: 1,
       },
@@ -933,7 +954,7 @@ function openDoc(n: number, cited: readonly ProposalThreadRow[], focus: Proposal
       location: "asia-southeast1",
       agent_version: "proposal-v2",
       gate_version: "pgate-v1",
-      library_version: { interventions: 1, rubric: 1 },
+      library_version: { interventions: 2, rubric: 1 },
       sop_version_id: SOP.sop_version_id,
       attempts: 1,
       ...(focus === undefined ? {} : { floor_version: "floor-v2" }),
@@ -1156,5 +1177,228 @@ describe("generateProposal: R-19 3.3 focus category", () => {
     expect(result.proposal.content?.metric.category).toBe("CUSTOMER_SERVICE");
     expect(result.proposal.content?.metric.baseline_count).toBe(2);
     expect(result.proposal.content?.metric.baseline_days).toBe(5);
+  });
+});
+
+// ── R-20: quotes + staff notes in the prompt, two-focus Ask ──────────────────
+const R20_NOW_MS = zonedTimeToEpochMs("2026-10-15", "21:30", TZ);
+const r20Gen = (store: ProposalStore, deps: ProposalDeps) =>
+  generateProposal(store, deps, { claims: claims(), from_date: "2026-10-13", to_date: "2026-10-15", now_ms: R20_NOW_MS });
+
+const DECLINE_WIRE = (reason: string = "no_clear_pattern") => ({
+  decision: "no_proposal",
+  no_proposal_reason: reason,
+  intervention_id: null,
+  rubric_criterion_ids: [],
+  evidence: [],
+  target_step_id: null,
+  change_title: "",
+  change_text: "",
+  rationale: "",
+  metric_category: null,
+  metric_direction: null,
+  metric_description: "",
+  failure_condition: "",
+  review_after_days: null,
+  constraints_acknowledged: [],
+});
+
+const idsOf = (...rows: ProposalThreadRow[]) => rows.map((r) => r.thread_id).sort();
+
+describe("generateProposal: R-20 two-focus Ask", () => {
+  const PROBLEM_ROWS = [csDay1, csDay2, phoneDay2, phoneDay3];
+
+  it("6. focus 1 declines, focus 2 proposes: awaiting_supervisor on focus 2, attempts 2, two different FACTS blocks, reasons read per focus only", async () => {
+    const { store, state } = makeFakeStore({ rows: PROBLEM_ROWS, reasons: new Map(phoneReasons) });
+    const { deps, model } = makeDeps();
+    model
+      .mockResolvedValueOnce(okModelResult(DECLINE_WIRE()))
+      .mockResolvedValueOnce(okModelResult(validWireText({ metric_category: "PHONE_CALL" })));
+    const result = await r20Gen(store, deps);
+    expect(result.proposal.status).toBe("awaiting_supervisor");
+    expect(result.proposal.focus_category).toBe("PHONE_CALL");
+    expect(state.written[0]!.proposal.generator.attempts).toBe(2);
+    expect(state.written[0]!.proposal.generator.agent_version).toBe("proposal-v3");
+    expect(model).toHaveBeenCalledTimes(2);
+    const first = promptOf(model, 0);
+    const second = promptOf(model, 1);
+    expect(first).toContain("Customer asking about freshness of egg tarts");
+    expect(first).toContain("nobody writes the baking time on the tray");
+    expect(first).not.toContain("Phone call for a large pre-order");
+    expect(first).not.toContain("staff note:");
+    expect(second).toContain("Phone call for a large pre-order of egg tarts.");
+    expect(second).toContain('staff note: "I did not read the order back to the caller."');
+    expect(second).not.toContain("Customer asking about freshness");
+    expect(state.reasonCalls).toHaveLength(2);
+    expect([...state.reasonCalls[0]!].sort()).toEqual(idsOf(csDay1, csDay2));
+    expect([...state.reasonCalls[1]!].sort()).toEqual(idsOf(phoneDay2, phoneDay3));
+    const logged = infoSpy.mock.calls.find((c) => c[0] === "[proposal] generated");
+    expect(logged?.[1]).toMatchObject({ focuses_tried: 2, attempts: 2 });
+    // no thread id or device id in either prompt
+    for (const prompt of [first, second]) {
+      expect(prompt).not.toContain("dev-SENTINEL-77");
+      expect(prompt).not.toContain("q_thread_");
+    }
+  });
+
+  it("7. both decline: suppressed, model_reason is the LAST decline's, attempts 2, focus_category null", async () => {
+    const { store, state } = makeFakeStore({ rows: PROBLEM_ROWS });
+    const { deps, model } = makeDeps();
+    model
+      .mockResolvedValueOnce(okModelResult(DECLINE_WIRE("no_clear_pattern")))
+      .mockResolvedValueOnce(okModelResult(DECLINE_WIRE("no_matching_intervention")));
+    const result = await r20Gen(store, deps);
+    expect(result.proposal.status).toBe("suppressed");
+    expect(result.proposal.suppression?.reason).toBe("model_declined");
+    expect(result.proposal.suppression?.model_reason).toBe("no_matching_intervention");
+    expect(result.proposal.focus_category).toBeNull();
+    expect(state.written[0]!.proposal.generator.attempts).toBe(2);
+    expect(state.written[0]!.proposal.counts).toEqual({ candidate_facts: 2, candidate_dates: 2, constraints: 0 });
+    expect(state.written[0]!.proposal.suppression?.followup?.categories).toEqual(["CUSTOMER_SERVICE", "PHONE_CALL"]);
+  });
+
+  it("8. only one ready category: one focus tried; a decline is suppressed with attempts 1 (today's behaviour)", async () => {
+    const { store, state } = makeFakeStore({ rows: [csDay1, csDay2] });
+    const { deps, model } = makeDeps();
+    model.mockResolvedValue(okModelResult(DECLINE_WIRE()));
+    const result = await r20Gen(store, deps);
+    expect(result.proposal.status).toBe("suppressed");
+    expect(model).toHaveBeenCalledTimes(1);
+    expect(state.written[0]!.proposal.generator.attempts).toBe(1);
+    expect(state.reasonCalls).toHaveLength(1);
+  });
+
+  it("three ready categories: at most MAX_FOCUS_PER_ASK (2) are tried", async () => {
+    const complaint = (n: number, date: string) => ({ ...csDay1, thread_id: `unit_dev-SENTINEL-77_c${n}:0`, category: "COMPLAINT" as const, summary: `COMPLAINT-${n}`, first_line_start_ms: zonedTimeToEpochMs(date, "11:00", TZ) });
+    const { store, state } = makeFakeStore({ rows: [...PROBLEM_ROWS, complaint(1, "2026-10-13"), complaint(2, "2026-10-14")] });
+    const { deps, model } = makeDeps();
+    model.mockResolvedValue(okModelResult(DECLINE_WIRE()));
+    const result = await r20Gen(store, deps);
+    expect(result.proposal.status).toBe("suppressed");
+    expect(model).toHaveBeenCalledTimes(2);
+    expect(state.reasonCalls).toHaveLength(2);
+  });
+
+  it("9. focus 1 blocked by the gate twice: blocked on focus 1, focus 2 is NOT tried, attempts 2", async () => {
+    const { store, state } = makeFakeStore({ rows: PROBLEM_ROWS });
+    const { deps, model } = makeDeps();
+    model.mockResolvedValue(okModelResult(validWireText({ evidence: ["E1"] }))); // evidence_min on both attempts
+    const result = await r20Gen(store, deps);
+    expect(result.proposal.status).toBe("blocked");
+    expect(result.proposal.blocked_rule).toBe("evidence_min");
+    expect(result.proposal.focus_category).toBe("CUSTOMER_SERVICE");
+    expect(model).toHaveBeenCalledTimes(2);
+    expect(state.written[0]!.proposal.generator.attempts).toBe(2);
+    expect(state.reasonCalls).toHaveLength(1);
+  });
+
+  it("a decline then a block on focus 2: the block is recorded for focus 2 with attempts 3", async () => {
+    const { store, state } = makeFakeStore({ rows: PROBLEM_ROWS });
+    const { deps, model } = makeDeps();
+    model
+      .mockResolvedValueOnce(okModelResult(DECLINE_WIRE()))
+      .mockResolvedValue(okModelResult(validWireText({ evidence: ["E1"], metric_category: "PHONE_CALL" })));
+    const result = await r20Gen(store, deps);
+    expect(result.proposal.status).toBe("blocked");
+    expect(result.proposal.focus_category).toBe("PHONE_CALL");
+    expect(state.written[0]!.proposal.generator.attempts).toBe(3);
+  });
+
+  it("a model outage on focus 2 still surfaces as 503 (no silent suppressed doc), and the lease is released", async () => {
+    const { store, state } = makeFakeStore({ rows: PROBLEM_ROWS });
+    const { deps, model } = makeDeps();
+    model
+      .mockResolvedValueOnce(okModelResult(DECLINE_WIRE()))
+      .mockResolvedValue({ kind: "error", error_class: "Timeout" });
+    await expect(r20Gen(store, deps)).rejects.toThrow(ServiceUnavailableError);
+    expect(state.written).toHaveLength(0);
+    expect(state.releaseCalls).toHaveLength(1);
+  });
+
+  it("10. taken: an open CS proposal -> CS is skipped, PHONE_CALL is the first and only focus", async () => {
+    const open = openDoc(1, [ROW_1, ROW_2], "CUSTOMER_SERVICE");
+    const { store } = makeFakeStore({ rows: PROBLEM_ROWS, openProposals: [open], reasons: new Map(phoneReasons) });
+    const { deps, model } = makeDeps();
+    model.mockResolvedValueOnce(okModelResult(validWireText({ metric_category: "PHONE_CALL" })));
+    const result = await r20Gen(store, deps);
+    expect(model).toHaveBeenCalledTimes(1);
+    expect(result.proposal.focus_category).toBe("PHONE_CALL");
+    expect(promptOf(model)).not.toContain("Customer asking about freshness");
+  });
+
+  it("control: weak CS facts (a bag, croissants) still reach the model with their quotes, and a decline stays a decline", async () => {
+    const { store, state } = makeFakeStore({ rows: [weakCs1, weakCs2] });
+    const { deps, model } = makeDeps();
+    model.mockResolvedValueOnce(okModelResult(DECLINE_WIRE()));
+    const result = await r20Gen(store, deps);
+    expect(result.proposal.status).toBe("suppressed");
+    expect(state.written[0]!.proposal.suppression?.model_reason).toBe("no_clear_pattern");
+    expect(promptOf(model)).toContain('said: "Two croissants, please. / Here you go, thank you."');
+    expect(promptOf(model)).not.toContain("staff note:");
+  });
+
+  it("11. a staff name in an excerpt or a note is [STAFF] in the model's input (hard rule 7, defence in depth)", async () => {
+    const csWithName: ProposalThreadRow = { ...csDay1, lines: [{ text: "Budi said the tray was baked at six, ask budi." }] };
+    const { store } = makeFakeStore({
+      rows: [csWithName, csDay2, phoneDay2, phoneDay3],
+      staffNames: ["Budi"],
+      reasons: new Map([[phoneDay2.thread_id, "Budi did not read the order back."]]),
+    });
+    const { deps, model } = makeDeps();
+    model.mockResolvedValueOnce(okModelResult(DECLINE_WIRE())).mockResolvedValueOnce(okModelResult(DECLINE_WIRE()));
+    await r20Gen(store, deps);
+    const first = promptOf(model, 0);
+    const second = promptOf(model, 1);
+    expect(first).toContain("[STAFF] said the tray was baked at six, ask [STAFF].");
+    expect(second).toContain('staff note: "[STAFF] did not read the order back."');
+    for (const prompt of [first, second]) {
+      expect(prompt.toLowerCase()).not.toContain("budi");
+    }
+  });
+
+  it("11b. a staff name straddling the 320-point cap is scrubbed BEFORE the cap, so no fragment reaches the prompt (rule 7)", async () => {
+    const prefix = "x".repeat(312) + " "; // the name starts at index 313: the old cap kept "Budian" (6 of 8 letters)
+    const csLong: ProposalThreadRow = { ...csDay1, lines: [{ text: `${prefix}Budianto kept the tray.` }] };
+    const { store } = makeFakeStore({ rows: [csLong, csDay2, phoneDay2, phoneDay3], staffNames: ["Budianto"] });
+    const { deps, model } = makeDeps();
+    model.mockResolvedValueOnce(okModelResult(DECLINE_WIRE())).mockResolvedValueOnce(okModelResult(DECLINE_WIRE()));
+    await r20Gen(store, deps);
+    const first = promptOf(model, 0);
+    const lowered = first.toLowerCase();
+    for (let i = 0; i + 4 <= "budianto".length; i++) {
+      for (let j = i + 4; j <= "budianto".length; j++) {
+        expect(lowered).not.toContain("budianto".slice(i, j));
+      }
+    }
+    expect(first).toMatch(/said: "x{312} \[[^"]*\u2026"/); // scrubbed first, then still capped (the placeholder may be cut)
+  });
+
+  it("12. listStaffReasons throwing: the Ask still runs without notes (logged by class only); redaction is never skipped", async () => {
+    const { store, state } = makeFakeStore({
+      rows: PROBLEM_ROWS,
+      reasonsError: new Error("boom-SECRET-REASON-TEXT"),
+      staffNames: [],
+    });
+    const { deps, model } = makeDeps();
+    model.mockResolvedValueOnce(okModelResult(DECLINE_WIRE())).mockResolvedValueOnce(okModelResult(validWireText({ metric_category: "PHONE_CALL" })));
+    const result = await r20Gen(store, deps);
+    expect(result.proposal.status).toBe("awaiting_supervisor");
+    expect(promptOf(model, 1)).not.toContain("staff note:");
+    expect(promptOf(model, 1)).toContain('said: "Yes, 50 egg tarts');
+    const loggedErrors = errorSpy.mock.calls.filter((c) => c[0] === "[proposal] staff reasons unavailable");
+    expect(loggedErrors).toHaveLength(2);
+    expect(loggedErrors[0]![1]).toEqual({ outlet_id: OUTLET_ID, error_class: "Error" });
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("SECRET");
+    expect(state.written).toHaveLength(1);
+  });
+
+  it("the redaction step on the model's OUTPUT still runs for a focus-2 proposal", async () => {
+    const { store } = makeFakeStore({ rows: PROBLEM_ROWS });
+    const redact = vi.fn(async (texts: readonly string[]) => texts.map((t) => `${t} [R]`));
+    const { deps, model } = makeDeps({ redact });
+    model.mockResolvedValueOnce(okModelResult(DECLINE_WIRE())).mockResolvedValueOnce(okModelResult(validWireText({ metric_category: "PHONE_CALL" })));
+    const result = await r20Gen(store, deps);
+    expect(redact).toHaveBeenCalledTimes(1);
+    expect(result.proposal.content?.change_title.endsWith("[R]")).toBe(true);
   });
 });

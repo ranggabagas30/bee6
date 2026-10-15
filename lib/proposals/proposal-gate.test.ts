@@ -11,6 +11,7 @@ function candidate(overrides: Partial<Candidate> = {}): Candidate {
     category: "CUSTOMER_SERVICE",
     first_line_start_ms: 1,
     summary: "s",
+    excerpt: "",
     ...overrides,
   };
 }

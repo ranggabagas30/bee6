@@ -65,42 +65,38 @@ describe("scenario fixture", () => {
 
   it("the exact variant carries the script's problem lines verbatim", () => {
     expect(day(1).variants.exact.find((c) => c.kind === "problem_a")!.lines[0]).toBe(
-      "Excuse me, are these egg tarts fresh today? When were they baked?",
+      "Excuse me, I have a question about the egg tarts on the display. Are they fresh today, and do you know what time they were baked?",
     );
-    expect(day(2).variants.exact.find((c) => c.kind === "problem_b")!.lines[0]).toBe("Hello, Demo Bakery, thanks for calling.");
+    expect(day(2).variants.exact.find((c) => c.kind === "problem_b")!.lines[0]).toBe("Hello, Demo Bakery, thanks for calling. Yes, we can do fifty egg tarts for tomorrow morning, pickup at ten o'clock. Okay, got it. Thank you, bye.");
   });
 
-  it("the rewritten phone-order cards (round 1) carry the agreed wording in exact, v1, v2 and v4", () => {
+  it("the rewritten phone-order cards (round 2) carry the agreed wording in exact, v1, v2 and v4", () => {
     const b = (n: 2 | 3, v: (typeof VARIANT_IDS)[number]) => day(n).variants[v].find((c) => c.kind === "problem_b")!.lines;
     expect(b(2, "exact")).toEqual([
-      "Hello, Demo Bakery, thanks for calling.",
-      "Yes, fifty egg tarts for tomorrow morning. Pickup at ten. Okay, got it. Thank you, bye.",
-      "I did not read that phone order back to the caller. I will write it down later.",
+      "Hello, Demo Bakery, thanks for calling. Yes, we can do fifty egg tarts for tomorrow morning, pickup at ten o'clock. Okay, got it. Thank you, bye.",
+      "That was a phone order for tomorrow. I did not read the order back to the caller before hanging up, so I am not sure the quantity and the pickup time are right.",
     ]);
     expect(b(3, "exact")).toEqual([
-      "Hello, Demo Bakery, thanks for calling.",
-      "A birthday cake and twenty croissants for Saturday. Pickup at three or four? Sorry, the phone line is bad. Okay, four o'clock. Bye.",
-      "I hung up without reading the order back to the caller. I hope I got the time right.",
+      "Hello, Demo Bakery, thanks for calling. A birthday cake and twenty croissants for Saturday. Pickup at three or four? Sorry, the line is bad. Okay, four o'clock. Bye.",
+      "That was another phone order. I hung up without reading the order back to the caller, so I hope I got the pickup time right.",
     ]);
     expect(b(2, "v1")).toEqual([
-      "Hello, Demo Bakery, how can I help you?",
-      "Yes, fifty egg tarts for tomorrow morning, to be picked up at ten. Alright, noted. Thanks, goodbye.",
-      "I did not read that phone order back to the caller. I will note it down a bit later.",
+      "Hello, Demo Bakery, thanks for calling. Yes, fifty egg tarts for tomorrow morning, to be picked up at ten o'clock. Alright, got it. Thanks, goodbye.",
+      "I did not read that phone order back to the caller before hanging up, so I am not sure if the quantity and the pickup time are right.",
     ]);
     expect(b(3, "v1")).toEqual([
-      "Hello, Demo Bakery, how can I help?",
-      "So a birthday cake and twenty croissants for Saturday. Is pickup at three or at four? Sorry, the phone is breaking up. Okay, four o'clock. Goodbye.",
-      "I put the phone down without reading the order back to the caller. I hope I heard the time right.",
+      "Hello, Demo Bakery, how can I help? So a birthday cake and twenty croissants for Saturday. Is pickup at three or at four? Sorry, the phone is breaking up. Okay, four o'clock. Goodbye.",
+      "That was another phone order. I hung up without reading the order back to the caller, so I hope I heard the pickup time right.",
     ]);
     // v4 = the exact lines plus one neutral extra line
     expect(b(2, "v4")).toEqual([...b(2, "exact"), "It was a big order for a weekday."]);
     expect(b(3, "v4")).toEqual([...b(3, "exact"), "That took a while."]);
-    // v2: the exact sentences with fillers added, three lines each
+    // v2: the exact sentences with fillers added, two lines each
     for (const n of [2, 3] as const) {
-      expect(b(n, "v2")).toHaveLength(3);
+      expect(b(n, "v2")).toHaveLength(2);
       expect(b(n, "v2").join(" ")).toMatch(/\bum\b/i);
     }
-    expect(b(2, "v2").join(" ")).toMatch(/read that phone order back to the caller/);
+    expect(b(2, "v2").join(" ")).toMatch(/read the order back to the caller/);
     expect(b(3, "v2").join(" ")).toMatch(/reading the order back to the caller/);
   });
 

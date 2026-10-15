@@ -78,7 +78,7 @@ export type GuideAction = z.infer<typeof GuideActionSchema>;
 export const GuideCardSchema = z
   .object({
     title: Bilingual,
-    body: z.array(Bilingual).max(3),
+    body: z.array(Bilingual).max(4),
     action: GuideActionSchema.nullable(),
     footnote: Bilingual.nullable(),
   })
@@ -114,9 +114,10 @@ export const GUIDE: Readonly<Record<GuideKey, GuideCard>> = z
     capture_ready: card("Tap Start, then read the cards", [
       "Tap Start. The guide then shows one script card at a time.",
       "Read each card aloud and play every voice. The speaker tag is not spoken.",
+      "Read one line at a time. After each line, stop and count slowly to three before the next line.",
       "After the 5 cards, Jump to closing time unlocks End.",
     ]),
-    capture_listening: card("Read this card aloud", [], { kind: "script_card" }),
+    capture_listening: card("Read this card aloud", [], { kind: "script_card" }, "Pause for a slow count of three between lines."),
     capture_all_spoken: card("All 5 cards are spoken", ["Jump to closing time, then tap End today on the screen to start the debrief."], {
       kind: "jump_closing",
     }),
