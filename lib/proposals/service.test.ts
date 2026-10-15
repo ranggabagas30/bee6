@@ -821,6 +821,24 @@ describe("generateProposal", () => {
     expect(state.written[0]?.proposal.content?.change_title).toBe("Check more often");
   });
 
+  it("R-21 PR-C: when a field is only a role tag, fallback preserves it so ProposalSchema min(1) doesn't throw", async () => {
+    // When stripLeadingRoleTag empties a field (e.g., "[staff]" strips to ""),
+    // it falls back to the unstripped text instead, preventing ZodError at wire validation.
+    const { store, state } = makeFakeStore();
+    const { deps, model } = makeDeps({
+      redact: async (texts) => [...texts], // Return a copy; we care about the stored text, not redaction.
+    });
+    model.mockResolvedValueOnce(
+      okModelResult(validWireText({ change_title: "[staff]", change_text: "(role: supervisor)" })),
+    );
+    const result = await generateProposal(store, deps, { claims: claims(), from_date: "2026-10-01", to_date: "2026-10-02", now_ms: NOW_MS });
+    // Proposal should succeed (not throw ZodError at step 8f).
+    expect(result.proposal.status).toBe("awaiting_supervisor");
+    // The fallback text is stored as-is (unstripped).
+    expect(state.written[0]?.proposal.content?.change_title).toBe("[staff]");
+    expect(state.written[0]?.proposal.content?.change_text).toBe("(role: supervisor)");
+  });
+
   it("redactor throws -> 503, no proposal, no audit", async () => {
     const { store, state } = makeFakeStore();
     const { deps, model } = makeDeps({

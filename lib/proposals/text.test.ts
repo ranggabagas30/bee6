@@ -32,4 +32,13 @@ describe("stripLeadingRoleTag (R-21)", () => {
   it("strips only one tag", () => {
     expect(stripLeadingRoleTag("[staff] [staff] Take")).toBe("[staff] Take");
   });
+
+  it("falls back to unstripped text when the field is only a role tag", () => {
+    // R-21 PR-C: when a field is only a tag, strip would empty it, causing ZodError.
+    // Return the unstripped text instead to preserve the minimum 1 char.
+    expect(stripLeadingRoleTag("[staff]")).toBe("[staff]");
+    expect(stripLeadingRoleTag("  [supervisor]  ")).toBe("  [supervisor]  ");
+    expect(stripLeadingRoleTag("(role: owner)")).toBe("(role: owner)");
+    expect(stripLeadingRoleTag("  (staff)  ")).toBe("  (staff)  ");
+  });
 });
