@@ -312,6 +312,7 @@ export const DEMO_COUNTER_KINDS = [
   "reset_sandbox", // R-19 owner reset
   "process_now_sandbox", // R-19 fast lane
   "next_day_sandbox", // R-19 PR-2 jump-to-tomorrow calls
+  "charge_once", // R-23 per-segment marker: `charge_once:segment:<outlet_id>:<seg_id>`, count = PUTs seen of that seg id
 ] as const;
 export type DemoCounterKind = (typeof DEMO_COUNTER_KINDS)[number];
 export const DemoCounterSchema = z
