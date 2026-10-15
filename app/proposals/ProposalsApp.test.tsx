@@ -21,8 +21,10 @@ const CONFIG: FirebaseWebConfig = {
 
 const replace = vi.fn();
 const ROUTER = { replace };
+let search = "";
 vi.mock("next/navigation", () => ({
   useRouter: () => ROUTER,
+  useSearchParams: () => new URLSearchParams(search),
 }));
 
 const getClientAuth = vi.fn();
@@ -51,11 +53,41 @@ vi.mock("@/lib/auth/client/api", () => ({
   authedGetJson: (...args: unknown[]) => authedGetJson(...args),
 }));
 
+const uuid = (n: number) => `${String(n).padStart(8, "0")}-0000-4000-8000-000000000000`;
+// A minimal awaiting_owner item for the owner's queue (the full card is covered by ApprovalsReview.test.tsx).
+const waiting = (n: number) => ({
+  proposal: {
+    proposal_id: uuid(n),
+    status: "awaiting_owner" as const,
+    created_at_ms: n * 1000,
+    range: { from_date: "2026-10-05", to_date: "2026-10-11" },
+    focus_category: "CUSTOMER_SERVICE",
+    suppression: null,
+    blocked_rule: null,
+    content: {
+      intervention: { id: "add_step_detail", label_en: "Add detail", label_id: "Tambah detail" },
+      rubric: [],
+      target_step: null,
+      change_title: `Proposal ${n}`,
+      change_text: `New wording ${n}.`,
+      rationale: `Why ${n}.`,
+      metric: { category: "CUSTOMER_SERVICE", direction: "decrease" as const, description: `Metric ${n}`, baseline_count: 2, baseline_days: 2 },
+      failure_condition: "No drop.",
+      review_date: "2026-10-21",
+      evidence: [],
+      censored_floor: false,
+    },
+  },
+  review: { supervisor: { decision: "feasible" as const, reason: null, decided_date: "2026-10-12" }, owner: null },
+  notices: { late_constraints: [], evidence_stale: false, sop_changed: false, superseded: false },
+});
+
 const FAKE_AUTH = { kind: "fake-auth" };
 const getIdTokenResult = vi.fn();
 const FAKE_USER = { uid: "u1", getIdTokenResult };
 
 beforeEach(() => {
+  search = "";
   constraintsResult = { kind: "error" };
   proposalsResult = { kind: "ok", data: { open: [], decided: [], watch: EMPTY_WATCH } };
   authUserState = { status: "signed_in", user: FAKE_USER } as unknown as AuthUserState;
@@ -110,6 +142,19 @@ describe("ProposalsApp — auth / role gate", () => {
     expect(nav.textContent).toContain("Approvals");
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Approvals");
     expect(nav.textContent).not.toContain("Proposals");
+  });
+
+  it("owner: ?id= opens that proposal (the Home waiting-row link), a non-UUID id is ignored", async () => {
+    proposalsResult = { kind: "ok", data: { open: [waiting(1), waiting(2)], decided: [], watch: EMPTY_WATCH } };
+    search = `?id=${uuid(2)}`;
+    renderApp();
+    expect(await screen.findByRole("heading", { level: 2, name: "Proposal 2" })).not.toBeNull();
+    expect(screen.queryByRole("heading", { level: 2, name: "Proposal 1" })).toBeNull();
+    cleanup();
+
+    search = "?id=not-a-uuid";
+    renderApp();
+    expect(await screen.findByRole("heading", { level: 2, name: "Proposal 1" })).not.toBeNull();
   });
 
   it("supervisor claims: the supervisor screen renders (watch panel, no approvals head)", async () => {

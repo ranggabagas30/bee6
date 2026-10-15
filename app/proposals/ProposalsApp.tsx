@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState, type CSSProperties } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import { getClientAuth, type Auth } from "@/lib/auth/client/firebase-client";
 import { useAuthUser } from "@/lib/auth/client/use-auth-user";
 import { useLang } from "@/lib/i18n/context";
 import { t } from "@/lib/i18n/dict";
+import type { Lang } from "@/lib/i18n/lang";
+import { ProposalIdSchema } from "@/lib/proposals/review-contract";
 import { WebTopBar } from "@/app/web/WebTopBar";
 import { ApprovalsReview } from "@/app/proposals/ApprovalsReview";
 import { SupervisorProposals } from "@/app/proposals/SupervisorProposals";
@@ -23,6 +25,18 @@ import { SupervisorProposals } from "@/app/proposals/SupervisorProposals";
 type Role = "owner" | "supervisor" | "other";
 
 const PAGE_STYLE: CSSProperties = { maxWidth: 720, margin: "0 auto", padding: 16, boxSizing: "border-box" };
+
+/**
+ * The owner's screen with `?id=<proposal_id>` honoured (PR-8's Home links each waiting row to `/proposals?id=…`).
+ * `useSearchParams` makes the subtree client-rendered up to the nearest Suspense boundary on a prerendered route, so
+ * it lives in this small child under its own `<Suspense>` (Next docs, "useSearchParams → Prerendering"). The id is
+ * validated as a UUID; anything else is ignored and the screen opens on the recommended order.
+ */
+function OwnerApprovals({ auth, lang }: { auth: Auth; lang: Lang }) {
+  const params = useSearchParams();
+  const parsed = ProposalIdSchema.safeParse(params.get("id"));
+  return <ApprovalsReview auth={auth} lang={lang} initialId={parsed.success ? parsed.data : null} />;
+}
 
 export function ProposalsApp({ config }: { config: FirebaseWebConfig | null }) {
   const { lang } = useLang();
@@ -119,7 +133,9 @@ export function ProposalsApp({ config }: { config: FirebaseWebConfig | null }) {
   return (
     <main style={PAGE_STYLE}>
       <WebTopBar auth={auth} showSignOut current="proposals" />
-      <ApprovalsReview auth={auth} lang={lang} />
+      <Suspense fallback={null}>
+        <OwnerApprovals auth={auth} lang={lang} />
+      </Suspense>
     </main>
   );
 }
