@@ -101,7 +101,7 @@ describe("shippedChangeFor", () => {
     review_date: "2026-10-21",
     outcome: null,
   });
-  const sop: SopOverview = { today: "2026-10-13", latest: null, in_force_version: 1, changes: [change(3, "Other", "2026-10-13"), change(2, "Proposal 2", "2026-10-13")] };
+  const sop: SopOverview = { today: "2026-10-13", latest: null, in_force_version: 1, first_version_date: "2026-10-01", changes: [change(3, "Other", "2026-10-13"), change(2, "Proposal 2", "2026-10-13")] };
 
   it("finds the SOP change an approved proposal shipped as, by title and approval date", () => {
     const approved = item(2, "approved", { owner: APPROVED });

@@ -16,7 +16,7 @@ vi.mock("@/lib/auth/client/firebase-client", () => ({
 }));
 
 let proposalsResult: unknown;
-let sopResult: unknown = { kind: "ok", data: { today: "2026-10-13", latest: null, in_force_version: null, changes: [] } satisfies SopOverview };
+let sopResult: unknown = { kind: "ok", data: { today: "2026-10-13", latest: null, in_force_version: null, first_version_date: null, changes: [] } satisfies SopOverview };
 const authedGetJson = vi.fn(async (...args: unknown[]) => (args[1] === "/api/v1/proposals" ? proposalsResult : sopResult));
 const authedPostJson = vi.fn();
 vi.mock("@/lib/auth/client/api", () => ({
@@ -81,6 +81,7 @@ const SOP_WITH_V2: SopOverview = {
   today: "2026-10-13",
   latest: { version: 2, effective_from_date: "2026-10-14", steps: [{ step_id: "display-check", title: "Display check", text: "x", role: "staff" }] },
   in_force_version: 1,
+  first_version_date: "2026-10-01",
   changes: [
     {
       version: 2,
@@ -101,7 +102,7 @@ const SOP_WITH_V2: SopOverview = {
 
 beforeEach(() => {
   proposalsResult = TWO_WAITING;
-  sopResult = { kind: "ok", data: { today: "2026-10-13", latest: null, in_force_version: null, changes: [] } };
+  sopResult = { kind: "ok", data: { today: "2026-10-13", latest: null, in_force_version: null, first_version_date: null, changes: [] } };
 });
 
 afterEach(() => {
