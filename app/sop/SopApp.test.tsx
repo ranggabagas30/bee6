@@ -263,10 +263,13 @@ describe("SopApp version switch (R-19 PR-9a §9.1)", () => {
     expect(screen.getByRole("button", { name: "05/10/26" }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.queryByText(/NEW ON/)).toBeNull();
     expect(document.querySelector("del")).toBeNull();
+    // PR-9b: the book opens on chapter 1, "Stock" (a-01 sits in "Other steps", the last chapter), so the steps
+    // list is that chapter's; the contents page lists both.
     const items = Array.from(document.querySelector("ol")!.querySelectorAll("li"));
     expect(document.querySelector("ol")!.textContent).not.toContain("New text v2");
-    expect(items.map((li) => li.querySelector("p")?.textContent)).toEqual(["Title a-01", "Title stock-01"]);
-    expect(items[1]!.textContent).toContain("Text stock-01");
+    expect(items.map((li) => li.querySelector("p")?.textContent)).toEqual(["Title stock-01"]);
+    expect(items[0]!.textContent).toContain("Text stock-01");
+    expect(screen.getByRole("button", { name: "Other steps 1 step" })).not.toBeNull();
   });
 
   it("a seed-only SOP shows its date '· current' as plain text, with no switch", async () => {
@@ -306,5 +309,109 @@ describe("SopApp version switch (R-19 PR-9a §9.1)", () => {
     expect(screen.queryByText("Read-only. Steps change only through an approved proposal.")).toBeNull();
     expect(screen.queryByText(/First version/)).toBeNull();
     expect(screen.queryByText(/05\/10\/26/)).toBeNull();
+  });
+});
+
+describe("SopApp Book/Table toggle (R-19 PR-9b §9.1)", () => {
+  const demo = (): SopOverview =>
+    overview({
+      latest: {
+        version: 2,
+        effective_from_date: "2026-10-16",
+        steps: [step("open-01"), step("bake-01"), { ...step("stock-01"), text: "New text v2" }, step("serve-01"), step("close-01")],
+      },
+      in_force_version: 2,
+      changes: [changeView(2)],
+    });
+
+  it("opens in Book view: the toggle says Book / Table with Book pressed, the spread is shown and no table", async () => {
+    authedGetJson.mockResolvedValue({ kind: "ok", data: demo() });
+    renderApp();
+    const group = await screen.findByRole("group", { name: "View" });
+    const buttons = Array.from(group.querySelectorAll("button"));
+    expect(buttons.map((b) => b.textContent)).toEqual(["Book", "Table"]);
+    expect(buttons.map((b) => b.getAttribute("aria-pressed"))).toEqual(["true", "false"]);
+    expect(screen.getByRole("navigation", { name: "Contents" })).not.toBeNull();
+    expect(screen.getByText("From your SOP").parentElement!.textContent).toContain("4");
+    expect(screen.getByText("Improved with Bee6").parentElement!.textContent).toContain("1");
+    expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  it("Table shows the six-column table with the improved step's origin and hides the spread; Book brings it back", async () => {
+    authedGetJson.mockResolvedValue({ kind: "ok", data: demo() });
+    renderApp();
+    await screen.findByRole("group", { name: "View" });
+    fireEvent.click(screen.getByRole("button", { name: "Table" }));
+    expect(screen.getByRole("button", { name: "Table" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["CODE", "STEP", "CHAPTER", "WHO", "WHEN", "WHERE IT CAME FROM"]);
+    const rows = Array.from(document.querySelectorAll("tbody tr")).map((tr) => Array.from(tr.querySelectorAll("td")).map((td) => td.textContent));
+    expect(rows).toHaveLength(5);
+    expect(rows[2]).toEqual(["stock-01", "Title stock-01New text v2", "Stock", "Staff", "16/10/26", "Bee6 proposal, approved 15/10/26"]);
+    expect(rows[0]![5]).toBe("Your SOP");
+    expect(screen.queryByRole("navigation", { name: "Contents" })).toBeNull();
+    expect(screen.queryByText(/NEW ON/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Book" }));
+    expect(screen.getByRole("navigation", { name: "Contents" })).not.toBeNull();
+    expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  it("the view survives a version switch, and the table of the first version has no Bee6 origin", async () => {
+    authedGetJson.mockResolvedValue({ kind: "ok", data: demo() });
+    renderApp();
+    await screen.findByRole("group", { name: "View" });
+    fireEvent.click(screen.getByRole("button", { name: "Table" }));
+    fireEvent.click(screen.getByRole("button", { name: "05/10/26" }));
+    expect(screen.getByRole("heading", { name: "Steps in version 1" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Table" }).getAttribute("aria-pressed")).toBe("true");
+    const rows = Array.from(document.querySelectorAll("tbody tr")).map((tr) => Array.from(tr.querySelectorAll("td")).map((td) => td.textContent));
+    expect(rows[2]).toEqual(["stock-01", "Title stock-01Text stock-01", "Stock", "Staff", "05/10/26", "Your SOP"]);
+    expect(rows.every((r) => r[5] === "Your SOP")).toBe(true);
+  });
+
+  it("the book turns pages to the improved step's chapter, and the seed version's legend shows 0 improved", async () => {
+    authedGetJson.mockResolvedValue({ kind: "ok", data: demo() });
+    renderApp();
+    await screen.findByRole("group", { name: "View" });
+    expect(screen.getByText("Page 1 of 4")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Stock 1 step" }));
+    expect(screen.getByText("IMPROVED · NEW ON 16/10/26")).not.toBeNull();
+    expect(document.querySelector("del")?.textContent).toBe("Text stock-01");
+    fireEvent.click(screen.getByRole("button", { name: "05/10/26" }));
+    expect(screen.getByText("Improved with Bee6").parentElement!.textContent).toContain("0");
+    expect(screen.getByText("From your SOP").parentElement!.textContent).toContain("5");
+    expect(screen.queryByText(/NEW ON/)).toBeNull();
+  });
+
+  it("the toggle is still shown for a seed-only SOP, with a single 'Other steps' chapter and no page navigation", async () => {
+    renderApp();
+    await screen.findByRole("group", { name: "View" });
+    expect(screen.getByRole("button", { name: "Other steps 2 steps" })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Next page" })).toBeNull();
+  });
+
+  it("the open chapter survives a Book -> Table -> Book round trip", async () => {
+    authedGetJson.mockResolvedValue({ kind: "ok", data: demo() });
+    renderApp();
+    await screen.findByRole("group", { name: "View" });
+    fireEvent.click(screen.getByRole("button", { name: "Stock 1 step" }));
+    expect(screen.getByText("Page 3 of 4")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Table" }));
+    expect(screen.queryByRole("navigation", { name: "Contents" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Book" }));
+    expect(screen.getByRole("heading", { level: 3, name: "Stock" })).not.toBeNull();
+    expect(screen.getByText("Page 3 of 4")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Stock 1 step" }).getAttribute("aria-current")).toBe("page");
+  });
+
+  it("Bahasa labels the toggle Buku / Tabel", async () => {
+    authedGetJson.mockResolvedValue({ kind: "ok", data: demo() });
+    render(
+      <LangProvider initial="id">
+        <SopApp config={CONFIG} />
+      </LangProvider>,
+    );
+    const group = await screen.findByRole("group", { name: "Tampilan" });
+    expect(Array.from(group.querySelectorAll("button")).map((b) => b.textContent)).toEqual(["Buku", "Tabel"]);
   });
 });

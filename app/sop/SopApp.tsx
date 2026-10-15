@@ -16,14 +16,16 @@ import { cx } from "@/app/ui/cx";
 import { WebTopBar } from "@/app/web/WebTopBar";
 import { EmptyState } from "@/app/web/EmptyState";
 import { SopChangeCard } from "@/app/sop/SopChangeCard";
-import { SopVersionSteps } from "@/app/sop/SopVersionSteps";
+import { SopBookSpread } from "@/app/sop/SopBookSpread";
+import { SopTable } from "@/app/sop/SopTable";
 import { buildVersions, shortDate, type SopVersionView } from "@/app/sop/versions";
 import styles from "@/app/sop/sop.module.css";
 
 /**
- * /sop (R-10 Task 5.3; SOP book in R-19 PR-9a §9.1). Owner and supervisor see the same read-only screen: the
- * version switch by date (dd/mm/yy, newest "· current"), the selected version's steps with the improved badge on the
- * step that version changed, the plain before/after list of approved changes (newest first) and the read-only footer.
+ * /sop (R-10 Task 5.3; SOP book in R-19 PR-9a + PR-9b §9.1). Owner and supervisor see the same read-only screen:
+ * the version switch by date (dd/mm/yy, newest "· current"), the Book/Table toggle, the selected version's steps
+ * (Book: a two-page spread by chapter; Table: one row per step) with the improved badge on the step that version
+ * changed, the plain before/after list of approved changes (newest first) and the read-only footer.
  * No Add SOP, Download or Open in Sheets control (V7). The role read here is UI-only; the server (`sop:diff` +
  * outlet) is the boundary and still answers 403 for anyone else.
  */
@@ -66,14 +68,24 @@ function headerLine(data: SopOverview, hasSwitch: boolean, lang: Lang): string |
   });
 }
 
+type ViewMode = "book" | "table";
+
 function SopBook({ data, lang }: { data: SopOverview; lang: Lang }) {
   // Oldest first, as the board reads left to right; the newest is selected until the reader picks another.
   const versions = useMemo(() => buildVersions(data).reverse(), [data]);
   const newest = versions[versions.length - 1]!;
   const [selected, setSelected] = useState<number>(newest.version);
+  // PR-9b: Book (the spread) or Table; the choice outlives a version switch. The open chapter lives here too, so a
+  // Book -> Table -> Book round trip reopens the same page (the spread unmounts in Table view).
+  const [mode, setMode] = useState<ViewMode>("book");
+  const [chapter, setChapter] = useState(0);
   const view = versions.find((v) => v.version === selected) ?? newest;
   const options = versions.map((v) => ({ value: String(v.version), label: versionLabel(v, v === newest, lang) }));
   const header = headerLine(data, versions.length > 1, lang);
+  const modeOptions = [
+    { value: "book" as const, label: t(lang, "C-sop-book-view-book") },
+    { value: "table" as const, label: t(lang, "C-sop-book-view-table") },
+  ];
 
   return (
     <>
@@ -91,13 +103,18 @@ function SopBook({ data, lang }: { data: SopOverview; lang: Lang }) {
         ) : (
           <Pill tone="teal">{options[0]!.label}</Pill>
         )}
+        <Segmented label={t(lang, "C-sop-book-view")} variant="plain" options={modeOptions} value={mode} onChange={setMode} />
       </div>
 
       <section aria-labelledby="sop-steps-heading">
         <h2 id="sop-steps-heading" className={styles.sectionTitle}>
           {t(lang, "C-sop-steps", { version: view.version })}
         </h2>
-        <SopVersionSteps view={view} lang={lang} />
+        {mode === "book" ? (
+          <SopBookSpread view={view} versions={versions} lang={lang} chapter={chapter} onChapterChange={setChapter} />
+        ) : (
+          <SopTable view={view} versions={versions} lang={lang} />
+        )}
       </section>
     </>
   );

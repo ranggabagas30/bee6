@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SopChangeView, SopOverview, SopStepView } from "@/lib/sop/contract";
-import { buildVersions, shortDate } from "@/app/sop/versions";
+import { buildVersions, shortDate, stepOrigins } from "@/app/sop/versions";
 
 /**
  * R-19 PR-9a (§9.1): the SOP book switches versions by date. The wire contract carries only the latest steps and
@@ -141,5 +141,47 @@ describe("buildVersions", () => {
 
   it("no SOP yields no versions", () => {
     expect(buildVersions(overview({ latest: null, in_force_version: null }))).toEqual([]);
+  });
+});
+
+describe("stepOrigins (R-19 PR-9b §9.1)", () => {
+  const three = () =>
+    buildVersions(
+      overview({
+        latest: {
+          version: 3,
+          effective_from_date: "2026-10-13",
+          steps: [step("open-01", "open v3"), step("stock-01", "new text v2"), step("serve-02")],
+        },
+        in_force_version: 3,
+        changes: [
+          change(3, { before: step("open-01"), after: step("open-01", "open v3") }),
+          change(2, { kind: "add", before: null, after: step("serve-02") }),
+        ],
+      }),
+    );
+
+  it("maps each changed step to the latest change at or before the shown version", () => {
+    const versions = three();
+    const atV3 = stepOrigins(versions, 3);
+    expect([...atV3.entries()]).toEqual([
+      ["open-01", { version: 3, effective_from_date: "2026-10-13", approved_date: "2026-10-12" }],
+      ["serve-02", { version: 2, effective_from_date: "2026-10-12", approved_date: "2026-10-11" }],
+    ]);
+    const atV2 = stepOrigins(versions, 2);
+    expect([...atV2.keys()]).toEqual(["serve-02"]);
+    expect(stepOrigins(versions, 1).size).toBe(0);
+  });
+
+  it("keeps only the newest change per step when the same step changed twice", () => {
+    const versions = buildVersions(
+      overview({
+        latest: { version: 3, effective_from_date: "2026-10-13", steps: [step("stock-01", "v3")] },
+        in_force_version: 3,
+        changes: [change(3, { before: step("stock-01", "v2"), after: step("stock-01", "v3") }), change(2, { after: step("stock-01", "v2") })],
+      }),
+    );
+    expect(stepOrigins(versions, 3).get("stock-01")?.version).toBe(3);
+    expect(stepOrigins(versions, 2).get("stock-01")?.version).toBe(2);
   });
 });
