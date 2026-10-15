@@ -802,6 +802,25 @@ describe("generateProposal", () => {
     expect(capturedInputs[0]).toContain("[STAFF] says call [NUMBER] now");
   });
 
+  it("R-21: strips a leading role tag from change_text and change_title before the redactor and the stored text", async () => {
+    const { store, state } = makeFakeStore();
+    const capturedInputs: string[][] = [];
+    const { deps, model } = makeDeps({
+      redact: async (texts) => {
+        capturedInputs.push([...texts]);
+        return [...texts];
+      },
+    });
+    model.mockResolvedValueOnce(
+      okModelResult(validWireText({ change_title: "(role: staff) Check more often", change_text: "[staff] Write the time on the tray." })),
+    );
+    await generateProposal(store, deps, { claims: claims(), from_date: "2026-10-01", to_date: "2026-10-02", now_ms: NOW_MS });
+    expect(capturedInputs[0]).toContain("Write the time on the tray.");
+    expect(capturedInputs[0]).toContain("Check more often");
+    expect(state.written[0]?.proposal.content?.change_text).toBe("Write the time on the tray.");
+    expect(state.written[0]?.proposal.content?.change_title).toBe("Check more often");
+  });
+
   it("redactor throws -> 503, no proposal, no audit", async () => {
     const { store, state } = makeFakeStore();
     const { deps, model } = makeDeps({
