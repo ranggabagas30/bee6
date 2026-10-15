@@ -13,8 +13,9 @@ import styles from "@/app/sop/sop.module.css";
  * The seed version has no badge. Every model text field is rendered as a plain text node: never through `t()`,
  * never as HTML.
  *
- * The "why" link goes to /proposals for both roles (the owner's Approvals live on the same path): the wire
- * contract carries no source_proposal_id, so no `?id=` can be set here (flagged in the PR).
+ * The "why" link goes to /proposals for both roles (the owner's Approvals live on the same path) and carries the SOP
+ * version number (`?v=`; a number, not an id: the wire contract carries no source_proposal_id). /proposals ignores
+ * unknown queries today; PR-12a owns the anchor.
  */
 export function SopVersionSteps({ view, lang }: { view: SopVersionView; lang: Lang }) {
   const change = view.change;
@@ -38,7 +39,7 @@ export function SopVersionSteps({ view, lang }: { view: SopVersionView; lang: La
             )}
             <p className={styles.stepRole}>{t(lang, "C-sop-step-role", { role: t(lang, ROLE_KEY[step.role]) })}</p>
             {changed && (
-              <Link href="/proposals" className={styles.why}>
+              <Link href={`/proposals?v=${change.version}`} className={styles.why}>
                 {t(lang, "C-sop-book-why")}
               </Link>
             )}

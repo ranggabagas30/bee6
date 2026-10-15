@@ -68,10 +68,16 @@ describe("SopVersionSteps (R-19 PR-9a §9.1)", () => {
     expect(changed.textContent).toContain("Done by: Staff");
   });
 
-  it("links the changed step to why it changed and the result", () => {
+  it("links the changed step to why it changed and the result, carrying the SOP version number (not an id)", () => {
     render(<SopVersionSteps view={v2} lang="en" />);
     const link = screen.getByRole("link", { name: "See why it changed and the result" });
-    expect(link.getAttribute("href")).toBe("/proposals");
+    expect(link.getAttribute("href")).toBe("/proposals?v=2");
+  });
+
+  it("the why link carries the version of the change that made the shown version", () => {
+    const view: SopVersionView = { ...v2, version: 3, change: change({ version: 3, previous_version: 2 }) };
+    render(<SopVersionSteps view={view} lang="en" />);
+    expect(screen.getByRole("link", { name: "See why it changed and the result" }).getAttribute("href")).toBe("/proposals?v=3");
   });
 
   it("an add change says NEW ON dd/mm/yy and strikes nothing", () => {
