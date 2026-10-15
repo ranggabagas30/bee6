@@ -61,6 +61,7 @@ const overview = (o: Partial<SopOverview> = {}): SopOverview => ({
   today: "2026-10-15",
   latest: { version: 1, effective_from_date: null, steps: [step("a-01"), step("b-01", "supervisor")] },
   in_force_version: 1,
+  first_version_date: "2026-10-05",
   changes: [],
   ...o,
 });
@@ -104,7 +105,22 @@ describe("SopApp header", () => {
     await screen.findByText("Version 2, in force since Fri 16 Oct");
   });
 
-  it("5.T4 v2 pending shows when it starts and which version applies until then", async () => {
+  it("5.T4 v2 pending with no version switch shows when it starts and which version applies until then", async () => {
+    // Version 2's change is not in the list, so only version 2 can be shown: no switch, so the pending line carries the date.
+    authedGetJson.mockResolvedValue({
+      kind: "ok",
+      data: overview({
+        latest: { version: 2, effective_from_date: "2026-10-16", steps: [step("a-01")] },
+        in_force_version: 1,
+        changes: [],
+      }),
+    });
+    renderApp();
+    await screen.findByText("Version 2 starts on Fri 16 Oct. Until then, version 1 applies.");
+    expect(screen.queryByRole("group", { name: "SOP version" })).toBeNull();
+  });
+
+  it("v2 pending with a version switch hides the pending line: the switch already carries the date (board-literal)", async () => {
     authedGetJson.mockResolvedValue({
       kind: "ok",
       data: overview({
@@ -114,7 +130,10 @@ describe("SopApp header", () => {
       }),
     });
     renderApp();
-    await screen.findByText("Version 2 starts on Fri 16 Oct. Until then, version 1 applies.");
+    const group = await screen.findByRole("group", { name: "SOP version" });
+    expect(Array.from(group.querySelectorAll("button")).map((b) => b.textContent)).toEqual(["05/10/26", "16/10/26 · current"]);
+    expect(screen.queryByText(/starts on/)).toBeNull();
+    expect(screen.queryByText(/Until then/)).toBeNull();
   });
 
   it("5.T4 no SOP shows the empty state (owner: with the upload-coming line) and no sections", async () => {
@@ -227,7 +246,7 @@ describe("SopApp version switch (R-19 PR-9a §9.1)", () => {
     renderApp();
     const group = await screen.findByRole("group", { name: "SOP version" });
     const buttons = Array.from(group.querySelectorAll("button"));
-    expect(buttons.map((b) => b.textContent)).toEqual(["First version", "16/10/26 · current"]);
+    expect(buttons.map((b) => b.textContent)).toEqual(["05/10/26", "16/10/26 · current"]);
     expect(buttons.map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "true"]);
     expect(screen.getByRole("heading", { name: "Steps in version 2" })).not.toBeNull();
     expect(screen.getByText("IMPROVED · NEW ON 16/10/26")).not.toBeNull();
@@ -239,9 +258,9 @@ describe("SopApp version switch (R-19 PR-9a §9.1)", () => {
   it("switching to the first version shows its steps with the old wording and no badge", async () => {
     authedGetJson.mockResolvedValue({ kind: "ok", data: v2() });
     renderApp();
-    fireEvent.click(await screen.findByRole("button", { name: "First version" }));
+    fireEvent.click(await screen.findByRole("button", { name: "05/10/26" }));
     expect(screen.getByRole("heading", { name: "Steps in version 1" })).not.toBeNull();
-    expect(screen.getByRole("button", { name: "First version" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "05/10/26" }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.queryByText(/NEW ON/)).toBeNull();
     expect(document.querySelector("del")).toBeNull();
     const items = Array.from(document.querySelector("ol")!.querySelectorAll("li"));
@@ -250,11 +269,25 @@ describe("SopApp version switch (R-19 PR-9a §9.1)", () => {
     expect(items[1]!.textContent).toContain("Text stock-01");
   });
 
-  it("a seed-only SOP shows 'First version · current' as plain text, with no switch", async () => {
+  it("a seed-only SOP shows its date '· current' as plain text, with no switch", async () => {
+    renderApp();
+    await screen.findByText("05/10/26 · current");
+    expect(screen.queryByRole("group", { name: "SOP version" })).toBeNull();
+    expect(screen.queryByText(/First version/)).toBeNull();
+    expect(screen.queryByText(/NEW ON/)).toBeNull();
+  });
+
+  it("falls back to 'First version' only when the seed's date is not known", async () => {
+    authedGetJson.mockResolvedValue({ kind: "ok", data: { ...v2(), first_version_date: null } });
+    renderApp();
+    const group = await screen.findByRole("group", { name: "SOP version" });
+    expect(Array.from(group.querySelectorAll("button")).map((b) => b.textContent)).toEqual(["First version", "16/10/26 · current"]);
+  });
+
+  it("falls back to 'First version · current' on a seed-only SOP whose date is not known", async () => {
+    authedGetJson.mockResolvedValue({ kind: "ok", data: overview({ first_version_date: null }) });
     renderApp();
     await screen.findByText("First version · current");
-    expect(screen.queryByRole("group", { name: "SOP version" })).toBeNull();
-    expect(screen.queryByText(/NEW ON/)).toBeNull();
   });
 
   it("shows the read-only footer and no Add SOP, Download or Open in Sheets control", async () => {
@@ -272,5 +305,6 @@ describe("SopApp version switch (R-19 PR-9a §9.1)", () => {
     await screen.findByText("No SOP yet.");
     expect(screen.queryByText("Read-only. Steps change only through an approved proposal.")).toBeNull();
     expect(screen.queryByText(/First version/)).toBeNull();
+    expect(screen.queryByText(/05\/10\/26/)).toBeNull();
   });
 });

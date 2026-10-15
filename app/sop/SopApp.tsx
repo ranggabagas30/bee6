@@ -36,11 +36,34 @@ type Outcome =
   | { kind: "forbidden" }
   | { kind: "error" };
 
-/** "dd/mm/yy", "dd/mm/yy · current", or the seed's "First version" (its date is not in the contract). */
+/**
+ * "dd/mm/yy" or "dd/mm/yy · current" (the seed is dated by first_version_date). "First version" is the fallback only
+ * when the seed's date is not known.
+ */
 function versionLabel(v: SopVersionView, newest: boolean, lang: Lang): string {
   if (v.effective_from_date === null) return t(lang, newest ? "C-sop-book-first-current" : "C-sop-book-first");
   const date = shortDate(v.effective_from_date);
   return newest ? t(lang, "C-sop-book-current", { date }) : date;
+}
+
+/**
+ * The R-10 header line. The pending sentence ("Version 2 starts on ... Until then, version 1 applies.") is shown only
+ * when there is no version switch: the switch already carries the date, and the board marks the newest "· current"
+ * (board-literal, option (a)).
+ */
+function headerLine(data: SopOverview, hasSwitch: boolean, lang: Lang): string | null {
+  const { latest, in_force_version } = data;
+  if (latest === null) return null;
+  if (latest.effective_from_date === null) return t(lang, "C-sop-version-seed", { version: latest.version });
+  if (in_force_version === latest.version) {
+    return t(lang, "C-sop-version-in-force", { version: latest.version, date: dayLabel(latest.effective_from_date, lang) });
+  }
+  if (hasSwitch) return null;
+  return t(lang, "C-sop-version-pending", {
+    version: latest.version,
+    date: dayLabel(latest.effective_from_date, lang),
+    current: in_force_version ?? latest.version - 1,
+  });
 }
 
 function SopBook({ data, lang }: { data: SopOverview; lang: Lang }) {
@@ -50,9 +73,11 @@ function SopBook({ data, lang }: { data: SopOverview; lang: Lang }) {
   const [selected, setSelected] = useState<number>(newest.version);
   const view = versions.find((v) => v.version === selected) ?? newest;
   const options = versions.map((v) => ({ value: String(v.version), label: versionLabel(v, v === newest, lang) }));
+  const header = headerLine(data, versions.length > 1, lang);
 
   return (
     <>
+      {header !== null && <p className={styles.line}>{header}</p>}
       <div className={styles.switchRow}>
         {versions.length > 1 ? (
           <Segmented
@@ -184,7 +209,7 @@ export function SopApp({ config }: { config: FirebaseWebConfig | null }) {
     );
   }
 
-  const { latest, in_force_version, changes } = outcome.data;
+  const { latest, changes } = outcome.data;
   if (latest === null) {
     return (
       <main className={styles.page}>
@@ -195,27 +220,10 @@ export function SopApp({ config }: { config: FirebaseWebConfig | null }) {
     );
   }
 
-  let header: string;
-  if (latest.effective_from_date === null) {
-    header = t(lang, "C-sop-version-seed", { version: latest.version });
-  } else if (in_force_version === latest.version) {
-    header = t(lang, "C-sop-version-in-force", {
-      version: latest.version,
-      date: dayLabel(latest.effective_from_date, lang),
-    });
-  } else {
-    header = t(lang, "C-sop-version-pending", {
-      version: latest.version,
-      date: dayLabel(latest.effective_from_date, lang),
-      current: in_force_version ?? latest.version - 1,
-    });
-  }
-
   return (
     <main className={styles.page}>
       <WebTopBar auth={auth} showSignOut current="sop" />
       <h1 className={styles.title}>{t(lang, "C-sop-title")}</h1>
-      <p className={styles.line}>{header}</p>
 
       <SopBook data={outcome.data} lang={lang} />
 
