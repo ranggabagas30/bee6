@@ -197,8 +197,19 @@ describe("pilot /capture bundle boundary (R-18, R-19 PR-5)", () => {
     const bridge = readFileSync(join(ROOT, "app/demo/guide-bridge.ts"), "utf8");
     const imports = bridge.split("\n").filter((l) => /^\s*import\s/.test(l));
     // lib/debrief/view-signal carries the debrief's view KIND only (round-4 D2): a phase input, never text.
-    for (const line of imports) expect(line).toMatch(/^import (type )?\{[^}]*\} from ["'](react|@\/lib\/capture\/contract|@\/lib\/debrief\/constants|@\/lib\/debrief\/view-signal|@\/lib\/demo\/guide|@\/lib\/i18n\/dict)["'];$/);
+    // lib/demo/proposals-signal carries the proposals page's screen KIND and an event counter only (after-merge wiring).
+    for (const line of imports) expect(line).toMatch(/^import (type )?\{[^}]*\} from ["'](react|@\/lib\/capture\/contract|@\/lib\/debrief\/constants|@\/lib\/debrief\/view-signal|@\/lib\/demo\/guide|@\/lib\/demo\/proposals-signal|@\/lib\/i18n\/dict)["'];$/);
     expect(bridge).not.toMatch(/import\s*\(/);
+  });
+
+  it("the proposals signal module is as small as the debrief's: it imports only a type from the guide model, and no demo text, script or credential", () => {
+    const signal = readFileSync(join(ROOT, "lib/demo/proposals-signal.ts"), "utf8");
+    const imports = signal.split("\n").filter((l) => /^\s*import\s/.test(l));
+    expect(imports).toEqual(['import type { ProposalsGuideScreen } from "@/lib/demo/guide";']);
+    expect(signal).not.toMatch(/import\s*\(/);
+    // ProposalsApp (pilot-reachable) publishes through this module only: it never imports the guide or its loader.
+    const app = readFileSync(join(ROOT, "app/proposals/ProposalsApp.tsx"), "utf8");
+    expect(app).not.toMatch(/@\/app\/demo\/(JudgeGuide|JudgeGuideLoader|guide-bridge)/);
   });
 
   it("positive control: the static-import matcher catches a plain and a type-and-value import", () => {
