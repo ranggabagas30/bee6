@@ -29,7 +29,14 @@ import {
   SopVersionSchema,
   StaffSchema,
   UserSchema,
+  type SopVersion,
 } from "@/lib/firestore/schema";
+import { addDays, businessDateOf, localDateOf, localHmOf, zonedTimeToEpochMs } from "@/lib/capture/calendar";
+import { COLLECTIONS } from "@/lib/firestore/collections";
+import { cloneTemplate, shiftDeep, type TemplateSet } from "@/lib/demo/clone";
+import { TEMPLATE_OUTLET_ID } from "@/lib/demo/constants";
+import { DAYS, templateSet } from "@/lib/demo/testing/fixtures";
+import { shortDate } from "@/app/sop/versions";
 
 const NOW = new Date("2026-09-30T12:00:00.000Z");
 // Deterministic fake hash so the builder test needs no bcrypt work.
@@ -165,7 +172,7 @@ describe("R-08 Task 2.3: sop_v1", () => {
   }
 
   it("does not overwrite an existing :v1 doc", async () => {
-    const sopVersion = buildSopVersionDoc("demo-outlet", DEMO_SEED.sop_v1!, NOW.getTime());
+    const sopVersion = buildSopVersionDoc("demo-outlet", DEMO_SEED.sop_v1!, NOW.getTime(), "Asia/Jakarta");
     const { db, written } = fakeDb(new Set(["demo-outlet:v1"]));
     const wroteIt = await writeSopVersionIfAbsent(db as never, sopVersion);
     expect(wroteIt).toBe(false);
@@ -173,7 +180,7 @@ describe("R-08 Task 2.3: sop_v1", () => {
   });
 
   it("writes the doc when absent", async () => {
-    const sopVersion = buildSopVersionDoc("demo-outlet", DEMO_SEED.sop_v1!, NOW.getTime());
+    const sopVersion = buildSopVersionDoc("demo-outlet", DEMO_SEED.sop_v1!, NOW.getTime(), "Asia/Jakarta");
     const { db, written } = fakeDb(new Set());
     const wroteIt = await writeSopVersionIfAbsent(db as never, sopVersion);
     expect(wroteIt).toBe(true);
@@ -232,7 +239,7 @@ describe("R-12 Task 3.1: --template seed", () => {
     expect(DEMO_TEMPLATE_SEED.outlet.name).toBe("Demo Bakehouse");
     expect(DEMO_TEMPLATE_SEED.device).toEqual({ device_id: "demo-tpl-phone", label: "Demo shop phone" });
     expect(DEMO_TEMPLATE_SEED.staff).toEqual(DEMO_SEED.staff);
-    expect(DEMO_TEMPLATE_SEED.sop_v1).toEqual(DEMO_SEED.sop_v1);
+    expect(DEMO_TEMPLATE_SEED.sop_v1?.steps).toEqual(DEMO_SEED.sop_v1?.steps);
     expect(DEMO_TEMPLATE_SEED.owner.email.endsWith("@example.com")).toBe(true);
     // distinct sign-in emails from demo-outlet so findByEmail never matches two outlets
     expect(DEMO_TEMPLATE_SEED.owner.email).not.toBe(DEMO_SEED.owner.email);
@@ -277,5 +284,118 @@ describe("R-18 2.T3: the pairing code the seed prints is never reserved", () => 
     const src = fs.readFileSync(new URL("./seed.ts", import.meta.url), "utf8");
     expect(src).toContain("pairingCode: seedPairingCode()");
     expect(src.match(/generatePairingCode\(/g)?.length).toBe(1); // only inside seedPairingCode
+  });
+});
+
+describe("R-19: SOP v1 creation date (sop_v1.created_days_before_last_day / created_date)", () => {
+  const TZ = "Asia/Jakarta";
+  const STEPS = DEMO_SEED.sop_v1!.steps;
+  /** 09:00 WIB of a "YYYY-MM-DD" date. */
+  const nineAm = (date: string) => zonedTimeToEpochMs(date, "09:00", TZ);
+
+  it("absent: created_at_ms is the seed time (pilot / plain demo behaviour unchanged)", () => {
+    const doc = buildSopVersionDoc("demo-outlet", { steps: STEPS }, NOW.getTime(), TZ);
+    expect(doc.created_at_ms).toBe(NOW.getTime());
+  });
+
+  it("created_days_before_last_day: 6 on a 10 Oct seed (08:00 WIB) stamps 09:00 WIB on 3 Oct (10 - 1 - 6)", () => {
+    const seedAt = Date.parse("2026-10-10T01:00:00.000Z"); // 08:00 WIB on 10 Oct
+    const doc = buildSopVersionDoc("demo-tpl-outlet", { steps: STEPS, created_days_before_last_day: 6 }, seedAt, TZ);
+    expect(doc.created_at_ms).toBe(nineAm("2026-10-03"));
+    expect(localDateOf(doc.created_at_ms, TZ)).toBe("2026-10-03");
+    expect(localHmOf(doc.created_at_ms, TZ)).toBe("09:00");
+  });
+
+  it("the relative date counts outlet-local days, not UTC days", () => {
+    // 00:30 WIB on 10 Oct is still 9 Oct in UTC: the seed day is 10 Oct (local), so the SOP date is 3 Oct.
+    const justAfterMidnight = Date.parse("2026-10-09T17:30:00.000Z");
+    const doc = buildSopVersionDoc("demo-tpl-outlet", { steps: STEPS, created_days_before_last_day: 6 }, justAfterMidnight, TZ);
+    expect(localDateOf(doc.created_at_ms, TZ)).toBe("2026-10-03");
+    // 23:30 WIB on 10 Oct (16:30 UTC) is still the same seed day.
+    const lateEvening = Date.parse("2026-10-10T16:30:00.000Z");
+    const doc2 = buildSopVersionDoc("demo-tpl-outlet", { steps: STEPS, created_days_before_last_day: 6 }, lateEvening, TZ);
+    expect(localDateOf(doc2.created_at_ms, TZ)).toBe("2026-10-03");
+  });
+
+  it("created_date (absolute) stamps 09:00 WIB on that date, whatever the seed time", () => {
+    const doc = buildSopVersionDoc("demo-tpl-outlet", { steps: STEPS, created_date: "2026-10-05" }, NOW.getTime(), TZ);
+    expect(doc.created_at_ms).toBe(nineAm("2026-10-05"));
+  });
+
+  it("the schema refuses both options at once, a negative or fractional day count, and a malformed date", () => {
+    const base = { ...DEMO_TEMPLATE_SEED };
+    const withSop = (sop_v1: unknown) => SeedConfigSchema.safeParse({ ...base, sop_v1 }).success;
+    expect(withSop({ steps: STEPS, created_days_before_last_day: 6 })).toBe(true);
+    expect(withSop({ steps: STEPS, created_date: "2026-10-05" })).toBe(true);
+    expect(withSop({ steps: STEPS, created_days_before_last_day: 6, created_date: "2026-10-05" })).toBe(false);
+    expect(withSop({ steps: STEPS, created_days_before_last_day: -1 })).toBe(false);
+    expect(withSop({ steps: STEPS, created_days_before_last_day: 1.5 })).toBe(false);
+    expect(withSop({ steps: STEPS, created_date: "05/10/2026" })).toBe(false);
+  });
+
+  it("the demo template sets created_days_before_last_day: 6; the plain demo and (by shape) the pilot do not", () => {
+    expect(DEMO_TEMPLATE_SEED.sop_v1?.created_days_before_last_day).toBe(6);
+    expect(DEMO_TEMPLATE_SEED.sop_v1?.created_date).toBeUndefined();
+    expect(DEMO_SEED.sop_v1?.created_days_before_last_day).toBeUndefined();
+    expect(DEMO_SEED.sop_v1?.created_date).toBeUndefined();
+  });
+
+  it("buildSeedDocuments passes the outlet timezone through (template config -> dated SOP doc)", async () => {
+    const seedAt = new Date("2026-10-10T01:00:00.000Z"); // 08:00 WIB on 10 Oct
+    const docs = await buildSeedDocuments(DEMO_TEMPLATE_SEED, "demo", { pairingCode: "123456", now: seedAt, hash: fakeHash });
+    expect(docs.sopVersion?.created_at_ms).toBe(nineAm("2026-10-03"));
+  });
+
+  /**
+   * End to end with fixed clocks: seed on day S, upload the template days so its last day is D = S - 1
+   * (plan.json offset -1), then clone for a judge whose today is T. The clone moves the template by
+   * k = (T - 1) - D whole days, so the SOP lands on (D - 6) + k = T - 7, whatever S was.
+   */
+  describe("re-seeding on any day: the sandbox's first SOP version reads as judge-day-1 minus 7", () => {
+    const DAY_MS = 86_400_000;
+    const TEMPLATE_LAST_DAY = DAYS[2]; // the fixture's last day (19 Oct)
+    const daysBetween = (from: string, to: string) =>
+      Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / DAY_MS);
+
+    /** The template as the seed + demo-seed-template leave it when both ran on seed day S (08:00 WIB). */
+    function templateSeededOn(seedDay: string): TemplateSet {
+      const lastDay = addDays(seedDay, -1);
+      const move = daysBetween(TEMPLATE_LAST_DAY, lastDay);
+      const tpl = shiftDeep(templateSet(), move * DAY_MS, move);
+      const seedAt = zonedTimeToEpochMs(seedDay, "08:00", TZ);
+      const sop_v1 = buildSopVersionDoc(TEMPLATE_OUTLET_ID, DEMO_TEMPLATE_SEED.sop_v1!, seedAt, TZ);
+      expect(tpl.device.last_ended?.business_date).toBe(lastDay);
+      return { ...tpl, sop_v1 };
+    }
+
+    function sandboxSopDate(tpl: TemplateSet, judgeDay: string): string {
+      const now_ms = zonedTimeToEpochMs(judgeDay, "09:00", TZ);
+      const docs = cloneTemplate({
+        tpl,
+        ids: { outlet_id: "sbx-aaaaaaaaaaaa", device_id: "jdg-bbbbbbbbbbbb" },
+        now_ms,
+        key_sha256: "a".repeat(64),
+        device_token_hash: "$2a$10$judgehashjudgehashjudge",
+        anchor_business_date: businessDateOf(now_ms, TZ),
+      });
+      const sop = docs.find((d) => d.collection === COLLECTIONS.sopVersions)!.data as SopVersion;
+      expect(sop.created_at_ms).toBeLessThan(now_ms); // the clone's cap-at-now never touches it
+      return localDateOf(sop.created_at_ms, TZ);
+    }
+
+    it.each([
+      ["2026-10-05", "2026-10-12", "2026-10-05", "05/10/26"], // seeded a week before judge day 1
+      ["2026-10-10", "2026-10-12", "2026-10-05", "05/10/26"], // the Saturday before
+      ["2026-10-11", "2026-10-12", "2026-10-05", "05/10/26"], // the day before (k = 0)
+      ["2026-10-12", "2026-10-12", "2026-10-05", "05/10/26"], // judge day itself, before the judge signs in
+      ["2026-10-10", "2026-10-13", "2026-10-06", "06/10/26"], // judge day 2 opens its own sandbox: still today - 7
+      ["2026-10-29", "2026-11-02", "2026-10-26", "26/10/26"], // across a month boundary
+      ["2026-12-31", "2027-01-04", "2026-12-28", "28/12/26"], // across a year boundary
+    ])("seeded %s, judge today %s -> SOP v1 dated %s (%s)", (seedDay, judgeDay, expectedDate, expectedLabel) => {
+      const got = sandboxSopDate(templateSeededOn(seedDay), judgeDay);
+      expect(got).toBe(expectedDate);
+      expect(got).toBe(addDays(judgeDay, -7));
+      expect(shortDate(got)).toBe(expectedLabel);
+    });
   });
 });
