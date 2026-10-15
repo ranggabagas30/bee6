@@ -52,7 +52,8 @@ describe("SopBookSpread (R-19 PR-9b §9.1)", () => {
   it("left page lists the chapters with their step counts and the legend; right page opens on chapter 1", () => {
     const versions = buildVersions(overview());
     render(<SopBookSpread view={versions[0]!} versions={versions} lang="en" />);
-    expect(contentsButtons().map((b) => b.textContent)).toEqual(["Opening & closing, 2 steps", "Production, 1 step", "Stock, 1 step", "Customer, 1 step"]);
+    expect(contentsButtons().map((b) => b.textContent)).toEqual(["Opening & closing2 steps", "Production1 step", "Stock1 step", "Customer1 step"]);
+    expect(contentsButtons().map((b) => b.getAttribute("aria-label"))).toEqual(["Opening & closing, 2 steps", "Production, 1 step", "Stock, 1 step", "Customer, 1 step"]);
     expect(contentsButtons().map((b) => b.getAttribute("aria-current"))).toEqual(["page", null, null, null]);
     expect(screen.getByText("From your SOP").parentElement!.textContent).toContain("4");
     expect(screen.getByText("Improved with Bee6").parentElement!.textContent).toContain("1");
@@ -110,6 +111,14 @@ describe("SopBookSpread (R-19 PR-9b §9.1)", () => {
     expect(screen.getByRole("button", { name: "Stock, 1 step" })).not.toBeNull();
     expect(screen.getByRole("button", { name: "Opening & closing, 2 steps" })).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Stock1 step" })).toBeNull();
+    // The visible text is unchanged: name on the left, count on the right, no comma shown.
+    expect(screen.getByRole("button", { name: "Stock, 1 step" }).textContent).toBe("Stock1 step");
+  });
+
+  it("Bahasa separates the name and the count the same way", () => {
+    const versions = buildVersions(overview());
+    render(<SopBookSpread view={versions[0]!} versions={versions} lang="id" />);
+    expect(screen.getByRole("button", { name: "Buka & tutup, 2 langkah" })).not.toBeNull();
   });
 
   it("re-clicking the open chapter's contents entry lands on the chapter heading", () => {
@@ -176,7 +185,8 @@ describe("SopBookSpread (R-19 PR-9b §9.1)", () => {
       overview({ latest: { version: 1, effective_from_date: null, steps: [step("p-01"), step("p-02")] }, in_force_version: 1, changes: [] }),
     );
     render(<SopBookSpread view={versions[0]!} versions={versions} lang="en" />);
-    expect(contentsButtons().map((b) => b.textContent)).toEqual(["Other steps, 2 steps"]);
+    expect(contentsButtons().map((b) => b.textContent)).toEqual(["Other steps2 steps"]);
+    expect(screen.getByRole("button", { name: "Other steps, 2 steps" })).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Next page" })).toBeNull();
     expect(screen.queryByText(/Page 1 of/)).toBeNull();
     expect(stepIdsShown()).toEqual(["Title p-01", "Title p-02"]);

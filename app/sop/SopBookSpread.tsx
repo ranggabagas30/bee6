@@ -67,6 +67,8 @@ export function SopBookSpread({
   };
 
   const chapterName = (c: (typeof chapters)[number]) => t(lang, CHAPTER_KEY[c.chapter]);
+  const stepCount = (c: (typeof chapters)[number]) =>
+    c.steps.length === 1 ? t(lang, "C-sop-book-steps-1") : t(lang, "C-sop-book-steps-n", { n: c.steps.length });
 
   return (
     <div className={styles.spread}>
@@ -80,15 +82,13 @@ export function SopBookSpread({
                   type="button"
                   className={styles.contentsItem}
                   aria-current={i === index ? "page" : undefined}
+                  // The name and the count are two spans with no text between them, so the computed name would run
+                  // them together ("Stock1 step"); the label reads "Stock, 1 step" the same way in every engine.
+                  aria-label={`${chapterName(c)}, ${stepCount(c)}`}
                   onClick={() => turnTo(i)}
                 >
                   <span className={styles.contentsName}>{chapterName(c)}</span>
-                  {/* The count sits on the right; a screen reader needs "Stock, 1 step". The space is a bare text node
-                      (not rendered by the flex row); the comma is visually hidden. */}
-                  <span className="b6-sr-only">,</span>{" "}
-                  <span className={styles.contentsCount}>
-                    {c.steps.length === 1 ? t(lang, "C-sop-book-steps-1") : t(lang, "C-sop-book-steps-n", { n: c.steps.length })}
-                  </span>
+                  <span className={styles.contentsCount}>{stepCount(c)}</span>
                 </button>
               </li>
             ))}
