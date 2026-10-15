@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 /**
  * R-19 PR-6 §8.2 follow-up: the top bar's `bee6` brand link is a tap target, so its box is at least 44 x 44 px (the
  * nav shell's own rule, and WCAG 2.5.8) while the glyphs keep their size: a flex box with a min-height and min-width,
- * not a bigger font. The bar is already 48 px tall, so the row at 360 px does not grow.
+ * not a bigger font. Under 900 px the bar wraps and the brand's row is only 24 px tall, so a plain 44 px box grew the
+ * header (81 -> 100 px): negative block margins keep the row's height while the border box stays 44 px (see below).
  */
 const css = readFileSync(join(__dirname, "shell.module.css"), "utf8");
 const block = (selector: string): string => {
@@ -43,5 +44,13 @@ describe("shell.module.css: the brand link's tap target", () => {
 
   it("the bar stays at its 48 px minimum, so a 44 px brand box adds no height to the row", () => {
     expect(block(".bar")).toMatch(/min-height:\s*48px/);
+  });
+
+  // The 13 px upward overhang is budgeted against the page's 16 px top padding (the comment above). Home's container
+  // had 12 px, so the box overhung its top by 1 px and the focus ring by 3 px: every page under the top bar pads 16 px.
+  it("the owner Home's container pads 16 px at the top, the room the brand's 13 px overhang assumes", () => {
+    const home = readFileSync(join(__dirname, "..", "home", "home.module.css"), "utf8");
+    const main = home.match(/\.main\s*{([^}]*)}/)?.[1] ?? "";
+    expect(main).toMatch(/padding:\s*16px 16px 32px/);
   });
 });

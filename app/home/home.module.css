@@ -23,7 +23,8 @@
   box-sizing: border-box;
   max-width: 1040px;
   margin: 0 auto;
-  padding: 12px 16px 32px;
+  /* 16 px at the top like every page under the top bar: the brand's 44 px box overhangs its row by 13 px (shell.module.css) */
+  padding: 16px 16px 32px;
   padding-left: max(16px, env(safe-area-inset-left));
   padding-right: max(16px, env(safe-area-inset-right));
 }
