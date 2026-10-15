@@ -39,6 +39,7 @@ export const sopID = {
   "C-sop-book-ch-other": "Langkah lain", // PROVISIONAL
   "C-sop-book-contents": "Daftar isi", // PROVISIONAL
   "C-sop-book-steps-n": "{n} langkah", // PROVISIONAL
+  "C-sop-book-steps-1": "1 langkah", // PROVISIONAL
   "C-sop-book-legend-from": "Dari SOP Anda", // PROVISIONAL
   "C-sop-book-legend-improved": "Diperbaiki dengan Bee6", // PROVISIONAL
   "C-sop-book-chapter-of": "Bab {n} dari {total}", // PROVISIONAL
@@ -77,6 +78,7 @@ export const sopEN: Record<keyof typeof sopID, string> = {
   "C-sop-book-ch-other": "Other steps",
   "C-sop-book-contents": "Contents",
   "C-sop-book-steps-n": "{n} steps",
+  "C-sop-book-steps-1": "1 step",
   "C-sop-book-legend-from": "From your SOP",
   "C-sop-book-legend-improved": "Improved with Bee6",
   "C-sop-book-chapter-of": "Chapter {n} of {total}",

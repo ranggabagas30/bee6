@@ -25,8 +25,12 @@
   overflow-wrap: anywhere;
 }
 
-/* The version switch sits on its own row; the segmented control wraps rather than overflowing at 360 px. */
+/* The version switch and the Book/Table toggle (PR-9b) share one row; both wrap rather than overflow at 360 px. */
 .switchRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
   margin: 8px 0 16px;
 }
 
@@ -105,6 +109,192 @@
   outline: 2px solid var(--b6-focus);
   outline-offset: 2px;
   border-radius: 4px;
+}
+
+/*
+ * Book view (PR-9b, D2-04): a two-page spread from 720 px; below that the two pages stack into one column, the
+ * contents first. The gutter between the pages is a hairline, like a book's fold.
+ */
+.spread {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.bookPage {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 16px;
+  border-radius: var(--b6-r-card);
+  background: var(--b6-surface);
+  box-shadow: var(--b6-shadow-card);
+}
+
+.pageKicker {
+  display: block;
+  margin: 0 0 8px;
+}
+
+.contents {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+}
+
+.contentsItem {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: var(--b6-tap);
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--b6-r-control);
+  background: transparent;
+  color: var(--b6-ink);
+  font: inherit;
+  font-size: var(--b6-fs-body);
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.contentsItem:hover {
+  background: var(--b6-surface-soft);
+}
+
+.contentsItem[aria-current="page"] {
+  background: var(--b6-teal-bg);
+  color: var(--b6-teal-ink);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--b6-teal-line);
+}
+
+.contentsItem:focus-visible {
+  outline: 2px solid var(--b6-focus);
+  outline-offset: 2px;
+}
+
+.contentsName {
+  flex: 1 1 auto;
+}
+
+.contentsCount {
+  flex: 0 0 auto;
+  font-size: var(--b6-fs-small);
+  color: var(--b6-muted);
+}
+
+.contentsItem[aria-current="page"] .contentsCount {
+  color: inherit;
+}
+
+.legend {
+  list-style: none;
+  margin: 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--b6-line);
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+  font-size: var(--b6-fs-ui);
+}
+
+/* The swatches only echo the card styles (plain vs teal-lined); the words and counts carry the meaning. */
+.swatch {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+.swatchSop {
+  background: var(--b6-surface);
+  box-shadow: inset 0 0 0 1px var(--b6-line-strong);
+}
+
+.swatchImproved {
+  background: var(--b6-teal-bg);
+  box-shadow: inset 0 0 0 1px var(--b6-teal-ink);
+}
+
+.legendLabel {
+  flex: 1 1 auto;
+}
+
+.legendCount {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.chapterTitle {
+  margin: 0 0 12px;
+  font-size: var(--b6-fs-title);
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.chapterTitle:focus-visible {
+  outline: 2px solid var(--b6-focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.pageRight .steps {
+  padding-left: 20px;
+}
+
+.pageNav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--b6-line);
+}
+
+.pageOf {
+  order: -1;
+  flex: 1 0 100%;
+  text-align: center;
+  font-size: var(--b6-fs-small);
+  color: var(--b6-muted);
+}
+
+@media (min-width: 720px) {
+  .spread {
+    grid-template-columns: minmax(200px, 2fr) 3fr;
+    gap: 0;
+    border-radius: var(--b6-r-card);
+    background: var(--b6-surface);
+    box-shadow: var(--b6-shadow-card);
+  }
+
+  .bookPage {
+    padding: 20px;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .pageLeft {
+    border-right: 1px solid var(--b6-line-strong);
+    background: var(--b6-surface-soft);
+  }
+
+  .pageOf {
+    order: 0;
+    flex: 1 1 auto;
+  }
 }
 
 /*
