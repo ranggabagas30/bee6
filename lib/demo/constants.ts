@@ -31,7 +31,8 @@ export const TEMPLATE_DOC_MAX = 400;
 export const WRITE_BATCH_MAX = 400;
 
 // Rate limits and caps (defaults, R-12 section 11 Q-3).
-export const SANDBOX_IP_DAILY = 10;
+/** R-22: 30 (was 10): a judging panel behind one NAT. */
+export const SANDBOX_IP_DAILY = 30;
 export const SANDBOX_DAILY = 300;
 export const SWITCHES_PER_SANDBOX = 30;
 /** Role-switch (sandbox_key) requests per network per day; bounds the Firestore key lookups a bogus key costs. */

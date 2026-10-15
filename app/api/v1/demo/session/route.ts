@@ -8,7 +8,7 @@ import { DemoSessionBodySchema } from "@/lib/demo/contract";
 import { clientIp, resolveXffFromEnd } from "@/lib/demo/limits";
 import { capFromEnv, sandboxDailyLimit } from "@/lib/demo/caps";
 import { issueDemoSession } from "@/lib/demo/service";
-import { SWITCH_IP_DAILY } from "@/lib/demo/constants";
+import { SANDBOX_IP_DAILY, SWITCH_IP_DAILY } from "@/lib/demo/constants";
 
 /**
  * POST /api/v1/demo/session (R-12 Task 6.4; web spec 6.2 "Anyone (demo only)"). The judge's sign-in:
@@ -84,6 +84,7 @@ export async function POST(req: NextRequest) {
         caps: {
           sandboxDaily: sandboxDailyLimit(process.env),
           switchIpDaily: capFromEnv(process.env.DEMO_SWITCH_IP_CAP, SWITCH_IP_DAILY),
+          sandboxIpDaily: capFromEnv(process.env.DEMO_SANDBOX_IP_CAP, SANDBOX_IP_DAILY),
         },
       },
       {
