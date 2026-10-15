@@ -94,13 +94,22 @@ describe("ProposalDetail — content (D2-03e)", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Write the bake time on every tray label" })).not.toBeNull();
     expect(screen.getByText("WHAT CHANGES IN THE SOP")).not.toBeNull();
     const before = screen.getByText("Check the display every hour and refill items that are running low.");
-    expect(before.tagName).toBe("S");
+    expect(before.tagName).toBe("DEL"); // same element as PR-9a's SOP book, not <s>
     expect(screen.getByText("Check the display every hour, refill items that are running low, and write the bake time on each tray label.")).not.toBeNull();
+  });
+
+  it("shows the rationale as one line under the title", () => {
+    renderDetail();
+    const title = screen.getByRole("heading", { level: 1 });
+    const why = screen.getByText("On two days a customer asked if the egg tarts were fresh.");
+    expect(why.tagName).toBe("P");
+    expect(title.nextElementSibling).toBe(why);
   });
 
   it("a new step shows 'New step' and no struck wording", () => {
     renderDetail(item("awaiting_supervisor", { target_step: null }));
     expect(screen.getByText("New step")).not.toBeNull();
+    expect(document.querySelector("del")).toBeNull();
     expect(document.querySelector("s")).toBeNull();
   });
 

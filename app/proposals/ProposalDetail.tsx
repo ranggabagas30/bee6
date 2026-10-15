@@ -20,7 +20,8 @@ import styles from "@/app/proposals/supervisor.module.css";
 
 /**
  * The supervisor's proposal detail (R-19 PR-12a, plan 9.5; boards D2-03e, D2-03f, D2-03g): step chip and status
- * pill, the change title, what changes in the SOP (the step's current wording struck through, the new wording
+ * pill, the change title, the rationale as one line under it, what changes in the SOP (the step's wording from the
+ * proposal's generator SOP version in `<del>` with a visually hidden "Before:", as PR-9a's SOP book, the new wording
  * under it), the evidence (date · time — the dated summary from the view, never a quoted line), the metric to
  * watch, the review date and the feasible note. Actions on an `awaiting_supervisor` proposal: **Mark feasible**
  * and an inline **Reject… (reason required)** field — no confirm dialog for either (plan 9.5). Both go to the
@@ -167,6 +168,7 @@ export function ProposalDetail({ auth, lang, item, feasible, onBack, onFeasible,
         <Pill tone={STATUS_TONE[proposal.status]}>{t(lang, STATUS_KEY[proposal.status])}</Pill>
       </div>
       <h1 className={styles.detailTitle}>{content.change_title}</h1>
+      <p className={styles.detailWhy}>{content.rationale}</p>
 
       {feasible && <FeasibleHandover lang={lang} onBack={onBack} />}
 
@@ -175,7 +177,7 @@ export function ProposalDetail({ auth, lang, item, feasible, onBack, onFeasible,
         {content.target_step?.text && (
           <p className={styles.after} style={{ margin: 0 }}>
             <span className="b6-sr-only">{t(lang, "C-propd-before")} </span>
-            <s className={styles.before}>{content.target_step.text}</s>
+            <del className={styles.before}>{content.target_step.text}</del>
           </p>
         )}
         <p className={styles.after}>

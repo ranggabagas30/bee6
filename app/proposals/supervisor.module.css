@@ -304,6 +304,15 @@
   overflow-wrap: anywhere;
 }
 
+/* The rationale, one line under the title (same voice as the list row's why line). */
+.detailWhy {
+  margin: 0;
+  font-size: var(--b6-fs-body);
+  line-height: 1.5;
+  color: var(--b6-ink-soft);
+  overflow-wrap: anywhere;
+}
+
 .banner {
   padding: 14px 18px;
   border-radius: 14px;
