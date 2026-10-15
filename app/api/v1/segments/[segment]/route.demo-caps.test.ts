@@ -7,7 +7,7 @@ import * as transcribeModule from "@/lib/transcribe/gemini";
 import * as redactModule from "@/lib/redact/dlp";
 import * as storesModule from "@/lib/firestore/stores";
 import { firestoreDemoStore } from "@/lib/firestore/demo-store";
-import { UnauthorizedError } from "@/lib/http/errors";
+import { ServiceUnavailableError, UnauthorizedError } from "@/lib/http/errors";
 import type { Outlet } from "@/lib/firestore/schema";
 import { fakeStore } from "@/lib/demo/testing/fake-store";
 import { templateSet } from "@/lib/demo/testing/fixtures";
@@ -54,10 +54,11 @@ afterEach(() => vi.unstubAllEnvs());
 function deviceIn(outlet_id: string) {
   vi.mocked(guardModule.requireDevice).mockResolvedValue({ outlet_id, device_id: "device-1", role: "device" });
 }
-function put(over: { headers?: Record<string, string> } = {}) {
+/** R-23: the caps charge once per seg_id, so tests that count charges give every PUT its own seg id. */
+function put(over: { headers?: Record<string, string> } = {}, segId = "seg-1") {
   const audio = Buffer.from("fake-audio");
   return PUT(
-    new NextRequest("http://localhost/api/v1/segments/device-1:seg-1", {
+    new NextRequest(`http://localhost/api/v1/segments/device-1:${segId}`, {
       method: "PUT",
       headers: {
         "content-type": "audio/webm;codecs=opus",
@@ -69,7 +70,7 @@ function put(over: { headers?: Record<string, string> } = {}) {
       },
       body: new Uint8Array(audio),
     }),
-    { params: Promise.resolve({ segment: "device-1:seg-1" }) },
+    { params: Promise.resolve({ segment: `device-1:${segId}` }) },
   );
 }
 
@@ -77,11 +78,11 @@ describe("PUT /api/v1/segments: sandbox segment caps", () => {
   it("the 151st upload from one sandbox is 429 demo_segment_cap with Retry-After, and nothing is transcribed, redacted or stored", async () => {
     deviceIn(SBX);
     f.sandboxes.set(SBX, sandboxOutlet());
-    for (let i = 0; i < 150; i++) expect((await put()).status).toBe(200);
+    for (let i = 0; i < 150; i++) expect((await put({}, `seg-${i}`)).status).toBe(200);
     expect(transcribe).toHaveBeenCalledTimes(150);
     storeGet.mockClear();
 
-    const res = await put();
+    const res = await put({}, "seg-150");
     expect(res.status).toBe(429);
     expect((await res.json()).error.code).toBe("demo_segment_cap");
     expect(Number(res.headers.get("Retry-After"))).toBeGreaterThanOrEqual(1);
@@ -93,8 +94,8 @@ describe("PUT /api/v1/segments: sandbox segment caps", () => {
     vi.stubEnv("DEMO_SEGMENT_SANDBOX_CAP", "1");
     deviceIn(SBX);
     f.sandboxes.set(SBX, sandboxOutlet());
-    expect((await put()).status).toBe(200);
-    expect((await put()).status).toBe(429);
+    expect((await put({}, "seg-1")).status).toBe(200);
+    expect((await put({}, "seg-2")).status).toBe(429);
   });
 
   it("the daily segment cap across sandboxes is 429 demo_daily_cap (DEMO_SEGMENT_DAILY_CAP)", async () => {
@@ -102,11 +103,11 @@ describe("PUT /api/v1/segments: sandbox segment caps", () => {
     f.sandboxes.set("sbx-aaaaaaaaaaaa", sandboxOutlet("sbx-aaaaaaaaaaaa"));
     f.sandboxes.set("sbx-bbbbbbbbbbbb", sandboxOutlet("sbx-bbbbbbbbbbbb"));
     deviceIn("sbx-aaaaaaaaaaaa");
-    expect((await put()).status).toBe(200);
+    expect((await put({}, "seg-1")).status).toBe(200);
     deviceIn("sbx-bbbbbbbbbbbb");
-    expect((await put()).status).toBe(200);
+    expect((await put({}, "seg-1")).status).toBe(200);
     deviceIn("sbx-aaaaaaaaaaaa");
-    const res = await put();
+    const res = await put({}, "seg-2");
     expect(res.status).toBe(429);
     expect((await res.json()).error.code).toBe("demo_daily_cap");
     expect(transcribe).toHaveBeenCalledTimes(2);
@@ -116,8 +117,8 @@ describe("PUT /api/v1/segments: sandbox segment caps", () => {
     vi.stubEnv("DEMO_MODEL_DAILY_CAP", "1");
     deviceIn(SBX);
     f.sandboxes.set(SBX, sandboxOutlet());
-    expect((await put()).status).toBe(200);
-    const res = await put();
+    expect((await put({}, "seg-1")).status).toBe(200);
+    const res = await put({}, "seg-2");
     expect(res.status).toBe(429);
     expect((await res.json()).error.code).toBe("demo_model_cap");
     expect(transcribe).toHaveBeenCalledTimes(1);
@@ -158,6 +159,97 @@ describe("PUT /api/v1/segments: sandbox segment caps", () => {
     f.sandboxes.set(SBX, sandboxOutlet());
     await put();
     expect(f.bumps.map((b) => b.id)).toEqual([`segment_sandbox:${SBX}`, `segment_day:${utcDay(Date.now())}`, `model_day:${utcDay(Date.now())}`]);
+    // R-23: the once-per-segment marker carries the sandbox id and the seg id only (never a device id, ip or key).
+    expect(f.countBumps.map((b) => b.id)).toEqual([`charge_once:segment:${SBX}:seg-1`]);
+  });
+});
+
+describe("PUT /api/v1/segments: demo caps are charged once per seg_id (R-23)", () => {
+  const counts = () => [f.counters.get(`segment_sandbox:${SBX}`), f.counters.get(`segment_day:${utcDay(Date.now())}`), f.counters.get(`model_day:${utcDay(Date.now())}`)];
+
+  it("a transcriber 503 then a retry of the same seg_id spends one charge, not two", async () => {
+    vi.stubEnv("DEMO_SEGMENT_SANDBOX_CAP", "1");
+    deviceIn(SBX);
+    f.sandboxes.set(SBX, sandboxOutlet());
+    transcribe.mockRejectedValueOnce(new ServiceUnavailableError("Service temporarily unavailable", "transcribe", 429));
+    const first = await put({}, "seg-1");
+    expect(first.status).toBe(503);
+    expect(counts()).toEqual([1, 1, 1]); // the first PUT charged, even though it failed
+    expect((await put({}, "seg-1")).status).toBe(200); // the retry is free although the sandbox cap (1) is full
+    expect(counts()).toEqual([1, 1, 1]);
+    const next = await put({}, "seg-2");
+    expect(next.status).toBe(429);
+    expect((await next.json()).error.code).toBe("demo_segment_cap");
+  });
+
+  it("a long stall: 20 refused retries of one seg_id then a 200 cost one charge in all three counters", async () => {
+    deviceIn(SBX);
+    f.sandboxes.set(SBX, sandboxOutlet());
+    for (let i = 0; i < 20; i++) {
+      transcribe.mockRejectedValueOnce(new ServiceUnavailableError("Service temporarily unavailable", "transcribe", 429));
+      expect((await put({}, "seg-1")).status).toBe(503);
+    }
+    expect((await put({}, "seg-1")).status).toBe(200);
+    expect(counts()).toEqual([1, 1, 1]);
+  });
+
+  it("the abuse bound: one seg_id replayed past its allowance (1 + 30 PUTs) is charged again, and refused once the cap is full", async () => {
+    vi.stubEnv("DEMO_SEGMENT_SANDBOX_CAP", "1");
+    deviceIn(SBX);
+    f.sandboxes.set(SBX, sandboxOutlet());
+    for (let i = 0; i < 31; i++) expect((await put({}, "seg-1")).status).toBe(200);
+    expect(transcribe).toHaveBeenCalledTimes(31);
+    const res = await put({}, "seg-1"); // the 31st retry
+    expect(res.status).toBe(429);
+    expect((await res.json()).error.code).toBe("demo_segment_cap");
+    expect(transcribe).toHaveBeenCalledTimes(31);
+  });
+
+  it("a cap-refused seg_id is not made free by retrying it (no marker is written for a refusal)", async () => {
+    vi.stubEnv("DEMO_SEGMENT_SANDBOX_CAP", "1");
+    deviceIn(SBX);
+    f.sandboxes.set(SBX, sandboxOutlet());
+    expect((await put({}, "seg-1")).status).toBe(200);
+    for (let i = 0; i < 3; i++) expect((await put({}, "seg-2")).status).toBe(429);
+    expect(transcribe).toHaveBeenCalledTimes(1);
+  });
+
+  it("idempotency is unchanged: an already stored seg_id still answers 200 without a transcription, and its retry is free", async () => {
+    deviceIn(SBX);
+    f.sandboxes.set(SBX, sandboxOutlet());
+    expect((await put({}, "seg-1")).status).toBe(200);
+    storeGet.mockResolvedValue({ seg_id: "seg-1", lines: [{}] });
+    transcribe.mockClear();
+    expect((await put({}, "seg-1")).status).toBe(200);
+    expect(transcribe).not.toHaveBeenCalled();
+    expect(counts()).toEqual([1, 1, 1]);
+  });
+
+  it("a discarded session's tombstone still answers 200 {discarded:true} on a free retry", async () => {
+    deviceIn(SBX);
+    f.sandboxes.set(SBX, sandboxOutlet());
+    vi.mocked(storesModule.firestoreSegmentStore).mockReturnValue({
+      get: storeGet,
+      isDiscarded: vi.fn().mockResolvedValue(true),
+      create: vi.fn().mockResolvedValue({ status: "created" }),
+    });
+    const sid = "11111111-1111-4111-8111-111111111111";
+    const a = await put({ headers: { "x-session-id": sid } }, "seg-1");
+    const b = await put({ headers: { "x-session-id": sid } }, "seg-1");
+    expect(await a.json()).toEqual({ data: { discarded: true } });
+    expect(await b.json()).toEqual({ data: { discarded: true } });
+    expect(transcribe).not.toHaveBeenCalled();
+    expect(counts()).toEqual([1, 1, 1]);
+  });
+
+  it("a kill switch refuses a free retry too (the marker never overrides it)", async () => {
+    deviceIn(SBX);
+    f.sandboxes.set(SBX, sandboxOutlet());
+    expect((await put({}, "seg-1")).status).toBe(200);
+    vi.stubEnv("DEMO_SEGMENT_SANDBOX_CAP", "0");
+    const res = await put({}, "seg-1");
+    expect(res.status).toBe(429);
+    expect((await res.json()).error.code).toBe("demo_segment_cap");
   });
 });
 

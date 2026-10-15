@@ -44,6 +44,13 @@ export const GENERATE_DAILY = 300;
 /** R-19: 150 (was 60): 3 days x up to 20 min. */
 export const SEGMENT_PER_SANDBOX = 150;
 export const SEGMENT_DAILY = 3000;
+/**
+ * R-23: the demo caps count SEGMENTS, not attempts. The first PUT of a seg_id charges the three segment counters; the
+ * phone's retries of that same seg_id (a 503/429 from the shared transcribe capacity) are free, up to this many.
+ * 30 covers the phone's 4-minute head budget (about 14-20 attempts) with margin. Past it the full charge runs again, so
+ * a client replaying one seg_id cannot get unlimited free Vertex calls.
+ */
+export const SEGMENT_FREE_RETRIES = 30;
 /** Simulated review fast-forwards per sandbox (writes only, no model call). */
 export const FAST_FORWARD_PER_SANDBOX = 3;
 /** Sensitive Data Protection calls on typed text (answers, rejection reasons, verdicts, constraints) per sandbox. */
