@@ -128,6 +128,7 @@ function oneFactStore(): ProposalStore {
     findOpenProposalForRange: async () => null,
     listOpenProposals: async () => [],
     getThreads: async () => new Map(),
+    listStaffReasons: async () => new Map(),
     listStaffScrubNames: async () => [],
     acquireLock: async () => "lease-token",
     releaseLock: async () => {},

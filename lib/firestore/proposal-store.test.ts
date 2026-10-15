@@ -331,7 +331,7 @@ describe("firestoreProposalStore.getOutlet", () => {
 });
 
 describe("firestoreProposalStore.listThreadsInRange", () => {
-  it("selects only the allowed fields — never lines/evidence_line_ids/line_ids", async () => {
+  it("selects only the allowed fields — `lines` (R-20 excerpt) yes, never evidence_line_ids/line_ids", async () => {
     const { db, queryLog } = fakeDb({
       [COLLECTIONS.threads]: {
         t1: {
@@ -349,9 +349,24 @@ describe("firestoreProposalStore.listThreadsInRange", () => {
     await store.listThreadsInRange(0, 100);
     const entry = queryLog.find((q) => q.name === COLLECTIONS.threads);
     expect(entry?.selectFields).toBeDefined();
-    for (const forbidden of ["lines", "evidence_line_ids", "line_ids"]) {
+    expect(entry?.selectFields).toContain("lines");
+    for (const forbidden of ["evidence_line_ids", "line_ids", "line_ids_flat"]) {
       expect(entry?.selectFields).not.toContain(forbidden);
     }
+  });
+
+  it("returns the thread's lines for the excerpt; a doc without `lines` is still a valid row", async () => {
+    const base = { outlet_id: OUTLET_ID, device_id: "d1", category: "CUSTOMER_SERVICE", status: "fact", summary: "s" };
+    const { db } = fakeDb({
+      [COLLECTIONS.threads]: {
+        a: { ...base, thread_id: "a", first_line_start_ms: 10, lines: [{ line_id: "l1", start_ms: 1, end_ms: 2, text: "hello there" }] },
+        b: { ...base, thread_id: "b", first_line_start_ms: 20 },
+      },
+    });
+    const result = await firestoreProposalStore(OUTLET_ID, db).listThreadsInRange(0, 100);
+    expect(result.map((r) => r.thread_id)).toEqual(["a", "b"]);
+    expect(result[0]?.lines?.map((l) => l.text)).toEqual(["hello there"]);
+    expect(result[1]?.lines).toBeUndefined();
   });
 
   it("drops a malformed doc, logging only { doc_id, error_class }", async () => {
@@ -368,6 +383,65 @@ describe("firestoreProposalStore.listThreadsInRange", () => {
       "[proposal-store] skipping malformed thread doc",
       expect.objectContaining({ doc_id: "bad", error_class: "ZodError" }),
     );
+  });
+});
+
+function makeCorrection(threadId: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    outlet_id: OUTLET_ID,
+    correction_id: `q_thread_${threadId}`,
+    question_id: `q_thread_${threadId}`,
+    thread_id: threadId,
+    answer: "yes",
+    reason_text: `reason for ${threadId}`,
+    answered_device_id: "dev-SENTINEL-77",
+    ...overrides,
+  };
+}
+
+describe("firestoreProposalStore.listStaffReasons (R-20)", () => {
+  it("returns reason_text for answer yes only, keyed by thread id; skips no, missing, foreign, mismatched and malformed docs", async () => {
+    const { db } = fakeDb({
+      [COLLECTIONS.corrections]: {
+        q_thread_t1: makeCorrection("t1"),
+        q_thread_t2: makeCorrection("t2", { answer: "no" }),
+        q_thread_t4: makeCorrection("t4", { outlet_id: FOREIGN_OUTLET_ID }),
+        q_thread_t5: makeCorrection("t5", { thread_id: "other" }),
+        q_thread_t6: { outlet_id: OUTLET_ID, thread_id: "t6", answer: "yes" }, // no reason_text
+        q_thread_t7: makeCorrection("t7", { thread_id: null }),
+      },
+    });
+    const result = await firestoreProposalStore(OUTLET_ID, db).listStaffReasons(["t1", "t2", "t3", "t4", "t5", "t6", "t7"]);
+    expect([...result.entries()]).toEqual([["t1", "reason for t1"]]);
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[proposal-store] skipping malformed correction doc",
+      expect.objectContaining({ doc_id: "q_thread_t6", error_class: "ZodError" }),
+    );
+    // nothing but ids and classes logged
+    for (const call of errorSpy.mock.calls) expect(JSON.stringify(call)).not.toContain("reason for");
+  });
+
+  it("reads by id with a field mask that excludes the answering device id; empty input reads nothing", async () => {
+    const { db } = fakeDb({ [COLLECTIONS.corrections]: { q_thread_t1: makeCorrection("t1") } });
+    const spy = vi.spyOn(db, "getAll");
+    const store = firestoreProposalStore(OUTLET_ID, db);
+    expect((await store.listStaffReasons([])).size).toBe(0);
+    expect(spy).not.toHaveBeenCalled();
+    await store.listStaffReasons(["t1"]);
+    const lastArg = spy.mock.calls[0]!.at(-1) as { fieldMask: string[] };
+    expect(lastArg.fieldMask.slice().sort()).toEqual(["answer", "outlet_id", "reason_text", "thread_id"]);
+  });
+
+  it("chunks getAll at 100 refs", async () => {
+    const ids = Array.from({ length: 150 }, (_, i) => `t${i}`);
+    const { db } = fakeDb({
+      [COLLECTIONS.corrections]: Object.fromEntries(ids.map((id) => [`q_thread_${id}`, makeCorrection(id)])),
+    });
+    const spy = vi.spyOn(db, "getAll");
+    const result = await firestoreProposalStore(OUTLET_ID, db).listStaffReasons(ids);
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(spy.mock.calls[0]!.length).toBe(101); // 100 refs + options
+    expect(result.size).toBe(150);
   });
 });
 
