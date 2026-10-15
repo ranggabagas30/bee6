@@ -107,6 +107,140 @@
   border-radius: 4px;
 }
 
+/*
+ * Table view (PR-9b, D2-04c). Mobile-first: below 720 px each row is a card and every cell shows its column name
+ * from data-label (the <table> keeps explicit ARIA roles, so the header association survives display: block).
+ * From 720 px it is a real six-column table.
+ */
+.table {
+  display: block;
+  width: 100%;
+  border-collapse: collapse;
+  overflow-wrap: anywhere;
+}
+
+.thead {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.table tbody {
+  display: block;
+}
+
+.tr {
+  display: block;
+  box-sizing: border-box;
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border-radius: var(--b6-r-card);
+  background: var(--b6-surface);
+  box-shadow: var(--b6-shadow-card);
+}
+
+.td {
+  display: grid;
+  grid-template-columns: minmax(72px, 32%) 1fr;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: var(--b6-fs-body);
+  line-height: 1.45;
+  text-align: left;
+  vertical-align: top;
+}
+
+.td::before {
+  content: attr(data-label);
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-kicker);
+  letter-spacing: 0.3px;
+  color: var(--b6-muted);
+  padding-top: 2px;
+}
+
+.tdTitle {
+  display: block;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.tdText {
+  display: block;
+  font-size: var(--b6-fs-ui);
+  line-height: 1.45;
+}
+
+.th {
+  text-align: left;
+}
+
+@media (min-width: 720px) {
+  .table {
+    display: table;
+    table-layout: auto;
+    border-radius: var(--b6-r-card);
+    background: var(--b6-surface);
+    box-shadow: var(--b6-shadow-card);
+    overflow: hidden;
+  }
+
+  .thead {
+    position: static;
+    display: table-header-group;
+    width: auto;
+    height: auto;
+    margin: 0;
+    clip-path: none;
+    white-space: normal;
+  }
+
+  .table tbody {
+    display: table-row-group;
+  }
+
+  .tr {
+    display: table-row;
+    margin: 0;
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .th {
+    padding: 12px 12px 10px;
+    border-bottom: 1px solid var(--b6-line-strong);
+    font-family: var(--b6-font-mono);
+    font-size: var(--b6-fs-kicker);
+    font-weight: 500;
+    letter-spacing: 0.3px;
+    color: var(--b6-muted);
+    white-space: nowrap;
+  }
+
+  .td {
+    display: table-cell;
+    padding: 12px;
+    border-bottom: 1px solid var(--b6-line);
+    font-size: var(--b6-fs-ui);
+  }
+
+  .td::before {
+    content: none;
+  }
+
+  .tr:last-child .td {
+    border-bottom: 0;
+  }
+}
+
 .footer {
   margin: 20px 0 0;
   padding-top: 12px;
