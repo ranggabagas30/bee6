@@ -86,7 +86,7 @@ export interface DeviceTickResult {
    * loop, or `releaseLease`'s `finally`) — caught in `runTick` so one
    * device's failure never aborts the whole tick for every later device.
    */
-  skipped_reason: "lease_held" | "no_segments" | "error" | null;
+  skipped_reason: "lease_held" | "no_segments" | "error" | "cleanup_failed" | null;
   units_processed: number;
   threads_written: number;
   questions_written: number;
@@ -528,13 +528,21 @@ async function processOneDevice(
     // any segment is read. The lease already serialises everything that writes threads/questions for
     // this device, so a ghost can only be written by a tick that started before the tombstone, and
     // the pending tombstone (cleanup_done_at_ms still null) makes the NEXT tick delete it before
-    // labelling anything. `discardedSessionIds` is assigned before the cleanup loop on purpose: if a
-    // cleanup throws, the discarded sessions' segments are still excluded from windowing below.
+    // labelling anything. A cleanup that throws ends this device's tick (`cleanup_failed`, see below).
     let cleanups = 0;
     let discardedSessionIds = new Set<string>();
+    let tombstones: Awaited<ReturnType<TickStore["listDiscardedSessions"]>> = [];
     try {
-      const tombstones = await store.listDiscardedSessions(outlet_id, device_id);
+      tombstones = await store.listDiscardedSessions(outlet_id, device_id);
       discardedSessionIds = new Set(tombstones.map((t) => t.session_id));
+    } catch (error) {
+      // A failed tombstone READ proceeds (nothing is known to be half-done); the next tick re-reads it.
+      console.error("[pipeline-tick] discard tombstone read failed", {
+        device_id,
+        error_class: classifyUnexpectedError(error),
+      });
+    }
+    try {
       for (const tombstone of tombstones.filter((t) => t.cleanup_pending)) {
         const candidates = await store.listGhostCandidates(outlet_id, device_id, tombstone.started_at_ms);
         const plan = selectDiscardGhosts(tombstone, candidates);
@@ -542,10 +550,26 @@ async function processOneDevice(
         cleanups += 1;
       }
     } catch (error) {
+      // A half-done cleanup (threads are deleted last) can leave a ghost thread in `listRecentThreads`; the
+      // new session's first unit could continue it and the next tick's cleanup would then delete the merged
+      // thread together with the real lines (their ledger rows stay `done`: silent loss). So no labelling
+      // this tick; the tombstone stays pending and the segments wait one tick. The lease is released by
+      // the `finally` below, exactly as for every other early return.
       console.error("[pipeline-tick] discard cleanup failed", {
         device_id,
         error_class: classifyUnexpectedError(error),
       });
+      return {
+        outlet_id,
+        device_id,
+        skipped_reason: "cleanup_failed",
+        units_processed: 0,
+        threads_written: 0,
+        questions_written: 0,
+        failed_units: 0,
+        questions_expired: 0,
+        discard_cleanups: cleanups,
+      };
     }
 
     // R-07: right after the lease, BEFORE listSegmentsForDevice, so a device
@@ -568,7 +592,7 @@ async function processOneDevice(
     }
 
     // R-20: a discarded session's segments are never windowed, even while the route's own
-    // deleteSegments is still running or a cleanup failed above.
+    // deleteSegments is still running.
     const segments = (await store.listSegmentsForDevice(outlet_id, device_id)).filter(
       (s) => !isSegmentDiscarded(s, discardedSessionIds),
     );

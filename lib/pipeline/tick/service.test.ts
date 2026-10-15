@@ -1224,7 +1224,7 @@ describe("runTick", () => {
       expect(store.deleted.threads).toEqual(["ghost1"]);
     });
 
-    it("a cleanup that throws is logged by class only, discard_cleanups stays 0, and labelling of non-discarded segments still happens", async () => {
+    it("a cleanup that throws skips the device with cleanup_failed: no labelling, lease released, error logged by class only", async () => {
       const { store, generate, deps } = setup();
       store.tombstonesByDevice.set("o1:d1", [tombstone()]);
       store.applyDiscardCleanupError = new Error("Firestore down: secret detail");
@@ -1236,18 +1236,55 @@ describe("runTick", () => {
       const result = await runTick(deps);
 
       const d1 = result.devices[0]!;
+      expect(d1.skipped_reason).toBe("cleanup_failed");
       expect(d1.discard_cleanups).toBe(0);
-      expect(d1.skipped_reason).toBeNull();
-      expect(d1.units_processed).toBeGreaterThanOrEqual(1);
-      // The tombstone was read before the failure, so its segments are still excluded.
-      const prompts = generate.mock.calls.map((c) => extractUserText(c[0] as GenerateContentParameters)).join("\n");
-      expect(prompts).toContain("real day line");
-      expect(prompts).not.toContain("cancelled day line");
+      expect(d1.units_processed).toBe(0);
+      expect(d1.threads_written).toBe(0);
+      expect(d1.questions_written).toBe(0);
+      // A half-done cleanup must never be followed by labelling: the ghost thread could be continued.
+      expect(generate).not.toHaveBeenCalled();
+      expect(store.callLog).not.toContain("listSegmentsForDevice");
+      expect(store.releaseLeaseCalls).toBe(1);
+      expect(store.leases.has("o1:d1")).toBe(false);
       expect(consoleErrorSpy).toHaveBeenCalledWith("[pipeline-tick] discard cleanup failed", {
         device_id: "d1",
         error_class: "Error",
       });
       expect(JSON.stringify(consoleErrorSpy.mock.calls)).not.toContain("secret detail");
+    });
+
+    it("the next tick after a failed cleanup completes the cleanup, then labels the real session only", async () => {
+      const { store, generate, deps } = setup();
+      store.tombstonesByDevice.set("o1:d1", [tombstone()]);
+      store.ghostCandidatesByDevice.set("o1:d1", {
+        threads: [{ thread_id: "ghost1", first_line_start_ms: T0 + 1000 }],
+        questions: [],
+      });
+      store.applyDiscardCleanupError = new Error("Firestore down");
+      store.segmentsByDevice.set("o1:d1", [
+        makeSegment({ segId: "ghost-seg", deviceStartMs: T0 + 10_000, text: "cancelled day line", sessionId: S_DISCARDED }),
+        makeSegment({ segId: "real-seg", deviceStartMs: NOW - 1_800_000, text: "real day line", sessionId: S_REAL }),
+      ]);
+
+      const first = await runTick(deps);
+      expect(first.devices[0]!.skipped_reason).toBe("cleanup_failed");
+      expect(generate).not.toHaveBeenCalled();
+
+      // Firestore recovers; the tombstone is still pending, so tick N+1 retries it.
+      store.applyDiscardCleanupError = null;
+      const second = await runTick(deps);
+
+      const d1 = second.devices[0]!;
+      expect(d1.skipped_reason).toBeNull();
+      expect(d1.discard_cleanups).toBe(1);
+      expect(d1.units_processed).toBeGreaterThanOrEqual(1);
+      // One failed attempt (tick N) and one successful retry (tick N+1); the ghost is gone before labelling.
+      expect(store.applyDiscardCleanupCalls).toHaveLength(2);
+      expect(store.deleted.threads).toEqual(["ghost1"]);
+      expect(store.callLog.lastIndexOf("applyDiscardCleanup")).toBeLessThan(store.callLog.indexOf("listSegmentsForDevice"));
+      const prompts = generate.mock.calls.map((c) => extractUserText(c[0] as GenerateContentParameters)).join("\n");
+      expect(prompts).toContain("real day line");
+      expect(prompts).not.toContain("cancelled day line");
     });
 
     it("a failing tombstone read is logged and labelling proceeds (the next tick re-reads it)", async () => {
