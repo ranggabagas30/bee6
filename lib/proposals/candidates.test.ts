@@ -140,13 +140,13 @@ describe("excerptOf (R-20)", () => {
 
   it("caps at the limit in CODE POINTS (not UTF-16 units) with an ellipsis, total = max", () => {
     const emoji = "\u{1F950}"; // 2 UTF-16 units, 1 code point
-    const out = excerptOf([{ text: emoji.repeat(400) }]);
+    const out = excerptOf([{ text: emoji.repeat(400) }], FACT_EXCERPT_MAX_CHARS);
     expect(Array.from(out)).toHaveLength(FACT_EXCERPT_MAX_CHARS);
     expect(out.endsWith("\u2026")).toBe(true);
     expect(Array.from(out).slice(0, FACT_EXCERPT_MAX_CHARS - 1).every((c) => c === emoji)).toBe(true);
     // exactly at the cap: untouched
     const exact = "a".repeat(FACT_EXCERPT_MAX_CHARS);
-    expect(excerptOf([{ text: exact }])).toBe(exact);
+    expect(excerptOf([{ text: exact }], FACT_EXCERPT_MAX_CHARS)).toBe(exact);
   });
 
   it("respects an explicit max", () => {
@@ -167,6 +167,17 @@ describe("selectCandidates carries the excerpt (R-20)", () => {
     expect(out[0]?.excerpt).toContain("nobody writes the baking time on the tray");
     expect(out[0]?.excerpt).toContain(" / ");
     expect(out[1]?.excerpt).toBe("");
+  });
+
+  it("Candidate.excerpt is NOT capped (the service scrubs staff names first, the prompt caps after)", () => {
+    const long = "a".repeat(FACT_EXCERPT_MAX_CHARS * 3);
+    const out = selectCandidates(
+      [row({ lines: [{ text: long }], first_line_start_ms: zonedTimeToEpochMs("2026-10-07", "10:00", TZ) })],
+      [session()],
+      TZ,
+      RANGE,
+    );
+    expect(out[0]?.excerpt).toBe(long);
   });
 
   it("filters are unchanged: ROUTINE_OPS with lines is still dropped", () => {

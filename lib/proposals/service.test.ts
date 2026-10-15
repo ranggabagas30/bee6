@@ -1356,6 +1356,23 @@ describe("generateProposal: R-20 two-focus Ask", () => {
     }
   });
 
+  it("11b. a staff name straddling the 320-point cap is scrubbed BEFORE the cap, so no fragment reaches the prompt (rule 7)", async () => {
+    const prefix = "x".repeat(312) + " "; // the name starts at index 313: the old cap kept "Budian" (6 of 8 letters)
+    const csLong: ProposalThreadRow = { ...csDay1, lines: [{ text: `${prefix}Budianto kept the tray.` }] };
+    const { store } = makeFakeStore({ rows: [csLong, csDay2, phoneDay2, phoneDay3], staffNames: ["Budianto"] });
+    const { deps, model } = makeDeps();
+    model.mockResolvedValueOnce(okModelResult(DECLINE_WIRE())).mockResolvedValueOnce(okModelResult(DECLINE_WIRE()));
+    await r20Gen(store, deps);
+    const first = promptOf(model, 0);
+    const lowered = first.toLowerCase();
+    for (let i = 0; i + 4 <= "budianto".length; i++) {
+      for (let j = i + 4; j <= "budianto".length; j++) {
+        expect(lowered).not.toContain("budianto".slice(i, j));
+      }
+    }
+    expect(first).toMatch(/said: "x{312} \[[^"]*\u2026"/); // scrubbed first, then still capped (the placeholder may be cut)
+  });
+
   it("12. listStaffReasons throwing: the Ask still runs without notes (logged by class only); redaction is never skipped", async () => {
     const { store, state } = makeFakeStore({
       rows: PROBLEM_ROWS,

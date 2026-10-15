@@ -22,7 +22,7 @@ export interface ProposalThreadRow {
 
 /**
  * One evidence candidate: no device id, no raw text, no audio. `excerpt` is only the thread's already
- * scrubbed and redacted work lines, flattened to one line and capped (`excerptOf`); `""` when there is none.
+ * scrubbed and redacted work lines, flattened to one line (`excerptOf`), NOT capped here: the prompt caps it after the staff-name scrub; `""` when there is none.
  */
 export interface Candidate {
   thread_id: string;
@@ -92,7 +92,9 @@ export function selectCandidates(
       first_line_start_ms: row.first_line_start_ms,
       summary: row.summary,
       fields: row.fields,
-      excerpt: excerptOf(row.lines),
+      // Uncapped on purpose (hard rule 7): the service scrubs staff names first, `factLines` caps after, so a
+      // name straddling the cap can never leave a fragment in the prompt.
+      excerpt: excerptOf(row.lines, Number.MAX_SAFE_INTEGER),
     });
   }
   return kept.sort((a, b) => {
