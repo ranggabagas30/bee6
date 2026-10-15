@@ -1,0 +1,117 @@
+/*
+ * SOP book (R-19 PR-9a §9.1) on the PR-0b tokens (app/globals.css). Mobile-first: one column at 360 px; the version
+ * switch wraps when the dates do not fit on one line. Every control is at least 44 px tall.
+ */
+
+.page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 16px;
+  box-sizing: border-box;
+  font-family: var(--b6-font-sans);
+  color: var(--b6-ink);
+}
+
+.title {
+  margin: 0 0 8px;
+  font-size: var(--b6-fs-h1);
+  font-weight: 600;
+  letter-spacing: -0.4px;
+  line-height: 1.15;
+}
+
+.line {
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+}
+
+/* The version switch sits on its own row; the segmented control wraps rather than overflowing at 360 px. */
+.switchRow {
+  margin: 8px 0 16px;
+}
+
+.switch {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.sectionTitle {
+  margin: 20px 0 8px;
+  font-size: var(--b6-fs-title);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.steps {
+  margin: 0;
+  padding-left: 24px;
+  overflow-wrap: anywhere;
+}
+
+.step,
+.stepChanged {
+  box-sizing: border-box;
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border-radius: var(--b6-r-card);
+  background: var(--b6-surface);
+  box-shadow: var(--b6-shadow-card);
+}
+
+.stepChanged {
+  box-shadow: var(--b6-shadow-card), inset 0 0 0 1px var(--b6-teal-line);
+}
+
+.stepTitle {
+  margin: 6px 0 4px;
+  font-weight: 600;
+  font-size: var(--b6-fs-lead);
+  line-height: 1.35;
+}
+
+.stepText {
+  margin: 0 0 6px;
+  font-size: var(--b6-fs-body);
+  line-height: 1.5;
+}
+
+/* The old wording: struck, muted, still above 4.5:1. Colour is never the only cue (the <del> and "Before:" carry it). */
+.stepBefore {
+  margin: 0 0 6px;
+  font-size: var(--b6-fs-body);
+  line-height: 1.5;
+  color: var(--b6-muted);
+}
+
+.stepRole {
+  margin: 0;
+  font-size: var(--b6-fs-small);
+  color: var(--b6-muted);
+}
+
+.why {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--b6-tap);
+  margin-top: 4px;
+  color: var(--b6-teal-ink);
+  font-size: var(--b6-fs-ui);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.why:focus-visible {
+  outline: 2px solid var(--b6-focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.footer {
+  margin: 20px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--b6-line);
+  font-size: var(--b6-fs-small);
+  color: var(--b6-muted);
+  overflow-wrap: anywhere;
+}

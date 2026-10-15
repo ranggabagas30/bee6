@@ -83,7 +83,32 @@ describe("getSopOverview", () => {
 
   it("4.T4 no versions at all is an empty 200-state, not an error", async () => {
     const r = await getSopOverview(store([]), { claims: claims("owner"), now_ms: at("2026-10-15T01:00:00Z") });
-    expect(r).toEqual({ today: "2026-10-15", latest: null, in_force_version: null, changes: [] });
+    expect(r).toEqual({ today: "2026-10-15", latest: null, in_force_version: null, first_version_date: null, changes: [] });
+  });
+
+  describe("first_version_date (R-19 PR-9a: the seed's date on the version switch)", () => {
+    // seedV1 is created at 1_700_000_000_000 = 2023-11-14 22:13:20 UTC, which is already 15 Nov in Asia/Jakarta.
+    it("is the outlet-local date of the version-1 seed's created_at_ms", async () => {
+      const r = await getSopOverview(store([v2, v1]), { claims: claims("owner"), now_ms: at("2026-10-20T01:00:00Z") });
+      expect(r.first_version_date).toBe("2023-11-15");
+    });
+
+    it("follows the outlet timezone, not UTC", async () => {
+      const utcOutlet: Outlet = { ...outlet, timezone: "UTC" };
+      const r = await getSopOverview(store([v1], utcOutlet), { claims: claims("owner"), now_ms: at("2026-10-20T01:00:00Z") });
+      expect(r.first_version_date).toBe("2023-11-14");
+    });
+
+    it("is null when the version-1 seed doc is not in the read set", async () => {
+      const r = await getSopOverview(store([v2, v3]), { claims: claims("owner"), now_ms: at("2026-10-20T01:00:00Z") });
+      expect(r.latest!.version).toBe(3);
+      expect(r.first_version_date).toBeNull();
+    });
+
+    it("carries a date only, never the seed's id", async () => {
+      const r = await getSopOverview(store([v1]), { claims: claims("owner"), now_ms: at("2026-10-20T01:00:00Z") });
+      expect(JSON.stringify(r)).not.toContain("o1:v1");
+    });
   });
 
   it("4.T5 owner and supervisor get identical payloads; staff and device are 403", async () => {
