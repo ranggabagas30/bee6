@@ -35,6 +35,31 @@ function undo(change: SopChangeView, steps: SopStepView[]): SopStepView[] {
   return steps.map((s) => (s.step_id === id ? before : s));
 }
 
+/** Where a step's current wording came from: the approved change that last touched it (PR-9b table + legend). */
+export interface StepOrigin {
+  version: number;
+  effective_from_date: string;
+  approved_date: string;
+}
+
+/**
+ * The latest change at or before `shownVersion` for each step it touched, in version order newest first. Steps
+ * absent from the map are "from your SOP" (never changed up to that version). Versions newer than the shown one are
+ * ignored, so the seed reads as unchanged even when later versions exist.
+ */
+export function stepOrigins(versions: readonly SopVersionView[], shownVersion: number): Map<string, StepOrigin> {
+  const out = new Map<string, StepOrigin>();
+  const newestFirst = [...versions].sort((a, b) => b.version - a.version);
+  for (const v of newestFirst) {
+    const change = v.change;
+    if (change === null || v.version > shownVersion) continue;
+    const id = change.after.step_id;
+    if (out.has(id)) continue;
+    out.set(id, { version: v.version, effective_from_date: change.effective_from_date, approved_date: change.approved_date });
+  }
+  return out;
+}
+
 /** Every version the overview can show exactly, newest first. */
 export function buildVersions(overview: SopOverview): SopVersionView[] {
   const { latest, changes, first_version_date } = overview;
