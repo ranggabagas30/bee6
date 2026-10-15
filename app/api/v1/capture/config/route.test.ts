@@ -4,12 +4,16 @@ import { GET } from "./route";
 import * as servicesModule from "@/lib/auth/services";
 import * as storesModule from "@/lib/firestore/stores";
 import * as adminModule from "@/lib/firebase/admin";
+import { FRESH_DEMO_SESSION } from "@/lib/capture/contract";
 import { UnauthorizedError } from "@/lib/http/errors";
 import type { Device, Outlet } from "@/lib/firestore/schema";
 
 vi.mock("@/lib/auth/services");
 vi.mock("@/lib/firestore/stores");
+vi.mock("@/lib/firestore/demo-store");
 vi.mock("@/lib/firebase/admin", () => ({ verifyIdToken: vi.fn() }));
+import * as demoStoreModule from "@/lib/firestore/demo-store";
+import { fakeNextDayStore } from "@/lib/demo/testing/fake-next-day-store";
 
 /** web spec §6.6.2: GET /api/v1/capture/config, device-only, strict allowlist. */
 
@@ -137,21 +141,108 @@ describe("GET /api/v1/capture/config", () => {
   describe("R-18 demo_session", () => {
     const sandbox = { template_outlet_id: "demo-tpl-outlet", created_at_ms: 1, expires_at_ms: 2, key_sha256: "a".repeat(64) };
     const sbxOutlet: Outlet = { ...outlet, project_kind: "demo", sandbox };
-    const judge = () => device({ expires_at_ms: 9_000_000_000_000 });
+    const judge = (over: Partial<Device> = {}) => device({ expires_at_ms: 9_000_000_000_000, ...over });
     afterEach(() => vi.unstubAllEnvs());
 
-    it("DEMO_MODE=true + sandbox outlet + expiring device: the profile is present", async () => {
+    it("DEMO_MODE=true + sandbox outlet + expiring device: the profile is present (fresh sandbox = FRESH_DEMO_SESSION)", async () => {
       vi.stubEnv("DEMO_MODE", "true");
-      wireDevice(judge(), 1, sbxOutlet);
+      wireDevice(judge({ last_ended: undefined }), 1, sbxOutlet);
+      vi.mocked(demoStoreModule.firestoreNextDayStore).mockReturnValue(fakeNextDayStore({ outlet: sbxOutlet, last_ended: null }).store);
       const body = (await (await GET(req())).json()) as { data: Record<string, unknown> };
-      expect(body.data.demo_session).toEqual({ max_ms: 300_000, script_id: "bakery-v1" });
+      expect(body.data.demo_session).toEqual(FRESH_DEMO_SESSION);
     });
 
-    it("DEMO_MODE unset (the pilot): never present, whatever the docs say; keys are exactly the pilot four", async () => {
+    it("R-19 PR-2: day, days_done and next_day come from the sandbox's next_day_count and the server-side guards (no write)", async () => {
+      vi.stubEnv("DEMO_MODE", "true");
+      const NOW = Date.parse("2026-10-14T03:00:00.000Z");
+      vi.spyOn(Date, "now").mockReturnValue(NOW);
+      const endedToday = { business_date: "2026-10-14", end_reason: "selesai" as const, ended_at_ms: NOW - 10 * 60_000, debrief_ends_at_ms: NOW + 50 * 60_000 };
+      const dayTwo: Outlet = { ...sbxOutlet, sandbox: { ...sandbox, next_day_count: 1 } };
+      wireDevice(judge({ last_ended: endedToday }), 1, dayTwo);
+      const fake = fakeNextDayStore({ outlet: dayTwo, last_ended: endedToday });
+      vi.mocked(demoStoreModule.firestoreNextDayStore).mockReturnValue(fake.store);
+      const body = (await (await GET(req())).json()) as { data: Record<string, unknown> };
+      expect(body.data.demo_session).toMatchObject({ day: 2, days_done: 2, next_day: { allowed: true, reason: null }, script_id: "bakery-v2" });
+      expect(body.data.last_ended).toEqual({ business_date: "2026-10-14", end_reason: "selesai", debrief_ends_at_ms: NOW + 50 * 60_000 });
+      expect(fake.calls).toEqual(["getOutlet:outlet-1", "readGuardState"]);
+      expect(JSON.stringify(body)).not.toContain("dev-1");
+    });
+
+    it("R-19 PR-2: a locked jump reports its reason (proposal_exists) so the drawer needs no call", async () => {
+      vi.stubEnv("DEMO_MODE", "true");
+      vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-14T03:00:00.000Z"));
+      const endedToday = { business_date: "2026-10-14", end_reason: "selesai" as const, ended_at_ms: Date.now() - 10 * 60_000, debrief_ends_at_ms: Date.now() + 50 * 60_000 };
+      wireDevice(judge({ last_ended: endedToday }), 1, sbxOutlet);
+      const fake = fakeNextDayStore({ outlet: sbxOutlet, last_ended: endedToday, docs: { proposals: { p: { outlet_id: "outlet-1", content: {} } } } });
+      vi.mocked(demoStoreModule.firestoreNextDayStore).mockReturnValue(fake.store);
+      const body = (await (await GET(req())).json()) as { data: Record<string, unknown> };
+      expect(body.data.demo_session).toMatchObject({ day: 1, days_done: 1, next_day: { allowed: false, reason: "proposal_exists" } });
+    });
+
+    it("R-19 PR-2 (QA defect 2): a set shift marker is reported (busy while fresh, shift_incomplete once stale), not day_not_ended", async () => {
+      vi.stubEnv("DEMO_MODE", "true");
+      const NOW = Date.parse("2026-10-14T03:00:00.000Z");
+      vi.spyOn(Date, "now").mockReturnValue(NOW);
+      // After a crashed shift: last_ended already moved to yesterday, the marker still set.
+      const movedBack = { business_date: "2026-10-13", end_reason: "selesai" as const, ended_at_ms: NOW - 86_400_000 - 10 * 60_000, debrief_ends_at_ms: NOW - 86_400_000 + 50 * 60_000 };
+      for (const [started, reason] of [[NOW - 5_000, "busy"], [NOW - 200_000, "shift_incomplete"]] as const) {
+        const marked: Outlet = { ...sbxOutlet, sandbox: { ...sandbox, shift_started_at_ms: started } };
+        wireDevice(judge({ last_ended: movedBack }), 1, marked);
+        vi.mocked(demoStoreModule.firestoreNextDayStore).mockReturnValue(fakeNextDayStore({ outlet: marked, last_ended: movedBack }).store);
+        const body = (await (await GET(req())).json()) as { data: Record<string, unknown> };
+        expect(body.data.demo_session).toMatchObject({ next_day: { allowed: false, reason } });
+      }
+    });
+
+    describe("R-19 PR-4b: open_session (the still-open session of this device) and closing_reached", () => {
+      const NOW = Date.parse("2026-10-14T03:00:00.000Z");
+      const SID = "00000000-0000-4000-8000-000000000001";
+      const openDoc = (over: Record<string, unknown> = {}) => ({
+        outlet_id: "outlet-1", device_id: "dev-1", session_id: SID, started_at_ms: NOW - 120_000, ended_at_ms: null, end_reason: null,
+        local_date: "2026-10-14", auto_stop_at_ms: NOW + 480_000, debrief_ends_at_ms: null,
+        received_start_at: "2026-10-14T02:58:00.000Z", received_end_at: null, ...over,
+      });
+      const wire = (docs: Record<string, unknown>) => {
+        vi.stubEnv("DEMO_MODE", "true");
+        vi.spyOn(Date, "now").mockReturnValue(NOW);
+        wireDevice(judge({ last_ended: undefined }), 1, sbxOutlet);
+        const fake = fakeNextDayStore({ outlet: sbxOutlet, last_ended: null, docs: { capture_sessions: docs as never } });
+        vi.mocked(demoStoreModule.firestoreNextDayStore).mockReturnValue(fake.store);
+        return fake;
+      };
+
+      it("an open session is reported with ids and times only, and closing_reached is false before closing", async () => {
+        const fake = wire({ "dev-1:s1": openDoc() });
+        const body = (await (await GET(req())).json()) as { data: { demo_session: Record<string, unknown> } };
+        expect(body.data.demo_session).toMatchObject({
+          closing_reached: false,
+          open_session: { session_id: SID, started_at_ms: NOW - 120_000, closing_reached: false, auto_stop_at_ms: NOW + 480_000 },
+          next_day: { allowed: false, reason: "session_open" },
+        });
+        expect(Object.keys(body.data.demo_session.open_session as object).sort()).toEqual(["auto_stop_at_ms", "closing_reached", "session_id", "started_at_ms"]);
+        expect(fake.calls).toEqual(["getOutlet:outlet-1", "readGuardState"]); // the one existing guard-state read, no extra query
+        expect(JSON.stringify(body)).not.toContain("dev-1");
+      });
+
+      it("after Jump to closing time the open session and demo_session.closing_reached are both true", async () => {
+        wire({ "dev-1:s1": openDoc({ demo_closing_at_ms: NOW - 30_000 }) });
+        const body = (await (await GET(req())).json()) as { data: { demo_session: Record<string, unknown> } };
+        expect(body.data.demo_session).toMatchObject({ closing_reached: true, open_session: { closing_reached: true } });
+      });
+
+      it("an ended session is not an open session", async () => {
+        wire({ "dev-1:s1": openDoc({ ended_at_ms: NOW - 1000, end_reason: "selesai", debrief_ends_at_ms: NOW + 3_000_000 }) });
+        const body = (await (await GET(req())).json()) as { data: { demo_session: Record<string, unknown> } };
+        expect(body.data.demo_session).toMatchObject({ open_session: null, closing_reached: false });
+      });
+    });
+
+    it("DEMO_MODE unset (the pilot): never present, whatever the docs say; keys are exactly the pilot four; no demo store is built", async () => {
       vi.stubEnv("DEMO_MODE", "");
       wireDevice(judge(), 1, sbxOutlet);
       const body = (await (await GET(req())).json()) as { data: Record<string, unknown> };
       expect(Object.keys(body.data).sort()).toEqual(["capture_mode", "last_ended", "timezone", "weekly_hours"]);
+      expect(demoStoreModule.firestoreNextDayStore).not.toHaveBeenCalled();
     });
 
     it("DEMO_MODE=true on a plain outlet with a real device: no profile", async () => {

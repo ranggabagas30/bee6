@@ -46,6 +46,9 @@ export const SopOverviewSchema = z
       .strict()
       .nullable(), // null = no SOP set up yet
     in_force_version: z.number().int().min(1).nullable(),
+    // R-19 PR-9a §9.1: outlet-local date of the version-1 seed doc's created_at_ms (the seed's label on the
+    // version switch). null only when the v1 doc is not in the read set. A date, never an id.
+    first_version_date: dateString.nullable(),
     changes: z.array(SopChangeViewSchema).max(SOP_CHANGES_MAX), // newest version first
   })
   .strict();

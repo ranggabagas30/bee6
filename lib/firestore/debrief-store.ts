@@ -7,8 +7,10 @@ import {
   CaptureSessionSchema,
   CorrectionSchema,
   DeviceSchema,
+  LabelUnitLedgerSchema,
   parseOutletDoc,
   QuestionDocSchema,
+  SegmentSchema,
   StaffSchema,
   ThreadSchema,
   type Correction,
@@ -16,7 +18,7 @@ import {
   type Thread,
 } from "@/lib/firestore/schema";
 import type { AnswerTxSnapshot, AnswerWritePlan, EndedDebrief } from "@/lib/debrief/answer-plan";
-import type { DebriefStore } from "@/lib/debrief/service";
+import type { DebriefStore, EndedSessionRef, SessionLineRef } from "@/lib/debrief/service";
 
 /**
  * Firestore-backed `DebriefStore` (R-07, `docs/tasks/R-07-plan.md` Task 4.1).
@@ -30,6 +32,19 @@ import type { DebriefStore } from "@/lib/debrief/service";
 /** Logs only `{doc_id, error_class}` — never the raw doc or zod error (same discipline as tick-store.ts). */
 function logSkippedDoc(context: string, docId: string): void {
   console.error(`[debrief-store] skipping malformed ${context} doc`, { doc_id: docId, error_class: "ZodError" });
+}
+
+/**
+ * A stored segment carries `expires_at` as a native Timestamp; the schema wants the ISO string (same
+ * conversion as `tick-store.ts`'s `normalizeSegmentDoc`). Only `expires_at` is touched; the lines are read
+ * for their `${seg_id}#${i}` ids and whether text remains — the text itself never leaves this function.
+ */
+function normalizeSegmentDoc(data: FirebaseFirestore.DocumentData | undefined): Record<string, unknown> {
+  const raw = (data ?? {}) as Record<string, unknown>;
+  const expiresAt = raw.expires_at;
+  const hasToDate = (v: unknown): v is { toDate(): Date } =>
+    typeof v === "object" && v !== null && "toDate" in v && typeof (v as { toDate: unknown }).toDate === "function";
+  return { ...raw, expires_at: hasToDate(expiresAt) ? expiresAt.toDate().toISOString() : expiresAt };
 }
 
 /** `expires_at` is stored as a native Timestamp (same conversion as `firestoreSegmentStore`'s segments). */
@@ -48,6 +63,8 @@ export function firestoreDebriefStore(outletId: string, db: Firestore = adminDb(
   const captureSessions = () => db.collection(COLLECTIONS.captureSessions);
   const staff = () => db.collection(COLLECTIONS.staff);
   const auditLog = () => db.collection(COLLECTIONS.auditLog);
+  const segments = () => db.collection(COLLECTIONS.segments);
+  const labelUnits = () => db.collection(COLLECTIONS.labelUnits);
 
   async function readLastEnded(deviceId: string) {
     const doc = await devices().doc(deviceDocId(outletId, deviceId)).get();
@@ -148,6 +165,69 @@ export function firestoreDebriefStore(outletId: string, db: Firestore = adminDb(
         names.push(parsed.data.name);
       }
       return names;
+    },
+
+    // ── R-19 PR-3 `preparing` inputs (the service calls these on a sandbox outlet only) ──
+
+    async getLatestEndedSession(deviceId: string, businessDate: string): Promise<EndedSessionRef | null> {
+      // Same filter set as findEndedDebrief's fallback (multiple equalities + one `in`: no composite index).
+      const snap = await captureSessions()
+        .where("outlet_id", "==", outletId)
+        .where("device_id", "==", deviceId)
+        .where("local_date", "==", businessDate)
+        .where("end_reason", "in", ["selesai", "auto_stop", "lost"])
+        .get();
+      let best: EndedSessionRef | null = null;
+      for (const doc of snap.docs) {
+        const parsed = CaptureSessionSchema.safeParse(doc.data());
+        if (!parsed.success) {
+          logSkippedDoc("capture_session", doc.id);
+          continue;
+        }
+        const ended = parsed.data.ended_at_ms;
+        if (ended === null) continue;
+        if (best === null || ended > best.ended_at_ms) best = { session_id: parsed.data.session_id, ended_at_ms: ended };
+      }
+      return best;
+    },
+
+    async listSessionLines(deviceId: string, sessionId: string): Promise<SessionLineRef[]> {
+      const snap = await segments()
+        .where("outlet_id", "==", outletId)
+        .where("device_id", "==", deviceId)
+        .where("session_id", "==", sessionId)
+        .get();
+      const result: SessionLineRef[] = [];
+      for (const doc of snap.docs) {
+        const parsed = SegmentSchema.safeParse(normalizeSegmentDoc(doc.data()));
+        if (!parsed.success) {
+          logSkippedDoc("segment", doc.id);
+          continue;
+        }
+        const seg = parsed.data;
+        seg.lines.forEach((line, i) => {
+          result.push({ line_id: `${seg.seg_id}#${i}`, has_text: line.text.trim().length > 0 });
+        });
+      }
+      return result;
+    },
+
+    async listLabelledLineIds(deviceId: string): Promise<Set<string>> {
+      const snap = await labelUnits()
+        .where("outlet_id", "==", outletId)
+        .where("device_id", "==", deviceId)
+        .where("status", "in", ["done", "failed"])
+        .get();
+      const lineIds = new Set<string>();
+      for (const doc of snap.docs) {
+        const parsed = LabelUnitLedgerSchema.safeParse(doc.data());
+        if (!parsed.success) {
+          logSkippedDoc("label_units", doc.id);
+          continue;
+        }
+        for (const id of parsed.data.line_ids) lineIds.add(id);
+      }
+      return lineIds;
     },
 
     async transactAnswer(

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { LangProvider } from "@/lib/i18n/context";
 import type { Auth } from "@/lib/auth/client/firebase-client";
 import type { SupervisorThread } from "@/lib/day/contract";
@@ -92,19 +92,19 @@ describe("ThreadActions", () => {
     expect(onDone).toHaveBeenCalledTimes(1);
   });
 
-  it("Change -> select COMPLAINT -> Save sends { action: 'override', category }; Save is disabled while the current category is selected; Cancel sends nothing", async () => {
+  it("Change category opens the label dialog (R-19 PR-12a); pick COMPLAINT -> Save label sends { action: 'override', category }; Save is disabled while the current category is selected", async () => {
     authedPostJson.mockResolvedValueOnce({ kind: "ok", data: {} });
     const onDone = vi.fn();
     renderActions(thread({ category: "ROUTINE_OPS" }), onDone);
 
     fireEvent.click(screen.getByText("Change category"));
-    const select = screen.getByLabelText("New category") as HTMLSelectElement;
+    const dialog = screen.getByRole("dialog", { name: "Change label" });
     // Save disabled while the selection equals the current category.
-    expect((screen.getByText("Save") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByText("Save label") as HTMLButtonElement).disabled).toBe(true);
 
-    fireEvent.change(select, { target: { value: "COMPLAINT" } });
-    expect((screen.getByText("Save") as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(within(dialog).getByRole("radio", { name: /Customer complaint/ }));
+    expect((screen.getByText("Save label") as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByText("Save label"));
     await Promise.resolve();
     await Promise.resolve();
 
@@ -116,14 +116,42 @@ describe("ThreadActions", () => {
       expect.anything(),
     );
     expect(onDone).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("Cancel closes the panel and sends no request", () => {
+  it("Cancel closes the dialog, sends no request and returns focus to Change category", () => {
     renderActions(thread());
-    fireEvent.click(screen.getByText("Change category"));
+    const change = screen.getByText("Change category");
+    change.focus(); // a tap or Enter focuses the opener; jsdom's click does not
+    fireEvent.click(change);
     fireEvent.click(screen.getByText("Cancel"));
     expect(authedPostJson).not.toHaveBeenCalled();
-    expect(screen.queryByLabelText("New category")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByText("Change category"));
+  });
+
+  it("GATE_BLOCKED on a label change keeps the dialog open with the blocked line inside it", async () => {
+    authedPostJson.mockResolvedValueOnce({ kind: "conflict", code: "GATE_BLOCKED" });
+    renderActions(thread({ category: "ROUTINE_OPS" }));
+    fireEvent.click(screen.getByText("Change category"));
+    fireEvent.click(screen.getByRole("radio", { name: /Customer complaint/ }));
+    fireEvent.click(screen.getByText("Save label"));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe("Cannot confirm: no evidence lines.");
+    expect(screen.getByRole("dialog")).not.toBeNull();
+  });
+
+  it("a stale 409 (NOT_REVIEWABLE) on a label save closes the dialog, shows the stale line under the row and calls onDone", async () => {
+    authedPostJson.mockResolvedValueOnce({ kind: "conflict", code: "NOT_REVIEWABLE" });
+    const onDone = vi.fn();
+    renderActions(thread({ category: "ROUTINE_OPS" }), onDone);
+    fireEvent.click(screen.getByText("Change category"));
+    fireEvent.click(screen.getByRole("radio", { name: /Customer complaint/ }));
+    fireEvent.click(screen.getByText("Save label"));
+    const status = await screen.findByRole("status");
+    expect(status.textContent).toBe("This note changed. Showing the latest.");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onDone).toHaveBeenCalledTimes(1);
   });
 
   it("GATE_BLOCKED -> shows the blocked message, onDone not called", async () => {
@@ -177,12 +205,11 @@ describe("ThreadActions", () => {
     await Promise.resolve();
   });
 
-  it("ID toggle switches the select's option labels", () => {
+  it("ID toggle switches the dialog's labels", () => {
     renderActions(thread({ category: "COMPLAINT" }), () => {}, "id");
     fireEvent.click(screen.getByText("Ubah kategori"));
-    const select = screen.queryByLabelText("Kategori baru");
-    expect(select).not.toBeNull();
-    expect(screen.queryByText("Keluhan pelanggan")).not.toBeNull();
+    expect(screen.getByRole("dialog", { name: "Ubah label" })).not.toBeNull();
+    expect(screen.getByRole("radio", { name: /Keluhan pelanggan/ })).not.toBeNull();
   });
 
   describe("reject (v4, Task 15.6)", () => {
@@ -246,15 +273,15 @@ describe("ThreadActions", () => {
       expect(screen.queryByText("Reject this note? It will not count as evidence.")).not.toBeNull();
       fireEvent.click(screen.getByText("Change category"));
       expect(screen.queryByText("Reject this note? It will not count as evidence.")).toBeNull();
-      expect(screen.queryByLabelText("New category")).not.toBeNull();
+      expect(screen.queryByRole("dialog")).not.toBeNull();
     });
 
     it("opening Reject closes an open change-category panel", () => {
       renderActions(thread());
       fireEvent.click(screen.getByText("Change category"));
-      expect(screen.queryByLabelText("New category")).not.toBeNull();
+      expect(screen.queryByRole("dialog")).not.toBeNull();
       fireEvent.click(screen.getByText("Reject"));
-      expect(screen.queryByLabelText("New category")).toBeNull();
+      expect(screen.queryByRole("dialog")).toBeNull();
       expect(screen.queryByText("Reject this note? It will not count as evidence.")).not.toBeNull();
     });
 

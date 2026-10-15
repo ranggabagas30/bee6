@@ -53,6 +53,10 @@ describe("sessionErrorKey (Mulai/Selesai/Batalkan route failure to copy key)", (
     expect(sessionErrorKey(409, "session_ended")).toBe("C-c-discard-failed");
   });
 
+  it("maps a 409 closing_reached (Batalkan after the sandbox closing mark) to its non-retry line", () => {
+    expect(sessionErrorKey(409, "closing_reached")).toBe("C-sess-cancel-closed");
+  });
+
   it("maps a 409 CONFLICT with no recognised code to the generic fallback", () => {
     expect(sessionErrorKey(409, "CONFLICT")).toBe("C-sess-err");
   });
@@ -67,6 +71,7 @@ describe("sessionErrorKey (Mulai/Selesai/Batalkan route failure to copy key)", (
     const cases: [number | undefined, string | undefined][] = [
       [422, "VALIDATION_ERROR"],
       [409, "session_ended"],
+      [409, "closing_reached"],
       [409, "CONFLICT"],
       [500, undefined],
       [undefined, undefined],

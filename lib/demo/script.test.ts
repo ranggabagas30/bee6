@@ -1,73 +1,129 @@
 import { describe, expect, it } from "vitest";
-import { BAKERY_V1, ScriptCardSchema, SCRIPT_BY_ID, scriptFor } from "@/lib/demo/script";
-import { DEMO_SOP_V1 } from "../../scripts/demo-sop";
+import {
+  BAKERY_V2,
+  CARD_MIN_LINES,
+  SCRIPT_BY_ID,
+  SCRIPT_V2,
+  ScriptCardV2Schema,
+  requiredLines,
+  scriptFor,
+  type ScriptDay,
+} from "@/lib/demo/script";
+import { SCENARIO_V2 } from "../../scripts/eval-fixtures/scenario-v2";
 import { DEMO_SEED } from "../../scripts/seed";
 
-describe("bakery-v1 script (R-18)", () => {
-  const cards = BAKERY_V1.cards;
+/**
+ * R-19 PR-5 (plan section 5.1, section A): the 3-day judge script `bakery-v2`. Exactly 5 cards per day; problem A
+ * (fresh egg tarts) on days 1 and 2; problem B (phone order not read back) on days 2 and 3; routine cards never
+ * mention a customer or a phone; no person's name, no phone number, no price (hard rules #7, #8).
+ */
+const DAYS: readonly ScriptDay[] = [1, 2, 3];
 
-  it("has 11 cards: rules first, finish last, every card valid against the strict schema", () => {
-    expect(cards).toHaveLength(11);
-    expect(cards[0]!.kind).toBe("rules");
-    expect(cards.at(-1)!.kind).toBe("finish");
-    for (const c of cards) expect(() => ScriptCardSchema.parse(c)).not.toThrow();
-  });
+function scriptCard(id: string) {
+  for (const day of DAYS) {
+    const found = SCRIPT_V2[day].find((c) => c.id === id);
+    if (found) return found;
+  }
+  throw new Error(`no card ${id}`);
+}
 
-  it("mixes read-aloud and own-words cards", () => {
-    const kinds = new Set(cards.map((c) => c.kind));
-    expect(kinds.has("say")).toBe(true);
-    expect(kinds.has("own_words")).toBe(true);
-    for (const c of cards.filter((x) => x.kind === "own_words")) expect(c.example).not.toBeNull();
-  });
-
-  it("ids are unique", () => {
-    expect(new Set(cards.map((c) => c.id)).size).toBe(cards.length);
-  });
-
-  it("every sop_step is one of the 5 placeholder SOP step ids", () => {
-    const ids = DEMO_SOP_V1.steps.map((s) => s.step_id);
-    expect(ids).toHaveLength(5);
-    for (const c of cards) if (c.sop_step !== null) expect(ids).toContain(c.sop_step);
-    // the script touches every step of the placeholder SOP at least once
-    for (const id of ids) expect(cards.some((c) => c.sop_step === id)).toBe(true);
-  });
-
-  it("suggested seconds sum to between 150 and 240 (a ~3 min read inside the 5 min hard stop)", () => {
-    const sum = cards.reduce((n, c) => n + c.seconds, 0);
-    expect(sum).toBeGreaterThanOrEqual(150);
-    expect(sum).toBeLessThanOrEqual(240);
-  });
-
-  it("carries EN and Bahasa text for every card, nothing empty", () => {
-    for (const c of cards) {
-      expect(c.text.en.trim().length, c.id).toBeGreaterThan(0);
-      expect(c.text.id.trim().length, c.id).toBeGreaterThan(0);
-      expect(c.intent.en.trim().length, c.id).toBeGreaterThan(0);
-      expect(c.intent.id.trim().length, c.id).toBeGreaterThan(0);
+describe("bakery-v2 script (R-19)", () => {
+  it("has exactly 5 cards per day, every card valid against the strict schema", () => {
+    for (const day of DAYS) {
+      expect(SCRIPT_V2[day]).toHaveLength(5);
+      for (const c of SCRIPT_V2[day]) expect(() => ScriptCardV2Schema.parse(c)).not.toThrow();
     }
   });
 
-  it("names no person from the demo staff list and no template id (hard rule 7)", () => {
-    const all = JSON.stringify(cards).toLowerCase();
-    // first names only: the surname-like token "Demo" is also the fictional shop's name
+  it("card ids are d{day}-c{n}, unique across the script", () => {
+    const ids: string[] = [];
+    for (const day of DAYS) {
+      SCRIPT_V2[day].forEach((c, i) => {
+        expect(c.id).toBe(`d${day}-c${i + 1}`);
+        ids.push(c.id);
+      });
+    }
+    expect(new Set(ids).size).toBe(15);
+  });
+
+  it("problem A is card 3 of day 1 and card 2 of day 2; problem B is card 3 of day 2 and card 2 of day 3; the rest is routine", () => {
+    const problems = DAYS.flatMap((day) => SCRIPT_V2[day].filter((c) => c.problem !== null).map((c) => [c.id, c.problem]));
+    expect(problems).toEqual([
+      ["d1-c3", "A"],
+      ["d2-c2", "A"],
+      ["d2-c3", "B"],
+      ["d3-c2", "B"],
+    ]);
+  });
+
+  it("the EN text is word for word the `exact` variant of the rehearsal fixture (SCENARIO_V2), speaker tags stripped", () => {
+    for (const scenarioDay of SCENARIO_V2) {
+      const script = SCRIPT_V2[scenarioDay.day].map((c) => ({ id: c.id, lines: c.lines.map((l) => l.text.en) }));
+      const exact = scenarioDay.variants.exact.map((c) => ({ id: c.id, lines: [...c.lines] }));
+      expect(script).toEqual(exact);
+    }
+  });
+
+  it("problem A speaks customer then staff; problem B is the staff member's voice only (the caller's words are never on the card)", () => {
+    for (const id of ["d1-c3", "d2-c2"]) {
+      expect(scriptCard(id).lines.map((l) => l.speaker)).toEqual(["customer", "staff", "customer", "staff"]);
+    }
+    for (const id of ["d2-c3", "d3-c2"]) {
+      expect(scriptCard(id).lines.every((l) => l.speaker === "staff")).toBe(true);
+      expect(scriptCard(id).lines[0]!.text.en).toMatch(/^Hello, Demo Bakery/);
+    }
+  });
+
+  it("routine cards never mention a customer, a phone or a colleague; problem A never names a colleague or an unhappy customer", () => {
+    for (const day of DAYS) {
+      for (const c of SCRIPT_V2[day]) {
+        const text = c.lines.map((l) => l.text.en).join(" ").toLowerCase();
+        if (c.problem === null) expect(text, c.id).not.toMatch(/customer|phone|call|colleague/);
+        if (c.problem === "A") expect(text, c.id).not.toMatch(/check with|colleague|complain|unhappy|angry|refund/);
+      }
+    }
+  });
+
+  it("carries EN and Bahasa text for every card and line, nothing empty, no digits in the spoken text (no price, no number)", () => {
+    for (const day of DAYS) {
+      for (const c of SCRIPT_V2[day]) {
+        expect(c.title.en.trim().length, c.id).toBeGreaterThan(0);
+        expect(c.title.id.trim().length, c.id).toBeGreaterThan(0);
+        for (const l of c.lines) {
+          expect(l.text.en.trim().length, c.id).toBeGreaterThan(0);
+          expect(l.text.id.trim().length, c.id).toBeGreaterThan(0);
+          expect(l.text.en, c.id).not.toMatch(/\d/);
+        }
+      }
+    }
+  });
+
+  it("names no person from the demo staff list and no template or sandbox id (hard rule 7)", () => {
+    const all = JSON.stringify(SCRIPT_V2).toLowerCase();
     for (const s of DEMO_SEED.staff) expect(all, s.name).not.toMatch(new RegExp(`\\b${s.name.split(/\s+/)[0]!.toLowerCase()}\\b`));
     expect(all).not.toContain("demo-tpl-");
     expect(all).not.toContain("sbx-");
   });
 
-  it("the phone call card is about a pickup, the hypothetical card talks about something that did not happen", () => {
-    const call = cards.find((c) => c.id === "phone-call")!;
-    expect(call.expect).toBe("question");
-    // the line on the card is what the staff member says when answering, so the speaker is "you", not the caller
-    expect(call.speaker).toBe("you");
-    const hypo = cards.find((c) => c.id === "hypothetical")!;
-    expect(hypo.expect).toBe("none");
-    expect(cards.find((c) => c.id === "small-talk")!.expect).toBe("dropped");
+  it("requiredLines(day) = 5 cards x CARD_MIN_LINES (1) = 5 for every day", () => {
+    expect(CARD_MIN_LINES).toBe(1);
+    for (const day of DAYS) expect(requiredLines(day)).toBe(5);
   });
 
-  it("is resolvable by script id and unknown ids fall back to null", () => {
-    expect(SCRIPT_BY_ID["bakery-v1"]).toBe(BAKERY_V1);
-    expect(scriptFor("bakery-v1")).toBe(BAKERY_V1);
+  it("is resolvable by script id; bakery-v1 is gone and unknown ids fall back to null", () => {
+    expect(SCRIPT_BY_ID["bakery-v2"]).toBe(BAKERY_V2);
+    expect(BAKERY_V2.days).toBe(SCRIPT_V2);
+    expect(scriptFor("bakery-v2")).toBe(BAKERY_V2);
+    expect(scriptFor("bakery-v1")).toBeNull();
     expect(scriptFor("nope")).toBeNull();
+  });
+
+  it("the schema refuses a bad id, a 4th day, a non-A/B problem, 0 or 7 lines, and an extra key", () => {
+    const ok = SCRIPT_V2[1][0]!;
+    expect(ScriptCardV2Schema.safeParse({ ...ok, id: "d4-c1" }).success).toBe(false);
+    expect(ScriptCardV2Schema.safeParse({ ...ok, problem: "C" }).success).toBe(false);
+    expect(ScriptCardV2Schema.safeParse({ ...ok, lines: [] }).success).toBe(false);
+    expect(ScriptCardV2Schema.safeParse({ ...ok, lines: Array(7).fill(ok.lines[0]) }).success).toBe(false);
+    expect(ScriptCardV2Schema.safeParse({ ...ok, extra: 1 }).success).toBe(false);
   });
 });

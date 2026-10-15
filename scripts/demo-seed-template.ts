@@ -14,17 +14,18 @@
  *          --clips-dir <that directory>
  *      `--clips-dir` is mandatory (there is no default directory); `--plan <file>` defaults to
  *      `plan.json` inside it.
- *   4. Wait for "done". The run then ends with a READINESS CHECK (R-18): it reads the template's own threads and
- *      sessions (read-only) and applies the SAME candidate selection and evidence floor as the real proposal path
- *      (`selectCandidates` + `checkEvidenceFloor`, 2 facts on 2 dates, never lowered), with zero answers.
- *      It prints `READY: facts=<n> dates=<m>` or `NOT READY: ...` (exit code 2). Re-run the whole thing only
- *      if the clips change (delete the `demo-tpl-outlet` data first via dev-ops).
- *   5. If NOT READY: the template cannot be fixed by confirming threads. There is deliberately no template
- *      supervisor login, and template questions expire unanswered, so a confirm is refused (NOT_REVIEWABLE).
- *      Instead re-cut the clips so that at least 2 different days each have at least 1 clear moment in an
- *      automatic-fact category (ROUTINE_OPS, CUSTOMER_SERVICE, STAFF_CONSULT, TRAINING or EVENT), spoken clearly
- *      enough for a label confidence of 0.9 or more. Then ask dev-ops to delete the `demo-tpl-outlet` data,
- *      re-seed (steps 1 to 4), and re-check without uploading anything:
+ *   4. Wait for "done". The run then ends with the INVERTED CLEAN CHECK (R-19 §5.9, D-6): the template must hold
+ *      ROUTINE history only, so that the judge's own speech is what makes the first proposal. It reads the
+ *      template's own threads and sessions (read-only) and applies the SAME candidate selection as the real
+ *      proposal path (`selectCandidates`, which drops ROUTINE_OPS since R-19 D-3), with zero answers. It passes
+ *      iff NO evidence category has a fact at all (and, belt and braces, `evidenceByCategory` has no ready row).
+ *      It prints `CLEAN: routine-only history (routine facts=<n>)` (exit 0) or `NOT CLEAN: <category>=<facts>
+ *      facts, ...` (exit code 2). Re-run the whole thing only if the clips change (delete the `demo-tpl-outlet`
+ *      data first via dev-ops).
+ *   5. If NOT CLEAN: a routine clip was labelled as an evidence category (CUSTOMER_SERVICE, PHONE_CALL, ...).
+ *      The template cannot be fixed by relabelling: there is deliberately no template supervisor login. Swap or
+ *      re-cut the clip that produced it (the two REAL clips drift most; a synthetic copy exists for each), ask
+ *      dev-ops to delete the `demo-tpl-outlet` data, re-seed (steps 1 to 4), and re-check without uploading:
  *        npm run demo:seed-template -- --check-only
  *      `--check-only` needs no URL, code or clips: no pairing, no upload, no HTTP call; it only reads.
  *
@@ -50,9 +51,12 @@ import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { addDays, localDateOf, zonedTimeToEpochMs } from "@/lib/capture/calendar";
 import type { AttributionSession } from "@/lib/day/attribution";
+import { attributedBusinessDate } from "@/lib/day/attribution";
+import type { WorkCategory } from "@/lib/pipeline/categories";
 import { selectCandidates, type ProposalThreadRow } from "@/lib/proposals/candidates";
-import { MIN_EVIDENCE_DATES, MIN_EVIDENCE_FACTS } from "@/lib/proposals/constants";
-import { checkEvidenceFloor } from "@/lib/proposals/precheck";
+import { EVIDENCE_EXCLUDED } from "@/lib/proposals/constants";
+import { evidenceByCategory, type CategoryEvidence } from "@/lib/proposals/precheck";
+import { evidenceReadWindow } from "@/lib/proposals/range";
 import { MAX_SEGMENT_BYTES, SEGMENT_CONTENT_TYPE } from "@/lib/capture/contract";
 import { deviceAuthHeaders, type DeviceAuth } from "@/lib/capture/browser/client";
 import { TEMPLATE_DEVICE_ID, TEMPLATE_OUTLET_ID } from "@/lib/demo/constants";
@@ -132,61 +136,79 @@ export interface ProgressSnapshot {
   pending_units: number;
 }
 
-// ── readiness (R-18 P0) ──────────────────────────────────────────────────────
-/** The read-only view of the template that the readiness check needs (the real proposal store's two reads, plus the last day). */
-export interface ReadinessReader {
+// ── inverted clean check (R-19 §5.9) ─────────────────────────────────────────
+/** The read-only view of the template that the clean check needs (the real proposal store's two reads, plus the last day). */
+export interface TemplateReader {
   /** The template's last ended business date (`YYYY-MM-DD`), or null when it has none. */
   lastDay(): Promise<string | null>;
   listSessions(dates: readonly string[]): Promise<AttributionSession[]>;
   listThreadsInRange(fromMs: number, toMs: number): Promise<ProposalThreadRow[]>;
 }
 
-export interface ReadinessResult {
-  ready: boolean;
-  facts: number;
-  dates: number;
+export interface CleanResult {
+  clean: boolean;
+  /** Routine facts inside the range: the history the template is allowed to hold (never evidence). */
+  routine_facts: number;
+  /** Every evidence category with at least one fact, `evidenceByCategory` order. Empty when clean. */
+  evidence: CategoryEvidence[];
   /** The printed line, without the `[demo-seed]` prefix. */
   line: string;
 }
 
+const NOT_CLEAN_REMEDY =
+  "A routine clip labelled as an evidence category would pollute the judge's own problem. " +
+  "Swap or re-cut that clip, ask dev-ops to delete the demo-tpl-outlet data, re-seed, then re-run with --check-only";
+
 /**
- * Would the default Generate (the last 7 days, here [D-6, D] around the template's last day D) clear the evidence
- * floor from the template alone, with zero answers? It is the proposal path's own code: the same range reads as
- * `lib/proposals/service.ts` step 8a, then `selectCandidates` and `checkEvidenceFloor`. The floor is never lowered
- * and nothing is written. Hard rule #10: plain code, no model.
+ * Does the default Generate (the last 7 days, here [D-6, D] around the template's last day D) see ANY evidence
+ * from the template alone, with zero answers? It must not (R-19 D-6: the judge's own speech makes the first
+ * proposal). It is the proposal path's own code: the same range reads as `lib/proposals/service.ts` step 8a,
+ * then `selectCandidates` (which drops ROUTINE_OPS) and `evidenceByCategory`. Clean iff no candidate remains
+ * and no category row is ready. Nothing is written. Hard rule #10: plain code, no model.
  */
-export async function checkTemplateReadiness(reader: ReadinessReader, tz: string = TZ): Promise<ReadinessResult> {
+export async function checkTemplateClean(reader: TemplateReader, tz: string = TZ): Promise<CleanResult> {
   const lastDay = await reader.lastDay();
   if (lastDay === null) {
     return {
-      ready: false,
-      facts: 0,
-      dates: 0,
-      line: "NOT READY: no template day found (no ended session). Seed the template first",
+      clean: false,
+      routine_facts: 0,
+      evidence: [],
+      line: "NOT CLEAN: no template day found (no ended session). Seed the template first",
     };
   }
   const range = { from_date: addDays(lastDay, -6), to_date: lastDay };
-  const dates: string[] = [];
-  for (let d = addDays(range.from_date, -1); d <= addDays(range.to_date, 1); d = addDays(d, 1)) dates.push(d);
-  const fromMs = zonedTimeToEpochMs(range.from_date, "01:00", tz);
-  const toMs = zonedTimeToEpochMs(addDays(range.to_date, 1), "03:00", tz);
-  const [sessions, rows] = await Promise.all([reader.listSessions(dates), reader.listThreadsInRange(fromMs, toMs)]);
-  const floor = checkEvidenceFloor(selectCandidates(rows, sessions, tz, range));
-  const line = floor.passed
-    ? `READY: facts=${floor.facts} dates=${floor.dates}`
-    : `NOT READY: facts=${floor.facts} dates=${floor.dates} (need ${MIN_EVIDENCE_FACTS} on ${MIN_EVIDENCE_DATES}). ` +
-      "Re-cut the clips so at least 2 different days each have a clear moment in an automatic-fact category, " +
-      "ask dev-ops to delete the demo-tpl-outlet data, re-seed, then re-run with --check-only";
-  return { ready: floor.passed, facts: floor.facts, dates: floor.dates, line };
+  const window = evidenceReadWindow(range, tz);
+  const [sessions, rows] = await Promise.all([reader.listSessions(window.dates), reader.listThreadsInRange(window.fromMs, window.toMs)]);
+
+  const candidates = selectCandidates(rows, sessions, tz, range);
+  const evidence = evidenceByCategory(candidates);
+  const clean = candidates.length === 0 && !evidence.some((r) => r.ready);
+
+  // The routine history the template is allowed to hold: fact-status rows whose effective category is excluded
+  // from evidence, dated inside the same range by the same attribution the real path uses.
+  let routineFacts = 0;
+  for (const row of rows) {
+    if (row.status !== "fact" || row.excluded_from_evidence === true || row.label_source === "supervisor_rejected") continue;
+    const effective = (row.confirmed_category ?? row.category) as WorkCategory | "NON_WORK";
+    if (effective === "NON_WORK" || !EVIDENCE_EXCLUDED.has(effective)) continue;
+    const localDate = attributedBusinessDate(row.first_line_start_ms, sessions, tz, row.device_id);
+    if (localDate === null || localDate < range.from_date || localDate > range.to_date) continue;
+    routineFacts += 1;
+  }
+
+  const line = clean
+    ? `CLEAN: routine-only history (routine facts=${routineFacts})`
+    : `NOT CLEAN: ${evidence.map((r) => `${r.category}=${r.facts} facts`).join(", ")}. ${NOT_CLEAN_REMEDY}`;
+  return { clean, routine_facts: routineFacts, evidence, line };
 }
 
-/** `--check-only`: the readiness read alone. No pairing, no upload, no HTTP call. */
-export async function runReadinessCheck(deps: {
-  readiness: ReadinessReader;
+/** `--check-only`: the clean check alone. No pairing, no upload, no HTTP call. */
+export async function runCleanCheck(deps: {
+  template: TemplateReader;
   log: (line: string) => void;
   tz?: string;
-}): Promise<ReadinessResult> {
-  const result = await checkTemplateReadiness(deps.readiness, deps.tz);
+}): Promise<CleanResult> {
+  const result = await checkTemplateClean(deps.template, deps.tz);
   deps.log(`[demo-seed] ${result.line}`);
   return result;
 }
@@ -202,8 +224,8 @@ export interface TemplateSeedDeps {
   readClip: (file: string) => Promise<Uint8Array>;
   randomUUID: () => string;
   readProgress: () => Promise<ProgressSnapshot>;
-  /** Read-only template view for the end-of-run readiness check. */
-  readiness: ReadinessReader;
+  /** Read-only template view for the end-of-run clean check. */
+  template: TemplateReader;
   sleep: (ms: number) => Promise<void>;
   log: (line: string) => void;
   pollEveryMs: number;
@@ -284,9 +306,9 @@ async function assertDemoService(deps: TemplateSeedDeps): Promise<void> {
 
 /**
  * The whole run. Throws `TemplateSeedError` on any failure; resolves, once the tick has produced every day, with the
- * readiness verdict (NOT READY is reported, not thrown: the caller decides the exit code).
+ * clean verdict (NOT CLEAN is reported, not thrown: the caller decides the exit code).
  */
-export async function runTemplateSeed(deps: TemplateSeedDeps): Promise<ReadinessResult> {
+export async function runTemplateSeed(deps: TemplateSeedDeps): Promise<CleanResult> {
   const tz = deps.tz ?? TZ;
 
   // 0. Refuse a service that is not a demo service, before the single-use pairing code is spent.
@@ -361,7 +383,7 @@ export async function runTemplateSeed(deps: TemplateSeedDeps): Promise<Readiness
     for (const d of progress.days) deps.log(describeDay(d));
     if (isDone(progress, dates)) {
       deps.log("[demo-seed] done: the tick has processed every day");
-      return runReadinessCheck({ readiness: deps.readiness, log: deps.log, tz });
+      return runCleanCheck({ template: deps.template, log: deps.log, tz });
     }
     if (waited >= deps.pollMaxMs) {
       throw new TemplateSeedError("Timed out waiting for the pipeline tick to process the template.");
@@ -464,10 +486,10 @@ async function readProgressFromFirestore(tz: string): Promise<ProgressSnapshot> 
 }
 
 /**
- * The real readiness reader: the proposal store's own two reads (so the check sees what Generate sees) and the
+ * The real template reader: the proposal store's own two reads (so the check sees what Generate sees) and the
  * template device's last ended day. Admin SDK `.get()` only.
  */
-async function firestoreReadinessReader(): Promise<ReadinessReader> {
+async function firestoreTemplateReader(): Promise<TemplateReader> {
   const { adminDb } = await import("@/lib/firebase/admin");
   const { COLLECTIONS } = await import("@/lib/firestore/collections");
   const { deviceDocId } = await import("@/lib/firestore/stores");
@@ -485,40 +507,40 @@ async function firestoreReadinessReader(): Promise<ReadinessReader> {
   };
 }
 
-/** `--check-only` anywhere on the command line: the read-only readiness check, nothing else. */
+/** `--check-only` anywhere on the command line: the read-only clean check, nothing else. */
 export function isCheckOnly(argv: string[]): boolean {
   return argv.includes("--check-only");
 }
 
 /**
  * The command-line branch logic, with everything that touches the network or Firestore injected:
- * `--check-only` returns after the read-only readiness check (no flag parsing, no `runSeed`, no HTTP call);
+ * `--check-only` returns after the read-only clean check (no flag parsing, no `runSeed`, no HTTP call);
  * otherwise the flags are parsed (and refused when wrong) and `runSeed` does the real run.
- * Returns the process exit code: 0 READY, 2 NOT READY.
+ * Returns the process exit code: 0 CLEAN, 2 NOT CLEAN.
  */
 export async function runCli(
   argv: string[],
   io: {
-    readiness: ReadinessReader;
+    template: TemplateReader;
     log: (line: string) => void;
-    runSeed: (args: ReturnType<typeof parseCliArgs>) => Promise<ReadinessResult>;
+    runSeed: (args: ReturnType<typeof parseCliArgs>) => Promise<CleanResult>;
   },
 ): Promise<0 | 2> {
   if (isCheckOnly(argv)) {
-    const result = await runReadinessCheck({ readiness: io.readiness, log: io.log });
-    return result.ready ? 0 : 2;
+    const result = await runCleanCheck({ template: io.template, log: io.log });
+    return result.clean ? 0 : 2;
   }
   const result = await io.runSeed(parseCliArgs(argv));
-  return result.ready ? 0 : 2;
+  return result.clean ? 0 : 2;
 }
 
 async function main(): Promise<void> {
   assertNotPilotProject(process.env);
   const log = (line: string) => console.log(line);
-  const readiness = await firestoreReadinessReader();
+  const template = await firestoreTemplateReader();
 
   const code = await runCli(process.argv.slice(2), {
-    readiness,
+    template,
     log,
     runSeed: async ({ baseUrl, code, clipsDir, planPath }) => {
       const plan = PlanSchema.parse(JSON.parse(await readFile(planPath, "utf8")));
@@ -531,7 +553,7 @@ async function main(): Promise<void> {
         readClip: async (file) => new Uint8Array(await readFile(path.join(clipsDir, file))),
         randomUUID,
         readProgress: () => readProgressFromFirestore(TZ),
-        readiness,
+        template,
         sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
         log,
         pollEveryMs: 30_000,

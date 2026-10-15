@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { COLLECTIONS, type CollectionName } from "@/lib/firestore/collections";
 import { addDays, businessDateOf, localHmOf } from "@/lib/capture/calendar";
 import { selectCandidates, type ProposalThreadRow } from "@/lib/proposals/candidates";
@@ -29,6 +29,25 @@ import {
   questionDoc,
   threadDoc,
 } from "@/lib/demo/testing/fixtures";
+
+/**
+ * R-19 D-2 sets the real CARRY_OVER_MAX to 0 (routine-only template). The carry-over MECHANISM (kept for a
+ * later re-enable) is still tested here at the R-18 value of 2 through this hoisted override; the real
+ * constant is asserted in constants.test.ts and by the "CARRY_OVER_MAX = 0" test below.
+ */
+const carry = vi.hoisted(() => ({ max: 2 }));
+vi.mock("@/lib/demo/constants", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/demo/constants")>();
+  return {
+    ...actual,
+    get CARRY_OVER_MAX() {
+      return carry.max;
+    },
+  };
+});
+afterEach(() => {
+  carry.max = 2;
+});
 
 const NOW = Date.UTC(2026, 9, 28, 3, 0, 0); // well after the template days
 const IDS = { outlet_id: "sbx-aaaaaaaaaaaa", device_id: "jdg-bbbbbbbbbbbb" };
@@ -233,6 +252,20 @@ describe("cloneTemplate", () => {
     const answered = qs.find((q) => q.status === "answered")!;
     expect(answered.answer).toBe("yes");
     expect(answered.answered_at_ms).toBeTypeOf("number");
+  });
+
+  it("R-19 6.4 with CARRY_OVER_MAX = 0 every template question stays unverified and no thread is re-opened", () => {
+    carry.max = 0;
+    const tpl = templateSet();
+    const docs = clone(tpl);
+    const qs = byCol(docs, COLLECTIONS.questions).map((d) => d.data as Question);
+    const expired = tpl.questions.filter((q) => q.status === "unverified").length;
+    expect(expired).toBeGreaterThan(0);
+    expect(qs.filter((q) => q.status === "open")).toHaveLength(0);
+    expect(qs.filter((q) => q.status === "unverified")).toHaveLength(expired);
+    const tplUnverifiedThreads = tpl.threads.filter((t) => t.status === "unverified").length;
+    const threads = byCol(docs, COLLECTIONS.threads).map((d) => d.data as Thread);
+    expect(threads.filter((t) => t.status === "unverified")).toHaveLength(tplUnverifiedThreads);
   });
 
   it("6.T1 at most 2 are carried (the oldest window first); every other expired question stays unverified with its thread", () => {
@@ -536,7 +569,8 @@ describe("R-18 P0 whole-day time shift", () => {
       range(anchor),
     );
     expect(after).toHaveLength(before.length);
-    expect(before.length).toBeGreaterThanOrEqual(3);
+    // R-19 D-3: the template's ROUTINE_OPS fact is no longer a candidate; the two CUSTOMER_SERVICE facts remain.
+    expect(before.length).toBeGreaterThanOrEqual(2);
     expect(after.map((c) => c.start_hm)).toEqual(before.map((c) => c.start_hm)); // local times unchanged
     expect(after.map((c) => c.local_date)).toEqual(before.map((c) => addDays(c.local_date, K)));
     const floor = checkEvidenceFloor(after);
@@ -584,5 +618,44 @@ describe("R-18 P0 whole-day time shift", () => {
       }
       if (d.collection === COLLECTIONS.questions) expect((d.data as Question).created_at_ms).toBeLessThanOrEqual(NOW);
     }
+  });
+});
+
+describe("R-19 PR-7 expires_at_ms (owner reset keeps the 2-hour copy)", () => {
+  const withExpiry = (expires_at_ms: number) =>
+    cloneTemplate({ tpl: templateSet(), ids: IDS, now_ms: NOW, key_sha256: KEY, device_token_hash: HASH, anchor_business_date: businessDateOf(NOW, TZ), expires_at_ms });
+  const outletOf = (docs: ClonedDoc[]) => byCol(docs, COLLECTIONS.outlets)[0]!.data as ReturnType<typeof OutletSchema.parse>;
+  const deviceOf = (docs: ClonedDoc[]) => byCol(docs, COLLECTIONS.devices)[0]!.data as ReturnType<typeof DeviceSchema.parse>;
+
+  it("a given expiry is used on the sandbox object and on the judge device, not now + the TTL", () => {
+    const expiry = NOW + 37 * 60_000;
+    const docs = withExpiry(expiry);
+    expect(outletOf(docs).sandbox?.expires_at_ms).toBe(expiry);
+    expect(deviceOf(docs).expires_at_ms).toBe(expiry);
+    expect(outletOf(docs).sandbox?.created_at_ms).toBe(NOW);
+  });
+
+  it("with no expiry the default (now + SANDBOX_TTL_MS) is unchanged", () => {
+    const docs = clone();
+    expect(outletOf(docs).sandbox?.expires_at_ms).toBe(NOW + SANDBOX_TTL_MS);
+    expect(deviceOf(docs).expires_at_ms).toBe(NOW + SANDBOX_TTL_MS);
+  });
+
+  it("an expiry beyond now + the TTL (a reset can never extend the copy) refuses", () => {
+    expect(() => withExpiry(NOW + SANDBOX_TTL_MS + 1)).toThrow("cloneTemplate: expiry");
+    expect(withExpiry(NOW + SANDBOX_TTL_MS)).toBeTruthy();
+  });
+
+  it("an expiry that is not in the future, or not a safe integer, refuses", () => {
+    expect(() => withExpiry(NOW)).toThrow("cloneTemplate: expiry");
+    expect(() => withExpiry(NOW - 1)).toThrow("cloneTemplate: expiry");
+    expect(() => withExpiry(NOW + 1.5)).toThrow("cloneTemplate: expiry");
+    expect(() => withExpiry(Number.NaN)).toThrow("cloneTemplate: expiry");
+  });
+
+  it("a re-clone carries no next_day_count and no shift marker (day 1 again)", () => {
+    const sandbox = outletOf(withExpiry(NOW + 60_000)).sandbox as Record<string, unknown>;
+    expect("next_day_count" in sandbox).toBe(false);
+    expect("shift_started_at_ms" in sandbox).toBe(false);
   });
 });

@@ -1,17 +1,23 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useLang } from "@/lib/i18n/context";
 import { t } from "@/lib/i18n/dict";
 import { fetchCaptureConfig, type DeviceAuth } from "@/lib/capture/browser/client";
 import { businessDateOf, mulaiWindowFor } from "@/lib/capture/calendar";
 import type { CaptureConfigResponse } from "@/lib/capture/contract";
-import { PAIR_BUTTON_STYLE } from "@/app/pair/PairForm";
+import { buttonClassName } from "@/app/ui";
+import styles from "@/app/pair/pair.module.css";
 
 /**
- * What a freshly paired phone shows (UX-03 section 5.1): the four-step checklist and the button to the listening page.
- * Shared by `/pair` and the Staff panel of the role sign-in.
+ * What a freshly paired phone shows (UX-03 section 5.1; "Device set up", R-19 PR-6 §8.1): the four-step list and the
+ * link to the listening page. Shared by `/pair` and the Staff panel of the role sign-in.
+ *
+ * Pilot (`demo` off): heading "Phone set up", the outlet line and the pilot steps `C-pair-step-1..4` (step 3 needs the
+ * outlet config: hidden until it loads, on a closed day, or if it never loads). Demo (`demo` on, after a sandbox
+ * pairing): heading "Device set up" and the four demo steps; no outlet line (the sandbox never tells the phone an
+ * outlet name) and no config fetch. The demo code is never shown here (W8).
  */
 
 /**
@@ -31,44 +37,56 @@ function untilHmFor(config: CaptureConfigResponse, now: Date): string | undefine
   }).format(new Date(window.end_ms));
 }
 
-const LIST_STYLE: CSSProperties = { paddingLeft: 20, lineHeight: 1.5 };
+export interface PairedChecklistProps {
+  outletId?: string;
+  auth?: DeviceAuth;
+  headingLevel?: 1 | 2;
+  demo?: boolean;
+  /** id for the heading, so the surrounding region can be named by it (aria-labelledby). */
+  headingId?: string;
+}
 
-export function PairedChecklist({ outletId, auth, headingLevel = 1 }: { outletId: string; auth: DeviceAuth; headingLevel?: 1 | 2 }) {
+export function PairedChecklist({ outletId, auth, headingLevel = 1, demo = false, headingId }: PairedChecklistProps) {
   const { lang } = useLang();
-  const router = useRouter();
-  // untilHm: today's Mulai window end once the outlet config has loaded. Until then, on a closed day, and if the config
-  // never loads, the checklist omits step 3. A config failure must not turn a successful pairing into an error.
+  // untilHm: today's Mulai window end once the outlet config has loaded. A config failure must not turn a successful
+  // pairing into an error: step 3 simply stays hidden.
   const [untilHm, setUntilHm] = useState<string | undefined>(undefined);
 
   useEffect(() => {
+    if (demo || !auth) return;
     let cancelled = false;
     fetchCaptureConfig(auth).then(
       (config) => {
         if (!cancelled) setUntilHm(untilHmFor(config, new Date()));
       },
       () => {
-        // Step 3 stays hidden; the button still leads to /capture.
+        // Step 3 stays hidden; the link still leads to /capture.
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [auth]);
+  }, [auth, demo]);
 
   const Heading = headingLevel === 1 ? "h1" : "h2";
+  const steps = demo
+    ? [t(lang, "C-web-pair-demo-step-1"), t(lang, "C-web-pair-demo-step-2"), t(lang, "C-web-pair-demo-step-3"), t(lang, "C-web-pair-demo-step-4")]
+    : [t(lang, "C-pair-step-1"), t(lang, "C-pair-step-2"), ...(untilHm ? [t(lang, "C-pair-step-3", { until: untilHm })] : []), t(lang, "C-pair-step-4")];
+
   return (
     <>
-      <Heading>{t(lang, "C-pair-ok-h")}</Heading>
-      <p>{t(lang, "C-pair-ok-line", { outlet_id: outletId })}</p>
-      <ol style={LIST_STYLE}>
-        <li>{t(lang, "C-pair-step-1")}</li>
-        <li>{t(lang, "C-pair-step-2")}</li>
-        {untilHm ? <li>{t(lang, "C-pair-step-3", { until: untilHm })}</li> : null}
-        <li>{t(lang, "C-pair-step-4")}</li>
+      <Heading id={headingId} className={styles.h1}>{t(lang, demo ? "C-web-pair-done-h" : "C-pair-ok-h")}</Heading>
+      {!demo && outletId !== undefined && <p className={styles.outlet}>{t(lang, "C-pair-ok-line", { outlet_id: outletId })}</p>}
+      <ol className={styles.steps}>
+        {steps.map((step) => (
+          <li key={step} className={styles.step}>
+            {step}
+          </li>
+        ))}
       </ol>
-      <button type="button" onClick={() => router.push("/capture")} style={{ ...PAIR_BUTTON_STYLE, marginTop: 16 }}>
+      <Link href="/capture" className={buttonClassName({ variant: "primary", size: "lg", block: true })}>
         {t(lang, "C-b-buka-mendengarkan")}
-      </button>
+      </Link>
     </>
   );
 }

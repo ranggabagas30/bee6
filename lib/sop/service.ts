@@ -73,8 +73,10 @@ export async function getSopOverview(
   const outcomeByVersion = new Map(outcomes.map((o) => [o.sop_version_id, o]));
   const today = localDateOf(now_ms, tz);
   const latest = latestSop(versions);
+  const v1 = versions.find((v) => v.version === 1 && v.source === "seed");
+  const first_version_date = v1 ? localDateOf(v1.created_at_ms, tz) : null;
   if (latest === null) {
-    return SopOverviewSchema.parse({ today, latest: null, in_force_version: null, changes: [] });
+    return SopOverviewSchema.parse({ today, latest: null, in_force_version: null, first_version_date, changes: [] });
   }
   const inForce = sopInForce(versions, today);
 
@@ -94,6 +96,7 @@ export async function getSopOverview(
         steps: latest.steps.map(stepView),
       },
       in_force_version: inForce?.version ?? null,
+      first_version_date,
       changes,
     });
   } catch (error) {

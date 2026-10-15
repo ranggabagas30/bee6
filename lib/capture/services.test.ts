@@ -9,7 +9,7 @@ import {
 } from "@/lib/capture/services";
 import { NotFoundError, ForbiddenError } from "@/lib/http/errors";
 import type { Device, Heartbeat, Outlet } from "@/lib/firestore/schema";
-import type { HeartbeatRequest } from "@/lib/capture/contract";
+import { FRESH_DEMO_SESSION, type HeartbeatRequest } from "@/lib/capture/contract";
 
 const outlet: Outlet = {
   outlet_id: "outlet-1",
@@ -99,7 +99,7 @@ describe("getCaptureConfig", () => {
     const judge = { ...device, expires_at_ms: 9_000_000_000_000 };
     const ids = { outlet_id: "outlet-1", device_id: "dev-1" };
     const on = await getCaptureConfig(reader(sbx, judge), { ...ids, demo_mode: true });
-    expect(on.demo_session).toEqual({ max_ms: 300_000, script_id: "bakery-v1" });
+    expect(on.demo_session).toEqual(FRESH_DEMO_SESSION);
     expect((await getCaptureConfig(reader(sbx, judge), ids)).demo_session).toBeUndefined();
     expect((await getCaptureConfig(reader(sbx, judge), { ...ids, demo_mode: false })).demo_session).toBeUndefined();
     expect((await getCaptureConfig(reader(outlet, judge), { ...ids, demo_mode: true })).demo_session).toBeUndefined();

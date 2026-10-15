@@ -1,4 +1,4 @@
-import { addDays, businessDateOf, zonedTimeToEpochMs } from "@/lib/capture/calendar";
+import { businessDateOf } from "@/lib/capture/calendar";
 import { assertOutlet, assertPermission } from "@/lib/auth/rbac";
 import type { CustomClaims } from "@/lib/auth/roles";
 import {
@@ -11,6 +11,7 @@ import {
 import { maskDigitRuns } from "@/lib/constraints/normalize";
 import { scrubStaffNames } from "@/lib/pipeline/label/scrub";
 import type { AttributionSession } from "@/lib/day/attribution";
+import type { WorkCategory } from "@/lib/pipeline/categories";
 import {
   ProposalSchema,
   type AuditLog,
@@ -21,11 +22,12 @@ import {
 } from "@/lib/firestore/schema";
 import { LibraryNotReadyError, type ProposalLibrary } from "@/config/proposal-library";
 import { PROPOSAL_AGENT_VERSION, PROPOSAL_MODEL, type ProposalModel } from "@/lib/agents/proposal-agent";
-import { MODEL_TIMEOUT_MS, PROPOSAL_GATE_VERSION, PROPOSAL_LEASE_MS } from "@/lib/proposals/constants";
-import { validateRange } from "@/lib/proposals/range";
+import { FLOOR_VERSION, MODEL_TIMEOUT_MS, PROPOSAL_GATE_VERSION, PROPOSAL_LEASE_MS } from "@/lib/proposals/constants";
+import { evidenceReadWindow, validateRange } from "@/lib/proposals/range";
 import { aliasCandidates, selectCandidates, type Candidate, type ProposalThreadRow } from "@/lib/proposals/candidates";
-import { checkEvidenceFloor, followupFor } from "@/lib/proposals/precheck";
-import { metricBaseline, reviewDate } from "@/lib/proposals/baseline";
+import { checkEvidenceFloor, evidenceByCategory, followupFor } from "@/lib/proposals/precheck";
+import { reviewDate } from "@/lib/proposals/baseline";
+import { countWindow } from "@/lib/reviews/metric";
 import { checkProposal, type ProposalGateContext } from "@/lib/proposals/proposal-gate";
 import { buildProposalWireSchema, generateProposalJsonSchema, type ProposalWire, type WireContext } from "@/lib/proposals/wire-schema";
 import { buildProposalPrompt } from "@/lib/proposals/prompt";
@@ -58,6 +60,8 @@ export interface ProposalStore {
   listConstraints(): Promise<Constraint[]>;
   /** A proposal of this outlet with this exact range and status awaiting_supervisor | awaiting_owner, newest. */
   findOpenProposalForRange(from: string, to: string): Promise<Proposal | null>;
+  /** R-19 §3.3: every awaiting_supervisor | awaiting_owner proposal of this outlet, any range, at most 50, malformed skipped. */
+  listOpenProposals(): Promise<Proposal[]>;
   /** By thread id, outlet-checked, for the result card's live evidence summaries. */
   getThreads(
     ids: readonly string[],
@@ -133,7 +137,7 @@ function sumUsage(values: Array<number | null>): number | null {
 export async function generateProposal(
   store: ProposalStore,
   deps: ProposalDeps,
-  input: { claims: CustomClaims; from_date: string; to_date: string; now_ms: number },
+  input: { claims: CustomClaims; from_date: string; to_date: string; now_ms: number; another?: boolean },
 ): Promise<{ proposal: ProposalView; reused: boolean }> {
   try {
     const result = await generateProposalCore(store, deps, input);
@@ -149,7 +153,7 @@ export async function generateProposal(
 async function generateProposalCore(
   store: ProposalStore,
   deps: ProposalDeps,
-  input: { claims: CustomClaims; from_date: string; to_date: string; now_ms: number },
+  input: { claims: CustomClaims; from_date: string; to_date: string; now_ms: number; another?: boolean },
 ): Promise<{ proposal: ProposalView; reused: boolean }> {
   // Step 1: permission + role.
   assertPermission(input.claims, "proposals:generate");
@@ -189,8 +193,10 @@ async function generateProposalCore(
   const sop = await store.getCurrentSop();
   if (!sop) throw new ConflictError("No SOP", "NO_SOP");
 
-  // Step 6: reuse check.
-  const open = await store.findOpenProposalForRange(range.from_date, range.to_date);
+  // Step 6: reuse check. Skipped on "Generate another" (R-19 §3.3): the caller wants a second proposal about
+  // another problem in the same range, not the open one back.
+  const another = input.another === true;
+  const open = another ? null : await store.findOpenProposalForRange(range.from_date, range.to_date);
   let constraints: Constraint[] | null = null;
   if (open) {
     constraints = await store.listConstraints();
@@ -215,22 +221,40 @@ async function generateProposalCore(
   if (!token) throw new ConflictError("Generation in progress", "GENERATION_IN_PROGRESS");
 
   try {
-    // 8a. candidates.
-    const dates: string[] = [];
-    for (let d = addDays(range.from_date, -1); d <= addDays(range.to_date, 1); d = addDays(d, 1)) {
-      dates.push(d);
-    }
-    const fromMs = zonedTimeToEpochMs(range.from_date, "01:00", tz);
-    const toMs = zonedTimeToEpochMs(addDays(range.to_date, 1), "03:00", tz);
+    // 8a. candidates (the read window is shared with the watch panel and the template check).
+    const window = evidenceReadWindow(range, tz);
     const [sessions, rows] = await Promise.all([
-      store.listSessions(dates),
-      store.listThreadsInRange(fromMs, toMs),
+      store.listSessions(window.dates),
+      store.listThreadsInRange(window.fromMs, window.toMs),
     ]);
     const all = selectCandidates(rows, sessions, tz, range);
 
+    // 8a'. R-19 §3.3: threads already cited by an open proposal are not offered again, and a category that an open
+    // proposal is already about is not proposed twice. The focus is the first READY category not yet taken.
+    // An open proposal found at step 6 but not reusable (a newer constraint) is being replaced by this run, so it
+    // must not block its own replacement (its threads stay citable, its category free). Never excluded on "another".
+    const openProposals = (await store.listOpenProposals()).filter((p) => p.proposal_id !== open?.proposal_id);
+    const cited = new Set(openProposals.flatMap((p) => (p.content?.evidence ?? []).map((e) => e.thread_id)));
+    const taken = new Set(openProposals.map((p) => p.focus_category).filter((c): c is WorkCategory => !!c));
+    const pool = all.filter((c) => !cited.has(c.thread_id));
+    const focus = evidenceByCategory(pool).find((r) => r.ready && !taken.has(r.category)) ?? null;
+
     // 8b. evidence floor (hard rule #10: plain code decides sufficiency; the model is never called for this).
-    const floor = checkEvidenceFloor(all);
-    if (!floor.passed) {
+    // `floor` = the numbers written on the doc: the focus row's when a proposal is made, else the pool's first row.
+    const floor = focus ? { passed: true, facts: focus.facts, dates: focus.dates } : checkEvidenceFloor(pool);
+    const location = deps.resolveLocation(PROPOSAL_MODEL);
+    const generatorOf = (attempts: number) => ({
+      kind: deps.generatorKind,
+      model: PROPOSAL_MODEL,
+      location,
+      agent_version: PROPOSAL_AGENT_VERSION,
+      gate_version: PROPOSAL_GATE_VERSION,
+      library_version: { interventions: library.interventions.version, rubric: library.rubric.version },
+      sop_version_id: sop.sop_version_id,
+      attempts,
+      floor_version: FLOOR_VERSION,
+    });
+    if (!focus) {
       const proposalId = deps.newId();
       const proposal: Proposal = ProposalSchema.parse({
         outlet_id: outlet.outlet_id,
@@ -238,19 +262,11 @@ async function generateProposalCore(
         status: "suppressed",
         requested_by_role: requestedByRole,
         range,
-        generator: {
-          kind: deps.generatorKind,
-          model: PROPOSAL_MODEL,
-          location: deps.resolveLocation(PROPOSAL_MODEL),
-          agent_version: PROPOSAL_AGENT_VERSION,
-          gate_version: PROPOSAL_GATE_VERSION,
-          library_version: { interventions: library.interventions.version, rubric: library.rubric.version },
-          sop_version_id: sop.sop_version_id,
-          attempts: 0,
-        },
+        focus_category: null,
+        generator: generatorOf(0),
         gate: { passed: false, fired_rule: null, checks: [] },
         counts: { candidate_facts: floor.facts, candidate_dates: floor.dates, constraints: (constraints ?? []).length },
-        suppression: { reason: "insufficient_evidence", model_reason: null, followup: followupFor(all) },
+        suppression: { reason: "insufficient_evidence", model_reason: null, followup: followupFor(pool) },
         content: null,
         created_at_ms: input.now_ms,
         updated_at_ms: input.now_ms,
@@ -285,7 +301,8 @@ async function generateProposalCore(
     // 8c. prompt + schema.
     if (constraints === null) constraints = await store.listConstraints();
     const constraintAliased = constraints.map((c, i) => ({ alias: `C${i + 1}`, c }));
-    const aliased = aliasCandidates(all);
+    const focused = pool.filter((c) => c.category === focus.category);
+    const aliased = aliasCandidates(focused);
     const aliasToCandidate = new Map(aliased.map(({ alias, c }) => [alias, c]));
 
     const wireCtx: WireContext = {
@@ -304,8 +321,6 @@ async function generateProposalCore(
       constraints: constraintAliased.map(({ alias, c }) => ({ alias, text: c.text })),
       range,
     });
-    const location = deps.resolveLocation(PROPOSAL_MODEL);
-
     const gateCtx: ProposalGateContext = {
       aliasToCandidate,
       interventionIds: new Set(wireCtx.interventionIds),
@@ -433,19 +448,11 @@ async function generateProposalCore(
         status: "suppressed",
         requested_by_role: requestedByRole,
         range,
-        generator: {
-          kind: deps.generatorKind,
-          model: PROPOSAL_MODEL,
-          location,
-          agent_version: PROPOSAL_AGENT_VERSION,
-          gate_version: PROPOSAL_GATE_VERSION,
-          library_version: { interventions: library.interventions.version, rubric: library.rubric.version },
-          sop_version_id: sop.sop_version_id,
-          attempts,
-        },
+        focus_category: null,
+        generator: generatorOf(attempts),
         gate: { passed: false, fired_rule: null, checks: [] },
         counts: { candidate_facts: floor.facts, candidate_dates: floor.dates, constraints: constraints.length },
-        suppression: { reason: "model_declined", model_reason: modelDeclined.reason, followup: followupFor(all) },
+        suppression: { reason: "model_declined", model_reason: modelDeclined.reason, followup: followupFor(pool) },
         content: null,
         created_at_ms: input.now_ms,
         updated_at_ms: input.now_ms,
@@ -470,16 +477,8 @@ async function generateProposalCore(
         status: "blocked",
         requested_by_role: requestedByRole,
         range,
-        generator: {
-          kind: deps.generatorKind,
-          model: PROPOSAL_MODEL,
-          location,
-          agent_version: PROPOSAL_AGENT_VERSION,
-          gate_version: PROPOSAL_GATE_VERSION,
-          library_version: { interventions: library.interventions.version, rubric: library.rubric.version },
-          sop_version_id: sop.sop_version_id,
-          attempts,
-        },
+        focus_category: focus.category,
+        generator: generatorOf(attempts),
         gate: { passed: false, fired_rule: blockedRule, checks: lastGateChecks ?? [] },
         counts: { candidate_facts: floor.facts, candidate_dates: floor.dates, constraints: constraints.length },
         suppression: null,
@@ -538,16 +537,8 @@ async function generateProposalCore(
         status: "blocked",
         requested_by_role: requestedByRole,
         range,
-        generator: {
-          kind: deps.generatorKind,
-          model: PROPOSAL_MODEL,
-          location,
-          agent_version: PROPOSAL_AGENT_VERSION,
-          gate_version: PROPOSAL_GATE_VERSION,
-          library_version: { interventions: library.interventions.version, rubric: library.rubric.version },
-          sop_version_id: sop.sop_version_id,
-          attempts,
-        },
+        focus_category: focus.category,
+        generator: generatorOf(attempts),
         gate: { passed: false, fired_rule: "output_too_long", checks: [] },
         counts: { candidate_facts: floor.facts, candidate_dates: floor.dates, constraints: constraints.length },
         suppression: null,
@@ -589,16 +580,8 @@ async function generateProposalCore(
           status: "blocked",
           requested_by_role: requestedByRole,
           range,
-          generator: {
-            kind: deps.generatorKind,
-            model: PROPOSAL_MODEL,
-            location,
-            agent_version: PROPOSAL_AGENT_VERSION,
-            gate_version: PROPOSAL_GATE_VERSION,
-            library_version: { interventions: library.interventions.version, rubric: library.rubric.version },
-            sop_version_id: sop.sop_version_id,
-            attempts,
-          },
+          focus_category: focus.category,
+          generator: generatorOf(attempts),
           gate: { passed: false, fired_rule: "evidence_stale", checks: [] },
           counts: { candidate_facts: floor.facts, candidate_dates: floor.dates, constraints: constraints!.length },
           suppression: null,
@@ -624,23 +607,17 @@ async function generateProposalCore(
           category: c.category,
           first_line_start_ms: c.first_line_start_ms,
         }));
-      const baseline = metricBaseline(all, wire!.metric_category!);
+      // The review's own counter (lib/reviews/metric.ts), so the baseline and the later outcome are the same measure.
+      const w = countWindow({ window: range, rows, sessions, tz, category: wire!.metric_category! });
+      const baseline = { baseline_count: w.count, baseline_days: Math.max(1, w.days_captured) };
       const proposal: Proposal = ProposalSchema.parse({
         outlet_id: outlet.outlet_id,
         proposal_id: proposalId,
         status: "awaiting_supervisor",
         requested_by_role: requestedByRole,
         range,
-        generator: {
-          kind: deps.generatorKind,
-          model: PROPOSAL_MODEL,
-          location,
-          agent_version: PROPOSAL_AGENT_VERSION,
-          gate_version: PROPOSAL_GATE_VERSION,
-          library_version: { interventions: library.interventions.version, rubric: library.rubric.version },
-          sop_version_id: sop.sop_version_id,
-          attempts,
-        },
+        focus_category: focus.category,
+        generator: generatorOf(attempts),
         // Gate checks = the checkProposal() result from the attempt that
         // passed (real per-rule results, never relabelled), plus the
         // evidence_stale check this commit transaction just ran itself.

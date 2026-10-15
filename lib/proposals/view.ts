@@ -30,6 +30,7 @@ export function toProposalView(
     status: stored.status,
     created_at_ms: stored.created_at_ms,
     range: { from_date: stored.range.from_date, to_date: stored.range.to_date },
+    focus_category: stored.focus_category ?? null, // R-19 §3.3; absent on a pre-R-19 doc reads null
     suppression: stored.suppression
       ? {
           reason: stored.suppression.reason,
@@ -53,7 +54,9 @@ export function toProposalView(
               ? null
               : (() => {
                   const step = sop.steps.find((s) => s.step_id === stored.content!.target_step_id);
-                  return step ? { step_id: step.step_id, title: step.title } : { step_id: stored.content!.target_step_id!, title: stored.content!.target_step_id! };
+                  return step
+                    ? { step_id: step.step_id, title: step.title, text: step.text }
+                    : { step_id: stored.content!.target_step_id!, title: stored.content!.target_step_id!, text: null };
                 })(),
           change_title: stored.content.change_title,
           change_text: stored.content.change_text,

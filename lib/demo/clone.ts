@@ -112,6 +112,9 @@ const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
  * wrote or the gate decided can change (a `fields` entry named `business_date` stays as it is).
  */
 const UNTOUCHED_KEYS = new Set(["summary", "text", "fields", "gate", "runner_up", "answer"]);
+/** The clone's defaults, exported read-only so the next-day shift (lib/demo/next-day.ts) can widen them. */
+export const CLONE_DATE_KEYS: ReadonlySet<string> = DATE_KEYS;
+export const CLONE_UNTOUCHED_KEYS: ReadonlySet<string> = UNTOUCHED_KEYS;
 /** Record-keeping times: after the shift none may sit after `now` (a template seeded late in its day would land in the future). */
 const RECORD_MS_KEYS = ["created_at_ms", "updated_at_ms"] as const;
 const RECORD_ISO_KEYS = ["received_start_at", "received_end_at"] as const;
@@ -130,20 +133,29 @@ function daysBetween(from: string, to: string): number {
  * (add it to the untouched keys). The `/_at$/` rule would otherwise move it forward by the shift and extend a
  * cloned thread's retention beyond `retention_days`.
  */
-export function shiftDeep<T>(value: T, deltaMs: number, days: number, key = ""): T {
+export interface ShiftDeepOptions {
+  /** `YYYY-MM-DD` keys moved by whole days; defaults to the clone's DATE_KEYS. */
+  dateKeys?: ReadonlySet<string>;
+  /** Keys whose subtree is passed through untouched (same reference); defaults to the clone's UNTOUCHED_KEYS. */
+  untouchedKeys?: ReadonlySet<string>;
+}
+
+export function shiftDeep<T>(value: T, deltaMs: number, days: number, key = "", opts?: ShiftDeepOptions): T {
+  const dateKeys = opts?.dateKeys ?? DATE_KEYS;
+  const untouched = opts?.untouchedKeys ?? UNTOUCHED_KEYS;
   if (typeof value === "number") {
     return (/_ms$/.test(key) && Number.isInteger(value) && value >= EPOCH_MS_FLOOR ? value + deltaMs : value) as T;
   }
   if (typeof value === "string") {
-    if (DATE_KEYS.has(key) && /^\d{4}-\d{2}-\d{2}$/.test(value)) return addDays(value, days) as T;
+    if (dateKeys.has(key) && /^\d{4}-\d{2}-\d{2}$/.test(value)) return addDays(value, days) as T;
     if (/_at$/.test(key) && ISO_DATETIME.test(value)) return isoOf(Date.parse(value) + deltaMs) as T;
     return value;
   }
-  if (Array.isArray(value)) return value.map((v) => shiftDeep(v, deltaMs, days)) as T;
+  if (Array.isArray(value)) return value.map((v) => shiftDeep(v, deltaMs, days, "", opts)) as T;
   if (value !== null && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = UNTOUCHED_KEYS.has(k) ? v : shiftDeep(v, deltaMs, days, k);
+      out[k] = untouched.has(k) ? v : shiftDeep(v, deltaMs, days, k, opts);
     }
     return out as T;
   }
@@ -168,6 +180,12 @@ export function cloneTemplate(input: {
   device_token_hash: string;
   /** The sandbox's current business date (the caller passes `businessDateOf(now_ms, outlet timezone)`). */
   anchor_business_date: string;
+  /**
+   * R-19 PR-7 (owner reset): the copy's expiry. Default `now_ms + SANDBOX_TTL_MS` (creation, unchanged). A reset
+   * passes the OLD expiry so it never extends the 2-hour copy; a value that is not a safe integer after `now_ms`,
+   * or lies beyond `now_ms + SANDBOX_TTL_MS`, is refused.
+   */
+  expires_at_ms?: number;
 }): ClonedDoc[] {
   const { tpl, ids, now_ms, key_sha256, device_token_hash, anchor_business_date } = input;
   const last = tpl.device.last_ended;
@@ -192,7 +210,10 @@ export function cloneTemplate(input: {
   }
   const shift = <T extends object>(doc: T): T => capAtNow(shiftDeep(doc, deltaMs, k), now_ms);
   const map = { device: ids.device_id, outlet: ids.outlet_id };
-  const expiresAt = now_ms + SANDBOX_TTL_MS;
+  const expiresAt = input.expires_at_ms ?? now_ms + SANDBOX_TTL_MS;
+  if (!Number.isSafeInteger(expiresAt) || expiresAt <= now_ms || expiresAt > now_ms + SANDBOX_TTL_MS) {
+    throw new Error("cloneTemplate: expiry must be a whole instant after now and at most now + the sandbox TTL");
+  }
 
   for (const t of tpl.threads) assertNoTokenInText(t);
 

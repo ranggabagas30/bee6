@@ -1,0 +1,507 @@
+/*
+ * Owner approvals = page-1 W8 "Review in order" (R-19 PR-12b, plan 9.5; boards D2-08, D2-08c, D2-08d, D2-08e) on the
+ * PR-0b tokens (app/globals.css). Mobile-first: one column at 360 px (progress, order, card, decision stacked); the
+ * three tiles sit side by side once their own column is about 560 px wide (container query, so they fit in the single
+ * 720 px column); from 960 px the recommended order becomes a sticky side column and the tiles stack again. Every
+ * control is at least 44 px tall.
+ */
+
+.screen {
+  font-family: var(--b6-font-sans);
+  color: var(--b6-ink);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.backLink {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 4px;
+  font-size: var(--b6-fs-ui);
+  color: var(--b6-muted);
+  text-decoration: none;
+  border-radius: var(--b6-r-chip);
+}
+
+.backLink:hover {
+  color: var(--b6-ink);
+}
+
+.backLink:focus-visible {
+  outline: 2px solid var(--b6-focus);
+  outline-offset: 2px;
+}
+
+.h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.4px;
+  overflow-wrap: anywhere;
+}
+
+.sub {
+  margin: 0;
+  font-size: var(--b6-fs-body);
+  line-height: 1.5;
+  color: var(--b6-muted);
+  overflow-wrap: anywhere;
+}
+
+/* ---- progress segments ---- */
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.segments {
+  display: flex;
+  gap: 6px;
+}
+
+.segment {
+  flex: 1 1 0;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--b6-line);
+}
+
+.segmentDone {
+  background: var(--b6-teal-ink);
+}
+
+.progressText {
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-kicker);
+  color: var(--b6-muted);
+}
+
+/* ---- layout: order + body ---- */
+.body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+/* The tiles go 3-up on the column's own width (container query), not the viewport's: in the single column (≤ 720 px
+   page) they fit from about 560 px; next to the sticky order column (≥ 960 px) the column is narrower and they stack. */
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  container-type: inline-size;
+}
+
+@container (min-width: 560px) {
+  .tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* ---- recommended order ---- */
+.order {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+}
+
+.orderList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.orderBtn {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--b6-r-control);
+  background: transparent;
+  font: inherit;
+  font-size: var(--b6-fs-body);
+  color: var(--b6-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.orderBtn:hover {
+  background: var(--b6-surface-soft);
+}
+
+.orderBtn:focus-visible {
+  outline: 2px solid var(--b6-focus);
+  outline-offset: 2px;
+}
+
+.orderBtn[aria-current="true"] {
+  background: var(--b6-teal-bg);
+  box-shadow: inset 0 0 0 1px var(--b6-teal-line);
+}
+
+.orderNum {
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-kicker);
+  color: var(--b6-muted);
+}
+
+.orderTitle {
+  flex: 1 1 140px;
+  min-width: 0;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.orderShipped {
+  flex: 1 1 100%;
+  font-size: var(--b6-fs-small);
+  color: var(--b6-muted);
+}
+
+/* ---- the proposal card ---- */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.3px;
+  overflow-wrap: anywhere;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+}
+
+.tileText {
+  margin: 0;
+  font-size: var(--b6-fs-body);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.tileValue {
+  font-size: var(--b6-fs-lead);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.tileDetail {
+  font-size: var(--b6-fs-small);
+  color: var(--b6-muted);
+}
+
+.before {
+  display: block;
+  font-size: var(--b6-fs-small);
+  line-height: 1.5;
+  color: var(--b6-muted);
+  text-decoration: line-through;
+  overflow-wrap: anywhere;
+}
+
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+  font-size: var(--b6-fs-body);
+  line-height: 1.5;
+  color: var(--b6-ink-soft);
+}
+
+.evidenceWhen {
+  font-weight: 600;
+  color: var(--b6-ink);
+}
+
+.dates {
+  margin: 0;
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-small);
+  color: var(--b6-muted);
+  overflow-wrap: anywhere;
+}
+
+.decided {
+  margin: 0;
+  font-size: var(--b6-fs-body);
+  color: var(--b6-muted);
+}
+
+/* ---- your decision ---- */
+.decision {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px;
+}
+
+.notices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--b6-amber-bg);
+  color: var(--b6-amber-ink);
+  font-size: var(--b6-fs-body);
+  line-height: 1.5;
+}
+
+.notices p,
+.notices ul {
+  margin: 0;
+}
+
+.notices ul {
+  padding-left: 20px;
+}
+
+.ack {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font-size: var(--b6-fs-body);
+}
+
+.ack input {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  accent-color: var(--b6-teal-ink);
+}
+
+.sopChanged {
+  margin: 0;
+  font-size: var(--b6-fs-body);
+  line-height: 1.5;
+  color: var(--b6-muted);
+}
+
+.rejectForm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--b6-line-soft);
+}
+
+.rejectLabel {
+  font-size: var(--b6-fs-body);
+  font-weight: 500;
+}
+
+.textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 96px;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--b6-surface-soft);
+  box-shadow: inset 0 0 0 1px var(--b6-line);
+  font: inherit;
+  font-size: var(--b6-fs-lead);
+  line-height: 1.5;
+  color: var(--b6-ink);
+  resize: vertical;
+}
+
+.textarea:focus-visible {
+  outline: 2px solid var(--b6-focus);
+  outline-offset: 2px;
+}
+
+.hint {
+  margin: 0;
+  font-size: var(--b6-fs-small);
+  line-height: 1.5;
+  color: var(--b6-muted);
+}
+
+.alert {
+  margin: 0;
+  font-size: var(--b6-fs-body);
+  color: var(--b6-red-ink);
+  overflow-wrap: anywhere;
+}
+
+.status {
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: var(--b6-green-bg);
+  color: var(--b6-green-ink);
+  font-size: var(--b6-fs-body);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.status:focus-visible {
+  outline: 2px solid var(--b6-focus);
+  outline-offset: 2px;
+}
+
+.statusPlain {
+  margin: 0;
+  font-size: var(--b6-fs-body);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* ---- all decided ---- */
+.summary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px;
+}
+
+.summaryTitle {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.3px;
+}
+
+.summaryList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.summaryRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--b6-line-soft);
+}
+
+.summaryHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.summaryRowTitle {
+  margin: 0;
+  flex: 1 1 160px;
+  min-width: 0;
+  font-size: var(--b6-fs-lead);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.summaryLine {
+  margin: 0;
+  font-size: var(--b6-fs-body);
+  line-height: 1.5;
+  color: var(--b6-ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.next {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+}
+
+.nextText {
+  margin: 0;
+  font-size: var(--b6-fs-body);
+  line-height: 1.5;
+  color: var(--b6-ink-soft);
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.links > * {
+  flex: 1 1 160px;
+  text-decoration: none;
+}
+
+@media (min-width: 640px) {
+  .h1 {
+    font-size: 32px;
+  }
+  .cardTitle,
+  .summaryTitle {
+    font-size: 28px;
+  }
+  .links > * {
+    flex: 0 1 auto;
+  }
+}
+
+@media (min-width: 960px) {
+  .body {
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+  .order {
+    position: sticky;
+    top: 16px;
+  }
+}

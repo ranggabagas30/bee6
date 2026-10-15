@@ -24,6 +24,16 @@ export function getClientAuth(config: FirebaseWebConfig): Auth {
 }
 
 /**
+ * The `Auth` of the already-initialised web app, or null when nothing has initialised it yet. For a control that is
+ * rendered without the page's Firebase config (the judge guide's `reset_demo` button gets only its language): it must
+ * never create the app itself, because it has no config to do it with.
+ */
+export function getExistingClientAuth(): Auth | null {
+  const app = getApps().find((a) => a.name === APP_NAME);
+  return app ? getAuth(app) : null;
+}
+
+/**
  * Re-exported so every other module (components, `lib/day/*`) imports
  * `firebase/auth` functions and types only through `lib/auth/client/`, with
  * no exception needed in the import-ban test (Task 4.7).

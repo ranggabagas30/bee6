@@ -1,0 +1,141 @@
+/*
+ * Supervisor / owner shell (R-19 PR-6 §8.2): the top bar and the nav row, on the PR-0b tokens (app/globals.css).
+ * Mobile-first: one column at 360 px, the nav scrolls sideways if the labels do not fit (with a right-edge fade as the cue); from 900 px the bar and
+ * the nav sit on one line. Every control is at least 44 px tall (the nav links 48 px).
+ */
+
+.bar {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  min-height: 48px;
+  margin-bottom: 12px;
+  font-family: var(--b6-font-sans);
+  color: var(--b6-ink);
+}
+
+.brandRow {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* A tap target: a 44 x 44 px minimum box around the 20 px wordmark. Under 900 px the bar wraps and the brand's row is
+   24 px tall, so a plain 44 px box would make that row taller (measured: the header grew 81 -> 100 px). The negative
+   block margins keep the margin box at the 24 px line (the row keeps its height) while the border box, what a finger
+   hits and what axe measures, is 44 px. The 20 px overhang is 13 px up (inside the page's 16 px top padding) and 7 px
+   down (inside the 8 px row gap, 1 px clear of the controls row; a 10/10 split measured 2 px into the language
+   switch), and the 6 px top padding leaves the wordmark exactly where it was. */
+.brand {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  min-width: 44px;
+  margin-block: -13px -7px;
+  padding-top: 6px;
+  color: inherit;
+  text-decoration: none;
+  font-size: 20px;
+  line-height: 24px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+
+.controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav {
+  /* The scroller clips on both axes: 4 px of its own padding (undone by the negative top margin and a smaller bottom one)
+     plus the list's 2 px give the 2 px focus ring + 2 px offset their full room, top and bottom. */
+  margin: -4px -16px 12px;
+  padding: 4px 16px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  /* A focused or scrolled-to link stops clear of the fade. */
+  scroll-padding-inline: 24px;
+}
+
+/* Edge fade: the cue that more items wait to the right. AppNav sets data-fade only while the row overflows and is not
+   scrolled to the end, so the last item is never dimmed. Dropped from 900 px, where the row wraps. */
+.nav[data-fade="true"] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+}
+
+.nav::-webkit-scrollbar {
+  display: none;
+}
+
+.navList {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 2px 0;
+  list-style: none;
+  width: max-content;
+  min-width: 100%;
+}
+
+.navLink {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: var(--b6-r-btn);
+  font-family: var(--b6-font-sans);
+  font-size: var(--b6-fs-ui);
+  font-weight: 500;
+  color: var(--b6-ink-soft);
+  text-decoration: none;
+  white-space: nowrap;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--b6-line-strong);
+}
+
+.navLink:hover {
+  background: var(--b6-surface-soft);
+}
+
+.navLink:focus-visible {
+  outline: 2px solid var(--b6-focus);
+  outline-offset: 2px;
+}
+
+.navLinkCurrent {
+  color: var(--b6-on-dark);
+  background: var(--b6-dark-mid);
+  box-shadow: none;
+}
+
+.navLinkCurrent:hover {
+  background: var(--b6-dark-hi);
+}
+
+@media (min-width: 900px) {
+  .bar {
+    margin-bottom: 20px;
+  }
+  .nav {
+    margin: 0 0 20px;
+    padding: 0;
+    overflow: visible; /* wrapped, not scrolled: nothing to clip, so the focus ring shows whole */
+  }
+  .nav[data-fade="true"] {
+    mask-image: none;
+  }
+  .navList {
+    width: auto;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+}

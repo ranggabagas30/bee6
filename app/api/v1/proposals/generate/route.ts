@@ -59,7 +59,13 @@ export async function POST(req: NextRequest) {
         resolveLocation: (m) => getModelLocation(m).location,
         newId: () => crypto.randomUUID(),
       },
-      { claims, from_date: body.data.from_date, to_date: body.data.to_date, now_ms: Date.now() },
+      {
+        claims,
+        from_date: body.data.from_date,
+        to_date: body.data.to_date,
+        another: body.data.another === true, // R-19 §3.3 "Generate another"
+        now_ms: Date.now(),
+      },
     );
 
     const res = jsonOk(data, data.reused ? 200 : 201);

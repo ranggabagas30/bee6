@@ -242,4 +242,23 @@ describe("DayRecordApp", () => {
     // again.
     expect(authedGetJson).toHaveBeenCalledTimes(1);
   });
+  it("keeps the same top bar and nav nodes across the loading -> ok transition (no remount, no layout jump)", async () => {
+    authUserState = {
+      status: "signed_in",
+      user: { uid: "u1", getIdTokenResult: () => Promise.resolve({ claims: { role: "owner", outlet_id: "o1" } }) },
+    } as unknown as AuthUserState;
+    let resolveFetch: (v: unknown) => void = () => {};
+    authedGetJson.mockReturnValue(new Promise((r) => (resolveFetch = r)));
+    renderApp();
+    const nav = await screen.findByRole("navigation");
+    const bar = () => screen.getByText("bee6").closest("header") as HTMLElement;
+    const banner = bar();
+    resolveFetch({ kind: "ok", data: makeData() });
+    await waitFor(() => expect(authedGetJson).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
+    expect(banner.isConnected).toBe(true);
+    expect(nav.isConnected).toBe(true);
+    expect(bar()).toBe(banner);
+    expect(screen.getByRole("navigation")).toBe(nav);
+  });
 });

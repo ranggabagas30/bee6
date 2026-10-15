@@ -1,31 +1,24 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
-import { useRouter } from "next/navigation";
-import { signOut, type Auth } from "@/lib/auth/client/firebase-client";
-import { authedGetJson } from "@/lib/auth/client/api";
+import type { CSSProperties } from "react";
+import type { Auth } from "@/lib/auth/client/firebase-client";
 import type { Lang } from "@/lib/i18n/lang";
 import { t, type DictKey } from "@/lib/i18n/dict";
-import { ListProposalsResponseSchema, type ListProposalsResponse } from "@/lib/proposals/review-contract";
 import { ProposalCard } from "@/app/proposals/ProposalCard";
 import { ProposalDecisionPanel } from "@/app/proposals/ProposalDecisionPanel";
+import { EmptyState } from "@/app/web/EmptyState";
+import { useProposalList } from "@/app/proposals/useProposalList";
 
 /**
- * The open and recently decided proposals (R-09 Task 8.1), for owner AND
- * supervisor: one list, one card, role-aware buttons under each open card.
- * Reads only `GET /api/v1/proposals` (hard rule #6); the server decides what
- * each role may see and do, the panel only mirrors it.
+ * The open and recently decided proposals (R-09 Task 8.1): one list, one card, role-aware buttons under each open
+ * card. Since R-19 PR-12a this is the owner's list (the supervisor's screen is `SupervisorProposals`, which owns
+ * the watch panel and the detail); PR-12b replaces it with the W8 review-in-order screen. The read is
+ * `useProposalList` (GET /api/v1/proposals only, hard rule #6); the server decides what each role may see and
+ * do, the panel only mirrors it.
  *
- * Reloads whenever `reloadKey` changes (a generate or a decision happened).
- * The previous list stays on screen while the new one loads, so a card the
- * user is reading never flashes away, and a stale response never overwrites
- * a newer one.
+ * Empty states (R-19 PR-6 §8.3): the owner's "Nothing waiting for you" when nothing is open or decided. The
+ * supervisor's "No proposal yet" lives in `SupervisorProposals`, where it also needs the watch panel to be empty.
  */
-
-type State =
-  | { kind: "loading" }
-  | { kind: "ready"; data: ListProposalsResponse }
-  | { kind: "error"; messageKey: DictKey };
 
 const SECTION_STYLE: CSSProperties = { marginTop: 24, overflowWrap: "anywhere" };
 const STATUS_STYLE: CSSProperties = { margin: "8px 0", overflowWrap: "anywhere" };
@@ -43,31 +36,7 @@ export function ProposalList({
   reloadKey: number;
   onSettled: (outcome: { messageKey: DictKey; range?: { from_date: string; to_date: string } }) => void;
 }) {
-  const router = useRouter();
-  const [state, setState] = useState<State>({ kind: "loading" });
-
-  useEffect(() => {
-    let active = true;
-    void authedGetJson(auth, "/api/v1/proposals", ListProposalsResponseSchema).then(async (result) => {
-      if (!active) return;
-      if (result.kind === "ok") {
-        setState({ kind: "ready", data: result.data });
-      } else if (result.kind === "signed_out") {
-        await signOut(auth);
-        router.replace("/sign-in");
-      } else if (result.kind === "conflict" && result.code === "LIBRARY_NOT_READY") {
-        setState({ kind: "error", messageKey: "C-prop-err-library" });
-      } else {
-        setState({ kind: "error", messageKey: "C-srv-generic" });
-      }
-    });
-    return () => {
-      active = false;
-    };
-    // Runs on mount and whenever `reloadKey` changes; `auth` and `router` are
-    // stable for the component's lifetime.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reloadKey]);
+  const state = useProposalList(auth, reloadKey);
 
   if (state.kind === "loading") {
     return (
@@ -95,7 +64,9 @@ export function ProposalList({
     <>
       <section style={SECTION_STYLE} aria-labelledby="prop-list-open">
         <h2 id="prop-list-open">{t(lang, "C-prop-list-open")}</h2>
-        {open.length === 0 ? (
+        {open.length === 0 && decided.length === 0 && role === "owner" ? (
+          <EmptyState title={t(lang, "C-web-empty-appr-h")} detail={t(lang, "C-web-empty-appr-p")} />
+        ) : open.length === 0 ? (
           <p>{t(lang, "C-prop-list-empty")}</p>
         ) : (
           open.map((item) => (

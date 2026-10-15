@@ -14,6 +14,7 @@ function baseProposal(overrides: Partial<ProposalView> = {}): ProposalView {
     status: "suppressed",
     created_at_ms: 1,
     range: { from_date: "2026-10-01", to_date: "2026-10-07" },
+    focus_category: null,
     suppression: null,
     blocked_rule: null,
     content: null,
@@ -159,7 +160,7 @@ describe("ProposalCard — awaiting_supervisor (content-bearing)", () => {
     render(
       <ProposalCard
         lang="en"
-        proposal={awaitingProposal({ target_step: { step_id: "step-3", title: "Greet the customer" } })}
+        proposal={awaitingProposal({ target_step: { step_id: "step-3", title: "Greet the customer", text: "Say hello." } })}
       />,
     );
     expect(screen.getByText("Greet the customer")).not.toBeNull();

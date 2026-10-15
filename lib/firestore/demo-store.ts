@@ -6,11 +6,13 @@ import {
   CaptureSessionSchema,
   DemoCounterSchema,
   DeviceSchema,
+  ProposalLockSchema,
   QuestionDocSchema,
   SopVersionSchema,
   StaffSchema,
   ThreadSchema,
   parseOutletDoc,
+  type CaptureSession,
   type Outlet,
 } from "@/lib/firestore/schema";
 import type { ClonedDoc, TemplateSet } from "@/lib/demo/clone";
@@ -23,6 +25,11 @@ import {
   WRITE_BATCH_MAX,
 } from "@/lib/demo/constants";
 import { TemplateTooLargeError, type DemoStore } from "@/lib/demo/store-types";
+import { NEXT_DAY_SHIFT_COLLECTIONS, type NextDayGuardState, type NextDayStore, type ShiftDoc } from "@/lib/demo/next-day";
+import { computePreparing } from "@/lib/debrief/preparing";
+import { firestoreDebriefStore } from "@/lib/firestore/debrief-store";
+import { firestoreTickStore } from "@/lib/firestore/tick-store";
+import { pickOpenSession } from "@/lib/capture/open-session";
 import { LockedError } from "@/lib/http/errors";
 
 /**
@@ -313,6 +320,190 @@ export function firestoreDemoStore(db: Firestore = adminDb()): DemoStore {
       } catch {
         logSkippedDoc("outlet", outletId);
         return null;
+      }
+    },
+  };
+}
+
+/**
+ * R-19 PR-2: the Firestore `NextDayStore` behind "Jump to tomorrow" (lib/demo/next-day.ts). Demo project only
+ * (the route 404s first). Every read is scoped to ONE sandbox outlet (and the judge device where the data is
+ * per device); every write refuses, before touching Firestore, anything outside that sandbox (same fail-closed
+ * rule as `writeSandbox`). The lease and the question expiry are the tick store's own, so the pipeline tick
+ * and the shift can never run on the same device at once. Nothing here reads a name, audio, or logs text.
+ *
+ * Single-judge-device invariant: a sandbox has exactly one paired judge device, so the device-scoped reads
+ * (sessions, segments, questions, ledger) stand for the whole sandbox; the shift itself moves every doc of
+ * the outlet regardless of device.
+ */
+export function firestoreNextDayStore(db: Firestore = adminDb()): NextDayStore {
+  const outletsCol = () => db.collection(COLLECTIONS.outlets);
+  const tick = firestoreTickStore(db);
+  const forDevice = (c: string, outletId: string, deviceId: string) =>
+    db.collection(c).where("outlet_id", "==", outletId).where("device_id", "==", deviceId);
+
+  /** Reads and parses the sandbox outlet or throws; the two marker transactions and the completion use it. */
+  const requireSandbox = (raw: unknown, outletId: string): Outlet & { sandbox: NonNullable<Outlet["sandbox"]> } => {
+    if (!outletId.startsWith(SANDBOX_OUTLET_PREFIX) || raw === undefined) throw new Error("demo-store: not a sandbox outlet");
+    const outlet = parseOutletDoc(raw);
+    if (!outlet.sandbox) throw new Error("demo-store: not a sandbox outlet");
+    return outlet as Outlet & { sandbox: NonNullable<Outlet["sandbox"]> };
+  };
+
+  async function patchSandbox(outletId: string, patch: (s: NonNullable<Outlet["sandbox"]>) => NonNullable<Outlet["sandbox"]>): Promise<void> {
+    const ref = outletsCol().doc(outletId);
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const outlet = requireSandbox(snap.exists ? snap.data() : undefined, outletId);
+      tx.update(ref, { sandbox: patch(outlet.sandbox) });
+    });
+  }
+
+  /** G6: any proposal of the outlet with content, whatever its status (also re-checked by `runNextDay` after the marker). */
+  async function hasProposalWithContent(outletId: string): Promise<boolean> {
+    const snap = await db.collection(COLLECTIONS.proposals).where("outlet_id", "==", outletId).get();
+    return snap.docs.some((d) => (d.data() as { content?: unknown } | undefined)?.content != null);
+  }
+
+  const counters = firestoreDemoStore(db);
+
+  return {
+    async getOutlet(outletId) {
+      const doc = await outletsCol().doc(outletId).get();
+      if (!doc.exists) return null;
+      try {
+        return parseOutletDoc(doc.data());
+      } catch {
+        logSkippedDoc("outlet", outletId);
+        return null;
+      }
+    },
+
+    // The per-sandbox call cap uses the demo store's own counter transaction (same fail-closed rules).
+    bumpCounter: (...args) => counters.bumpCounter(...args),
+    readCounter: (counterId) => counters.readCounter(counterId),
+
+    proposalWithContent: hasProposalWithContent,
+
+    async readGuardState(outletId, deviceId, nowMs): Promise<NextDayGuardState> {
+      const [deviceSnap, sessionSnap, questionSnap, proposal_with_content, lockSnap] = await Promise.all([
+        db.collection(COLLECTIONS.devices).doc(deviceDocId(outletId, deviceId)).get(),
+        forDevice(COLLECTIONS.captureSessions, outletId, deviceId).get(),
+        forDevice(COLLECTIONS.questions, outletId, deviceId).where("status", "==", "open").get(),
+        hasProposalWithContent(outletId),
+        db.collection(COLLECTIONS.proposalLocks).doc(outletId).get(),
+      ]);
+
+      let last_ended: NextDayGuardState["last_ended"] = null;
+      if (deviceSnap.exists) {
+        const parsed = DeviceSchema.safeParse(deviceSnap.data());
+        if (parsed.success) last_ended = parsed.data.last_ended ?? null;
+        else logSkippedDoc("device", deviceSnap.id);
+      }
+
+      // G3: an open session (the one sessions query). The session `preparing` is about is picked by
+      // `computePreparing` below, with the same selection the questions route uses.
+      // R-19 PR-4b: the capture config's `open_session` comes from this same read (`pickOpenSession`), never a second query.
+      const openSessions: CaptureSession[] = [];
+      for (const doc of sessionSnap.docs) {
+        const parsed = CaptureSessionSchema.safeParse(doc.data());
+        if (!parsed.success) {
+          logSkippedDoc("capture_session", doc.id);
+          continue;
+        }
+        if (parsed.data.ended_at_ms === null) openSessions.push(parsed.data);
+      }
+
+      // Section 6.2: text lines of that one session that no done/failed ledger row covers. ONE RULE, shared with
+      // the questions route's `preparing` flag: `computePreparing` over the sandbox outlet's debrief store.
+      let pending_unlabelled_lines = 0;
+      if (last_ended !== null) {
+        const { pending } = await computePreparing(
+          firestoreDebriefStore(outletId, db),
+          deviceId,
+          { business_date: last_ended.business_date, ended_at_ms: last_ended.ended_at_ms },
+          nowMs,
+        );
+        pending_unlabelled_lines = pending;
+      }
+
+      let proposal_lock_live = false;
+      if (lockSnap.exists) {
+        const lock = ProposalLockSchema.safeParse(lockSnap.data());
+        if (lock.success) proposal_lock_live = lock.data.expires_at_ms > nowMs;
+        else logSkippedDoc("proposal_lock", lockSnap.id);
+      }
+
+      const open_session = pickOpenSession(openSessions);
+      return {
+        session_open: openSessions.length > 0,
+        open_session,
+        last_ended,
+        pending_unlabelled_lines,
+        proposal_with_content,
+        proposal_lock_live,
+        open_questions: questionSnap.size,
+      };
+    },
+
+    async takeShiftMarker(outletId, nowMs, expectedCount) {
+      const ref = outletsCol().doc(outletId);
+      return db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        const outlet = requireSandbox(snap.exists ? snap.data() : undefined, outletId);
+        // Count first: if it moved, another request finished the whole shift after this caller's guard read.
+        const count = outlet.sandbox.next_day_count ?? 0;
+        if (count !== expectedCount) return { taken: false as const, moved_to_count: count };
+        const existing = outlet.sandbox.shift_started_at_ms ?? null;
+        if (existing !== null) return { taken: false as const, started_at_ms: existing };
+        tx.update(ref, { sandbox: { ...outlet.sandbox, shift_started_at_ms: nowMs } });
+        return { taken: true as const };
+      });
+    },
+
+    async abortShift(outletId) {
+      await patchSandbox(outletId, (s) => ({ ...s, shift_started_at_ms: null }));
+    },
+
+    async completeShift(outletId, expectedCount) {
+      await patchSandbox(outletId, (s) => {
+        // Increment only from the count our marker was taken under; a moved count must never be incremented again.
+        if ((s.next_day_count ?? 0) !== expectedCount) throw new Error("demo-store: next_day_count moved under the shift marker");
+        return { ...s, next_day_count: expectedCount + 1, shift_started_at_ms: null };
+      });
+    },
+
+    acquireLease: (outletId, deviceId, nowMs, ttlMs) => tick.acquireLease(outletId, deviceId, nowMs, ttlMs),
+    releaseLease: (outletId, deviceId, token) => tick.releaseLease(outletId, deviceId, token),
+    expireOpenQuestions: (outletId, deviceId, debriefEndsAtMs, nowMs) => tick.expireOpenQuestions(outletId, deviceId, debriefEndsAtMs, nowMs),
+
+    async readShiftDocs(outletId, limitPerCollection) {
+      const out: ShiftDoc[] = [];
+      const snaps = await Promise.all(
+        NEXT_DAY_SHIFT_COLLECTIONS.map((c) => db.collection(c).where("outlet_id", "==", outletId).limit(limitPerCollection).get()),
+      );
+      snaps.forEach((snap, i) => {
+        const collection = NEXT_DAY_SHIFT_COLLECTIONS[i]!;
+        for (const doc of snap.docs) out.push({ collection, id: doc.id, data: (doc.data() ?? {}) as Record<string, unknown> });
+      });
+      return out;
+    },
+
+    async writeShift(outletId, write) {
+      // Fail closed before a single write: only this sandbox's docs (L4, same as writeSandbox).
+      if (!outletId.startsWith(SANDBOX_OUTLET_PREFIX)) throw new Error("demo-store: refusing to shift a non-sandbox outlet");
+      for (const d of write.docs) {
+        if (!NEXT_DAY_SHIFT_COLLECTIONS.includes(d.collection) || d.data.outlet_id !== outletId) {
+          throw new Error("demo-store: refusing to write a doc outside this sandbox outlet");
+        }
+      }
+      for (let i = 0; i < write.docs.length; i += WRITE_BATCH_MAX) {
+        const batch = db.batch();
+        for (const d of write.docs.slice(i, i + WRITE_BATCH_MAX)) batch.set(db.collection(d.collection).doc(d.id), d.data);
+        await batch.commit();
+      }
+      if (write.last_ended) {
+        await db.collection(COLLECTIONS.devices).doc(deviceDocId(outletId, write.last_ended.device_id)).update({ last_ended: write.last_ended.last_ended });
       }
     },
   };

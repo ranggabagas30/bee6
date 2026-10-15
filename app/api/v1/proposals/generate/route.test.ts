@@ -1,5 +1,5 @@
 import { inspect } from "node:util";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { POST } from "./route";
 import type { ProposalStore } from "@/lib/proposals/service";
@@ -59,7 +59,22 @@ import { firestoreProposalStore } from "@/lib/firestore/proposal-store";
 import { firestoreDemoStore } from "@/lib/firestore/demo-store";
 import { fakeStore } from "@/lib/demo/testing/fake-store";
 
+/**
+ * The route reads the real clock (`now_ms: Date.now()`) and `validateRange` only accepts a range
+ * ending today or earlier and starting within the outlet's retention window (14 days). Pin the
+ * clock to 12:00 on 2026-10-02 in Asia/Jakarta (the outlet zone used below) so `VALID_BODY`
+ * (2026-10-01 .. 2026-10-02) stays valid whatever the calendar says: `to_date` is "today", which
+ * also exercises the `to <= today` boundary. Only `Date` is faked; timers stay real.
+ */
+const FIXED_NOW = new Date("2026-10-02T05:00:00.000Z");
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(FIXED_NOW);
+});
+
 afterEach(() => {
+  vi.useRealTimers();
   verifyIdToken.mockReset();
   modelFn.mockReset();
   vi.unstubAllEnvs();
@@ -111,6 +126,7 @@ function oneFactStore(): ProposalStore {
     getCurrentSop: async () => SOP,
     listConstraints: async () => [],
     findOpenProposalForRange: async () => null,
+    listOpenProposals: async () => [],
     getThreads: async () => new Map(),
     listStaffScrubNames: async () => [],
     acquireLock: async () => "lease-token",
@@ -251,6 +267,26 @@ describe("POST /api/v1/proposals/generate", () => {
     expect(modelFn).not.toHaveBeenCalled();
   });
 
+  it("R-19 3.3: another: true is passed through: the open proposal for the range is not looked up, generation runs (here: suppressed)", async () => {
+    verifyIdToken.mockResolvedValueOnce(claimsFor("1", "supervisor"));
+    const findOpen = vi.fn(async () => null);
+    vi.mocked(firestoreProposalStore).mockReturnValueOnce({ ...oneFactStore(), findOpenProposalForRange: findOpen });
+    const res = await POST(postRequest({ ...VALID_BODY, another: true }, "Bearer t"));
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.data.reused).toBe(false);
+    expect(body.data.proposal.status).toBe("suppressed");
+    expect(body.data.proposal.focus_category).toBeNull();
+    expect(findOpen).not.toHaveBeenCalled();
+    expect(modelFn).not.toHaveBeenCalled();
+  });
+
+  it("R-19 3.3: a non-boolean another -> 422", async () => {
+    verifyIdToken.mockResolvedValueOnce(claimsFor("1", "supervisor"));
+    const res = await POST(postRequest({ ...VALID_BODY, another: "yes" }, "Bearer t"));
+    expect(res.status).toBe(422);
+  });
+
   it("NODE_ENV=production with the draft library -> 409 LIBRARY_NOT_READY", async () => {
     vi.stubEnv("NODE_ENV", "production");
     verifyIdToken.mockResolvedValueOnce(claimsFor("1", "supervisor"));
@@ -301,10 +337,10 @@ describe("R-12 H2: sandbox generate cap", () => {
     expect(firestoreDemoStore).not.toHaveBeenCalled();
   });
 
-  it("DEMO_MODE on + a sandbox outlet: the sixth generation is 429 demo_generate_cap and generateProposal is not reached", async () => {
+  it("DEMO_MODE on + a sandbox outlet: the ninth generation is 429 demo_generate_cap and generateProposal is not reached", async () => {
     vi.stubEnv("DEMO_MODE", "true");
     const f = demoStoreWith(sandboxOutlet());
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 8; i++) {
       verifyIdToken.mockResolvedValueOnce(sbxClaims("supervisor"));
       vi.mocked(firestoreProposalStore).mockReturnValueOnce({ ...oneFactStore(), getOutlet: async () => sandboxOutlet() });
       expect((await POST(postRequest(VALID_BODY, "Bearer t"))).status).toBe(201);
@@ -317,7 +353,7 @@ describe("R-12 H2: sandbox generate cap", () => {
     expect(Number(res.headers.get("Retry-After"))).toBeGreaterThanOrEqual(1);
     expect(res.headers.get("Cache-Control")).toBe("private, no-store");
     expect(firestoreProposalStore).not.toHaveBeenCalled();
-    expect(f.bumps.filter((b) => b.id === `generate_sandbox:${SBX}`)).toHaveLength(6);
+    expect(f.bumps.filter((b) => b.id === `generate_sandbox:${SBX}`)).toHaveLength(9);
   });
 
   it("DEMO_MODE on + the daily generate cap and the model ceiling are enforced across sandboxes", async () => {

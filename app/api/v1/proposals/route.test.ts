@@ -8,6 +8,7 @@ vi.mock("@/lib/firebase/admin", () => ({
   verifyIdToken: (...args: unknown[]) => verifyIdToken(...args),
 }));
 vi.mock("@/lib/firestore/proposal-review-store", () => ({ firestoreProposalReviewStore: () => ({ store: true }) }));
+vi.mock("@/lib/firestore/proposal-store", () => ({ firestoreProposalStore: () => ({ evidence: true }) }));
 const listProposals = vi.fn();
 vi.mock("@/lib/proposals/review-service", () => ({
   listProposals: (...args: unknown[]) => listProposals(...args),
@@ -37,7 +38,8 @@ describe("GET /api/v1/proposals", () => {
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ data: { open: [], decided: [] } });
       noStore(res);
-      expect(listProposals.mock.lastCall![2]).toEqual({ claims: { outlet_id: "proofed", role } });
+      expect(listProposals.mock.lastCall![1]).toMatchObject({ evidence: { evidence: true } }); // R-19 3.5: the watch read
+      expect(listProposals.mock.lastCall![2]).toEqual({ claims: { outlet_id: "proofed", role }, now_ms: expect.any(Number) });
     }
   });
 

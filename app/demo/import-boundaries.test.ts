@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -73,9 +73,13 @@ describe("app/demo/* import boundaries (R-12 Task 8.6)", () => {
     for (const line of localLines) expect(line).toMatch(/DEVICE_(TOKEN|ID)_KEY|DEMO_STATE_KEY/);
   });
 
-  it("the sandbox state is shared across tabs: sessionStorage is not used under app/demo/", () => {
+  it("the sandbox state is shared across tabs: sessionStorage is used under app/demo/ only by the judge guide, for the spoken-cards progress of one local session (plan 5.3)", () => {
     const offenders = TARGET_FILES.filter((f) => /sessionStorage/.test(readFileSync(f, "utf8"))).map(relPath);
-    expect(offenders).toEqual([]);
+    expect(offenders).toEqual(["app/demo/JudgeGuide.tsx"]);
+    const guide = readFileSync(join(TARGET_DIR, "JudgeGuide.tsx"), "utf8");
+    const lines = guide.split("\n").filter((l) => /sessionStorage\.(get|set|remove)Item/.test(l));
+    expect(lines.length).toBeGreaterThan(0);
+    for (const line of lines) expect(line).toMatch(/scriptStorageKey\(/);
   });
 
   it("the wire contract is the allowed demo import", () => {
@@ -124,9 +128,9 @@ describe("pilot isolation of the demo sign-in (R-18 P1)", () => {
     expect(src).not.toMatch(/ssr:\s*false/); // server-rendered with the page: no flash of a missing demo box
   });
 
-  it("no pilot-reachable module imports lib/demo/credentials: only app/demo/DemoAccess does", () => {
+  it("no pilot-reachable module imports lib/demo/credentials: only app/demo/DemoAccess and the judge guide (R-19 PR-5, loaded only when DEMO_MODE is on) do", () => {
     const importers = APP_AND_LIB.filter((f) => /["']@\/lib\/demo\/credentials["']/.test(readFileSync(f, "utf8"))).map(relPath);
-    expect(importers).toEqual(["app/demo/DemoAccess.tsx"]);
+    expect(importers.sort()).toEqual(["app/demo/DemoAccess.tsx", "app/demo/JudgeGuide.tsx"]);
   });
 
   it("nothing but lib/demo/credentials.ts (and the server-only reserved pairing code) carries the published credential values", () => {
@@ -134,10 +138,19 @@ describe("pilot isolation of the demo sign-in (R-18 P1)", () => {
     expect(offenders.sort()).toEqual(["lib/auth/pairing.ts", "lib/demo/credentials.ts"]);
   });
 
+  it("PairScreen statically imports nothing from app/demo/** or lib/demo/**, and loads DemoAccess only through next/dynamic", () => {
+    const src = read("app/pair/PairScreen.tsx");
+    const staticDemo = importLines(src).filter((l) => /["']@\/(app|lib)\/demo\//.test(l));
+    expect(staticDemo).toEqual([]);
+    expect(src).toMatch(/import dynamic from ["']next\/dynamic["']/);
+    expect(src).toMatch(/dynamic<[^>]*>\(\s*\(\)\s*=>\s*import\(\s*["']@\/app\/demo\/DemoAccess["']\s*\)/);
+    expect(src).not.toMatch(/ssr:\s*false/);
+  });
+
   it("the pages and the sign-in shell import no demo box code (the shell's only demo import is the state module the ended-demo cleanup uses)", () => {
-    for (const rel of ["app/page.tsx", "app/sign-in/page.tsx", "app/sign-in/SignInScreen.tsx", "app/sign-in/EmailSignInForm.tsx", "app/pair/PairForm.tsx"]) {
+    for (const rel of ["app/page.tsx", "app/sign-in/page.tsx", "app/sign-in/SignInScreen.tsx", "app/sign-in/EmailSignInForm.tsx", "app/pair/page.tsx", "app/pair/PairForm.tsx", "app/web/EntryLanding.tsx"]) {
       const demoImports = importLines(read(rel)).filter((l) => /["']@\/(app|lib)\/demo\//.test(l));
-      for (const line of demoImports) expect(line, rel).toMatch(/@\/app\/demo\/(demo-client|DemoIntro)["']/);
+      for (const line of demoImports) expect(line, rel).toMatch(/@\/app\/demo\/demo-client["']/);
       expect(read(rel), rel).not.toMatch(/DemoAccess|credentials/);
     }
   });
@@ -150,15 +163,16 @@ describe("pilot isolation of the demo sign-in (R-18 P1)", () => {
 });
 
 /**
- * R-18 pilot bundle boundary: the sandbox script text must not ship on the pilot /capture. The page loads the
- * drawer lazily (next/dynamic, ssr: false) only when the server's capture config carries `demo_session`, and
- * the drawer resolves its own script. So neither the page nor the layout helpers it imports may statically
- * import the drawer or the script data.
+ * Pilot bundle boundary (R-18, re-cut in R-19 PR-5): the sandbox script text, the judge guide and the demo
+ * credentials must not ship on the pilot /capture. The guide is mounted by the root layout through
+ * JudgeGuideLoader (next/dynamic, ssr: false) only when DEMO_MODE is on; the page talks to it through the tiny
+ * bridge module only. So neither the page nor the layout helpers it imports may statically import the guide,
+ * its loader or the script data.
  */
-describe("pilot /capture bundle boundary (R-18)", () => {
+describe("pilot /capture bundle boundary (R-18, R-19 PR-5)", () => {
   const staticImport = (spec: string) => new RegExp(`(?:^|\\n)\\s*(?:import|export)\\s[^;]*?from\\s+["']${spec}["']`);
-  const guarded = ["app/capture/page.tsx", "app/capture/drawer-layout.ts"];
-  const banned = ["@/lib/demo/script", "@/app/capture/ScriptDrawer"];
+  const guarded = ["app/capture/page.tsx", "app/capture/drawer-layout.ts", "app/demo/guide-bridge.ts"];
+  const banned = ["@/lib/demo/script", "@/lib/demo/credentials", "@/app/demo/JudgeGuide", "@/app/demo/JudgeGuideLoader"];
 
   for (const file of guarded) {
     for (const spec of banned) {
@@ -169,11 +183,33 @@ describe("pilot /capture bundle boundary (R-18)", () => {
     }
   }
 
-  it("the page loads the drawer with next/dynamic and ssr: false", () => {
-    const text = readFileSync(join(ROOT, "app/capture/page.tsx"), "utf8");
-    expect(text).toMatch(/from\s+["']next\/dynamic["']/);
-    expect(text).toMatch(/import\(\s*["']@\/app\/capture\/ScriptDrawer["']\s*\)/);
-    expect(text).toMatch(/ssr:\s*false/);
+  it("the R-18 drawer is gone: no file imports or defines app/capture/ScriptDrawer", () => {
+    expect(existsSync(join(ROOT, "app/capture/ScriptDrawer.tsx"))).toBe(false);
+    const importers = [...listTsFiles(join(ROOT, "app")), ...listTsFiles(join(ROOT, "lib"))]
+      .filter((f) => /ScriptDrawer/.test(readFileSync(f, "utf8")))
+      .map(relPath);
+    expect(importers).toEqual([]);
+  });
+
+  it("the page reaches the guide only through the bridge (counts, phases and callbacks; no text)", () => {
+    const page = readFileSync(join(ROOT, "app/capture/page.tsx"), "utf8");
+    expect(page).toMatch(/from\s+["']@\/app\/demo\/guide-bridge["']/);
+    const bridge = readFileSync(join(ROOT, "app/demo/guide-bridge.ts"), "utf8");
+    const imports = bridge.split("\n").filter((l) => /^\s*import\s/.test(l));
+    // lib/debrief/view-signal carries the debrief's view KIND only (round-4 D2): a phase input, never text.
+    // lib/demo/proposals-signal carries the proposals page's screen KIND and an event counter only (after-merge wiring).
+    for (const line of imports) expect(line).toMatch(/^import (type )?\{[^}]*\} from ["'](react|@\/lib\/capture\/contract|@\/lib\/debrief\/constants|@\/lib\/debrief\/view-signal|@\/lib\/demo\/guide|@\/lib\/demo\/proposals-signal|@\/lib\/i18n\/dict)["'];$/);
+    expect(bridge).not.toMatch(/import\s*\(/);
+  });
+
+  it("the proposals signal module is as small as the debrief's: it imports only a type from the guide model, and no demo text, script or credential", () => {
+    const signal = readFileSync(join(ROOT, "lib/demo/proposals-signal.ts"), "utf8");
+    const imports = signal.split("\n").filter((l) => /^\s*import\s/.test(l));
+    expect(imports).toEqual(['import type { ProposalsGuideScreen } from "@/lib/demo/guide";']);
+    expect(signal).not.toMatch(/import\s*\(/);
+    // ProposalsApp (pilot-reachable) publishes through this module only: it never imports the guide or its loader.
+    const app = readFileSync(join(ROOT, "app/proposals/ProposalsApp.tsx"), "utf8");
+    expect(app).not.toMatch(/@\/app\/demo\/(JudgeGuide|JudgeGuideLoader|guide-bridge)/);
   });
 
   it("positive control: the static-import matcher catches a plain and a type-and-value import", () => {

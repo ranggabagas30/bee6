@@ -104,11 +104,13 @@ export function DayRecordApp({
 
   if (!config || !auth) {
     return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={null} showSignOut={false} />
-        <p role="status" aria-live="polite">
-          {t(lang, "C-signin-config")}
-        </p>
+      <main>
+        <div style={PAGE_STYLE}>
+          <WebTopBar auth={null} showSignOut={false} />
+          <p role="status" aria-live="polite">
+            {t(lang, "C-signin-config")}
+          </p>
+        </div>
       </main>
     );
   }
@@ -119,48 +121,56 @@ export function DayRecordApp({
 
   if (state.kind === "loading") {
     return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
-        <p role="status" aria-live="polite">
-          {t(lang, "C-day-loading")}
-        </p>
+      <main>
+        <div style={PAGE_STYLE}>
+          <WebTopBar auth={auth} showSignOut current="day" />
+          <p role="status" aria-live="polite">
+            {t(lang, "C-day-loading")}
+          </p>
+        </div>
       </main>
     );
   }
 
   if (state.kind === "forbidden") {
     return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
-        <p role="status" aria-live="polite">
-          {t(lang, "C-day-forbidden")}
-        </p>
+      <main>
+        <div style={PAGE_STYLE}>
+          <WebTopBar auth={auth} showSignOut current="day" />
+          <p role="status" aria-live="polite">
+            {t(lang, "C-day-forbidden")}
+          </p>
+        </div>
       </main>
     );
   }
 
   if (state.kind === "invalid") {
     return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
-        <p role="status" aria-live="polite">
-          {t(lang, "C-day-invalid")}
-        </p>
-        <Link href="/day">{t(lang, "C-day-to-today")}</Link>
+      <main>
+        <div style={PAGE_STYLE}>
+          <WebTopBar auth={auth} showSignOut current="day" />
+          <p role="status" aria-live="polite">
+            {t(lang, "C-day-invalid")}
+          </p>
+          <Link href="/day">{t(lang, "C-day-to-today")}</Link>
+        </div>
       </main>
     );
   }
 
   if (state.kind === "error") {
     return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
-        <p role="status" aria-live="polite">
-          {t(lang, "C-day-err")}
-        </p>
-        <button type="button" style={RETRY_STYLE} onClick={reload}>
-          {t(lang, "C-day-retry")}
-        </button>
+      <main>
+        <div style={PAGE_STYLE}>
+          <WebTopBar auth={auth} showSignOut current="day" />
+          <p role="status" aria-live="polite">
+            {t(lang, "C-day-err")}
+          </p>
+          <button type="button" style={RETRY_STYLE} onClick={reload}>
+            {t(lang, "C-day-retry")}
+          </button>
+        </div>
       </main>
     );
   }
@@ -169,7 +179,7 @@ export function DayRecordApp({
   return (
     <main>
       <div style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
+        <WebTopBar auth={auth} showSignOut current="day" />
       </div>
       <DayRecordView
         data={data}

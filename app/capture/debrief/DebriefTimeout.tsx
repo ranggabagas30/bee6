@@ -15,6 +15,8 @@ export interface DebriefTimeoutProps {
   endedAtMs: number;
   tz: string;
   onBack: () => void;
+  /** R-19 §6.3, sandbox only: adds "Questions left unanswered are recorded as unverified." Absent on the pilot. */
+  demo?: boolean;
 }
 
 const BACK_BUTTON_STYLE: React.CSSProperties = {
@@ -26,7 +28,7 @@ const BACK_BUTTON_STYLE: React.CSSProperties = {
   fontWeight: 700,
 };
 
-export function DebriefTimeout({ endedAtMs, tz, onBack }: DebriefTimeoutProps) {
+export function DebriefTimeout({ endedAtMs, tz, onBack, demo = false }: DebriefTimeoutProps) {
   const { lang } = useLang();
   const headingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -40,6 +42,7 @@ export function DebriefTimeout({ endedAtMs, tz, onBack }: DebriefTimeoutProps) {
       </h2>
       <p style={{ margin: "4px 0 0" }}>{t(lang, "C-d-timeout-2")}</p>
       <p style={{ margin: "2px 0 0" }}>{t(lang, "C-d-timeout-3")}</p>
+      {demo ? <p style={{ margin: "12px 0 0" }}>{t(lang, "C-d2-timeout-unv")}</p> : null}
       <button type="button" style={BACK_BUTTON_STYLE} onClick={onBack}>
         {t(lang, "C-b-kembali")}
       </button>

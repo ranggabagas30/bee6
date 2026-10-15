@@ -40,6 +40,7 @@ function makeItem(
       status,
       created_at_ms: n,
       range: { from_date: "2026-10-01", to_date: "2026-10-07" },
+      focus_category: "CUSTOMER_SERVICE",
       suppression: null,
       blocked_rule: null,
       content: {
@@ -71,10 +72,11 @@ function makeItem(
   };
 }
 
+const EMPTY_WATCH = { from_date: "2026-10-01", to_date: "2026-10-07", categories: [] };
 const EMPTY_NOTICES = { late_constraints: [], evidence_stale: false, sop_changed: false, superseded: false };
 
 function listOf(open: ProposalListItem[], decided: ProposalListItem[] = []): { kind: "ok"; data: ListProposalsResponse } {
-  return { kind: "ok", data: { open, decided } };
+  return { kind: "ok", data: { open, decided, watch: EMPTY_WATCH } };
 }
 
 beforeEach(() => {
@@ -137,12 +139,29 @@ describe("ProposalList — loading", () => {
 });
 
 describe("ProposalList — empty and error states", () => {
-  it("empty open list shows the empty line and hides the Decided heading", async () => {
+  it("the supervisor's 'No proposal yet' empty state is not here (R-19 PR-12a moved it to SupervisorProposals, where it also needs an empty watch panel); the plain line shows and the Decided heading hides", async () => {
     authedGetJson.mockResolvedValue(listOf([]));
     renderList();
     await waitFor(() => expect(screen.getByText("No open proposals.")).not.toBeNull());
+    expect(screen.queryByText("No proposal yet")).toBeNull();
     expect(screen.getByRole("heading", { name: "Open proposals" })).not.toBeNull();
     expect(screen.queryByRole("heading", { name: "Recently decided" })).toBeNull();
+  });
+
+  it("the owner's empty state is the Approvals copy", async () => {
+    authedGetJson.mockResolvedValue(listOf([]));
+    renderList("owner");
+    await waitFor(() => expect(screen.getByText("Nothing waiting for you.")).not.toBeNull());
+    expect(screen.getByText("Proposals appear here after the supervisor marks them feasible.")).not.toBeNull();
+    expect(screen.queryByText("No proposal yet")).toBeNull();
+  });
+
+  it("nothing open but something decided keeps the plain 'No open proposals.' line and the Decided section", async () => {
+    authedGetJson.mockResolvedValue(listOf([], [makeItem(2, "rejected", "Old change")]));
+    renderList();
+    await waitFor(() => expect(screen.getByText("No open proposals.")).not.toBeNull());
+    expect(screen.getByRole("heading", { name: "Recently decided" })).not.toBeNull();
+    expect(screen.queryByText("No proposal yet")).toBeNull();
   });
 
   it("a failed GET shows the generic message", async () => {
@@ -285,7 +304,7 @@ describe("ProposalList — a panel recovers after an answer that leaves the prop
     reloaded: ListProposalsResponse,
     act: () => void,
   ) {
-    authedGetJson.mockResolvedValueOnce({ kind: "ok", data: { open: [item], decided: [] } });
+    authedGetJson.mockResolvedValueOnce({ kind: "ok", data: { open: [item], decided: [], watch: EMPTY_WATCH } });
     const view = renderList("supervisor", 0);
     await waitFor(() => expect(screen.getByRole("button", { name: "Reject" })).not.toBeNull());
     act();
@@ -304,7 +323,7 @@ describe("ProposalList — a panel recovers after an answer that leaves the prop
     const stale = makeItem(2, "awaiting_supervisor", "Open one", {
       notices: { ...EMPTY_NOTICES, evidence_stale: true },
     });
-    await settleThenReload(fresh, { open: [stale], decided: [] }, () => {
+    await settleThenReload(fresh, { open: [stale], decided: [], watch: EMPTY_WATCH }, () => {
       fireEvent.click(screen.getByRole("button", { name: "Feasible" }));
       fireEvent.click(screen.getByRole("button", { name: "Yes" }));
     });
@@ -319,7 +338,7 @@ describe("ProposalList — a panel recovers after an answer that leaves the prop
     const withLate = makeItem(2, "awaiting_supervisor", "Open one", {
       notices: { ...EMPTY_NOTICES, late_constraints: [{ constraint_id: LATE, text: "No price talk" }] },
     });
-    await settleThenReload(fresh, { open: [withLate], decided: [] }, () => {
+    await settleThenReload(fresh, { open: [withLate], decided: [], watch: EMPTY_WATCH }, () => {
       fireEvent.click(screen.getByRole("button", { name: "Feasible" }));
       fireEvent.click(screen.getByRole("button", { name: "Yes" }));
     });
@@ -334,7 +353,7 @@ describe("ProposalList — a panel recovers after an answer that leaves the prop
   it("CONSTRAINT_LIMIT conflict on a rejection: Feasible and Reject come back after the reload", async () => {
     authedPostJson.mockResolvedValue({ kind: "conflict", code: "CONSTRAINT_LIMIT" });
     const item = makeItem(2, "awaiting_supervisor", "Open one");
-    await settleThenReload(item, { open: [makeItem(2, "awaiting_supervisor", "Open one")], decided: [] }, () => {
+    await settleThenReload(item, { open: [makeItem(2, "awaiting_supervisor", "Open one")], decided: [], watch: EMPTY_WATCH }, () => {
       fireEvent.click(screen.getByRole("button", { name: "Reject" }));
       fireEvent.change(screen.getByRole("textbox"), { target: { value: "Does not fit our floor" } });
       fireEvent.click(screen.getByRole("button", { name: "Continue" }));
@@ -347,7 +366,7 @@ describe("ProposalList — a panel recovers after an answer that leaves the prop
   it("an unchanged ok answer: the reloaded, still open proposal gets its buttons back", async () => {
     authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "unchanged", status: "awaiting_supervisor" } });
     const item = makeItem(2, "awaiting_supervisor", "Open one");
-    await settleThenReload(item, { open: [makeItem(2, "awaiting_supervisor", "Open one")], decided: [] }, () => {
+    await settleThenReload(item, { open: [makeItem(2, "awaiting_supervisor", "Open one")], decided: [], watch: EMPTY_WATCH }, () => {
       fireEvent.click(screen.getByRole("button", { name: "Feasible" }));
       fireEvent.click(screen.getByRole("button", { name: "Yes" }));
     });
@@ -358,7 +377,7 @@ describe("ProposalList — a panel recovers after an answer that leaves the prop
   it("an ok answer where the proposal leaves the open list: no panel remains", async () => {
     authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "feasible", status: "awaiting_owner" } });
     const item = makeItem(2, "awaiting_supervisor", "Open one");
-    await settleThenReload(item, { open: [makeItem(2, "awaiting_owner", "Open one")], decided: [] }, () => {
+    await settleThenReload(item, { open: [makeItem(2, "awaiting_owner", "Open one")], decided: [], watch: EMPTY_WATCH }, () => {
       fireEvent.click(screen.getByRole("button", { name: "Feasible" }));
       fireEvent.click(screen.getByRole("button", { name: "Yes" }));
     });
@@ -372,6 +391,7 @@ describe("ProposalList — a panel recovers after an answer that leaves the prop
       data: {
         open: [makeItem(3, "awaiting_supervisor", "Card A"), makeItem(2, "awaiting_supervisor", "Card B")],
         decided: [],
+        watch: EMPTY_WATCH,
       },
     });
     const view = renderList("supervisor", 0);
@@ -384,6 +404,7 @@ describe("ProposalList — a panel recovers after an answer that leaves the prop
       data: {
         open: [makeItem(3, "awaiting_supervisor", "Card A"), makeItem(2, "awaiting_supervisor", "Card B")],
         decided: [],
+        watch: EMPTY_WATCH,
       },
     });
     view.rerender(

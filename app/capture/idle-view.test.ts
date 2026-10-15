@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { idleViewFor } from "@/app/capture/idle-view";
-import type { CaptureConfigResponse } from "@/lib/capture/contract";
+import { FRESH_DEMO_SESSION, type CaptureConfigResponse } from "@/lib/capture/contract";
 
 // Asia/Jakarta is UTC+7, no DST. Monday 2026-10-12 to Sunday are all 08:00-22:00
 // except Sunday, which is closed. Mulai window: 01:00-18:00 (close - 4h).
@@ -153,7 +153,7 @@ describe("idleViewFor: the Mulai button's headline and note (UX-03 5.4)", () => 
 });
 
 describe("idleViewFor with the R-18 demo profile (sandbox only)", () => {
-  const demo = { max_ms: 300_000 as const, script_id: "bakery-v1" as const };
+  const demo = FRESH_DEMO_SESSION;
   const DEMO: CaptureConfigResponse = { ...CONFIG, demo_session: demo };
   const MON_2230_JKT = Date.UTC(2026, 9, 12, 15, 30);
 

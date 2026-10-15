@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { zonedTimeToEpochMs } from "@/lib/capture/calendar";
 import type { CustomClaims } from "@/lib/auth/roles";
+import type { AttributionSession } from "@/lib/day/attribution";
+import { isSuperseded } from "@/lib/proposals/review-plan";
 import {
   ConflictError,
   ForbiddenError,
@@ -10,12 +12,13 @@ import {
 } from "@/lib/http/errors";
 import type { ProposalLibrary } from "@/config/proposal-library";
 import { LibraryNotReadyError } from "@/config/proposal-library";
-import type {
-  AuditLog,
-  Constraint,
-  Outlet,
-  Proposal,
-  SopVersion,
+import {
+  ProposalSchema,
+  type AuditLog,
+  type Constraint,
+  type Outlet,
+  type Proposal,
+  type SopVersion,
 } from "@/lib/firestore/schema";
 import type { ProposalModel, ProposalModelResult } from "@/lib/agents/proposal-agent";
 import type { ProposalThreadRow } from "@/lib/proposals/candidates";
@@ -111,11 +114,13 @@ function okModelResult(text: object, usage: Partial<{ input_tokens: number | nul
 
 interface FakeStoreState {
   outlet: Outlet | null;
-  sessions: never[];
+  sessions: AttributionSession[];
   rows: ProposalThreadRow[];
   sop: SopVersion | null;
   constraints: Constraint[];
   openProposal: Proposal | null;
+  /** R-19 §3.3: what `listOpenProposals` returns (cited-thread exclusion and taken focus categories). */
+  openProposals: Proposal[];
   threadSummaries: Map<string, string | null>;
   staffNames: string[];
   lockHeld: boolean;
@@ -135,6 +140,7 @@ function makeFakeStore(state: Partial<FakeStoreState> = {}): { store: ProposalSt
     sop: SOP,
     constraints: [],
     openProposal: null,
+    openProposals: [],
     threadSummaries: new Map(),
     staffNames: [],
     lockHeld: false,
@@ -165,6 +171,9 @@ function makeFakeStore(state: Partial<FakeStoreState> = {}): { store: ProposalSt
     },
     async findOpenProposalForRange() {
       return s.openProposal;
+    },
+    async listOpenProposals() {
+      return s.openProposals;
     },
     async getThreads(ids) {
       const map = new Map<string, { status: "fact" | "open" | "unverified"; excluded_from_evidence?: boolean; label_source?: string; summary: string; first_line_start_ms: number }>();
@@ -624,7 +633,7 @@ describe("generateProposal", () => {
       created_by_role: "owner",
       created_at_ms: 2,
     };
-    const { store, state } = makeFakeStore({ openProposal: open, constraints: [c1, c2] });
+    const { store, state } = makeFakeStore({ openProposal: open, openProposals: [open], constraints: [c1, c2] });
     const { deps, model } = makeDeps();
     model.mockResolvedValueOnce(okModelResult(validWireText({ constraints_acknowledged: ["C1", "C2"] })));
     const result = await generateProposal(store, deps, { claims: claims(), from_date: "2026-10-01", to_date: "2026-10-02", now_ms: NOW_MS });
@@ -901,5 +910,251 @@ describe("generateProposal", () => {
     expect(thrown).toBeInstanceOf(Error);
     expect(thrown).not.toBeInstanceOf(z.ZodError);
     expect((thrown as Error).message).toBe("generateProposal: internal schema violation");
+  });
+});
+
+// ── R-19 §3.3: focus category, "Generate another", cited-thread exclusion ─────
+const PHONE_1 = threadRow(3, "2026-10-01", { category: "PHONE_CALL" });
+const PHONE_2 = threadRow(4, "2026-10-02", { category: "PHONE_CALL" });
+
+/** An open (awaiting_supervisor) proposal that cites `cited` rows, optionally with an R-19 focus. */
+function openDoc(n: number, cited: readonly ProposalThreadRow[], focus: Proposal["focus_category"] | undefined): Proposal {
+  const hex = n.toString(16).padStart(8, "0");
+  return ProposalSchema.parse({
+    outlet_id: OUTLET_ID,
+    proposal_id: `${hex}-aaaa-4aaa-8aaa-${hex}aaaa`,
+    status: "awaiting_supervisor",
+    requested_by_role: "supervisor",
+    range: { from_date: "2026-10-01", to_date: "2026-10-02" },
+    ...(focus === undefined ? {} : { focus_category: focus }),
+    generator: {
+      kind: "adk",
+      model: "gemini-3.5-flash",
+      location: "asia-southeast1",
+      agent_version: "proposal-v2",
+      gate_version: "pgate-v1",
+      library_version: { interventions: 1, rubric: 1 },
+      sop_version_id: SOP.sop_version_id,
+      attempts: 1,
+      ...(focus === undefined ? {} : { floor_version: "floor-v2" }),
+    },
+    gate: { passed: true, fired_rule: null, checks: [] },
+    counts: { candidate_facts: 2, candidate_dates: 2, constraints: 0 },
+    suppression: null,
+    content: {
+      intervention_id: "change_quantity_time",
+      rubric_criterion_ids: ["observable"],
+      target_step_id: "stock-01",
+      change_title: "t",
+      change_text: "c",
+      rationale: "r",
+      metric: { category: cited[0]?.category === "PHONE_CALL" ? "PHONE_CALL" : "CUSTOMER_SERVICE", direction: "decrease", description: "d", baseline_count: 1, baseline_days: 2 },
+      failure_condition: "f",
+      review_after_days: 7,
+      review_date: "2026-10-17",
+      evidence: cited.map((r, i) => ({ thread_id: r.thread_id, local_date: `2026-10-0${i + 1}`, category: r.category as "CUSTOMER_SERVICE" | "PHONE_CALL", first_line_start_ms: r.first_line_start_ms })),
+      constraint_ids_acknowledged: [],
+      censored_floor: true,
+    },
+    created_at_ms: 1,
+    updated_at_ms: 1,
+  });
+}
+
+const gen = (store: ProposalStore, deps: ProposalDeps, another?: boolean) =>
+  generateProposal(store, deps, {
+    claims: claims(),
+    from_date: "2026-10-01",
+    to_date: "2026-10-02",
+    now_ms: NOW_MS,
+    ...(another === undefined ? {} : { another }),
+  });
+
+const promptOf = (model: ReturnType<typeof vi.fn>, call = 0): string =>
+  (model.mock.calls[call]?.[0] as { userContent: string }).userContent;
+
+describe("generateProposal: R-19 3.3 focus category", () => {
+  it("only the focus category reaches the prompt: 2 CS on 2 dates + 1 PHONE_CALL -> focus CS, the phone-call summary is never offered", async () => {
+    const { store, state } = makeFakeStore({ rows: [ROW_1, ROW_2, PHONE_1] });
+    const { deps, model } = makeDeps();
+    model.mockResolvedValueOnce(okModelResult(validWireText()));
+    const result = await gen(store, deps);
+    expect(result.proposal.status).toBe("awaiting_supervisor");
+    expect(result.proposal.focus_category).toBe("CUSTOMER_SERVICE");
+    const prompt = promptOf(model);
+    expect(prompt).toContain("FACT-SENTINEL-1");
+    expect(prompt).toContain("FACT-SENTINEL-2");
+    expect(prompt).not.toContain("FACT-SENTINEL-3");
+    // only E1..E2 exist on the wire: a third alias is not offered
+    expect(prompt).not.toMatch(/\bE3\b/);
+    const stored = state.written[0]!.proposal;
+    expect(stored.focus_category).toBe("CUSTOMER_SERVICE");
+    expect(stored.generator.floor_version).toBe("floor-v2");
+    expect(stored.counts).toEqual({ candidate_facts: 2, candidate_dates: 2, constraints: 0 });
+  });
+
+  it("suppressed docs carry focus_category null and floor_version floor-v2; the view reads null", async () => {
+    const { store, state } = makeFakeStore({ rows: [ROW_1, PHONE_1] }); // 1 CS + 1 PHONE on 2 dates: no category is ready
+    const { deps, model } = makeDeps();
+    const result = await gen(store, deps);
+    expect(result.proposal.status).toBe("suppressed");
+    expect(result.proposal.focus_category).toBeNull();
+    expect(result.proposal.suppression?.followup).toEqual({ categories: ["CUSTOMER_SERVICE", "PHONE_CALL"], have_facts: 1, have_dates: 1, need_facts: 2, need_dates: 2 });
+    expect(model).not.toHaveBeenCalled();
+    const stored = state.written[0]!.proposal;
+    expect(stored.focus_category).toBeNull();
+    expect(stored.generator.floor_version).toBe("floor-v2");
+  });
+
+  it("another: true skips the reuse step: an open reusable proposal for the same range no longer short-circuits", async () => {
+    const open = openDoc(1, [ROW_1, ROW_2], "CUSTOMER_SERVICE");
+    const { store, state } = makeFakeStore({ rows: [ROW_1, ROW_2, PHONE_1, PHONE_2], openProposal: open, openProposals: [open] });
+    const { deps, model } = makeDeps();
+    model.mockResolvedValueOnce(okModelResult(validWireText({ metric_category: "PHONE_CALL" })));
+    const result = await gen(store, deps, true);
+    expect(result.reused).toBe(false);
+    expect(state.acquireCalls).toBe(1);
+    expect(model).toHaveBeenCalledTimes(1);
+    expect(result.proposal.focus_category).toBe("PHONE_CALL");
+  });
+
+  it("without another the reuse step is unchanged: the open proposal is returned, no lock, no model", async () => {
+    const open = openDoc(1, [ROW_1, ROW_2], "CUSTOMER_SERVICE");
+    const { store, state } = makeFakeStore({
+      rows: [ROW_1, ROW_2, PHONE_1, PHONE_2],
+      openProposal: open,
+      openProposals: [open],
+      threadSummaries: new Map([[ROW_1.thread_id, "FACT-SENTINEL-1"], [ROW_2.thread_id, "FACT-SENTINEL-2"]]),
+    });
+    const { deps, model } = makeDeps();
+    const result = await gen(store, deps, false);
+    expect(result.reused).toBe(true);
+    expect(state.acquireCalls).toBe(0);
+    expect(model).not.toHaveBeenCalled();
+  });
+
+  it("threads cited by an open proposal are excluded: A (CS) open citing the only two facts -> suppressed with an empty pool", async () => {
+    const open = openDoc(1, [ROW_1, ROW_2], "CUSTOMER_SERVICE");
+    const { store, state } = makeFakeStore({ rows: [ROW_1, ROW_2], openProposal: open, openProposals: [open] });
+    const { deps, model } = makeDeps();
+    const result = await gen(store, deps, true);
+    expect(result.proposal.status).toBe("suppressed");
+    expect(result.proposal.suppression?.reason).toBe("insufficient_evidence");
+    expect(result.proposal.suppression?.followup).toEqual({ categories: [], have_facts: 0, have_dates: 0, need_facts: 2, need_dates: 2 });
+    expect(state.written[0]!.proposal.counts).toEqual({ candidate_facts: 0, candidate_dates: 0, constraints: 0 });
+    expect(model).not.toHaveBeenCalled();
+  });
+
+  it("A proposed and B ready -> the second proposal focuses on PHONE_CALL and offers only the phone-call facts", async () => {
+    const open = openDoc(1, [ROW_1, ROW_2], "CUSTOMER_SERVICE");
+    const { store, state } = makeFakeStore({ rows: [ROW_1, ROW_2, PHONE_1, PHONE_2], openProposal: open, openProposals: [open] });
+    const { deps, model } = makeDeps();
+    model.mockResolvedValueOnce(okModelResult(validWireText({ metric_category: "PHONE_CALL" })));
+    const result = await gen(store, deps, true);
+    expect(result.proposal.status).toBe("awaiting_supervisor");
+    expect(result.proposal.focus_category).toBe("PHONE_CALL");
+    const prompt = promptOf(model);
+    expect(prompt).toContain("FACT-SENTINEL-3");
+    expect(prompt).toContain("FACT-SENTINEL-4");
+    expect(prompt).not.toContain("FACT-SENTINEL-1");
+    expect(prompt).not.toContain("FACT-SENTINEL-2");
+    const stored = state.written[0]!.proposal;
+    expect(stored.content?.evidence.map((e) => e.thread_id).sort()).toEqual([PHONE_1.thread_id, PHONE_2.thread_id].sort());
+    expect(stored.content?.evidence.every((e) => e.category === "PHONE_CALL")).toBe(true);
+    expect(stored.focus_category).toBe("PHONE_CALL");
+    expect(stored.generator.floor_version).toBe("floor-v2");
+  });
+
+  it("A proposed and B not ready -> suppressed; the follow-up describes B", async () => {
+    const open = openDoc(1, [ROW_1, ROW_2], "CUSTOMER_SERVICE");
+    const { store } = makeFakeStore({ rows: [ROW_1, ROW_2, PHONE_1], openProposal: open, openProposals: [open] });
+    const { deps, model } = makeDeps();
+    const result = await gen(store, deps, true);
+    expect(result.proposal.status).toBe("suppressed");
+    expect(result.proposal.focus_category).toBeNull();
+    expect(result.proposal.suppression?.followup).toEqual({ categories: ["PHONE_CALL"], have_facts: 1, have_dates: 1, need_facts: 2, need_dates: 2 });
+    expect(model).not.toHaveBeenCalled();
+  });
+
+  it("a taken focus category is skipped even when it is ready again: A (CS) open on other threads + 2 fresh CS facts -> suppressed, not a second CS proposal", async () => {
+    const other1 = threadRow(7, "2026-09-28");
+    const other2 = threadRow(8, "2026-09-29");
+    const open = openDoc(1, [other1, other2], "CUSTOMER_SERVICE");
+    const { store } = makeFakeStore({ rows: [ROW_1, ROW_2], openProposal: null, openProposals: [open] });
+    const { deps, model } = makeDeps();
+    const result = await gen(store, deps, true);
+    expect(result.proposal.status).toBe("suppressed");
+    expect(result.proposal.suppression?.reason).toBe("insufficient_evidence");
+    expect(model).not.toHaveBeenCalled();
+  });
+
+  it("a legacy open proposal (no focus) still excludes its cited threads but takes no category", async () => {
+    const legacy = openDoc(2, [ROW_1, threadRow(9, "2026-10-02")], undefined);
+    const fresh1 = threadRow(5, "2026-10-01");
+    const fresh2 = threadRow(6, "2026-10-02");
+    const { store } = makeFakeStore({ rows: [ROW_1, fresh1, fresh2], openProposal: null, openProposals: [legacy] });
+    const { deps, model } = makeDeps();
+    model.mockResolvedValueOnce(okModelResult(validWireText()));
+    const result = await gen(store, deps, true);
+    expect(result.proposal.status).toBe("awaiting_supervisor");
+    expect(result.proposal.focus_category).toBe("CUSTOMER_SERVICE");
+    const prompt = promptOf(model);
+    expect(prompt).not.toContain("FACT-SENTINEL-1"); // cited by the legacy proposal
+    expect(prompt).toContain("FACT-SENTINEL-5");
+    expect(prompt).toContain("FACT-SENTINEL-6");
+  });
+
+  it("the written evidence never mixes categories: a wire citing an alias outside the focus cannot exist (only focus aliases are on the wire)", async () => {
+    const { store } = makeFakeStore({ rows: [ROW_1, ROW_2, PHONE_1, PHONE_2] });
+    const { deps, model } = makeDeps();
+    // E3 is not an alias on the (CS-only) wire: schema_invalid on both attempts -> blocked, focus kept on the doc
+    model.mockResolvedValue(okModelResult(validWireText({ evidence: ["E1", "E3"] })));
+    const result = await gen(store, deps);
+    expect(result.proposal.status).toBe("blocked");
+    expect(result.proposal.blocked_rule).toBe("schema_invalid");
+    expect(result.proposal.focus_category).toBe("CUSTOMER_SERVICE");
+  });
+  it("an open proposal that is not reusable (newer constraint) does not block its own replacement: the new CS proposal supersedes it", async () => {
+    const c1: Constraint = {
+      outlet_id: OUTLET_ID,
+      constraint_id: "33333333-3333-4333-8333-333333333333",
+      text: "the oven only holds 2.5 kg",
+      source: "manual",
+      source_proposal_id: null,
+      created_by_role: "supervisor",
+      created_at_ms: 1,
+    };
+    const open = openDoc(1, [ROW_1, ROW_2], "CUSTOMER_SERVICE"); // acknowledges no constraint -> not reusable
+    const { store, state } = makeFakeStore({ rows: [ROW_1, ROW_2], openProposal: open, openProposals: [open], constraints: [c1] });
+    const { deps, model } = makeDeps();
+    model.mockResolvedValueOnce(okModelResult(validWireText({ constraints_acknowledged: ["C1"] })));
+    const result = await gen(store, deps, false);
+    expect(result.reused).toBe(false);
+    expect(result.proposal.status).toBe("awaiting_supervisor");
+    expect(result.proposal.focus_category).toBe("CUSTOMER_SERVICE");
+    const created = state.written[0]!.proposal;
+    expect(isSuperseded(open, [open, created])).toBe(true);
+  });
+
+  it("metric baseline uses the review's counter: CS facts on days 1-2, phone facts on days 2-3, sessions on 5 days -> CS baseline 2 in 5 days", async () => {
+    const dates = ["2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05"];
+    const sessions: AttributionSession[] = dates.map((d) => ({
+      device_id: DEVICE_ID,
+      local_date: d,
+      started_at_ms: zonedTimeToEpochMs(d, "09:30", TZ),
+      ended_at_ms: null,
+      auto_stop_at_ms: zonedTimeToEpochMs(d, "22:00", TZ),
+      end_reason: null,
+    }));
+    const phone2 = threadRow(4, "2026-10-02", { category: "PHONE_CALL" });
+    const phone3 = threadRow(5, "2026-10-03", { category: "PHONE_CALL" });
+    const { store } = makeFakeStore({ rows: [ROW_1, ROW_2, phone2, phone3], sessions });
+    const { deps, model } = makeDeps();
+    model.mockResolvedValueOnce(okModelResult(validWireText()));
+    const result = await generateProposal(store, deps, { claims: claims(), from_date: "2026-10-01", to_date: "2026-10-05", now_ms: NOW_MS });
+    expect(result.proposal.status).toBe("awaiting_supervisor");
+    expect(result.proposal.content?.metric.category).toBe("CUSTOMER_SERVICE");
+    expect(result.proposal.content?.metric.baseline_count).toBe(2);
+    expect(result.proposal.content?.metric.baseline_days).toBe(5);
   });
 });

@@ -1,32 +1,28 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { GET } from "./route";
-import * as dayStoreModule from "@/lib/firestore/day-store";
-import type { ConfirmStore, DayStore } from "@/lib/day/service";
+import * as homeStoreModule from "@/lib/home/store";
+import type { HomeStore } from "@/lib/home/service";
 
 /**
  * Same technique as `app/api/v1/day/[date]/route.test.ts`: mocks Firebase
  * Admin's `verifyIdToken` so the route is exercised through the real
- * `requireClaims` guard, and mocks `firestoreDayStore` so no real Firestore
- * is touched.
+ * `requireClaims` guard, and mocks `firestoreHomeStore` (R-19 PR-8) so no
+ * real Firestore is touched.
  */
 const verifyIdToken = vi.fn();
 vi.mock("@/lib/firebase/admin", () => ({
   verifyIdToken: (...args: unknown[]) => verifyIdToken(...args),
 }));
-vi.mock("@/lib/firestore/day-store");
+vi.mock("@/lib/home/store");
 
 afterEach(() => {
   verifyIdToken.mockReset();
   vi.clearAllMocks();
 });
 
-// This fake only needs `DayStore` — the GET /home route never calls
-// `transactConfirm`. It is cast to `DayStore & ConfirmStore` solely because
-// `firestoreDayStore` (the function this mocks) implements both; the real
-// `transactConfirm` test double lives in the confirm route's own test file.
-function fakeStore(overrides: Partial<DayStore> = {}): DayStore & ConfirmStore {
-  const store: DayStore = {
+function fakeStore(overrides: Partial<HomeStore> = {}): HomeStore {
+  const store: HomeStore = {
     getOutlet: async () => ({
       outlet_id: "outlet-1",
       name: "Test Outlet",
@@ -46,9 +42,13 @@ function fakeStore(overrides: Partial<DayStore> = {}): DayStore & ConfirmStore {
     // Not exercised by GET /home (Task 13's own review-queue route owns these).
     listAnsweredGateQuestions: async () => [],
     getThreads: async () => new Map(),
+    // R-19 PR-8
+    listDecidedProposals: async () => [],
+    listAwaitingOwnerProposals: async () => [],
+    listSopVersions: async () => [],
     ...overrides,
   };
-  return store as DayStore & ConfirmStore;
+  return store;
 }
 
 function getRequest(authorization?: string) {
@@ -88,7 +88,7 @@ describe("GET /api/v1/home", () => {
       email_verified: true,
       claims: { outlet_id: "outlet-1", role: "owner" },
     });
-    vi.spyOn(dayStoreModule, "firestoreDayStore").mockReturnValueOnce(fakeStore());
+    vi.spyOn(homeStoreModule, "firestoreHomeStore").mockReturnValueOnce(fakeStore());
 
     const response = await call("Bearer owner.token");
     expect(response.status).toBe(200);
@@ -96,9 +96,41 @@ describe("GET /api/v1/home", () => {
     const body = await response.json();
     expect(body.data.lines).toEqual([]);
     expect(body.data.more).toBe(0);
+    // R-19 PR-8: the W4 slices are always present, zero/empty when there is nothing.
+    const zero = { approved: 0, rejected: 0 };
+    expect(body.data.progress).toEqual({ week: zero, month: zero, since_start: zero });
+    expect(body.data.waiting_approval).toEqual({ count: 0, items: [] });
+    expect(body.data.next_review).toEqual({ date: null, change_title: null });
   });
 
-  it("firestoreDayStore is constructed with the caller's own outlet_id", async () => {
+  it("owner claims -> the PR-8 slices reflect the store (feasible + approved counted, awaiting_owner listed)", async () => {
+    verifyIdToken.mockResolvedValueOnce({
+      uid: "u2",
+      email: "owner@proofed.test",
+      email_verified: true,
+      claims: { outlet_id: "outlet-1", role: "owner" },
+    });
+    const now = Date.now();
+    vi.spyOn(homeStoreModule, "firestoreHomeStore").mockReturnValueOnce(
+      fakeStore({
+        listDecidedProposals: async () => [
+          { proposal_id: "11111111-1111-4111-8111-111111111111", status: "approved", supervisor_decision: "feasible", owner_decision: { decision: "approved", decided_at_ms: now }, change_title: "A", updated_at_ms: now },
+        ],
+        listAwaitingOwnerProposals: async () => [
+          { proposal_id: "22222222-2222-4222-8222-222222222222", status: "awaiting_owner", supervisor_decision: "feasible", owner_decision: null, change_title: "Read the order back", updated_at_ms: now },
+        ],
+        listSopVersions: async () => [{ review_date: "2999-01-01", change_title: "A" }],
+      }),
+    );
+    const response = await call("Bearer owner.token");
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.data.progress.since_start).toEqual({ approved: 1, rejected: 0 });
+    expect(body.data.waiting_approval).toEqual({ count: 1, items: [{ proposal_id: "22222222-2222-4222-8222-222222222222", change_title: "Read the order back" }] });
+    expect(body.data.next_review).toEqual({ date: "2999-01-01", change_title: "A" });
+  });
+
+  it("firestoreHomeStore is constructed with the caller's own outlet_id", async () => {
     verifyIdToken.mockResolvedValueOnce({
       uid: "u3",
       email: "owner@proofed.test",
@@ -106,9 +138,10 @@ describe("GET /api/v1/home", () => {
       claims: { outlet_id: "outlet-9", role: "owner" },
     });
     const spy = vi
-      .spyOn(dayStoreModule, "firestoreDayStore")
+      .spyOn(homeStoreModule, "firestoreHomeStore")
       .mockReturnValueOnce(fakeStore({ getOutlet: async () => null }));
-    await call("Bearer owner.token");
+    const response = await call("Bearer owner.token");
     expect(spy).toHaveBeenCalledWith("outlet-9");
+    expect(response.status).toBe(404);
   });
 });

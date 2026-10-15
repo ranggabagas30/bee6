@@ -1,0 +1,23 @@
+/* Empty state (R-19 PR-6 §8.3) on the PR-0b glass surface. */
+
+.empty {
+  box-sizing: border-box;
+  margin: 16px 0;
+  padding: 20px;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--b6-fs-lead);
+  font-weight: 500;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.detail {
+  margin: 6px 0 0;
+  font-size: var(--b6-fs-body);
+  line-height: 1.5;
+  color: var(--b6-muted);
+  overflow-wrap: anywhere;
+}

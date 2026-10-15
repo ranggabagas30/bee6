@@ -16,6 +16,7 @@ import {
   type AnswerWritePlan,
 } from "@/lib/debrief/answer-plan";
 import { businessDateOf, localHmOf, DEBRIEF_DURATION_MS } from "@/lib/capture/calendar";
+import { computePreparing } from "@/lib/debrief/preparing";
 import { AppError, DemoCapError, LockedError, NotFoundError, ServiceUnavailableError } from "@/lib/http/errors";
 import type { LastEnded, Question } from "@/lib/firestore/schema";
 import type { WorkCategory } from "@/lib/pipeline/categories";
@@ -49,6 +50,23 @@ export interface DebriefStore {
     question_id: string,
     fn: (s: AnswerTxSnapshot) => AnswerWritePlan,
   ): Promise<AnswerWritePlan["result"]>;
+  // ── R-19 PR-3 `preparing` inputs (read on a sandbox outlet only) ──
+  /** This device's latest ended (not discarded) capture session of the business date, by `ended_at_ms`. */
+  getLatestEndedSession(device_id: string, business_date: string): Promise<EndedSessionRef | null>;
+  /** Every transcript line of one session as `${seg_id}#${i}` (the windowing formula) plus whether it still has text. */
+  listSessionLines(device_id: string, session_id: string): Promise<SessionLineRef[]>;
+  /** Line ids of this device's finished (done or failed) label units — the tick store's own query. */
+  listLabelledLineIds(device_id: string): Promise<Set<string>>;
+}
+
+export interface EndedSessionRef {
+  session_id: string;
+  ended_at_ms: number;
+}
+
+export interface SessionLineRef {
+  line_id: string;
+  has_text: boolean;
 }
 
 /** Active iff a debrief has ended for this device, wasn't discarded, and the hour hasn't passed. */
@@ -71,11 +89,12 @@ function earlierDay(q: Question, debriefDate: string, tz: string): { business_da
   return date < debriefDate ? { business_date: date } : {};
 }
 
-/** `GET /api/v1/questions` (device). */
+/** `GET /api/v1/questions` (device). `log` receives counts only (R-19 `debrief.preparing`), never text or ids. */
 export async function listDebriefQuestions(
   store: DebriefStore,
   claims: { outlet_id: string; device_id: string },
   now_ms: number,
+  log: (entry: Record<string, unknown>) => void = () => {},
 ): Promise<DebriefListResponse> {
   const last = await store.getLastEnded(claims.device_id);
   if (!isDebriefActive(last, now_ms)) {
@@ -101,9 +120,18 @@ export async function listDebriefQuestions(
     ...(calendar.sandbox === true ? earlierDay(q, last.business_date, calendar.tz) : {}),
   }));
 
+  // R-19 PR-3, sandbox only: a pilot response never carries the key (and costs no extra read).
+  let preparingField: { preparing: boolean } | Record<string, never> = {};
+  if (calendar.sandbox === true) {
+    const { pending, preparing } = await computePreparing(store, claims.device_id, last, now_ms);
+    log({ event: "debrief.preparing", pending, preparing });
+    preparingField = { preparing };
+  }
+
   return DebriefListResponseSchema.parse({
     debrief: { business_date: last.business_date, ends_at_ms: last.debrief_ends_at_ms },
     questions,
+    ...preparingField,
   });
 }
 

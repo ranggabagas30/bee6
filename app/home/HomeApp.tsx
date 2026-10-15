@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import { getClientAuth, signOut } from "@/lib/auth/client/firebase-client";
@@ -9,18 +9,26 @@ import { useAuthUser } from "@/lib/auth/client/use-auth-user";
 import { useLang } from "@/lib/i18n/context";
 import { t } from "@/lib/i18n/dict";
 import { HomeResponseSchema, type HomeResponse } from "@/lib/home/contract";
+import { Button, Mist } from "@/app/ui";
 import { WebTopBar } from "@/app/web/WebTopBar";
+import { ResetDemoButton, ResetNotice } from "@/app/demo/ResetDemoButton";
 import { HomeView } from "@/app/home/HomeView";
+import styles from "@/app/home/home.module.css";
 
 /**
- * /home (R-06 Task 14a). Fetches `GET /api/v1/home` through the shared authed
- * client, same auth-gate shape as `DayRecordApp` — except `forbidden` sends a
- * non-owner straight to `/day` (a supervisor's start page), since this screen
- * is owner-only and the server, not the client, decides that.
+ * /home (R-06 Task 14a; R-19 PR-8 plan 9.2 = page-1 W4). Fetches `GET /api/v1/home` through the shared authed
+ * client, same auth-gate shape as `DayRecordApp` — except `forbidden` sends a non-owner straight to `/day` (a
+ * supervisor's start page), since this screen is owner-only and the server, not the client, decides that.
+ *
+ * One tree for every state (the top bar and nav never remount): the mist ground, the top bar, PR-7's `ResetNotice`
+ * ("Demo reset to day 1" after `/home?demo_reset=1`), the state's body, and — in the settled states only — the reset
+ * area with PR-7's `ResetDemoButton` (it renders nothing unless the signed-in user is a demo owner, so the pilot never
+ * sees it). While loading the reset area is not in the tree: a destructive control must not flash under "Loading…" at
+ * the top of the first viewport and then jump to the page bottom when the cards land (QA on PR-8: a layout shift of
+ * 0.06 at 360 px). Appearing fresh below the settled cards contributes no layout shift. A retry from the error state
+ * goes back through loading for the same reason (`reload()`), so error -> "Try again" -> ok is shift-free too.
+ * Both PR-7 pieces read the Firebase app this component already initialised, so they are mounted after it.
  */
-
-const PAGE_STYLE: CSSProperties = { maxWidth: 720, margin: "0 auto", padding: 16, boxSizing: "border-box" };
-const RETRY_STYLE: CSSProperties = { minHeight: 48, padding: "0 16px", fontSize: 16, cursor: "pointer" };
 
 type ViewState =
   | { kind: "loading" }
@@ -74,52 +82,55 @@ export function HomeApp({ config }: { config: FirebaseWebConfig | null }) {
   }, [auth, uid, reloadTick, router]);
 
   function reload() {
+    // Back through the loading state (not only a refetch): "Try again" shows "Loading…" and the reset area leaves
+    // the tree until the data settles, so a retry contributes no layout shift either (QA on PR-8, second pass).
+    setState({ kind: "loading" });
     setReloadTick((n) => n + 1);
   }
 
+  const settled = state.kind !== "loading";
+
+  let body: ReactNode;
   if (!config || !auth) {
-    return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={null} showSignOut={false} />
-        <p role="status" aria-live="polite">
-          {t(lang, "C-signin-config")}
-        </p>
-      </main>
+    body = (
+      <p role="status" aria-live="polite" className={styles.status}>
+        {t(lang, "C-signin-config")}
+      </p>
     );
-  }
-
-  if (state.kind === "loading") {
-    return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
-        <p role="status" aria-live="polite">
-          {t(lang, "C-day-loading")}
-        </p>
-      </main>
+  } else if (state.kind === "loading") {
+    body = (
+      <p role="status" aria-live="polite" className={styles.status}>
+        {t(lang, "C-day-loading")}
+      </p>
     );
-  }
-
-  if (state.kind === "error") {
-    return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
-        <p role="status" aria-live="polite">
+  } else if (state.kind === "error") {
+    body = (
+      <>
+        <p role="status" aria-live="polite" className={styles.status}>
           {t(lang, "C-day-err")}
         </p>
-        <button type="button" style={RETRY_STYLE} onClick={reload}>
+        <Button variant="secondary" className={styles.retry} onClick={reload}>
           {t(lang, "C-day-retry")}
-        </button>
-      </main>
+        </Button>
+      </>
     );
+  } else {
+    body = <HomeView data={state.data} />;
   }
 
-  const { data } = state;
   return (
-    <main>
-      <div style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
-      </div>
-      <HomeView data={data} />
-    </main>
+    <div className={styles.page}>
+      <Mist />
+      <main className={styles.main}>
+        <WebTopBar auth={auth} showSignOut={auth !== null} current="home" />
+        {auth ? <ResetNotice lang={lang} /> : null}
+        {body}
+        {auth && settled ? (
+          <div className={styles.reset} data-testid="reset-area">
+            <ResetDemoButton lang={lang} />
+          </div>
+        ) : null}
+      </main>
+    </div>
   );
 }

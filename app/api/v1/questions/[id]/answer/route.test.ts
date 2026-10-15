@@ -44,6 +44,10 @@ function fakeStore(overrides: Partial<DebriefStore> = {}): DebriefStore {
       const plan = fn({ question: null, thread: null, correction_exists: false });
       return plan.result;
     },
+    // R-19 `preparing` inputs: never read by the answer route.
+    getLatestEndedSession: async () => null,
+    listSessionLines: async () => [],
+    listLabelledLineIds: async () => new Set(),
     ...overrides,
   };
   return store;

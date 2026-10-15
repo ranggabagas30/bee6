@@ -104,11 +104,11 @@ describe("POST /api/v1/capture/sessions", () => {
     const sbx: Outlet = { ...outlet, project_kind: "demo", sandbox };
     afterEach(() => vi.unstubAllEnvs());
 
-    it("DEMO_MODE + sandbox outlet: auto_stop_at_ms = start + 5 min", async () => {
+    it("DEMO_MODE + sandbox outlet: auto_stop_at_ms = start + 10 min", async () => {
       vi.stubEnv("DEMO_MODE", "true");
       const sessions = wire("device", sbx, 9_000_000_000_000);
       await POST(req({ session_id: S1, started_at_ms: NOW }));
-      expect(sessions.state.session?.auto_stop_at_ms).toBe(NOW + 300_000);
+      expect(sessions.state.session?.auto_stop_at_ms).toBe(NOW + 600_000);
     });
 
     it("11a: the same predicate as the capture config: a sandbox outlet whose device carries no expiry gets the normal close + 1 h", async () => {

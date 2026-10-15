@@ -1,4 +1,12 @@
 import type { Lang } from "@/lib/i18n/lang";
+import { journeyEN, journeyID } from "@/lib/i18n/v2/journey";
+import { sessionEN, sessionID } from "@/lib/i18n/v2/session";
+import { debriefEN, debriefID } from "@/lib/i18n/v2/debrief";
+import { webEN, webID } from "@/lib/i18n/v2/web";
+import { proposalsEN, proposalsID } from "@/lib/i18n/v2/proposals";
+import { devicesEN, devicesID } from "@/lib/i18n/v2/devices";
+import { sopEN, sopID } from "@/lib/i18n/v2/sop";
+import { homeEN, homeID } from "@/lib/i18n/v2/home";
 
 /**
  * Typed copy dictionary for the shop-phone screens (UX-03 section 6, copy
@@ -14,7 +22,7 @@ import type { Lang } from "@/lib/i18n/lang";
  * as {name} and filled by t(); a missing value throws.
  */
 
-export const ID = {
+export const ID_BASE = {
   // Switch control (shop top bar). Endonyms are the same in both modes.
   "C-lang-group": "Pilih bahasa",
   "C-lang-id": "Bahasa Indonesia",
@@ -469,32 +477,7 @@ export const ID = {
   "C-rev-retry": "Coba lagi", // PROVISIONAL
   "C-sop-outcome": "Hasil: {verdict}", // PROVISIONAL
   "C-sop-outcome-unknown": "Hasil: tidak diketahui (tidak dikonfirmasi, tidak diingat)", // PROVISIONAL
-  // R-18 P2: demo script drawer, carried-question chip, debrief refresh. All PROVISIONAL; the ID column is a draft for Tiffany.
-  "C-script-title": "Skrip demo", // PROVISIONAL
-  "C-script-rules": "Biarkan tab ini terbuka dan layar menyala. Izinkan mikrofon. Colokkan charger jika baterai menipis.", // PROVISIONAL
-  "C-script-before": "Ketuk Mulai untuk memulai. Tidak ada yang direkam sebelum Anda menekannya.", // PROVISIONAL
-  "C-script-card": "Kartu {n} dari {total}", // PROVISIONAL
-  "C-script-card-short": "{n}/{total}", // PROVISIONAL
-  "C-script-back": "Kembali", // PROVISIONAL
-  "C-script-next": "Berikutnya", // PROVISIONAL
-  "C-script-finish": "Selesai dan akhiri hari", // PROVISIONAL
-  "C-script-finishing": "Mengakhiri…", // PROVISIONAL
-  "C-script-ended": "Selesai. Jawab pertanyaan debrief, lalu ganti ke Supervisor.", // PROVISIONAL
-  "C-script-countdown": "Demo berakhir otomatis dalam {time}", // PROVISIONAL
-  "C-script-countdown-short": "Berakhir {time}", // PROVISIONAL
-  "C-script-reload": "Jika halaman ini dimuat ulang, ketuk Mulai lagi.", // PROVISIONAL
-  "C-script-cards-label": "Kartu skrip", // PROVISIONAL
-  "C-script-collapse": "Sembunyikan skrip", // PROVISIONAL
-  "C-script-expand": "Tampilkan skrip", // PROVISIONAL
-  "C-script-say": "Ucapkan", // PROVISIONAL
-  "C-script-own-words": "Dengan kata-kata Anda sendiri", // PROVISIONAL
-  "C-script-example": "Contoh", // PROVISIONAL
-  "C-script-intent": "Yang seharusnya dicatat aplikasi", // PROVISIONAL
-  "C-script-seconds": "Sekitar {n} dtk", // PROVISIONAL
-  "C-script-speaker-you": "Anda", // PROVISIONAL
-  "C-script-speaker-customer": "Pelanggan", // PROVISIONAL
-  "C-script-speaker-colleague": "Rekan kerja", // PROVISIONAL
-  "C-script-speaker-caller": "Penelepon", // PROVISIONAL
+  // R-18 P2 (drawer copy removed in R-19 PR-5): sandbox End dialog, carried-question chip, debrief refresh. All PROVISIONAL; the ID column is a draft for Tiffany.
   "C-script-end-b": "Debrief 1 jam dimulai sekarang. Tidak bisa dikembalikan.", // PROVISIONAL
   "C-script-day-ended": "Hari demo selesai. Ganti ke Supervisor untuk melihatnya.", // PROVISIONAL
   "C-script-earlier-day": "Hari sebelumnya · {date}", // PROVISIONAL
@@ -506,13 +489,11 @@ export const ID = {
   "C-demo-path": "Jalur yang disarankan: masuk sebagai Staf dan ucapkan satu hari kerja singkat, jawab debrief, lalu ganti ke Supervisor dan Pemilik lewat bar di atas.", // PROVISIONAL
   "C-demo-fictional": "Data demo fiktif", // PROVISIONAL
   "C-demo-bar": "Demo · Masuk sebagai {role} · Berakhir pukul {time}", // PROVISIONAL
-  "C-demo-switch": "Ganti ke {role}", // PROVISIONAL
   "C-demo-role-staff": "Staf", // PROVISIONAL
   "C-demo-role-supervisor": "Supervisor", // PROVISIONAL
   "C-demo-role-owner": "Pemilik", // PROVISIONAL
   "C-demo-busy": "Menyiapkan toko demo Anda…", // PROVISIONAL
   "C-demo-expired": "Sesi demo Anda sudah berakhir.", // PROVISIONAL
-  "C-demo-restart": "Mulai demo baru", // PROVISIONAL
   "C-demo-restart-confirm": "Buang toko demo ini dan mulai dari awal? Jawaban dan keputusan Anda di toko ini tidak bisa dibuka lagi.", // PROVISIONAL
   "C-demo-restart-yes": "Ya, mulai dari awal", // PROVISIONAL
   "C-demo-restart-keep": "Tetap di demo ini", // PROVISIONAL
@@ -528,9 +509,22 @@ export const ID = {
   "C-demo-retry-later": "Coba lagi nanti.", // PROVISIONAL
 } as const;
 
+/** R-19 i18n v2 slices (lib/i18n/v2/*): merged once here; later PRs add keys only in their own slice file. */
+export const ID = {
+  ...ID_BASE,
+  ...journeyID,
+  ...sessionID,
+  ...debriefID,
+  ...webID,
+  ...proposalsID,
+  ...devicesID,
+  ...sopID,
+  ...homeID,
+} as const;
+
 export type DictKey = keyof typeof ID;
 
-export const EN: Record<DictKey, string> = {
+export const EN_BASE: Record<keyof typeof ID_BASE, string> = {
   "C-lang-group": "Choose language",
   "C-lang-id": "Bahasa Indonesia",
   "C-lang-en": "English",
@@ -967,32 +961,7 @@ export const EN: Record<DictKey, string> = {
   "C-rev-retry": "Try again", // PROVISIONAL
   "C-sop-outcome": "Outcome: {verdict}", // PROVISIONAL
   "C-sop-outcome-unknown": "Outcome: unknown (not confirmed, not remembered)", // PROVISIONAL
-  // R-18 P2: demo script drawer, carried-question chip, debrief refresh. All PROVISIONAL; the ID column is a draft for Tiffany.
-  "C-script-title": "Demo script", // PROVISIONAL
-  "C-script-rules": "Keep this tab open and the screen on. Allow the microphone. Plug in if the battery is low.", // PROVISIONAL
-  "C-script-before": "Tap Start to begin. Nothing is recorded until you do.", // PROVISIONAL
-  "C-script-card": "Card {n} of {total}", // PROVISIONAL
-  "C-script-card-short": "{n}/{total}", // PROVISIONAL
-  "C-script-back": "Back", // PROVISIONAL
-  "C-script-next": "Next", // PROVISIONAL
-  "C-script-finish": "Finish and end the day", // PROVISIONAL
-  "C-script-finishing": "Finishing…", // PROVISIONAL
-  "C-script-ended": "Done. Answer the debrief questions, then switch to Supervisor.", // PROVISIONAL
-  "C-script-countdown": "Demo ends automatically in {time}", // PROVISIONAL
-  "C-script-countdown-short": "Ends in {time}", // PROVISIONAL
-  "C-script-reload": "If this page reloads, tap Start again.", // PROVISIONAL
-  "C-script-cards-label": "Script cards", // PROVISIONAL
-  "C-script-collapse": "Hide script", // PROVISIONAL
-  "C-script-expand": "Show script", // PROVISIONAL
-  "C-script-say": "Say", // PROVISIONAL
-  "C-script-own-words": "In your own words", // PROVISIONAL
-  "C-script-example": "Example", // PROVISIONAL
-  "C-script-intent": "What the app should notice", // PROVISIONAL
-  "C-script-seconds": "About {n} s", // PROVISIONAL
-  "C-script-speaker-you": "You", // PROVISIONAL
-  "C-script-speaker-customer": "Customer", // PROVISIONAL
-  "C-script-speaker-colleague": "Colleague", // PROVISIONAL
-  "C-script-speaker-caller": "Caller", // PROVISIONAL
+  // R-18 P2 (drawer copy removed in R-19 PR-5): sandbox End dialog, carried-question chip, debrief refresh. All PROVISIONAL; the ID column is a draft for Tiffany.
   "C-script-end-b": "The 1-hour debrief starts now. This cannot be undone.", // PROVISIONAL
   "C-script-day-ended": "Demo day finished. Switch to Supervisor to see it.", // PROVISIONAL
   "C-script-earlier-day": "Earlier day · {date}", // PROVISIONAL
@@ -1004,13 +973,11 @@ export const EN: Record<DictKey, string> = {
   "C-demo-path": "Suggested path: sign in as Staff and speak a short shop day, answer the debrief, then switch to Supervisor and Owner from the bar at the top.", // PROVISIONAL
   "C-demo-fictional": "Fictional demo data", // PROVISIONAL
   "C-demo-bar": "Demo · Signed in as {role} · Ends at {time}", // PROVISIONAL
-  "C-demo-switch": "Switch to {role}", // PROVISIONAL
   "C-demo-role-staff": "Staff", // PROVISIONAL
   "C-demo-role-supervisor": "Supervisor", // PROVISIONAL
   "C-demo-role-owner": "Owner", // PROVISIONAL
   "C-demo-busy": "Preparing your demo shop…", // PROVISIONAL
   "C-demo-expired": "Your demo session has ended.", // PROVISIONAL
-  "C-demo-restart": "Start a new demo", // PROVISIONAL
   "C-demo-restart-confirm": "Discard this demo shop and start over? You will not be able to open your answers and decisions in it again.", // PROVISIONAL
   "C-demo-restart-yes": "Yes, start over", // PROVISIONAL
   "C-demo-restart-keep": "Stay in this demo", // PROVISIONAL
@@ -1024,6 +991,18 @@ export const EN: Record<DictKey, string> = {
   "C-demo-retry-hr": "Try again in about {n} h.", // PROVISIONAL
   "C-demo-retry-tomorrow": "Try again tomorrow.", // PROVISIONAL
   "C-demo-retry-later": "Try again later.", // PROVISIONAL
+};
+
+export const EN: Record<DictKey, string> = {
+  ...EN_BASE,
+  ...journeyEN,
+  ...sessionEN,
+  ...debriefEN,
+  ...webEN,
+  ...proposalsEN,
+  ...devicesEN,
+  ...sopEN,
+  ...homeEN,
 };
 
 export const DICT: Record<Lang, Record<DictKey, string>> = { id: ID, en: EN };

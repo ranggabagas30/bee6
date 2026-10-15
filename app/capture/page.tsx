@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import dynamic from "next/dynamic";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { StatusBanner, headlineStateFor } from "@/app/capture/StatusBanner";
 import { DevPanel } from "@/app/capture/DevPanel";
@@ -21,20 +20,32 @@ import { idleViewFor } from "@/app/capture/idle-view";
 import { selesaiViewFor } from "@/app/capture/selesai-view";
 import { isDiscardArmed, nextMulaiIsNow, shouldAutoClosePanel } from "@/app/capture/batalkan-panel";
 import { DebriefFlow } from "@/app/capture/debrief/DebriefFlow";
-import { drawerInsetStyle, isCompactChrome, useDrawerLayout, type DrawerState } from "@/app/capture/drawer-layout";
+import { OpenSessionView } from "@/app/capture/OpenSessionView";
+import { SignOutDialog, type SignOutKind } from "@/app/capture/SignOutDialog";
+import { configPollMs, dropOpenSession, markOpenSessionClosed, mergeRefreshedLastEnded } from "@/app/capture/config-refresh";
+import { drawerInsetStyle, isCompactChrome, useDrawerLayout } from "@/app/capture/drawer-layout";
+import { capturePhaseFor, publishCaptureBridge, useDebriefDoneFlag, useDebriefView, type CaptureBridgeActions } from "@/app/demo/guide-bridge";
 import { ShopTopBar } from "@/app/shop/ShopTopBar";
+import { Button, Chip } from "@/app/ui";
 import { useLang } from "@/lib/i18n/context";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import { clockLabel, dayLabel } from "@/lib/i18n/format";
 import { sessionErrorKey } from "@/lib/i18n/codes";
 import {
+  clearDeviceAuth,
   fetchCaptureConfig,
+  postDemoClosing,
   postSessionDiscard,
   postSessionEnd,
   postSessionStart,
   readDeviceAuth,
 } from "@/lib/capture/browser/client";
-import { startCaptureSession, type CaptureSession } from "@/lib/capture/browser/session";
+import {
+  startCaptureSession,
+  type CaptureSession,
+  type CaptureStopOptions,
+  type CaptureStopResult,
+} from "@/lib/capture/browser/session";
 import {
   createEventRingBuffer,
   type CaptureEvent,
@@ -46,6 +57,7 @@ import { autoStopDeadline, selesaiReady } from "@/lib/capture/demo-session";
 import {
   addDays,
   businessDateOf,
+  closeMs,
   localDateOf,
   mulaiAvailability,
   mulaiWindowDateOf,
@@ -53,6 +65,7 @@ import {
   zonedTimeToEpochMs,
   DEBRIEF_DURATION_MS,
 } from "@/lib/capture/calendar";
+import type { NextDayRefusal } from "@/lib/demo/contract";
 import type { CaptureStatus } from "@/lib/capture/browser/engine";
 import type { MicSourceClass } from "@/lib/capture/mic-source";
 
@@ -66,13 +79,11 @@ import type { MicSourceClass } from "@/lib/capture/mic-source";
  */
 
 /**
- * The R-18 script drawer (sandbox judge devices only). Loaded lazily and only rendered when the server's
- * capture config carries `demo_session`, so the pilot /capture never downloads the script text. The page
- * must not import the drawer or the script data statically (see app/demo/import-boundaries.test.ts).
+ * R-19 PR-5: the judge guide (script cards, Jump to closing time, Jump to tomorrow) lives in the root layout,
+ * mounted only when DEMO_MODE is on. This page never imports it or the script data (see
+ * app/demo/import-boundaries.test.ts); for a sandbox judge device it publishes ONE snapshot through
+ * app/demo/guide-bridge.ts (profile, phase, counts, two callbacks; never text) and the guide subscribes.
  */
-const ScriptDrawer = dynamic(() => import("@/app/capture/ScriptDrawer").then((m) => m.ScriptDrawer), {
-  ssr: false,
-});
 
 const PAGE_STYLE: React.CSSProperties = {
   maxWidth: 360,
@@ -106,6 +117,29 @@ const PANEL_STYLE: React.CSSProperties = {
 };
 
 type View = "loading" | "error" | "unsupported" | "ready";
+
+/**
+ * R-19 (plan 4.4): the one-line reason shown under a locked Start on a sandbox. `unanswered_questions` is a
+ * confirm dialog in the judge guide (PR-2), not a lock line, so it falls back to the guide hint.
+ */
+const NEXT_DAY_REASON_KEY: Record<Exclude<NextDayRefusal, "unanswered_questions">, DictKey> = {
+  proposal_exists: "C-sess-next-day-proposal_exists",
+  max_days: "C-sess-next-day-max_days",
+  session_open: "C-sess-next-day-session_open",
+  day_not_ended: "C-sess-next-day-day_not_ended",
+  preparing: "C-sess-next-day-preparing",
+  shift_incomplete: "C-sess-next-day-shift_incomplete",
+  busy: "C-sess-next-day-busy",
+};
+
+/** R-19 PR-4b (plan 5.7): the longest the demo sign-out waits for the upload queue to drain. */
+const SIGN_OUT_DRAIN_MAX_MS = 15_000;
+
+/** The page's own copy for a closing-route failure (plan 5.4); the server's message is never shown. */
+interface ClosingError {
+  key: DictKey;
+  vars?: Record<string, string | number>;
+}
 
 /**
  * The next OPEN business day strictly after `localDate` — never the closed
@@ -167,9 +201,7 @@ export default function CapturePage() {
   const sessionRef = useRef<CaptureSession | null>(null);
   const sessionGenRef = useRef(0);
   const [sessionRunning, setSessionRunning] = useState(false);
-  // R-18 script drawer (sandbox only): open/collapsed is page state (the side-panel layout moves the page
-  // column). Collapsed before Start; it opens by itself on Start (see the state change below).
-  const [scriptOpen, setScriptOpen] = useState(false);
+  // Sandbox only: from 900 px the judge guide's side panel takes the right 360 px, so the page column moves left.
   const drawerLayout = useDrawerLayout();
   const [status, setStatus] = useState<CaptureStatus | null>(null);
   const [lastUploadStatus, setLastUploadStatus] = useState<CaptureStatus | null>(null);
@@ -197,6 +229,31 @@ export default function CapturePage() {
   const batalkanBusyRef = useRef(false);
   const [batalkanBusy, setBatalkanBusy] = useState(false);
   const [batalkanErrorKey, setBatalkanErrorKey] = useState<DictKey | null>(null);
+
+  // R-19 PR-4a "Jump to closing time" (plan 5.4, 5.5; sandbox only). `closingReached` unlocks End for the
+  // current local session; it resets on every Start. The error is the page's own copy (never server text).
+  const closingBusyRef = useRef(false);
+  const [closingBusy, setClosingBusy] = useState(false);
+  const [closingReached, setClosingReached] = useState(false);
+  const [closingError, setClosingError] = useState<ClosingError | null>(null);
+  // R-19 PR-4a (plan 5.2): the sum of `segment_accepted` line COUNTS since Start. A number only; it never
+  // sees a line. Shown through the dev readout; PR-5's script card reads it for "I have spoken this".
+  const [linesThisSession, setLinesThisSession] = useState(0);
+
+  // R-19 PR-4b (plan 5.7; sandbox only): staff sign-out is LOCAL (clear the device pair, back to "/"). Before closing
+  // it first cancels today through the existing discard route; after closing it touches no session route.
+  const [signOutKind, setSignOutKind] = useState<SignOutKind | null>(null);
+  const signOutBusyRef = useRef(false);
+  const [signOutBusy, setSignOutBusy] = useState(false);
+  const [signOutFinishing, setSignOutFinishing] = useState(false);
+  const [signOutErrorKey, setSignOutErrorKey] = useState<DictKey | null>(null);
+  // R-19 PR-4b (plan 5.7a): End / Cancel from the open-session view (a server session this page is not running).
+  const openBusyRef = useRef(false);
+  const [openBusy, setOpenBusy] = useState(false);
+  const [openErrorKey, setOpenErrorKey] = useState<DictKey | null>(null);
+  // R-19 PR-4b: bumped whenever the phone itself changes the session, so a config re-fetch that started earlier
+  // can never overwrite what the phone just did.
+  const configGenRef = useRef(0);
 
   // DEV-01 manual-start re-entrancy guards (unchanged from the pre-rewrite page).
   const devStartingRef = useRef(false);
@@ -246,21 +303,17 @@ export default function CapturePage() {
       ? idleViewFor({ config: effectiveConfig, nowMs, lang })
       : null;
 
-  // R-18: the script drawer exists only for a sandbox judge device (server field `demo_session`).
+  // The sandbox journey profile exists only for a sandbox judge device (server field `demo_session`).
   const demoSession = config?.demo_session;
-  const drawerState: DrawerState = session
-    ? "running"
-    : idle && !idle.offered && (idle.headline === "ended" || idle.headline === "ended_auto")
-      ? "ended"
-      : "before";
-  // The drawer is collapsed before Start and opens by itself as Start is tapped (and on the ended text); a
-  // return to "before" (Cancel session) collapses it again. A tap on its toggle wins until the next change.
-  const [seenDrawerState, setSeenDrawerState] = useState<DrawerState>(drawerState);
-  if (seenDrawerState !== drawerState) {
-    setSeenDrawerState(drawerState);
-    setScriptOpen(drawerState !== "before");
-  }
   const compactChrome = isCompactChrome({ present: demoSession !== undefined, wide: drawerLayout.wide });
+
+  // R-19 PR-4b: the "cancel today" sign-out dialog promises a cancel. If the 10-min auto-stop ends the session
+  // underneath it, that promise is gone (there is nothing left to cancel), so the dialog closes rather than letting
+  // Confirm fall into the after-closing branch. Render-time sync, same shape as the drawer state above. The
+  // dialog's `busy` also covers `autoStopBusy`, so Confirm cannot fire during the end call itself.
+  if (signOutKind === "running" && session === null) {
+    setSignOutKind(null);
+  }
 
   // Debrief entry (R-07, technical spec §8.10): per-device, from this
   // device's own last-ended record — the phone-local one set the instant
@@ -298,14 +351,43 @@ export default function CapturePage() {
   // stopRunningSession reads only refs and stable setState setters, so an
   // empty dep array is accurate — it lets the auto-stop effect below list it
   // as a dependency without re-running on every render.
-  const stopRunningSession = useCallback((): void => {
+  // It returns the engine's stop promise (settles once the in-flight upload drained, or at `drainMs`, 5 s by
+  // default) so the demo sign-out can wait for it; every other caller ignores it, as before.
+  const stopRunningSession = useCallback((options?: CaptureStopOptions): Promise<CaptureStopResult | null> => {
     sessionGenRef.current += 1;
     const s = sessionRef.current;
     sessionRef.current = null;
     setSessionRunning(false);
     setStatus(null);
-    if (s) void s.stop();
+    return s ? s.stop(options) : Promise.resolve(null);
   }, []);
+
+  // ── R-19 PR-4b: re-read the capture config (sandbox only) ──────────────────
+  // The page loads it once at mount, but on a sandbox the answer changes under it: after End or Cancel, when the
+  // debrief ends, after a next-day jump, and while `next_day` reports `busy`. A result is applied only if the
+  // phone did not change the session since the request started (configGenRef), and never replaces the
+  // phone-local `lastEnded` of the same day (it is the debrief's key). Failures keep the screen as it is.
+  const refreshConfig = useCallback(async (): Promise<void> => {
+    const auth = readDeviceAuth();
+    if (!auth) return;
+    const gen = configGenRef.current;
+    try {
+      const loaded = await fetchCaptureConfig(auth);
+      if (gen !== configGenRef.current) return;
+      setConfig(loaded);
+      // NOTE (PR-7, owner reset): mergeRefreshedLastEnded keeps the phone's record when the server returns
+      // last_ended null. Once the owner can reset the sandbox, a null from the server is legitimate (the day is
+      // gone) and PR-7 must invalidate the local record there, or the phone keeps showing a day that no longer exists.
+      setLastEnded((prev) => mergeRefreshedLastEnded(prev, loaded.last_ended));
+    } catch {
+      /* keep the config we have */
+    }
+  }, []);
+  /** The phone ended or cancelled a session itself: invalidate older fetches, then read the server's view. */
+  const afterSessionChanged = useCallback((): void => {
+    configGenRef.current += 1;
+    void refreshConfig();
+  }, [refreshConfig]);
 
   // ── Auto-stop (§8.7): close(D) + 1h, enforced by the phone only ────────────
   // Reacts to the same `nowMs` the 30s tick / visibilitychange handler below
@@ -355,9 +437,10 @@ export default function CapturePage() {
         // autoStopInFlightRef stays true until the next Mulai: this session is over, and a render that still
         // holds it (a tick between the render and the effect flush) must not end it a second time.
         setAutoStopBusy(false);
+        if (config.demo_session !== undefined) afterSessionChanged();
       })();
     });
-  }, [session, config, nowMs, stopRunningSession]);
+  }, [session, config, nowMs, stopRunningSession, afterSessionChanged]);
 
   useEffect(() => {
     const tick = () => setNowMs(Date.now());
@@ -378,6 +461,26 @@ export default function CapturePage() {
     const id = setInterval(() => setNowMs(Date.now()), 1_000);
     return () => clearInterval(id);
   }, [demoTicking]);
+
+  // R-19 PR-4b: an idle sandbox phone re-reads its config every 30 s (5 s while `next_day` is `busy`, which is
+  // transient) and when the tab becomes visible. Not while a session runs or Start is in flight, and never on
+  // the pilot. This is also what shows the end of the debrief and a next-day jump without a reload.
+  const refreshable = view === "ready" && demoSession !== undefined && session === null && !mulaiBusy;
+  const pollMs = configPollMs(demoSession?.next_day.reason ?? null);
+  useEffect(() => {
+    if (!refreshable) return;
+    const id = setInterval(() => {
+      if (document.visibilityState !== "hidden") void refreshConfig();
+    }, pollMs);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refreshConfig();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [refreshable, pollMs, refreshConfig]);
 
   // Batalkan panel's own fast tick (arm delay + auto-close).
   useEffect(() => {
@@ -416,7 +519,13 @@ export default function CapturePage() {
       },
       onUnsupported: () => setView("unsupported"),
       onSampleRateRejected: (msg: string) => setSampleRateMsg(msg),
-      onEvent: devControlsEnabled ? handleEvent : undefined,
+      // Always wired (R-19 line counting needs it); the DEV-01 ring buffer only fills in dev mode.
+      onEvent: (event: CaptureEvent) => {
+        if (event.type === "segment_accepted" && isCurrent()) {
+          setLinesThisSession((n) => n + event.lines);
+        }
+        if (devControlsEnabled) handleEvent(event);
+      },
     };
   }
 
@@ -430,11 +539,17 @@ export default function CapturePage() {
       return;
     }
     mulaiInFlightRef.current = true;
+    // R-19 PR-4b: no config re-fetch started before this Start may land after it.
+    configGenRef.current += 1;
     // A new session: the previous one's end guards (Selesai, auto-stop) are done.
     selesaiBusyRef.current = false;
     autoStopInFlightRef.current = false;
     setMulaiBusy(true);
     setMulaiErrorKey(null);
+    // R-19: closing and the heard-line count belong to one session each.
+    setClosingReached(false);
+    setClosingError(null);
+    setLinesThisSession(0);
     const sessionId = crypto.randomUUID();
     const startedAt = Date.now();
     const result = await postSessionStart(auth, {
@@ -465,6 +580,13 @@ export default function CapturePage() {
     mulaiInFlightRef.current = false;
     setMulaiBusy(false);
     if (!captureSession) return; // onUnsupported already switched the view
+    // The page moved on while the engine was starting (unmount bumps the generation: a sign-out from the idle
+    // branch, or navigation): this session has no owner, so release the mic now instead of uploading from a dead
+    // page.
+    if (gen !== sessionGenRef.current) {
+      void captureSession.stop();
+      return;
+    }
     sessionRef.current = captureSession;
     setSessionRunning(true);
     setSession({ session_id: sessionId, started_at_ms: startedAt, local_date: localDate });
@@ -484,9 +606,12 @@ export default function CapturePage() {
     setSelesaiConfirmOpen(false);
   }
   async function confirmSelesai() {
-    // The 5:00 auto-stop already ended (or is ending) this session: a second end call would race it and could
+    // The 10:00 auto-stop already ended (or is ending) this session: a second end call would race it and could
     // flip the headline from "Ended automatically" to a plain Selesai.
     if (!session || selesaiBusyRef.current || autoStopInFlightRef.current) return;
+    // R-19 (plan 5.5): on a sandbox, End is locked until closing. The button is disabled before that; this guard
+    // keeps the drawer's Finish and any stale handler honest too (the server would answer 409 closing_not_reached).
+    if (config?.demo_session !== undefined && !closingReached) return;
     const auth = readDeviceAuth();
     if (!auth) return;
     selesaiBusyRef.current = true;
@@ -512,14 +637,78 @@ export default function CapturePage() {
     });
     stopRunningSession();
     setSession(null);
+    if (config?.demo_session !== undefined) afterSessionChanged();
   }
 
-  // R-18: the drawer's Finish IS the Selesai confirmation (it skips the dialog) and runs the same handler.
-  // It does nothing while the 5:00 auto-stop is already ending the session.
-  function handleDrawerFinish() {
-    if (autoStopInFlightRef.current) return;
-    void confirmSelesai();
+  // ── R-19 "Jump to closing time" (plan 5.4; sandbox only) ────────────────────
+  // POST /api/v1/demo/closing for the current session. 200 unlocks End ("End today"); 409 not_enough_speech
+  // shows the {have} of {need} line (counts from the server, zod-validated in the client); anything else the
+  // generic line. The server guard is the only speech rule: the page never measures time or text.
+  async function handleJumpToClosing() {
+    if (!session || !config?.demo_session || closingReached) return;
+    if (closingBusyRef.current || autoStopInFlightRef.current || selesaiBusyRef.current) return;
+    const auth = readDeviceAuth();
+    if (!auth) return;
+    closingBusyRef.current = true;
+    setClosingBusy(true);
+    setClosingError(null);
+    const result = await postDemoClosing(auth, session.session_id);
+    closingBusyRef.current = false;
+    setClosingBusy(false);
+    if (result.ok) {
+      setClosingReached(true);
+      return;
+    }
+    if (result.status === 409 && result.code === "not_enough_speech" && result.details) {
+      setClosingError({ key: "C-sess-closing-not-enough", vars: result.details });
+      return;
+    }
+    setClosingError({ key: sessionErrorKey(result.status, result.code) });
   }
+
+  // ── R-19 PR-5: publish the guide bridge (sandbox only) ───────────────────────
+  // The guide's "Jump to closing time" runs the latest handleJumpToClosing through a ref, so the published
+  // actions object is stable and the snapshot is re-published only when one of its fields changes.
+  const jumpRef = useRef<() => Promise<void>>(async () => {});
+  useEffect(() => {
+    jumpRef.current = handleJumpToClosing;
+  });
+  const bridgeActions: CaptureBridgeActions = useMemo(
+    () => ({ jumpToClosing: () => void jumpRef.current(), refetchConfig: refreshConfig }),
+    [refreshConfig],
+  );
+  // The engine's own mic / upload trouble, as a flag (drives the guide's "Not picking up your voice?" hint).
+  const micTrouble =
+    status !== null &&
+    (status.state === "mic_error" || status.micError !== null || status.lostSinceSuccess || status.headFailedAttempts > 0);
+  const sessionId = session?.session_id ?? null;
+  const sessionClosingReached = session ? closingReached : null;
+  const startOffered = idle?.offered ?? false;
+  // Re-read the moment the debrief's done screen writes it (R-19 PR-5 D3), not on the next 30 s tick.
+  const debriefDoneFlag = useDebriefDoneFlag();
+  // ...and the debrief's own screen (round-4 D2), so preparing -> question flips the phase with the page, not on
+  // the guide's next config re-poll.
+  const debriefView = useDebriefView();
+  useEffect(() => {
+    if (view !== "ready" || demoSession === undefined || nowMs === null) {
+      publishCaptureBridge(null);
+      return;
+    }
+    const phase = capturePhaseFor({
+      profile: demoSession,
+      session: sessionClosingReached === null ? null : { closingReached: sessionClosingReached },
+      lastEnded,
+      nowMs,
+      debriefDoneFlag,
+      debriefView,
+      startOffered,
+    });
+    publishCaptureBridge({
+      state: { profile: demoSession, phase, sessionId, linesThisSession, closingBusy, closingError, micTrouble },
+      actions: bridgeActions,
+    });
+  }, [view, demoSession, nowMs, sessionClosingReached, lastEnded, debriefDoneFlag, debriefView, startOffered, sessionId, linesThisSession, closingBusy, closingError, micTrouble, bridgeActions]);
+  useEffect(() => () => publishCaptureBridge(null), []);
 
   // ── Batalkan (§5.6, web spec §6.6.5) ────────────────────────────────────────
   function openBatalkan() {
@@ -561,6 +750,153 @@ export default function CapturePage() {
     });
     stopRunningSession();
     setSession(null);
+    if (config?.demo_session !== undefined) afterSessionChanged();
+  }
+
+  // ── R-19 PR-4b: the open-session view's two actions (plan 5.7a) ─────────────
+  // The server session this page is NOT running (a reload or a returning judge). End = the existing end route
+  // (`selesai`, now), then the debrief as after any End. Cancel = the existing discard route, then Start is offered.
+  // The business date is derived the way the server derived it for the stored start.
+  function openSessionDate(startedAtMs: number): string | null {
+    if (!config) return null;
+    return mulaiWindowDateOf(startedAtMs, config.weekly_hours, config.timezone) ?? businessDateOf(startedAtMs, config.timezone);
+  }
+  async function handleOpenEnd() {
+    const open = demoSession?.open_session;
+    if (!open || openBusyRef.current) return;
+    const auth = readDeviceAuth();
+    const localDate = openSessionDate(open.started_at_ms);
+    if (!auth || localDate === null) return;
+    openBusyRef.current = true;
+    setOpenBusy(true);
+    setOpenErrorKey(null);
+    const endedAt = Date.now();
+    const result = await postSessionEnd(auth, open.session_id, {
+      started_at_ms: open.started_at_ms,
+      ended_at_ms: endedAt,
+      end_reason: "selesai",
+    });
+    openBusyRef.current = false;
+    setOpenBusy(false);
+    if (!result.ok) {
+      setOpenErrorKey(sessionErrorKey(result.status, result.code));
+      return;
+    }
+    setLastEnded({ business_date: localDate, end_reason: "selesai", debrief_ends_at_ms: endedAt + DEBRIEF_DURATION_MS });
+    setConfig((c) => (c ? dropOpenSession(c) : c));
+    afterSessionChanged();
+  }
+  async function handleOpenCancel() {
+    const open = demoSession?.open_session;
+    if (!open || openBusyRef.current) return;
+    const auth = readDeviceAuth();
+    const localDate = openSessionDate(open.started_at_ms);
+    if (!auth || localDate === null) return;
+    openBusyRef.current = true;
+    setOpenBusy(true);
+    setOpenErrorKey(null);
+    const result = await postSessionDiscard(auth, open.session_id, {
+      started_at_ms: open.started_at_ms,
+      discarded_at_ms: Date.now(),
+    });
+    openBusyRef.current = false;
+    setOpenBusy(false);
+    if (!result.ok) {
+      if (result.status === 409 && result.code === "closing_reached") {
+        // Closing was marked meanwhile: the day can no longer be cancelled, only ended.
+        setConfig((c) => (c ? markOpenSessionClosed(c) : c));
+        return;
+      }
+      setOpenErrorKey(sessionErrorKey(result.status, result.code));
+      return;
+    }
+    setLastEnded({ business_date: localDate, end_reason: "discarded", debrief_ends_at_ms: null });
+    setConfig((c) => (c ? dropOpenSession(c) : c));
+    afterSessionChanged();
+  }
+
+  // ── R-19 PR-4b: demo staff sign-out (plan 5.7; local) ───────────────────────
+  function finishSignOut() {
+    clearDeviceAuth();
+    router.replace("/");
+  }
+  function handleSignOutTap() {
+    // Not while Start is in flight: the engine may still be starting, and a sign-out now would leave the mic on
+    // and the engine uploading from an unmounted page. The button is disabled too; this keeps a stale tap honest.
+    if (signOutBusyRef.current || mulaiInFlightRef.current || openBusyRef.current) return;
+    setSignOutErrorKey(null);
+    if (session) {
+      setSignOutKind(closingReached ? "closed" : "running");
+      return;
+    }
+    // No running session on this page. A server session that is still open past closing time stays open, so say so;
+    // an interrupted one (or none) is not touched and the judge leaves at once.
+    if (demoSession?.open_session?.closing_reached) {
+      setSignOutKind("closed");
+      return;
+    }
+    finishSignOut();
+  }
+  async function confirmSignOut() {
+    if (signOutKind === null || signOutBusyRef.current) return;
+    signOutBusyRef.current = true;
+    setSignOutBusy(true);
+    setSignOutErrorKey(null);
+    if (signOutKind === "running" && session) {
+      // Before closing: signing out cancels today, through the existing discard route. A failure keeps the judge here.
+      const auth = readDeviceAuth();
+      if (!auth) {
+        finishSignOut();
+        return;
+      }
+      const result = await postSessionDiscard(auth, session.session_id, {
+        started_at_ms: session.started_at_ms,
+        discarded_at_ms: Date.now(),
+      });
+      if (!result.ok) {
+        signOutBusyRef.current = false;
+        setSignOutBusy(false);
+        if (result.status === 409 && result.code === "closing_reached") {
+          // The server already marked closing: nothing can be cancelled, and nothing was deleted.
+          setClosingReached(true);
+          setSignOutKind("closed");
+          return;
+        }
+        setSignOutErrorKey(sessionErrorKey(result.status, result.code));
+        return;
+      }
+      configGenRef.current += 1;
+      void stopRunningSession();
+      finishSignOut();
+      return;
+    }
+    // After closing (or an open session past closing): no session route at all. Stop the engine (mic off, wake lock
+    // released, no end POST), then give the in-memory upload queue at most 15 s to drain. The engine's own stop()
+    // bounds the drain at 5 s by default, so the 15 s is passed down to it; the race here is only the outer guard
+    // should the stop promise itself hang (it never waits on an upload beyond `drainMs`).
+    setSignOutFinishing(session !== null);
+    configGenRef.current += 1;
+    const drain = stopRunningSession({ drainMs: SIGN_OUT_DRAIN_MAX_MS });
+    if (session !== null) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const result = await Promise.race([
+        drain.catch((): null => null),
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => resolve(null), SIGN_OUT_DRAIN_MAX_MS);
+        }),
+      ]);
+      clearTimeout(timer);
+      // Observability for the judge run: a COUNT only (hard rule #7: no text, no session or device id).
+      // `droppedCount` alone undercounts (queue overflow and pump give-ups only); the segments still queued or in
+      // flight when the drain ended are the other half.
+      console.info(
+        "[capture] demo sign-out after closing: segments dropped by the engine:",
+        result?.droppedCount ?? 0,
+        "still queued or in flight:",
+        result?.queuedCount ?? 0,
+      );
+    }
+    finishSignOut();
   }
 
   // ── DEV-01 manual controls: same startCaptureSession()/session.stop() as
@@ -603,6 +939,21 @@ export default function CapturePage() {
   // `primary` slots; `renderIdle` only builds the two pieces and decides
   // whether a debrief exists to hand them to.
   function renderIdle() {
+    // R-19 PR-4b (plan 5.7a): a still-open server session of this device replaces the idle screen (and its Start)
+    // entirely. The page never resumes listening into it; it can only be ended (past closing) or cancelled.
+    const openSession = demoSession?.open_session ?? null;
+    if (openSession) {
+      return (
+        <OpenSessionView
+          lang={lang}
+          closingReached={openSession.closing_reached}
+          busy={openBusy}
+          errorKey={openErrorKey}
+          onEnd={() => void handleOpenEnd()}
+          onCancel={() => void handleOpenCancel()}
+        />
+      );
+    }
     if (!idle) return null;
     const headline = (
       <StatusBanner
@@ -613,17 +964,37 @@ export default function CapturePage() {
         compact={compactChrome}
       />
     );
+    // R-19 (plan 5.6), sandbox only: while Start is locked the button is NOT rendered; the unlock line and
+    // either the guide hint (next_day allowed) or the one-line reason take its place. The pilot keeps its
+    // disabled button exactly as before.
+    const startLocked = demoSession !== undefined && !idle.offered;
+    const nextDayReason = demoSession?.next_day.reason ?? null;
+    // `day_not_ended` can never be true while Start is locked (the day already ended), and the jump is not
+    // allowed either, so it gets no reason line and no jump hint.
+    const lockedHintKey: DictKey | null =
+      nextDayReason === "day_not_ended"
+        ? null
+        : nextDayReason === null || nextDayReason === "unanswered_questions"
+          ? "C-sess-start-jump-hint"
+          : NEXT_DAY_REASON_KEY[nextDayReason];
     const primary = (
       <>
-        <button
-          type="button"
-          style={PRIMARY_BUTTON_STYLE}
-          onClick={handleMulaiTap}
-          disabled={mulaiBusy}
-          aria-disabled={!idle.offered || mulaiBusy ? "true" : undefined}
-        >
-          {mulaiBusy ? t(lang, "C-b-mulai-busy") : t(lang, "C-b-mulai")}
-        </button>
+        {startLocked ? (
+          <>
+            <p style={{ marginTop: 16, fontSize: 16, fontWeight: 700 }}>{t(lang, "C-sess-start-locked")}</p>
+            {lockedHintKey ? <p style={{ fontSize: 14 }}>{t(lang, lockedHintKey)}</p> : null}
+          </>
+        ) : (
+          <button
+            type="button"
+            style={PRIMARY_BUTTON_STYLE}
+            onClick={handleMulaiTap}
+            disabled={mulaiBusy}
+            aria-disabled={!idle.offered || mulaiBusy ? "true" : undefined}
+          >
+            {mulaiBusy ? t(lang, "C-b-mulai-busy") : t(lang, "C-b-mulai")}
+          </button>
+        )}
         {idle.offered ? <p style={{ fontSize: 14 }}>{t(lang, "C-h-idle-help")}</p> : null}
         {mulaiErrorKey ? (
           <p role="alert" style={{ color: "#b00020" }}>
@@ -656,7 +1027,7 @@ export default function CapturePage() {
         nextMulaiText={nextMulaiText}
         headline={headline}
         primary={primary}
-        refresh={config?.demo_session !== undefined}
+        demo={config?.demo_session !== undefined}
       />
     );
   }
@@ -664,6 +1035,24 @@ export default function CapturePage() {
   // ── running view (a session is open) ────────────────────────────────────────
   function renderSelesaiArea() {
     if (!session || !config || nowMs === null) return null;
+    if (config.demo_session !== undefined) {
+      // R-19 (plan 5.5), sandbox: End is ALWAYS rendered, really `disabled` (not only aria-disabled) with the
+      // template outlet's closing time until "Jump to closing time", then enabled as "End today". `closeMs` is
+      // null only on a closed weekday of the template hours, which the demo template never has.
+      const close = closeMs(session.local_date, config.weekly_hours, config.timezone);
+      const closeHm = close === null ? "--:--" : clockLabel(close, config.timezone);
+      return (
+        <Button
+          variant="secondary"
+          block
+          style={{ marginTop: 12, minHeight: 48 }}
+          disabled={!closingReached}
+          onClick={openSelesaiConfirm}
+        >
+          {closingReached ? t(lang, "C-sess-end-today") : t(lang, "C-sess-end-locked", { time: closeHm })}
+        </Button>
+      );
+    }
     const sv = selesaiViewFor({
       nowMs,
       session,
@@ -787,8 +1176,13 @@ export default function CapturePage() {
         {session ? (
           <>
             {!selesaiConfirmOpen && !batalkanOpen ? renderSelesaiArea() : null}
+            {closingError && !selesaiConfirmOpen && !batalkanOpen ? (
+              <p role="alert" style={{ color: "#b00020" }}>
+                {t(lang, closingError.key, closingError.vars)}
+              </p>
+            ) : null}
             {selesaiConfirmOpen ? renderSelesaiConfirmPanel() : null}
-            {!selesaiConfirmOpen && !batalkanOpen ? (
+            {!selesaiConfirmOpen && !batalkanOpen && !(config?.demo_session !== undefined && closingReached) ? (
               <button
                 type="button"
                 style={{ ...SECONDARY_BUTTON_STYLE, minHeight: 48 }}
@@ -807,9 +1201,8 @@ export default function CapturePage() {
   const inset = drawerInsetStyle({
     present: view === "ready" && demoSession !== undefined,
     wide: drawerLayout.wide,
-    open: scriptOpen,
   });
-  // Compact top-of-page chrome keeps banner + End + Cancel + the open drawer on one 360 x 640 screen.
+  // Compact top-of-page chrome keeps banner + End + Cancel above the guide's collapsed handle on a 360 x 640 screen.
   const mainPadding = compactChrome ? "12px 24px 24px" : PAGE_STYLE.padding;
   const mainStyle: React.CSSProperties =
     Object.keys(inset).length === 0
@@ -825,11 +1218,41 @@ export default function CapturePage() {
 
   return (
     <main style={mainStyle}>
-      <ShopTopBar compact={compactChrome} />
+      <ShopTopBar
+        compact={compactChrome}
+        signOut={
+          demoSession !== undefined
+            ? {
+                label: t(lang, "C-sess-signout"),
+                onClick: handleSignOutTap,
+                disabled: signOutBusy || selesaiBusy || autoStopBusy || closingBusy || mulaiBusy || openBusy,
+              }
+            : undefined
+        }
+      />
       <h1 style={compactChrome ? { fontSize: 22, margin: "0 0 8px" } : { fontSize: 22 }}>{t(lang, "C-cap-title")}</h1>
+      {/* R-19 (Q6), sandbox only: "Day n of 3 · date". The date is the real local date (the shifted days are
+          behind it); the pilot never renders this line. */}
+      {view === "ready" && demoSession !== undefined && config && nowMs !== null ? (
+        <p style={{ margin: "0 0 8px" }}>
+          <Chip>
+            {t(lang, "C-sess-day-of", {
+              n: demoSession.day,
+              total: demoSession.days_total,
+              date: dayLabel(businessDateOf(nowMs, config.timezone), lang),
+            })}
+          </Chip>
+        </p>
+      ) : null}
 
       {devControlsEnabled ? (
-        <DevPanel onStart={handleDevStart} onPause={handleDevStop} onStop={handleDevStop} events={events} />
+        <DevPanel
+          onStart={handleDevStart}
+          onPause={handleDevStop}
+          onStop={handleDevStop}
+          events={events}
+          linesHeard={linesThisSession}
+        />
       ) : null}
 
       {view === "loading" ? <p>{t(lang, "C-h-loading")}</p> : null}
@@ -850,20 +1273,15 @@ export default function CapturePage() {
 
       {view === "ready" ? (sessionRunning ? renderRunning() : renderIdle()) : null}
 
-      {view === "ready" && demoSession ? (
-        <ScriptDrawer
-          scriptId={demoSession.script_id}
+      {signOutKind !== null ? (
+        <SignOutDialog
+          kind={signOutKind}
           lang={lang}
-          state={drawerState}
-          startedAtMs={session?.started_at_ms ?? null}
-          maxMs={demoSession.max_ms}
-          nowMs={nowMs}
-          onFinish={handleDrawerFinish}
-          finishing={selesaiBusy || autoStopBusy}
-          open={scriptOpen}
-          onToggle={() => setScriptOpen((o) => !o)}
-          wide={drawerLayout.wide}
-          reducedMotion={drawerLayout.reducedMotion}
+          busy={signOutBusy || autoStopBusy}
+          finishing={signOutFinishing}
+          errorKey={signOutErrorKey}
+          onConfirm={() => void confirmSignOut()}
+          onDismiss={() => setSignOutKind(null)}
         />
       ) : null}
 
