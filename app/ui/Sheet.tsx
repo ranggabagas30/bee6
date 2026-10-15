@@ -39,7 +39,11 @@ export function Sheet({ label, open, onOpenChange, openLabel, closeLabel, handle
     if (!open || !collapseOnOutsidePointerDown) return;
     const onDown = (e: PointerEvent) => {
       const el = sectionRef.current;
-      if (el && e.target instanceof Node && !el.contains(e.target)) onOpenChange(false);
+      if (!el || !(e.target instanceof Element)) return;
+      // Ignore pointerdowns inside a modal dialog (portaled, aria-modal="true").
+      if (e.target.closest('[aria-modal="true"]')) return;
+      // Collapse if the tap is outside the sheet.
+      if (!el.contains(e.target)) onOpenChange(false);
     };
     document.addEventListener("pointerdown", onDown, true);
     return () => document.removeEventListener("pointerdown", onDown, true);

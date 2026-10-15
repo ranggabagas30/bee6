@@ -148,6 +148,40 @@ describe("Sheet", () => {
       fireEvent.pointerDown(document.body);
       expect(onOpenChange).not.toHaveBeenCalled();
     });
+
+    it("a pointerdown inside a portaled modal dialog does not collapse the sheet; taps outside the modal still do", () => {
+      const onOpenChange = vi.fn();
+      function ModalPortal() {
+        return createPortal(
+          <div role="dialog" aria-modal="true">
+            <button type="button">In modal</button>
+          </div>,
+          document.body,
+        );
+      }
+      render(
+        <Sheet
+          label="Helper"
+          open
+          onOpenChange={onOpenChange}
+          openLabel="Open"
+          closeLabel="Close"
+          handle={<span>h</span>}
+          collapseOnOutsidePointerDown
+        >
+          <ModalPortal />
+        </Sheet>,
+      );
+      // Pointerdown on the button inside the modal should not collapse.
+      fireEvent.pointerDown(screen.getByRole("button", { name: "In modal" }));
+      expect(onOpenChange).not.toHaveBeenCalled();
+      // But a pointerdown outside both the sheet and the modal should collapse.
+      const outside = document.createElement("div");
+      document.body.appendChild(outside);
+      fireEvent.pointerDown(outside);
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+      outside.remove();
+    });
   });
 
   it("is non-modal: no dialog role, no aria-modal, no focus trap", () => {

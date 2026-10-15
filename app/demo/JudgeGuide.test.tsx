@@ -320,7 +320,7 @@ describe("/capture: the script card (plan 5.3-5.4)", () => {
   it("closing: a pointerdown outside the open sheet (the page's End today) collapses it; one inside does not", () => {
     pathname = "/capture";
     act(() => publishCaptureBridge(bridge({ phase: "closing", sessionId: "s1", linesThisSession: 5 })));
-    const { container } = renderGuide();
+    renderGuide();
     const pageButton = document.createElement("button");
     document.body.appendChild(pageButton);
     openGuide();
@@ -328,7 +328,6 @@ describe("/capture: the script card (plan 5.3-5.4)", () => {
     expect(screen.getByRole("button", { name: /Close the judge guide/ }).getAttribute("aria-expanded")).toBe("true");
     fireEvent.pointerDown(pageButton);
     expect(screen.getByRole("button", { name: /Open the judge guide/ }).getAttribute("aria-expanded")).toBe("false");
-    expect(container).toBeTruthy();
     pageButton.remove();
   });
 
