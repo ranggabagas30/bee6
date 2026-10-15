@@ -37,6 +37,7 @@ function makeItem(
       status,
       created_at_ms: 1,
       range: { from_date: "2026-10-01", to_date: "2026-10-07" },
+      focus_category: null,
       suppression: null,
       blocked_rule: null,
       content: null,

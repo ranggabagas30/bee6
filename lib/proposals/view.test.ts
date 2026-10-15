@@ -126,10 +126,38 @@ describe("toProposalView", () => {
       label_id: "Ubah jumlah",
     });
     expect(view.content?.rubric).toEqual([{ id: "observable", label_en: "Observable", label_id: "Dapat diamati" }]);
-    expect(view.content?.target_step).toEqual({ step_id: "stock-01", title: "Display check" });
+    expect(view.content?.target_step).toEqual({ step_id: "stock-01", title: "Display check", text: SOP.steps.find((s) => s.step_id === "stock-01")!.text });
     expect(view.content?.evidence[0]).toMatchObject({ date: "2026-10-01", summary: "a customer asked for a sold-out item" });
     expect(view.content?.evidence[1]).toMatchObject({ date: "2026-10-02", summary: null });
     expect(view.content?.censored_floor).toBe(true);
+  });
+
+  it("a target step id no longer in the SOP keeps the id as the title and has no text", () => {
+    const proposal = baseProposal({
+      status: "awaiting_supervisor",
+      suppression: null,
+      gate: { passed: true, fired_rule: null, checks: [] },
+      content: {
+        intervention_id: "change_quantity_time",
+        rubric_criterion_ids: ["observable"],
+        target_step_id: "gone-01",
+        change_title: "t",
+        change_text: "c",
+        rationale: "r",
+        metric: { category: "CUSTOMER_SERVICE", direction: "decrease", description: "d", baseline_count: 1, baseline_days: 2 },
+        failure_condition: "f",
+        review_after_days: 14,
+        review_date: "2026-10-21",
+        evidence: [
+          { thread_id: "t1", local_date: "2026-10-01", category: "CUSTOMER_SERVICE", first_line_start_ms: 1 },
+          { thread_id: "t2", local_date: "2026-10-02", category: "CUSTOMER_SERVICE", first_line_start_ms: 2 },
+        ],
+        constraint_ids_acknowledged: [],
+        censored_floor: true,
+      },
+    });
+    const view = toProposalView(proposal, new Map(), LIBRARY, SOP, TZ);
+    expect(view.content?.target_step).toEqual({ step_id: "gone-01", title: "gone-01", text: null });
   });
 
   it("target_step_id NEW -> target_step: null", () => {

@@ -37,8 +37,9 @@ const authedPostJson = vi.fn();
 // (R-08 Task 8.7) defaults to "error" so it renders its generic-error line and
 // stays out of the way of the Generate-panel tests; `ProposalList` (R-09 Task
 // 8.1) defaults to an empty list.
+const EMPTY_WATCH = { from_date: "2026-10-01", to_date: "2026-10-07", categories: [] };
 let constraintsResult: unknown = { kind: "error" };
-let proposalsResult: unknown = { kind: "ok", data: { open: [], decided: [] } };
+let proposalsResult: unknown = { kind: "ok", data: { open: [], decided: [], watch: EMPTY_WATCH } };
 const authedGetJson = vi.fn(async (...args: unknown[]) =>
   args[1] === "/api/v1/proposals" ? proposalsResult : constraintsResult,
 );
@@ -85,6 +86,7 @@ function makeResponse(overrides: Partial<GenerateResponse> = {}): GenerateRespon
       status: "awaiting_supervisor",
       created_at_ms: 1,
       range: { from_date: "2026-10-01", to_date: "2026-10-07" },
+      focus_category: "CUSTOMER_SERVICE",
       suppression: null,
       blocked_rule: null,
       content: mockContent(),
@@ -95,7 +97,7 @@ function makeResponse(overrides: Partial<GenerateResponse> = {}): GenerateRespon
 
 beforeEach(() => {
   constraintsResult = { kind: "error" };
-  proposalsResult = { kind: "ok", data: { open: [], decided: [] } };
+  proposalsResult = { kind: "ok", data: { open: [], decided: [], watch: EMPTY_WATCH } };
   authUserState = { status: "signed_in", user: FAKE_USER } as unknown as AuthUserState;
   getClientAuth.mockReturnValue(FAKE_AUTH);
   getIdTokenResult.mockResolvedValue({ claims: { role: "supervisor" } });
@@ -300,7 +302,7 @@ function getsTo(path: string): number {
 
 describe("ProposalsApp — proposals list and decisions (R-09 8.2)", () => {
   it("mounts the list between the generate result and the constraints panel", async () => {
-    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [] } };
+    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [], watch: EMPTY_WATCH } };
     constraintsResult = { kind: "ok", data: { constraints: [] } };
     await renderReady();
     await waitFor(() => expect(screen.getByRole("heading", { name: "Open proposals" })).not.toBeNull());
@@ -342,7 +344,7 @@ describe("ProposalsApp — proposals list and decisions (R-09 8.2)", () => {
     "a %s rejection reloads the list and the constraints, shows the banner, and Use these dates fills the range without generating",
     async (role, status) => {
       getIdTokenResult.mockResolvedValue({ claims: { role } });
-      proposalsResult = { kind: "ok", data: { open: [listItem(status)], decided: [] } };
+      proposalsResult = { kind: "ok", data: { open: [listItem(status)], decided: [], watch: EMPTY_WATCH } };
       constraintsResult = { kind: "ok", data: { constraints: [] } };
       authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "rejected", status: "rejected" } });
       await renderReady();
@@ -369,7 +371,7 @@ describe("ProposalsApp — proposals list and decisions (R-09 8.2)", () => {
   );
 
   it("a feasible decision reloads the list only (no constraints reload, no Use these dates)", async () => {
-    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [] } };
+    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [], watch: EMPTY_WATCH } };
     constraintsResult = { kind: "ok", data: { constraints: [] } };
     authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "feasible", status: "awaiting_owner" } });
     await renderReady();
@@ -384,7 +386,7 @@ describe("ProposalsApp — proposals list and decisions (R-09 8.2)", () => {
   });
 
   it("a decision clears the generate result card so its old status line does not linger", async () => {
-    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [] } };
+    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [], watch: EMPTY_WATCH } };
     authedPostJson.mockImplementation(async (...args: unknown[]) =>
       args[1] === "/api/v1/proposals/generate"
         ? { kind: "ok", data: makeResponse() }
@@ -402,7 +404,7 @@ describe("ProposalsApp — proposals list and decisions (R-09 8.2)", () => {
   });
 
   it("tapping Generate clears the decision banner and its Use these dates button", async () => {
-    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [] } };
+    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [], watch: EMPTY_WATCH } };
     authedPostJson.mockImplementation(async (...args: unknown[]) =>
       args[1] === "/api/v1/proposals/generate"
         ? { kind: "error" }
@@ -419,7 +421,7 @@ describe("ProposalsApp — proposals list and decisions (R-09 8.2)", () => {
   });
 
   it("after a decision keyboard focus lands on the banner, not on the document body", async () => {
-    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [] } };
+    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [], watch: EMPTY_WATCH } };
     authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "feasible", status: "awaiting_owner" } });
     await renderReady();
     await waitFor(() => expect(screen.getByRole("button", { name: "Feasible" })).not.toBeNull());
@@ -440,7 +442,7 @@ describe("ProposalsApp — proposals list and decisions (R-09 8.2)", () => {
     ["id", "STEP_TEXT_TOO_LONG", "Langkah ini terlalu panjang untuk diubah otomatis."],
   ] as const)("owner approve, %s: conflict %s shows its own banner copy", async (lang, code, copy) => {
     getIdTokenResult.mockResolvedValue({ claims: { role: "owner" } });
-    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_owner")], decided: [] } };
+    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_owner")], decided: [], watch: EMPTY_WATCH } };
     constraintsResult = { kind: "ok", data: { constraints: [] } }; // keeps the constraints panel's own generic error out of the page
     authedPostJson.mockResolvedValue({ kind: "conflict", code });
     renderApp(lang);
@@ -452,7 +454,7 @@ describe("ProposalsApp — proposals list and decisions (R-09 8.2)", () => {
   });
 
   it("a conflict answer shows its message in the banner and reloads the list", async () => {
-    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [] } };
+    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [], watch: EMPTY_WATCH } };
     authedPostJson.mockResolvedValue({ kind: "conflict", code: "ALREADY_DECIDED" });
     await renderReady();
     await waitFor(() => expect(screen.getByRole("button", { name: "Feasible" })).not.toBeNull());
@@ -462,7 +464,7 @@ describe("ProposalsApp — proposals list and decisions (R-09 8.2)", () => {
     await waitFor(() => expect(getsTo("/api/v1/proposals")).toBe(2));
   });
   it("a decision during an in-flight generate does not clobber the busy state", async () => {
-    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [] } };
+    proposalsResult = { kind: "ok", data: { open: [listItem("awaiting_supervisor")], decided: [], watch: EMPTY_WATCH } };
     let resolveGenerate: (value: unknown) => void = () => {};
     authedPostJson.mockImplementation((...args: unknown[]) =>
       args[1] === "/api/v1/proposals/generate"
