@@ -64,9 +64,9 @@ describe("bakery-v2 script (R-19)", () => {
     }
   });
 
-  it("problem A speaks customer then staff; problem B is the staff member's voice only (the caller's words are never on the card)", () => {
+  it("problem A speaks customer then staff (alternating); problem B is the staff member's voice only (the caller's words are never on the card)", () => {
     for (const id of ["d1-c3", "d2-c2"]) {
-      expect(scriptCard(id).lines.map((l) => l.speaker)).toEqual(["customer", "staff", "customer", "staff"]);
+      expect(scriptCard(id).lines.map((l) => l.speaker)).toEqual(["customer", "staff", "customer"]);
     }
     for (const id of ["d2-c3", "d3-c2"]) {
       expect(scriptCard(id).lines.every((l) => l.speaker === "staff")).toBe(true);
@@ -125,5 +125,16 @@ describe("bakery-v2 script (R-19)", () => {
     expect(ScriptCardV2Schema.safeParse({ ...ok, lines: [] }).success).toBe(false);
     expect(ScriptCardV2Schema.safeParse({ ...ok, lines: Array(7).fill(ok.lines[0]) }).success).toBe(false);
     expect(ScriptCardV2Schema.safeParse({ ...ok, extra: 1 }).success).toBe(false);
+  });
+
+  it("problem A and B cards have substantive lines (≥ 20 words for non-final lines to ensure ≥ 6 s at say rate)", () => {
+    for (const id of ["d1-c3", "d2-c2", "d2-c3", "d3-c2"]) {
+      const card = scriptCard(id);
+      const lines = card.lines.slice(0, -1); // exclude the last line which can be shorter
+      for (const line of lines) {
+        const wordCount = line.text.en.split(/\s+/).length;
+        expect(wordCount, `${id} line: "${line.text.en}"`).toBeGreaterThanOrEqual(20);
+      }
+    }
   });
 });
