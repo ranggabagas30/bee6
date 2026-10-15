@@ -17,6 +17,7 @@ vi.mock("@/app/ui/fonts", () => ({ fontVariableClassNames: "mock-sans mock-mono"
 import RootLayout from "@/app/layout";
 import { DemoBarLoader } from "@/app/demo/DemoBarLoader";
 import { JudgeGuideLoader } from "@/app/demo/JudgeGuideLoader";
+import { DEMO_STATE_KEY } from "@/app/demo/demo-state-key";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
@@ -91,7 +92,8 @@ describe("RootLayout demo bar (R-12 Task 8.4)", () => {
     const body = (findHtml(tree) as unknown as ReactElement<{ children: ReactElement<{ children: ReactElement<{ children: unknown[] }> }> }>).props.children;
     const provider = body.props.children;
     const kids = provider.props.children as ReactElement[];
-    expect(kids[0]!.type).toBe(DemoBarLoader);
+    expect(kids.findIndex((k) => k.type === DemoBarLoader)).toBeGreaterThanOrEqual(0);
+    expect(kids.findIndex((k) => k.type === DemoBarLoader)).toBeLessThan(kids.findIndex((k) => (k as ReactElement<{ id?: string }>).props?.id === "page"));
   });
 
   it("the layout and its loader only import the bar lazily, so a pilot page does not download the demo or Firebase Auth chunks", () => {
@@ -108,6 +110,39 @@ describe("RootLayout demo bar (R-12 Task 8.4)", () => {
     if (value === undefined) vi.stubEnv("DEMO_MODE", undefined as unknown as string);
     else vi.stubEnv("DEMO_MODE", value);
     expect(containsType(await RootLayout({ children: null }), DemoBarLoader)).toBeNull();
+  });
+});
+
+describe("RootLayout demo bar space (R-19 PR-5, CLS)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  function scripts(node: unknown, out: Array<{ html: string }> = []): Array<{ html: string }> {
+    if (!node || typeof node !== "object") return out;
+    if (Array.isArray(node)) {
+      for (const c of node) scripts(c, out);
+      return out;
+    }
+    if (!("props" in node)) return out;
+    const el = node as ReactElement<{ children?: unknown; dangerouslySetInnerHTML?: { __html: string } }>;
+    if (el.type === "script") out.push({ html: el.props.dangerouslySetInnerHTML?.__html ?? "" });
+    return scripts(el.props.children, out);
+  }
+
+  it("with DEMO_MODE on, a tiny inline script puts b6-topbar-reserved on <html> from the demo state key, and <html> tolerates it at hydration", async () => {
+    vi.stubEnv("DEMO_MODE", "true");
+    const tree = await RootLayout({ children: <main id="page" /> });
+    const found = scripts(tree);
+    expect(found).toHaveLength(1);
+    expect(found[0]!.html).toContain(DEMO_STATE_KEY);
+    expect(found[0]!.html).toContain("b6-topbar-reserved");
+    expect(found[0]!.html).toContain("catch");
+    expect(found[0]!.html.length).toBeLessThan(300);
+    expect((findHtml(tree) as unknown as ReactElement<{ suppressHydrationWarning?: boolean }>).props.suppressHydrationWarning).toBe(true);
+  });
+
+  it("the pilot gets no script", async () => {
+    vi.stubEnv("DEMO_MODE", "false");
+    expect(scripts(await RootLayout({ children: <main /> }))).toHaveLength(0);
   });
 });
 

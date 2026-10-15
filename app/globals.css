@@ -526,6 +526,20 @@
   padding-top: calc(var(--b6-panel-pill-h) + 14px + 8px);
 }
 
+/* Top bar room (R-19 PR-5): a notice bar that mounts after hydration gets its space held by this slot from the first
+   paint, so the page below it does not jump. The class on <html> is set by a first-paint script when the bar will
+   show. The bar's text wraps to two lines (54 px) on a phone and is one line (36 px) from 431 px up; the bar sizes
+   itself inside the slot. */
+.b6-topbar-reserved .b6-topbar-slot--reserve {
+  min-height: 54px;
+}
+
+@media (min-width: 431px) {
+  .b6-topbar-reserved .b6-topbar-slot--reserve {
+    min-height: 36px;
+  }
+}
+
 .b6-panel-pill {
   position: fixed;
   top: 14px;
