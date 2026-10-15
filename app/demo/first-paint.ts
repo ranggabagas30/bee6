@@ -7,13 +7,14 @@ import { DEMO_STATE_KEY } from "@/app/demo/demo-state-key";
  *
  * - `b6-topbar-reserved`: the demo bar's slot (see DemoBarLoader), when this browser holds a demo state;
  * - `b6-panel-reserved`: the judge guide's collapsed pill at laptop widths (>= 900 px, see SidePanel and the
- *   `.b6-panel-reserved` rule), on the entry routes (`/`, `/sign-in`, `/pair`: the guide is always there) and
- *   wherever a demo state exists (the guide shows for the signed-in role, or on /capture once the bridge is up).
+ *   `.b6-panel-reserved` rule), on the entry routes (`/`, `/sign-in`, `/pair`: the guide is always there), on
+ *   `/capture` (an unpaired browser is sent to `/pair`, a paired sandbox phone gets the card once the bridge is
+ *   up: either way the pill follows) and wherever a demo state exists (the guide shows for the signed-in role).
  *
  * Plain ES5 (it runs before any bundle), one `localStorage` key read (never parsed, never logged); storage being
  * blocked is not an error. Kept in its own module so a test can execute it for real against jsdom.
  */
 export const FIRST_PAINT_SCRIPT =
   "try{var c=document.documentElement.classList,p=location.pathname.replace(/\\/+$/,\"\");" +
-  'if(p===""||p==="/sign-in"||p==="/pair")c.add("b6-panel-reserved");' +
+  'if(p===""||p==="/sign-in"||p==="/pair"||p==="/capture")c.add("b6-panel-reserved");' +
   `if(localStorage.getItem(${JSON.stringify(DEMO_STATE_KEY)})){c.add("b6-topbar-reserved");c.add("b6-panel-reserved")}}catch(e){}`;

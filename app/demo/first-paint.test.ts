@@ -54,6 +54,14 @@ describe("FIRST_PAINT_SCRIPT", () => {
     expect(classes()).toEqual(["b6-panel-reserved"]);
   });
 
+  // An unpaired browser opening /capture is sent to /pair (an entry route) by the page itself, after hydration:
+  // without the reserve the pill's padding landed late there too (CLS 0.055 at 1280 px, measured).
+  it.each(["/capture", "/capture/"])("%s with no demo state reserves the pill (the page redirects to /pair, a sandbox phone gets the card)", (p) => {
+    go(p);
+    run();
+    expect(classes()).toEqual(["b6-panel-reserved"]);
+  });
+
   it("on / with a demo state it reserves both (the bar's slot reserves nothing there by itself)", () => {
     go("/");
     window.localStorage.setItem(DEMO_STATE_KEY, "{}");
@@ -61,7 +69,7 @@ describe("FIRST_PAINT_SCRIPT", () => {
     expect(classes()).toEqual(["b6-panel-reserved", "b6-topbar-reserved"]);
   });
 
-  it.each(["/capture", "/sop", "/home", "/signin", "/pairing"])("%s is not an entry route: nothing without a state", (p) => {
+  it.each(["/sop", "/home", "/day", "/signin", "/pairing", "/captured"])("%s is not an entry route: nothing without a state", (p) => {
     go(p);
     run();
     expect(classes()).toEqual([]);
