@@ -134,7 +134,8 @@ const TEXT_RULES: readonly { label: string; re: RegExp }[] = [
   { label: "(role:", re: /\(role:/i },
   { label: "ISO date", re: /\d{4}-\d{2}-\d{2}/ },
   { label: "phone number", re: /phone number/i },
-  { label: "name", re: /name/i },
+  // R-21 PR-C: "name" must match customer/caller/person/their context, not "names", "rename", "menu item name".
+  { label: "name", re: /\b(customer'?s?|caller'?s?|their|person'?s?)\s+name\b|name\s+(and|or)\s+(phone|number)/i },
 ];
 
 export function findTextViolations(texts: ProposedTexts): string[] {

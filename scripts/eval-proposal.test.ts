@@ -182,7 +182,22 @@ describe("R-21 --texts grep gate", () => {
     expect(findTextViolations({ ...clean, change_text: "(role: staff) Take" })).toEqual(["change_text: (role:"]);
     expect(findTextViolations({ ...clean, rationale: "On 2026-10-14 and later" })).toEqual(["rationale: ISO date"]);
     expect(findTextViolations({ ...clean, change_text: "Write their Phone Number down" })).toEqual(["change_text: phone number"]);
-    expect(findTextViolations({ ...clean, change_title: "Write the name" })).toEqual(["change_title: name"]);
+    expect(findTextViolations({ ...clean, change_title: "Write the customer's name" })).toEqual(["change_title: name"]);
+  });
+
+  it("R-21 PR-C: 'name' pattern uses word boundaries and customer context to avoid false positives", () => {
+    // False positives (should NOT flag):
+    expect(findTextViolations({ ...clean, change_text: "Check all item names in the order" })).toEqual([]); // "names", not "name"
+    expect(findTextViolations({ ...clean, change_text: "Rename the menu category" })).toEqual([]); // "rename", not "name"
+    expect(findTextViolations({ ...clean, change_text: "Assign a menu item name to each product" })).toEqual([]); // "menu item name", not customer name
+    expect(findTextViolations({ ...clean, change_text: "The file name is auto-generated" })).toEqual([]); // "file name", not customer name
+
+    // True positives (should flag):
+    expect(findTextViolations({ ...clean, change_text: "Write the customer's name on the slip" })).toEqual(["change_text: name"]);
+    expect(findTextViolations({ ...clean, change_text: "Ask for their name and contact info" })).toEqual(["change_text: name"]);
+    expect(findTextViolations({ ...clean, change_text: "Record the caller's name" })).toEqual(["change_text: name"]);
+    expect(findTextViolations({ ...clean, change_text: "Get the person's name for the order" })).toEqual(["change_text: name"]);
+    expect(findTextViolations({ ...clean, change_text: "name and phone number are required" })).toEqual(["change_text: phone number", "change_text: name"]);
   });
 
   it("parseArgs: --texts is a flag and combines with --runs in any order", () => {
