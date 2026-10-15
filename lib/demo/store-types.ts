@@ -24,6 +24,11 @@ export interface DemoStore {
   rotateDeviceToken(outletId: string, deviceId: string, tokenHash: string, expiresAtMs: number): Promise<void>;
   /** Transaction: at/over the limit returns false and writes nothing; else count + 1 and true. */
   bumpCounter(counterId: string, kind: DemoCounterKind, day: string, limit: number, expiresAtIso: string): Promise<boolean>;
+  /**
+   * R-23: a transaction like bumpCounter, but returns the NEW count (1 for the first bump), or null when the limit
+   * refused it or the doc is damaged (fail closed). Same ABORTED -> LockedError(demo_busy) mapping as bumpCounter.
+   */
+  bumpCounterCount(counterId: string, kind: DemoCounterKind, day: string, limit: number, expiresAtIso: string): Promise<number | null>;
   /** Read-only: the current count of a counter (0 when absent). A damaged counter reads as "at every limit" (fail closed). */
   readCounter(counterId: string): Promise<number>;
   /** Sandbox outlet ids whose expiry passed more than CLEANUP_GRACE_MS ago. */

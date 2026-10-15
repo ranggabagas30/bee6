@@ -12,6 +12,8 @@ export function fakeStore(over: Partial<{ template: TemplateSet | null; expired:
   const sandboxes = new Map<string, Outlet>();
   const counters = new Map<string, number>();
   const bumps: { id: string; kind: string; limit: number }[] = [];
+  /** R-23: calls of the count-returning bump (the charge-once markers), kept apart from `bumps` (the real charges). */
+  const countBumps: { id: string; kind: string; limit: number }[] = [];
   const deleted: string[] = [];
   const deferred: { id: string; now_ms: number }[] = [];
   const rotations: { outletId: string; deviceId: string; hash: string; exp: number }[] = [];
@@ -47,6 +49,14 @@ export function fakeStore(over: Partial<{ template: TemplateSet | null; expired:
       counters.set(id, n + 1);
       return true;
     },
+    async bumpCounterCount(id, kind, _day, limit) {
+      calls.push("bumpCounterCount");
+      countBumps.push({ id, kind, limit });
+      const n = counters.get(id) ?? 0;
+      if (n >= limit) return null;
+      counters.set(id, n + 1);
+      return n + 1;
+    },
     async readCounter(id) {
       calls.push("readCounter");
       return counters.get(id) ?? 0;
@@ -71,6 +81,6 @@ export function fakeStore(over: Partial<{ template: TemplateSet | null; expired:
       return sandboxes.get(id) ?? null;
     },
   };
-  return { store, calls, written, sandboxes, counters, bumps, deleted, deferred, rotations, state };
+  return { store, calls, written, sandboxes, counters, bumps, countBumps, deleted, deferred, rotations, state };
 }
 

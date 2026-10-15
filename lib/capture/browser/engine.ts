@@ -16,14 +16,21 @@ import type { CaptureEvent } from "@/lib/capture/browser/event-log";
  * Offline behaviour (web spec §5 "10 min offline → every segment exactly once"):
  * a connectivity loss (upload resolves `null`) retries indefinitely — only the
  * 10-minute queue *capacity* prunes segments, never an attempt count. A repeated
- * server error (5xx/429) still gives up after `maxAttempts` (default 8, R-22) so one
- * poison segment can't block the queue forever. Retry waits are jittered so several
+ * server error (5xx/429) gives up once the head has been refused for `headBudgetMs`
+ * (default 4 min, R-23) so one poison segment can't block the queue forever. Retry waits are jittered so several
  * phones that fail together do not retry in lockstep (R-22). `abort()` interrupts any wait so `stop()` returns
  * promptly even while offline.
  */
 
 const DEFAULT_SAMPLE_RATE = 16_000;
 const MAX_BACKOFF_MS = 30_000;
+/**
+ * R-23: a queue head that keeps being refused by the server (429/5xx) is dropped
+ * once it has been refused for this long, measured from its first server error to
+ * the latest one. Network failures (null) never count: offline retries forever,
+ * only the 10-min queue capacity prunes (B-4, finding #2).
+ */
+export const HEAD_BUDGET_MS = 240_000;
 /**
  * How much PCM to keep as headroom while idle (no open segment), so the next
  * segment's pre-roll (default 400 ms, `batcher.ts`) is still in the buffer
@@ -94,7 +101,10 @@ export interface CaptureEngineOptions {
   batcher?: SegmentBatcher;
   queue?: InMemoryQueue<QueuedSegment>;
   genSegId?: () => string;
-  maxAttempts?: number;
+  /** R-23: how long a head segment may keep being refused by the server before it is dropped. */
+  headBudgetMs?: number;
+  /** Clock for the budget; defaults to Date.now. Injectable for tests. */
+  now?: () => number;
   sleep?: SleepFn;
   /** RNG in [0,1) for retry jitter; defaults to Math.random. Injectable for tests. */
   rng?: () => number;
@@ -116,7 +126,8 @@ export class CaptureEngine {
   private readonly batcher: SegmentBatcher;
   private readonly queue: InMemoryQueue<QueuedSegment>;
   private readonly genSegId: () => string;
-  private readonly maxAttempts: number;
+  private readonly headBudgetMs: number;
+  private readonly now: () => number;
   private readonly sleep: SleepFn;
   private readonly rng: () => number;
   private readonly onStatusChange?: (status: CaptureStatus) => void;
@@ -127,16 +138,20 @@ export class CaptureEngine {
   private buffer: PcmWindowBuffer | null = null;
   /**
    * Attempt counters for the current queue head only (O(1), no leak).
-   * `serverErrorCount` is what `maxAttempts` is checked against — it counts
-   * only real 429/5xx responses. Plain network-unreachable attempts (`status
-   * === null`) bump `count` for observability but never `serverErrorCount`,
-   * so a long offline stretch can't consume the server-error budget and get
-   * a segment dropped on its first 5xx right after reconnecting (B-4).
+   * The drop decision is time-based (R-23): `firstServerErrorAt` is the clock
+   * reading at the head's first real 429/5xx, and the head is dropped once a
+   * later server error lands `headBudgetMs` or more after it. `serverErrorCount`
+   * is kept for observability only. Plain network-unreachable attempts (`status
+   * === null`) bump `count` but never start or consume the budget, so a long
+   * offline stretch can't get a segment dropped on its first 5xx right after
+   * reconnecting (B-4).
    */
   private headAttempt: {
     id: string;
     count: number;
     serverErrorCount: number;
+    /** Clock reading at the first server error of this head; null until then. */
+    firstServerErrorAt: number | null;
     /** Transient failures of this head (network, 429, 5xx). Feeds the retry count. */
     failed: number;
   } | null = null;
@@ -163,7 +178,8 @@ export class CaptureEngine {
     this.batcher = options.batcher ?? new SegmentBatcher();
     this.queue = options.queue ?? new InMemoryQueue<QueuedSegment>();
     this.genSegId = options.genSegId ?? defaultGenSegId;
-    this.maxAttempts = options.maxAttempts ?? 8;
+    this.headBudgetMs = options.headBudgetMs ?? HEAD_BUDGET_MS;
+    this.now = options.now ?? Date.now;
     this.sleep = options.sleep ?? defaultSleep;
     this.rng = options.rng ?? Math.random;
     this.onStatusChange = options.onStatusChange;
@@ -335,7 +351,13 @@ export class CaptureEngine {
         if (!item) break;
 
         if (this.headAttempt?.id !== item.id) {
-          this.headAttempt = { id: item.id, count: 0, serverErrorCount: 0, failed: 0 };
+          this.headAttempt = {
+            id: item.id,
+            count: 0,
+            serverErrorCount: 0,
+            firstServerErrorAt: null,
+            failed: 0,
+          };
         }
         this.headAttempt.count += 1;
 
@@ -364,15 +386,22 @@ export class CaptureEngine {
 
         // Transient failure. A network loss (null) retries forever — only the
         // 10-min queue capacity prunes it (finding #2). A repeated server error
-        // still gives up after maxAttempts so one poison segment can't stall the
-        // queue indefinitely. Only real 429/5xx responses count toward that
-        // budget (`serverErrorCount`) — a network-unreachable stretch (status
-        // null) must not consume it, or a segment can get dropped on its very
-        // first 5xx right after reconnecting (B-4).
-        if (status !== null) this.headAttempt.serverErrorCount += 1;
-        if (status !== null && this.headAttempt.serverErrorCount >= this.maxAttempts) {
-          this.dropHead(item.id);
-          continue;
+        // still gives up once it has been refused for headBudgetMs (R-23) so one
+        // poison segment can't stall the queue indefinitely. Only real 429/5xx
+        // responses start or consume that budget — a network-unreachable stretch
+        // (status null) must not, or a segment can get dropped on its very first
+        // 5xx right after reconnecting (B-4). The clock is read after the PUT
+        // resolved, so the PUT's own duration counts.
+        if (status !== null) {
+          this.headAttempt.serverErrorCount += 1;
+          const at = this.now();
+          if (this.headAttempt.firstServerErrorAt === null) {
+            this.headAttempt.firstServerErrorAt = at;
+          }
+          if (at - this.headAttempt.firstServerErrorAt >= this.headBudgetMs) {
+            this.dropHead(item.id);
+            continue;
+          }
         }
         this.headAttempt.failed += 1;
         this.connectionOk = false;

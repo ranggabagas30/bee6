@@ -94,7 +94,7 @@ describe("the capture bridge store", () => {
     const onChange = vi.fn();
     const off = subscribeCaptureBridge(onChange);
     const bridge: CaptureBridge = {
-      state: { profile: profile(), phase: "listening", sessionId: "s1", linesThisSession: 2, closingBusy: false, closingError: null, micTrouble: false },
+      state: { profile: profile(), phase: "listening", sessionId: "s1", linesThisSession: 2, closingBusy: false, closingError: null, micTrouble: false, uploadBusy: false },
       actions: { jumpToClosing: () => {}, refetchConfig: async () => {} },
     };
     publishCaptureBridge(bridge);

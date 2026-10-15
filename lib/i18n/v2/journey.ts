@@ -48,6 +48,7 @@ export const journeyID = {
   "C-journey-speaker-caller": "Penelepon", // PROVISIONAL
   "C-journey-spoken": "Saya sudah mengucapkan ini", // PROVISIONAL
   "C-journey-waiting-hear": "Menunggu Bee6 mendengar kartu ini…", // PROVISIONAL
+  "C-journey-catching-up": "Bee6 sedang menyusul: layanan transkripsi sedang sibuk. Lanjutkan membaca; kartu ini terbuka setelah terdengar.", // PROVISIONAL
   "C-journey-not-picking-up": "Suara Anda tidak tertangkap?", // PROVISIONAL
   "C-journey-check-mic": "Pastikan mikrofon diizinkan.", // PROVISIONAL
   "C-journey-check-tab": "Biarkan tab ini terbuka.", // PROVISIONAL
@@ -96,6 +97,7 @@ export const journeyEN: Record<keyof typeof journeyID, string> = {
   "C-journey-speaker-caller": "Caller",
   "C-journey-spoken": "I have spoken this",
   "C-journey-waiting-hear": "Waiting for Bee6 to hear this card…",
+  "C-journey-catching-up": "Bee6 is catching up: the transcription service is busy. Keep reading; this card unlocks when it has been heard.",
   "C-journey-not-picking-up": "Not picking up your voice?",
   "C-journey-check-mic": "Check the microphone is allowed.",
   "C-journey-check-tab": "Keep this tab open.",

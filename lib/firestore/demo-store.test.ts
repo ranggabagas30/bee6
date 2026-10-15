@@ -434,6 +434,53 @@ describe("5.S4 bumpCounter", () => {
   });
 });
 
+describe("R-23 bumpCounterCount", () => {
+  const EXP = "2026-10-30T00:00:00.000Z";
+  const ID = "charge_once:segment:sbx-1:seg-1";
+
+  it("returns 1, 2, then null at the limit (2) and writes nothing on the refusal", async () => {
+    const { db, cols, txWrites } = fakeDb();
+    const store = firestoreDemoStore(db);
+    expect(await store.bumpCounterCount(ID, "charge_once", "2026-10-28", 2, EXP)).toBe(1);
+    expect(await store.bumpCounterCount(ID, "charge_once", "2026-10-28", 2, EXP)).toBe(2);
+    expect(txWrites).toHaveLength(2);
+    expect(await store.bumpCounterCount(ID, "charge_once", "2026-10-28", 2, EXP)).toBeNull();
+    expect(txWrites).toHaveLength(2);
+    expect((cols.get(COLLECTIONS.demoCounters)!.get(ID) as Doc).count).toBe(2);
+  });
+
+  it("stores the marker as an ordinary counter doc: counter_id, kind charge_once, day, count and a native expiry (TTL), nothing else", async () => {
+    const { db, cols } = fakeDb();
+    await firestoreDemoStore(db).bumpCounterCount(ID, "charge_once", "2026-10-28", 31, EXP);
+    const doc = cols.get(COLLECTIONS.demoCounters)!.get(ID) as Doc;
+    expect(doc).toMatchObject({ counter_id: ID, kind: "charge_once", day: "2026-10-28", count: 1 });
+    expect(doc.expires_at).toBeInstanceOf(Timestamp);
+    expect(Object.keys(doc).sort()).toEqual(["count", "counter_id", "day", "expires_at", "kind"]);
+  });
+
+  it("a damaged doc is null (fail closed) and a slash id is rejected", async () => {
+    const { db } = fakeDb({ [COLLECTIONS.demoCounters]: { bad: { count: "x" } } });
+    const store = firestoreDemoStore(db);
+    expect(await store.bumpCounterCount("bad", "charge_once", "2026-10-28", 5, EXP)).toBeNull();
+    await expect(store.bumpCounterCount("a/b", "charge_once", "2026-10-28", 5, EXP)).rejects.toThrow();
+  });
+
+  it("ABORTED is a 429 demo_busy (same mapping as bumpCounter); another failure is rethrown", async () => {
+    const { db } = fakeDb();
+    const tx = db as unknown as { runTransaction: () => Promise<never> };
+    tx.runTransaction = async () => {
+      throw Object.assign(new Error("10 ABORTED: too much contention"), { code: 10 });
+    };
+    const err = await firestoreDemoStore(db).bumpCounterCount(ID, "charge_once", "2026-10-28", 5, EXP).then(() => null, (e) => e);
+    expect(err).toBeInstanceOf(LockedError);
+    expect((err as LockedError).code).toBe("demo_busy");
+    tx.runTransaction = async () => {
+      throw new Error("PERMISSION_DENIED");
+    };
+    await expect(firestoreDemoStore(db).bumpCounterCount(ID, "charge_once", "2026-10-28", 5, EXP)).rejects.toThrow("PERMISSION_DENIED");
+  });
+});
+
 describe("L10 bumpCounter under contention", () => {
   const EXP = "2026-10-30T00:00:00.000Z";
 

@@ -4,7 +4,7 @@ import { assertPermission, type Permission } from "@/lib/auth/rbac";
 import type { CustomClaims } from "@/lib/auth/roles";
 import { firestoreDemoStore } from "@/lib/firestore/demo-store";
 import { enforceDemoCaps, type CapMode, type DemoCapKey } from "@/lib/demo/caps";
-import { SANDBOX_OUTLET_PREFIX } from "@/lib/demo/constants";
+import { SANDBOX_OUTLET_PREFIX, SEGMENT_FREE_RETRIES } from "@/lib/demo/constants";
 
 /**
  * The one call a model-spending route makes (R-12 H2): place it AFTER authentication, the permission
@@ -19,12 +19,15 @@ import { SANDBOX_OUTLET_PREFIX } from "@/lib/demo/constants";
  * and a client-facing 4xx (e.g. the 403 of `permission`) pass through unchanged.
  *
  * `mode` "check" only looks (no counter is written); the default "charge" counts the request. See CapMode.
+ * `once` (R-23, the segment route only): charge once per `id`, retries of the same id are free up to
+ * SEGMENT_FREE_RETRIES. See "Once-per-id charging" in caps.ts.
  */
 export async function enforceDemoCapsForRoute(
   key: DemoCapKey,
   claims: Pick<CustomClaims, "outlet_id" | "role">,
   permission?: Permission,
   mode: CapMode = "charge",
+  once?: { id: string },
 ): Promise<void> {
   if (process.env.DEMO_MODE !== "true") return;
   if (!claims.outlet_id.startsWith(SANDBOX_OUTLET_PREFIX)) return;
@@ -34,6 +37,6 @@ export async function enforceDemoCapsForRoute(
     const store = firestoreDemoStore();
     const outlet = await store.getOutlet(claims.outlet_id);
     if (!outlet) throw new AppError("The demo is not ready", "demo_not_ready", 503);
-    await enforceDemoCaps(store, { outlet, now_ms: Date.now(), key, mode });
+    await enforceDemoCaps(store, { outlet, now_ms: Date.now(), key, mode, once: once && { id: once.id, freeRetries: SEGMENT_FREE_RETRIES } });
   });
 }

@@ -13,6 +13,7 @@ import {
   ThreadSchema,
   parseOutletDoc,
   type CaptureSession,
+  type DemoCounterKind,
   type Outlet,
 } from "@/lib/firestore/schema";
 import type { ClonedDoc, TemplateSet } from "@/lib/demo/clone";
@@ -118,6 +119,46 @@ export function firestoreDemoStore(db: Firestore = adminDb()): DemoStore {
       await batch.commit();
     }
     throw new Error("demo-store: delete did not finish");
+  }
+
+  /**
+   * The one counter transaction behind bumpCounter (boolean) and bumpCounterCount (the new count): at/over the
+   * limit or a damaged doc returns null and writes nothing; otherwise count + 1 is written and returned.
+   */
+  async function bumpCounterTx(
+    counterId: string,
+    kind: DemoCounterKind,
+    day: string,
+    limit: number,
+    expiresAtIso: string,
+  ): Promise<number | null> {
+    if (counterId.includes("/") || counterId.length === 0) throw new Error("demo-store: invalid counter id");
+    const ref = db.collection(COLLECTIONS.demoCounters).doc(counterId);
+    try {
+      return await db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        let count = 0;
+        if (snap.exists) {
+          const raw = (snap.data() as { count?: unknown } | undefined)?.count;
+          if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 0) {
+            logSkippedDoc("demo_counter", counterId);
+            return null; // fail closed: a damaged counter must not lift a limit
+          }
+          count = raw;
+        }
+        if (count >= limit) return null;
+        const next = DemoCounterSchema.parse({ counter_id: counterId, kind, day, count: count + 1, expires_at: expiresAtIso });
+        tx.set(ref, { ...next, expires_at: Timestamp.fromDate(new Date(next.expires_at)) });
+        return next.count;
+      });
+    } catch (error) {
+      // A hot counter (the shared day/model counters) can exhaust the transaction's retries with ABORTED.
+      // That is back-pressure, not a server fault: answer 429 with Retry-After and no upstream text.
+      if ((error as { code?: unknown } | null)?.code === 10) {
+        throw new LockedError(2, "The demo is busy, try again shortly", "demo_busy");
+      }
+      throw error;
+    }
   }
 
   async function readTemplateUncached(): Promise<TemplateSet | null> {
@@ -234,34 +275,10 @@ export function firestoreDemoStore(db: Firestore = adminDb()): DemoStore {
     },
 
     async bumpCounter(counterId, kind, day, limit, expiresAtIso): Promise<boolean> {
-      if (counterId.includes("/") || counterId.length === 0) throw new Error("demo-store: invalid counter id");
-      const ref = db.collection(COLLECTIONS.demoCounters).doc(counterId);
-      try {
-        return await db.runTransaction(async (tx) => {
-          const snap = await tx.get(ref);
-          let count = 0;
-          if (snap.exists) {
-            const raw = (snap.data() as { count?: unknown } | undefined)?.count;
-            if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 0) {
-              logSkippedDoc("demo_counter", counterId);
-              return false; // fail closed: a damaged counter must not lift a limit
-            }
-            count = raw;
-          }
-          if (count >= limit) return false;
-          const next = DemoCounterSchema.parse({ counter_id: counterId, kind, day, count: count + 1, expires_at: expiresAtIso });
-          tx.set(ref, { ...next, expires_at: Timestamp.fromDate(new Date(next.expires_at)) });
-          return true;
-        });
-      } catch (error) {
-        // A hot counter (the shared day/model counters) can exhaust the transaction's retries with ABORTED.
-        // That is back-pressure, not a server fault: answer 429 with Retry-After and no upstream text.
-        if ((error as { code?: unknown } | null)?.code === 10) {
-          throw new LockedError(2, "The demo is busy, try again shortly", "demo_busy");
-        }
-        throw error;
-      }
+      return (await bumpCounterTx(counterId, kind, day, limit, expiresAtIso)) !== null;
     },
+
+    bumpCounterCount: bumpCounterTx,
 
     async readCounter(counterId): Promise<number> {
       if (counterId.includes("/") || counterId.length === 0) throw new Error("demo-store: invalid counter id");

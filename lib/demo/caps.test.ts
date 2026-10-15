@@ -217,6 +217,140 @@ describe("enforceDemoCaps", () => {
   });
 });
 
+describe("enforceDemoCaps once-per-id charging (R-23)", () => {
+  const MARKER = (id: string, outlet = SBX) => `charge_once:segment:${outlet}:${id}`;
+  const once = (f: ReturnType<typeof fakeStore>, id: string, freeRetries = 30, env: Record<string, string | undefined> = {}, outlet: Outlet = sandboxOutlet()) =>
+    enforceDemoCaps(f.store, { outlet, now_ms: NOW, key: "segment", env, once: { id, freeRetries } });
+  const charges = (f: ReturnType<typeof fakeStore>) => {
+    const day = utcDay(NOW);
+    return [f.counters.get(`segment_sandbox:${SBX}`), f.counters.get(`segment_day:${day}`), f.counters.get(`model_day:${day}`)];
+  };
+
+  it("the first call charges the three counters and writes the marker (count 1)", async () => {
+    const f = fakeStore();
+    await once(f, "seg-1");
+    expect(charges(f)).toEqual([1, 1, 1]);
+    expect(f.counters.get(MARKER("seg-1"))).toBe(1);
+    expect(f.countBumps).toEqual([{ id: MARKER("seg-1"), kind: "charge_once", limit: 31 }]);
+  });
+
+  it("the second call with the same id charges nothing (counters unchanged, marker count 2)", async () => {
+    const f = fakeStore();
+    await once(f, "seg-1");
+    await once(f, "seg-1");
+    await once(f, "seg-1");
+    expect(charges(f)).toEqual([1, 1, 1]);
+    expect(f.counters.get(MARKER("seg-1"))).toBe(3);
+  });
+
+  it("a different id charges again", async () => {
+    const f = fakeStore();
+    await once(f, "seg-1");
+    await once(f, "seg-2");
+    expect(charges(f)).toEqual([2, 2, 2]);
+  });
+
+  it("past the allowance (freeRetries 2: the 4th call) the full charge runs again, every time", async () => {
+    const f = fakeStore();
+    for (let i = 0; i < 3; i++) await once(f, "seg-1", 2);
+    expect(charges(f)).toEqual([1, 1, 1]);
+    await once(f, "seg-1", 2); // 4th
+    expect(charges(f)).toEqual([2, 2, 2]);
+    await once(f, "seg-1", 2); // 5th
+    expect(charges(f)).toEqual([3, 3, 3]);
+  });
+
+  it("the abuse bound: the 31st retry of one segment (32nd PUT) is charged again with the default allowance of 30", async () => {
+    const f = fakeStore();
+    for (let i = 0; i < 31; i++) await once(f, "seg-1"); // the first PUT + 30 free retries
+    expect(charges(f)).toEqual([1, 1, 1]);
+    await once(f, "seg-1"); // the 31st retry
+    expect(charges(f)).toEqual([2, 2, 2]);
+  });
+
+  it("past the allowance the cap applies: a full sandbox cap refuses the over-allowance retry", async () => {
+    const f = fakeStore();
+    const env = { DEMO_SEGMENT_SANDBOX_CAP: "1" };
+    await once(f, "seg-1", 1, env);
+    await once(f, "seg-1", 1, env); // free
+    expect((await refusal(once(f, "seg-1", 1, env))).code).toBe("demo_segment_cap");
+  });
+
+  it("a kill switch still refuses before the marker is touched", async () => {
+    const f = fakeStore();
+    for (const env of [{ DEMO_SEGMENT_SANDBOX_CAP: "0" }, { DEMO_SEGMENT_DAILY_CAP: "0" }, { DEMO_MODEL_DAILY_CAP: "0" }]) {
+      await refusal(once(f, "seg-1", 30, env));
+    }
+    expect(f.counters.has(MARKER("seg-1"))).toBe(false);
+    expect(f.calls).toEqual([]);
+  });
+
+  it("a kill switch set after a segment was charged still refuses its free retries", async () => {
+    const f = fakeStore();
+    await once(f, "seg-1");
+    await refusal(once(f, "seg-1", 30, { DEMO_SEGMENT_SANDBOX_CAP: "0" }));
+  });
+
+  it("an already-charged id is free even when the cap is now full; a new id is refused and stays refused", async () => {
+    const f = fakeStore();
+    const env = { DEMO_SEGMENT_SANDBOX_CAP: "1" };
+    await once(f, "A", 30, env);
+    await once(f, "A", 30, env); // free
+    expect((await refusal(once(f, "B", 30, env))).code).toBe("demo_segment_cap");
+    // The refused id left no marker, so retrying it is NOT free (the cap cannot be bypassed by retrying a refusal).
+    expect(f.counters.has(MARKER("B"))).toBe(false);
+    expect((await refusal(once(f, "B", 30, env))).code).toBe("demo_segment_cap");
+    expect(f.counters.get(`segment_sandbox:${SBX}`)).toBe(1);
+  });
+
+  it("a refused daily or model charge leaves no marker either", async () => {
+    const f = fakeStore();
+    await refusal(once(f, "X", 30, { DEMO_SEGMENT_DAILY_CAP: "1" }).then(() => once(f, "Y", 30, { DEMO_SEGMENT_DAILY_CAP: "1" })));
+    expect(f.counters.has(MARKER("Y"))).toBe(false);
+    const g = fakeStore();
+    await once(g, "X", 30, { DEMO_MODEL_DAILY_CAP: "1" });
+    await refusal(once(g, "Y", 30, { DEMO_MODEL_DAILY_CAP: "1" }));
+    expect(g.counters.has(MARKER("Y"))).toBe(false);
+  });
+
+  it("a damaged marker is never a free pass: the full charge runs", async () => {
+    const f = fakeStore();
+    await once(f, "seg-1");
+    // The Firestore store answers MAX_SAFE_INTEGER to readCounter and null to bumpCounterCount for a damaged doc.
+    f.counters.set(MARKER("seg-1"), Number.MAX_SAFE_INTEGER);
+    await once(f, "seg-1");
+    expect(charges(f)).toEqual([2, 2, 2]);
+  });
+
+  it("the marker is per sandbox: the same seg id in another sandbox charges", async () => {
+    const f = fakeStore();
+    await once(f, "seg-1");
+    await once(f, "seg-1", 30, {}, sandboxOutlet("sbx-ffffffffffff"));
+    expect(f.counters.get(`segment_sandbox:sbx-ffffffffffff`)).toBe(1);
+    expect(f.counters.get(MARKER("seg-1", "sbx-ffffffffffff"))).toBe(1);
+  });
+
+  it("mode check ignores once: no marker is read or written", async () => {
+    const f = fakeStore();
+    await enforceDemoCaps(f.store, { outlet: sandboxOutlet(), now_ms: NOW, key: "segment", mode: "check", once: { id: "seg-1", freeRetries: 30 } });
+    expect(f.counters.size).toBe(0);
+    expect(f.calls.filter((c) => c === "bumpCounterCount")).toEqual([]);
+  });
+
+  it("the marker id carries the sandbox id and the seg id only (no ip, no key, no device id)", async () => {
+    const f = fakeStore();
+    await once(f, "seg-1");
+    expect(f.countBumps.map((b) => b.id)).toEqual([`charge_once:segment:${SBX}:seg-1`]);
+    expect(f.bumps.map((b) => b.id)).toEqual([`segment_sandbox:${SBX}`, `segment_day:${utcDay(NOW)}`, `model_day:${utcDay(NOW)}`]);
+  });
+
+  it("without once, nothing about markers happens (existing callers are unchanged)", async () => {
+    const f = fakeStore();
+    await enforceDemoCaps(f.store, { outlet: sandboxOutlet(), now_ms: NOW, key: "segment" });
+    expect(f.countBumps).toEqual([]);
+  });
+});
+
 describe("enforceDemoCaps mode 'check' (QA D1: look without charging)", () => {
   const check = (f: ReturnType<typeof fakeStore>, key: DemoCapKey, env: Record<string, string | undefined> = {}) =>
     enforceDemoCaps(f.store, { outlet: sandboxOutlet(), now_ms: NOW, key, env, mode: "check" });
