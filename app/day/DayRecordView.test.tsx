@@ -110,15 +110,16 @@ describe("DayRecordView — owner shape", () => {
     expect(text).not.toContain("Questions");
   });
 
-  it("zero threads on an 'on' day shows only C-day-empty-owner (no C-day-empty-2)", () => {
+  it("zero threads on an 'on' day shows the empty state with both lines (R-19 PR-6 §8.3)", () => {
     const data: DayRecordResponse = {
       view: "owner",
       day: { ...OWNER_HEADER_BASE, fact_count: 0 },
       threads: [],
     };
     const { container } = renderView(data);
-    expect(container.textContent).toContain("No confirmed facts for this date yet.");
-    expect(container.textContent).not.toContain("Notes appear a few minutes after people speak.");
+    expect(container.textContent).toContain("No notes for this day yet.");
+    expect(container.textContent).toContain("Notes appear after the shop phone listens and Bee6 reads the day.");
+    expect(container.textContent).not.toContain("No confirmed facts for this date yet.");
   });
 
   it("shows a Home link to /home (R-06 Task 14a)", () => {
@@ -214,8 +215,8 @@ describe("DayRecordView — supervisor shape", () => {
       unlabelled: [],
     };
     const { container } = renderView(data);
-    expect(container.textContent).toContain("No work notes for this date.");
-    expect(container.textContent).toContain("Notes appear a few minutes after people speak.");
+    expect(container.textContent).toContain("No notes for this day yet.");
+    expect(container.textContent).toContain("Notes appear after the shop phone listens and Bee6 reads the day.");
   });
 
   it("supervisor empty 'off' day shows only the off/closed + empty line (no empty-2)", () => {
@@ -227,8 +228,8 @@ describe("DayRecordView — supervisor shape", () => {
     };
     const { container } = renderView(data);
     expect(container.textContent).toContain("Off / closed");
-    expect(container.textContent).toContain("No work notes for this date.");
-    expect(container.textContent).not.toContain("Notes appear a few minutes after people speak.");
+    expect(container.textContent).toContain("No notes for this day yet.");
+    expect(container.textContent).not.toContain("Notes appear after the shop phone listens and Bee6 reads the day.");
   });
 
   it("supervisor, only questions (no facts) -> 'Facts: 0 · Questions: 3' and three cards", () => {
@@ -384,7 +385,7 @@ describe("DayRecordView — unlabelled moments (Task 12)", () => {
       unlabelled: [unlabelledItem()],
     };
     const { container } = renderView(onlyUnlabelled);
-    expect(container.textContent).not.toContain("No work notes for this date.");
+    expect(container.textContent).not.toContain("No notes for this day yet.");
     expect(container.querySelectorAll("article")).toHaveLength(1);
   });
 });

@@ -8,6 +8,7 @@ import { DayHeader } from "@/app/day/DayHeader";
 import { CategoryFilter } from "@/app/day/CategoryFilter";
 import { ThreadCard } from "@/app/day/ThreadCard";
 import { UnlabelledCard } from "@/app/day/UnlabelledCard";
+import { EmptyState } from "@/app/web/EmptyState";
 
 /**
  * The day record screen body (R-06 Task 7.4). `WebTopBar` is rendered by
@@ -59,7 +60,6 @@ export function DayRecordView({
   // for it there.
   const unlabelled: SupervisorUnlabelled[] = data.view === "supervisor" ? data.unlabelled : [];
   const timeline = buildTimeline(threads, unlabelled, filter);
-  const isSupervisor = data.view === "supervisor";
   const isEmpty = threads.length === 0 && unlabelled.length === 0;
 
   return (
@@ -82,12 +82,11 @@ export function DayRecordView({
       )}
 
       {isEmpty && (
-        <div>
-          <p>{t(lang, isSupervisor ? "C-day-empty" : "C-day-empty-owner")}</p>
-          {isSupervisor && (data.day.day_status === "on" || data.day.day_status === "pending") && (
-            <p>{t(lang, "C-day-empty-2")}</p>
-          )}
-        </div>
+        // R-19 PR-6 §8.3: one empty state for both views; the "notes appear after..." line only on a day that can still fill.
+        <EmptyState
+          title={t(lang, "C-web-empty-day-h")}
+          detail={data.day.day_status === "on" || data.day.day_status === "pending" ? t(lang, "C-web-empty-day-p") : undefined}
+        />
       )}
 
       <ol style={LIST_STYLE}>

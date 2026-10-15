@@ -185,7 +185,7 @@ export function ProposalsApp({ config }: { config: FirebaseWebConfig | null }) {
   if (authUser.status === "loading" || authUser.status === "signed_out") {
     return (
       <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
+        <WebTopBar auth={auth} showSignOut current="proposals" />
         <p role="status" aria-live="polite">
           {t(lang, "C-day-loading")}
         </p>
@@ -196,7 +196,7 @@ export function ProposalsApp({ config }: { config: FirebaseWebConfig | null }) {
   if (role === null) {
     return (
       <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
+        <WebTopBar auth={auth} showSignOut current="proposals" />
         <p role="status" aria-live="polite">
           {t(lang, "C-day-loading")}
         </p>
@@ -207,7 +207,7 @@ export function ProposalsApp({ config }: { config: FirebaseWebConfig | null }) {
   if (role === "other") {
     return (
       <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
+        <WebTopBar auth={auth} showSignOut current="proposals" />
         <h1>{t(lang, "C-prop-title")}</h1>
         <p role="status" aria-live="polite">
           {t(lang, "C-prop-err-forbidden")}
@@ -233,7 +233,7 @@ export function ProposalsApp({ config }: { config: FirebaseWebConfig | null }) {
 
   return (
     <main style={PAGE_STYLE}>
-      <WebTopBar auth={auth} showSignOut />
+      <WebTopBar auth={auth} showSignOut current="proposals" />
       <h1>{t(lang, "C-prop-title")}</h1>
       <p>{t(lang, "C-prop-help")}</p>
       {role === "owner" && <p>{t(lang, "C-prop-owner-note")}</p>}

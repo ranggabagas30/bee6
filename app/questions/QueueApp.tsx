@@ -82,50 +82,58 @@ export function QueueApp({ config }: { config: FirebaseWebConfig | null }) {
 
   if (!config || !auth) {
     return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={null} showSignOut={false} />
-        <p role="status" aria-live="polite">
-          {t(lang, "C-signin-config")}
-        </p>
+      <main>
+        <div style={PAGE_STYLE}>
+          <WebTopBar auth={null} showSignOut={false} />
+          <p role="status" aria-live="polite">
+            {t(lang, "C-signin-config")}
+          </p>
+        </div>
       </main>
     );
   }
 
   if (state.kind === "loading") {
     return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
-        <p role="status" aria-live="polite">
-          {t(lang, "C-day-loading")}
-        </p>
+      <main>
+        <div style={PAGE_STYLE}>
+          <WebTopBar auth={auth} showSignOut />
+          <p role="status" aria-live="polite">
+            {t(lang, "C-day-loading")}
+          </p>
+        </div>
       </main>
     );
   }
 
   if (state.kind === "forbidden") {
     return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
-        <p role="status" aria-live="polite">
-          {t(lang, "C-day-forbidden")}
-        </p>
-        <Link href="/day" style={LINK_STYLE}>
-          {t(lang, "C-queue-to-day")}
-        </Link>
+      <main>
+        <div style={PAGE_STYLE}>
+          <WebTopBar auth={auth} showSignOut />
+          <p role="status" aria-live="polite">
+            {t(lang, "C-day-forbidden")}
+          </p>
+          <Link href="/day" style={LINK_STYLE}>
+            {t(lang, "C-queue-to-day")}
+          </Link>
+        </div>
       </main>
     );
   }
 
   if (state.kind === "error") {
     return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
-        <p role="status" aria-live="polite">
-          {t(lang, "C-day-err")}
-        </p>
-        <button type="button" style={RETRY_STYLE} onClick={reload}>
-          {t(lang, "C-day-retry")}
-        </button>
+      <main>
+        <div style={PAGE_STYLE}>
+          <WebTopBar auth={auth} showSignOut />
+          <p role="status" aria-live="polite">
+            {t(lang, "C-day-err")}
+          </p>
+          <button type="button" style={RETRY_STYLE} onClick={reload}>
+            {t(lang, "C-day-retry")}
+          </button>
+        </div>
       </main>
     );
   }

@@ -9,6 +9,7 @@ import { t, type DictKey } from "@/lib/i18n/dict";
 import { ListProposalsResponseSchema, type ListProposalsResponse } from "@/lib/proposals/review-contract";
 import { ProposalCard } from "@/app/proposals/ProposalCard";
 import { ProposalDecisionPanel } from "@/app/proposals/ProposalDecisionPanel";
+import { EmptyState } from "@/app/web/EmptyState";
 
 /**
  * The open and recently decided proposals (R-09 Task 8.1), for owner AND
@@ -95,7 +96,14 @@ export function ProposalList({
     <>
       <section style={SECTION_STYLE} aria-labelledby="prop-list-open">
         <h2 id="prop-list-open">{t(lang, "C-prop-list-open")}</h2>
-        {open.length === 0 ? (
+        {open.length === 0 && decided.length === 0 ? (
+          // R-19 PR-6 §8.3: nothing at all yet. The owner's page is "Approvals"; the supervisor's is "Proposals".
+          role === "owner" ? (
+            <EmptyState title={t(lang, "C-web-empty-appr-h")} detail={t(lang, "C-web-empty-appr-p")} />
+          ) : (
+            <EmptyState title={t(lang, "C-web-empty-prop-h")} detail={t(lang, "C-web-empty-prop-p")} />
+          )
+        ) : open.length === 0 ? (
           <p>{t(lang, "C-prop-list-empty")}</p>
         ) : (
           open.map((item) => (

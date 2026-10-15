@@ -12,6 +12,7 @@ import { dayLabel } from "@/lib/i18n/format";
 import { SopOverviewSchema, type SopOverview } from "@/lib/sop/contract";
 import { WebTopBar } from "@/app/web/WebTopBar";
 import { ROLE_KEY, SopChangeCard } from "@/app/sop/SopChangeCard";
+import { EmptyState } from "@/app/web/EmptyState";
 
 /**
  * /sop (R-10 Task 5.3). Owner and supervisor see the SOP header, the plain
@@ -107,7 +108,7 @@ export function SopApp({ config }: { config: FirebaseWebConfig | null }) {
   if (authUser.status === "loading" || authUser.status === "signed_out" || role === null) {
     return (
       <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
+        <WebTopBar auth={auth} showSignOut current="sop" />
         <p role="status" aria-live="polite">
           {t(lang, "C-day-loading")}
         </p>
@@ -118,7 +119,7 @@ export function SopApp({ config }: { config: FirebaseWebConfig | null }) {
   if (role === "other" || outcome.kind === "forbidden") {
     return (
       <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
+        <WebTopBar auth={auth} showSignOut current="sop" />
         <h1>{t(lang, "C-sop-title")}</h1>
         <p role="status" aria-live="polite">
           {t(lang, "C-sop-err-forbidden")}
@@ -130,7 +131,7 @@ export function SopApp({ config }: { config: FirebaseWebConfig | null }) {
   if (outcome.kind === "loading" || outcome.kind === "error") {
     return (
       <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
+        <WebTopBar auth={auth} showSignOut current="sop" />
         <h1>{t(lang, "C-sop-title")}</h1>
         <p role="status" aria-live="polite">
           {outcome.kind === "loading" ? t(lang, "C-day-loading") : t(lang, "C-srv-generic")}
@@ -143,9 +144,9 @@ export function SopApp({ config }: { config: FirebaseWebConfig | null }) {
   if (latest === null) {
     return (
       <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
+        <WebTopBar auth={auth} showSignOut current="sop" />
         <h1>{t(lang, "C-sop-title")}</h1>
-        <p>{t(lang, "C-sop-empty")}</p>
+        <EmptyState title={t(lang, "C-web-empty-sop-h")} detail={role === "owner" ? t(lang, "C-web-empty-sop-owner") : undefined} />
       </main>
     );
   }
@@ -168,7 +169,7 @@ export function SopApp({ config }: { config: FirebaseWebConfig | null }) {
 
   return (
     <main style={PAGE_STYLE}>
-      <WebTopBar auth={auth} showSignOut />
+      <WebTopBar auth={auth} showSignOut current="sop" />
       <h1>{t(lang, "C-sop-title")}</h1>
       <p style={LINE_STYLE}>{header}</p>
 

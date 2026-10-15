@@ -113,4 +113,20 @@ describe("QueueApp", () => {
     );
     expect(screen.getByText("Sign-in is not set up on this server.")).not.toBeNull();
   });
+  it("keeps the same top bar and nav nodes across the loading -> ok transition (no remount, no layout jump)", async () => {
+    authUserState = {
+      status: "signed_in",
+      user: { uid: "u1", getIdTokenResult: () => Promise.resolve({ claims: { role: "supervisor", outlet_id: "o1" } }) },
+    } as unknown as AuthUserState;
+    let resolveFetch: (v: unknown) => void = () => {};
+    authedGetJson.mockReturnValue(new Promise((r) => (resolveFetch = r)));
+    renderApp();
+    const nav = await screen.findByRole("navigation");
+    const banner = screen.getByRole("banner");
+    resolveFetch({ kind: "ok", data: makeData() });
+    await waitFor(() => expect(authedGetJson).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
+    expect(screen.getByRole("banner")).toBe(banner);
+    expect(screen.getByRole("navigation")).toBe(nav);
+  });
 });

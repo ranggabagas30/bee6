@@ -16,6 +16,7 @@ import {
 import { WebTopBar } from "@/app/web/WebTopBar";
 import { ReviewCard } from "@/app/reviews/ReviewCard";
 import { VerdictPanel } from "@/app/reviews/VerdictPanel";
+import { EmptyState } from "@/app/web/EmptyState";
 
 /**
  * /reviews (R-11 Task 6.3). Owner and supervisor see the same list: reviews
@@ -168,7 +169,7 @@ export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
   if (authUser.status === "loading" || authUser.status === "signed_out" || role === null) {
     return (
       <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
+        <WebTopBar auth={auth} showSignOut current="reviews" />
         <p role="status" aria-live="polite">
           {t(lang, "C-day-loading")}
         </p>
@@ -179,7 +180,7 @@ export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
   if (role === "other" || view.kind === "forbidden") {
     return (
       <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut />
+        <WebTopBar auth={auth} showSignOut current="reviews" />
         <h1>{t(lang, "C-rev-title")}</h1>
         <p role="status" aria-live="polite">
           {t(lang, "C-rev-err-forbidden")}
@@ -196,7 +197,7 @@ export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
 
   return (
     <main style={PAGE_STYLE}>
-      <WebTopBar auth={auth} showSignOut />
+      <WebTopBar auth={auth} showSignOut current="reviews" />
       <h1>{t(lang, "C-rev-title")}</h1>
 
       <p
@@ -235,7 +236,9 @@ export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
         </div>
       )}
 
-      {view.kind === "ok" && open.length === 0 && decided.length === 0 && <p style={{ ...LINE_STYLE, marginTop: 16 }}>{t(lang, "C-rev-empty")}</p>}
+      {view.kind === "ok" && open.length === 0 && decided.length === 0 && (
+        <EmptyState title={t(lang, "C-web-empty-rev-h")} detail={t(lang, "C-web-empty-rev-p")} />
+      )}
 
       {open.length > 0 && (
         <section style={SECTION_STYLE} aria-labelledby="rev-list-open">

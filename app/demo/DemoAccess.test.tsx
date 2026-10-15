@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { LangProvider } from "@/lib/i18n/context";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import type { StartDemoResult } from "@/app/demo/demo-client";
@@ -44,10 +44,10 @@ function Panel() {
 }
 const onFill = vi.fn();
 
-function renderAccess(opts: { role?: SignInRole; lang?: "en" | "id"; config?: FirebaseWebConfig | null } = {}) {
+function renderAccess(opts: { role?: SignInRole; lang?: "en" | "id"; config?: FirebaseWebConfig | null; barShowsEnded?: boolean } = {}) {
   return render(
     <LangProvider initial={opts.lang ?? "en"}>
-      <DemoAccess role={opts.role ?? "staff"} onFill={onFill} config={opts.config === undefined ? CONFIG : opts.config}>
+      <DemoAccess role={opts.role ?? "staff"} onFill={onFill} config={opts.config === undefined ? CONFIG : opts.config} barShowsEnded={opts.barShowsEnded}>
         <Panel />
       </DemoAccess>
     </LangProvider>,
@@ -82,12 +82,12 @@ afterEach(() => {
 });
 
 describe("DemoAccess box", () => {
-  it("shows the staff code with a Fill in button and the private-copy line", () => {
+  it("for staff shows the private-copy line only: no code and no Fill in (W8: the judge guide carries 000000)", () => {
     renderAccess({ role: "staff" });
     expect(screen.getByRole("region", { name: "Demo access" })).toBeTruthy();
-    expect(screen.getByText("000000")).toBeTruthy();
+    expect(screen.queryByText("000000")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Fill in" })).toBeNull();
     expect(screen.getByText("Each sign-in opens your own private copy of a fictional shop for 2 hours. Nothing you do affects anyone else.")).toBeTruthy();
-    expect(parseInt(button("Fill in").style.minHeight, 10)).toBeGreaterThanOrEqual(48);
   });
 
   it.each([
@@ -105,13 +105,13 @@ describe("DemoAccess box", () => {
   });
 
   it("is in Bahasa when the language says so", () => {
-    renderAccess({ lang: "id" });
+    renderAccess({ lang: "id", role: "owner" });
     expect(screen.getByRole("region", { name: "Akses demo" })).toBeTruthy();
-    expect(screen.getByText(/Kode staf/)).toBeTruthy();
+    expect(screen.getByText(/Kata sandi/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Isi otomatis" })).toBeTruthy();
   });
 
   it.each([
-    ["staff", { code: "000000" }],
     ["supervisor", { email: "supervisor.judge@example.com", password: "bee6-demo" }],
     ["owner", { email: "owner.judge@example.com", password: "bee6-demo" }],
   ] as const)("Fill in hands the %s credential to the panel (every tap), says so, and never submits", (role, values) => {
@@ -126,10 +126,39 @@ describe("DemoAccess box", () => {
 
   it("the Filled in line goes away when a demo is started", async () => {
     startOrSwitch.mockResolvedValue({ kind: "started" });
-    renderAccess({ role: "staff" });
+    renderAccess({ role: "owner" });
     fireEvent.click(button("Fill in"));
-    await act(async () => void (await hooks.interceptCode!("000000")));
+    await act(async () => void (await hooks.interceptEmail!("owner.judge@example.com", "bee6-demo")));
     expect(status().textContent).not.toContain("Filled in");
+  });
+
+  it("onStarted (R-19 PR-6, /pair): a started demo hands the start a no-op navigation and calls onStarted; the screen shows the next step itself", async () => {
+    startOrSwitch.mockResolvedValue({ kind: "started" });
+    const onStarted = vi.fn();
+    render(
+      <LangProvider initial="en">
+        <DemoAccess role="staff" onFill={onFill} config={CONFIG} onStarted={onStarted}>
+          <Panel />
+        </DemoAccess>
+      </LangProvider>,
+    );
+    await act(async () => void (await hooks.interceptCode!("000000")));
+    expect(typeof startOrSwitch.mock.calls[0]![1].navigate).toBe("function");
+    expect(onStarted).toHaveBeenCalledTimes(1);
+  });
+
+  it("onStarted is not called on a refusal", async () => {
+    startOrSwitch.mockResolvedValue({ kind: "not_ready" });
+    const onStarted = vi.fn();
+    render(
+      <LangProvider initial="en">
+        <DemoAccess role="staff" onFill={onFill} config={CONFIG} onStarted={onStarted}>
+          <Panel />
+        </DemoAccess>
+      </LangProvider>,
+    );
+    await act(async () => void (await hooks.interceptCode!("000000")));
+    expect(onStarted).not.toHaveBeenCalled();
   });
 
   it("axe finds no violation", async () => {
@@ -269,107 +298,41 @@ describe("DemoAccess intercepts", () => {
 });
 
 describe("DemoAccess with an earlier visit in this browser", () => {
-  it("says the session ended when the stored sandbox is past its expiry, and offers no fresh-demo control", () => {
+  it("on /sign-in says the session ended when the stored sandbox is past its expiry: the DemoBar is hidden there (any role tab)", () => {
     window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: 1_000, role: "owner" }));
-    renderAccess();
+    renderAccess({ role: "staff" });
     expect(status().textContent).toContain("Your demo session has ended.");
-    expect(screen.queryByRole("button", { name: "Start a fresh demo" })).toBeNull();
+  });
+
+  it("with the DemoBar showing the ended sentence (/pair) the box does not repeat it", () => {
+    window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: 1_000, role: "staff" }));
+    renderAccess({ role: "staff", barShowsEnded: true });
+    expect(screen.queryByText("Your demo session has ended.")).toBeNull();
+    expect(status().textContent).toBe("");
   });
 
   it("says nothing of an ending, and nothing about continuing, on a fresh browser", () => {
     renderAccess();
     expect(status().textContent).toBe("");
     expect(screen.queryByText(/You are continuing your demo/)).toBeNull();
-    expect(screen.queryByRole("button", { name: "Start a fresh demo" })).toBeNull();
   });
 
-  it("says you are continuing the live demo and when it ends, and offers Start a fresh demo behind a confirm step", () => {
+  it("says you are continuing the live demo and when it ends; there is no fresh-demo control any more (R-19 PR-6 §8.1: the owner resets)", () => {
     live();
     renderAccess();
     expect(screen.getByText(/You are continuing your demo \(ends \d\d:\d\d\)\./)).toBeTruthy();
-    fireEvent.click(button("Start a fresh demo"));
-    expect(readDemoState()?.sandbox_key).toBe(KEY); // first tap changes nothing
-    expect(screen.getByText(/Discard this demo shop and start over/)).toBeTruthy();
-    expect(startOrSwitch).not.toHaveBeenCalled();
-  });
-
-  it("Stay in this demo cancels; Yes, start over forgets the sandbox and says so", () => {
-    live();
-    renderAccess();
-    fireEvent.click(button("Start a fresh demo"));
-    fireEvent.click(button("Stay in this demo"));
+    expect(screen.queryByRole("button", { name: /fresh|start over/i })).toBeNull();
     expect(screen.queryByText(/Discard this demo shop/)).toBeNull();
     expect(readDemoState()?.sandbox_key).toBe(KEY);
-
-    fireEvent.click(button("Start a fresh demo"));
-    fireEvent.click(button("Yes, start over"));
-    expect(readDemoState()).toBeNull();
-    expect(status().textContent).toContain("Demo cleared. Pick a role to begin again.");
-    expect(document.activeElement).toBe(status());
-    expect(screen.queryByRole("button", { name: "Start a fresh demo" })).toBeNull();
   });
 
-  it("Yes, start over also signs the Firebase web user out and removes the device keys", async () => {
-    live();
-    window.localStorage.setItem("bee6.device_token", "t");
-    window.localStorage.setItem("bee6.device_id", "d");
-    renderAccess();
-    fireEvent.click(button("Start a fresh demo"));
-    fireEvent.click(button("Yes, start over"));
-    await waitFor(() => expect(signOut).toHaveBeenCalledWith(FAKE_AUTH));
-    expect(window.localStorage.getItem("bee6.device_token")).toBeNull();
-    expect(window.localStorage.getItem("bee6.device_id")).toBeNull();
-  });
-
-  it("a demo credential submitted while the sign-out is still running waits for it, so a late sign-out cannot undo the new sign-in", async () => {
-    live();
-    const d = deferred<void>();
-    signOut.mockReturnValue(d.promise);
-    startOrSwitch.mockResolvedValue({ kind: "started" });
-    renderAccess();
-    fireEvent.click(button("Start a fresh demo"));
-    fireEvent.click(button("Yes, start over"));
-    await waitFor(() => expect(signOut).toHaveBeenCalledWith(FAKE_AUTH));
-    let pending!: Promise<boolean>;
-    await act(async () => {
-      pending = hooks.interceptCode!("000000");
-    });
-    expect(startOrSwitch).not.toHaveBeenCalled();
-    await act(async () => d.resolve());
-    expect(await pending).toBe(true);
-    expect(startOrSwitch).toHaveBeenCalledTimes(1);
-  });
-
-  it("starts the next demo even when the sign-out fails", async () => {
-    live();
-    signOut.mockRejectedValue(new Error("offline"));
-    startOrSwitch.mockResolvedValue({ kind: "started" });
-    renderAccess();
-    fireEvent.click(button("Start a fresh demo"));
-    fireEvent.click(button("Yes, start over"));
-    await act(async () => void (await hooks.interceptCode!("000000")));
-    expect(startOrSwitch).toHaveBeenCalledTimes(1);
-  });
-
-  it("Yes, start over still works when the auth client cannot start", () => {
+  it("a demo credential typed over a live sandbox switches inside it (the request carries the key path through startOrSwitch)", async () => {
     live("staff");
-    getClientAuth.mockImplementation(() => {
-      throw new Error("no auth");
-    });
-    renderAccess();
-    fireEvent.click(button("Start a fresh demo"));
-    fireEvent.click(button("Yes, start over"));
-    expect(readDemoState()).toBeNull();
-    expect(status().textContent).toContain("Demo cleared.");
-  });
-
-  it("moves focus to the confirm question, and back to the button when the visitor stays", () => {
-    live();
-    renderAccess();
-    fireEvent.click(button("Start a fresh demo"));
-    expect(document.activeElement).toBe(screen.getByText(/Discard this demo shop/));
-    fireEvent.click(button("Stay in this demo"));
-    expect(document.activeElement).toBe(button("Start a fresh demo"));
+    startOrSwitch.mockResolvedValue({ kind: "started" });
+    renderAccess({ role: "owner" });
+    await act(async () => void (await hooks.interceptEmail!("owner.judge@example.com", "bee6-demo")));
+    expect(startOrSwitch).toHaveBeenCalledTimes(1);
+    expect(startOrSwitch.mock.calls[0]![0]).toBe("owner");
   });
 
   it("tampered storage is ignored: no continuing line, no ended line", () => {

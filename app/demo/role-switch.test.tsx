@@ -180,7 +180,7 @@ describe("Demo credentials typed into the official sign-in end on the role's lan
       render(
         <LangProvider initial="en">
           <MountedWebPage />
-          <SignInScreen config={CONFIG} demo variant="home" initialRole={role} />
+          <SignInScreen config={CONFIG} demo initialRole={role} />
         </LangProvider>,
       );
       await screen.findByText("Demo access"); // the demo box loads lazily
@@ -203,7 +203,7 @@ describe("Demo credentials typed into the official sign-in end on the role's lan
     window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: Date.now() + 3_600_000, role: "staff" }));
     render(
       <LangProvider initial="en">
-        <SignInScreen config={CONFIG} demo variant="home" initialRole="owner" />
+        <SignInScreen config={CONFIG} demo initialRole="owner" />
       </LangProvider>,
     );
     await screen.findByText("Demo access");
