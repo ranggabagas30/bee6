@@ -16,15 +16,31 @@ import styles from "@/app/sop/sop.module.css";
  * contents (one entry per non-empty chapter, with its step count) and the legend "From your SOP n / Improved with
  * Bee6 n". Right page: the open chapter's steps, rendered by PR-9a's `SopVersionSteps` so the improved badge, the
  * struck old wording and the "why" link are the same code in both views. Previous/Next page move through the
- * chapters. At 360 px the two pages stack into one column (CSS only; the open chapter is the only state).
+ * chapters. At 360 px the two pages stack into one column (CSS only; the open chapter is the only state, and the
+ * parent may hold it via `chapter`/`onChapterChange`).
  *
  * The legend counts for the shown version: a step is "improved" when an approved change at or before that version
  * touched it, so the seed always reads 0 improved, as its steps carry no badge.
  */
-export function SopBookSpread({ view, versions, lang }: { view: SopVersionView; versions: readonly SopVersionView[]; lang: Lang }) {
+export function SopBookSpread({
+  view,
+  versions,
+  lang,
+  chapter: controlled,
+  onChapterChange,
+}: {
+  view: SopVersionView;
+  versions: readonly SopVersionView[];
+  lang: Lang;
+  /** Controlled open chapter (the parent keeps it so it outlives a Book -> Table -> Book round trip); own state otherwise. */
+  chapter?: number;
+  onChapterChange?: (index: number) => void;
+}) {
   const chapters = groupByChapter(view.steps);
   const total = chapters.length;
-  const [requested, setRequested] = useState(0);
+  const [own, setOwn] = useState(0);
+  const requested = controlled ?? own;
+  const setRequested = onChapterChange ?? setOwn;
   // Clamp rather than reset: a version with fewer chapters keeps the reader as close as possible to where they were.
   const index = Math.min(requested, Math.max(total - 1, 0));
   const chapter = chapters[index] ?? null;

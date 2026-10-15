@@ -75,8 +75,10 @@ function SopBook({ data, lang }: { data: SopOverview; lang: Lang }) {
   const versions = useMemo(() => buildVersions(data).reverse(), [data]);
   const newest = versions[versions.length - 1]!;
   const [selected, setSelected] = useState<number>(newest.version);
-  // PR-9b: Book (the spread) or Table; the choice outlives a version switch.
+  // PR-9b: Book (the spread) or Table; the choice outlives a version switch. The open chapter lives here too, so a
+  // Book -> Table -> Book round trip reopens the same page (the spread unmounts in Table view).
   const [mode, setMode] = useState<ViewMode>("book");
+  const [chapter, setChapter] = useState(0);
   const view = versions.find((v) => v.version === selected) ?? newest;
   const options = versions.map((v) => ({ value: String(v.version), label: versionLabel(v, v === newest, lang) }));
   const header = headerLine(data, versions.length > 1, lang);
@@ -108,7 +110,11 @@ function SopBook({ data, lang }: { data: SopOverview; lang: Lang }) {
         <h2 id="sop-steps-heading" className={styles.sectionTitle}>
           {t(lang, "C-sop-steps", { version: view.version })}
         </h2>
-        {mode === "book" ? <SopBookSpread view={view} versions={versions} lang={lang} /> : <SopTable view={view} versions={versions} lang={lang} />}
+        {mode === "book" ? (
+          <SopBookSpread view={view} versions={versions} lang={lang} chapter={chapter} onChapterChange={setChapter} />
+        ) : (
+          <SopTable view={view} versions={versions} lang={lang} />
+        )}
       </section>
     </>
   );
