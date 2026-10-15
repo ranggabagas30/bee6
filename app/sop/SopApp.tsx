@@ -43,8 +43,8 @@ type Outcome =
  * "First version" is the fallback only when the seed's date is not known.
  * State: the version's `version === in_force_version ? "current" : version > in_force_version ? "upcoming" : "past"`.
  */
-function versionLabel(v: SopVersionView, inForceVersion: number | null | undefined, lang: Lang): string {
-  const inForce = inForceVersion ?? (v.version > 1 ? v.version - 1 : 1); // Fallback for missing in_force_version
+function versionLabel(v: SopVersionView, inForceVersion: number | null | undefined, newestVersion: number, lang: Lang): string {
+  const inForce = inForceVersion ?? newestVersion; // Fallback when no version is in force yet: the newest reads as current
   const state = v.version === inForce ? "current" : v.version > inForce ? "upcoming" : "past";
 
   if (v.effective_from_date === null) {
@@ -89,7 +89,7 @@ function SopBook({ data, lang }: { data: SopOverview; lang: Lang }) {
   const [mode, setMode] = useState<ViewMode>("book");
   const [chapter, setChapter] = useState(0);
   const view = versions.find((v) => v.version === selected) ?? newest;
-  const options = versions.map((v) => ({ value: String(v.version), label: versionLabel(v, data.in_force_version, lang) }));
+  const options = versions.map((v) => ({ value: String(v.version), label: versionLabel(v, data.in_force_version, newest.version, lang) }));
   const header = headerLine(data, versions.length > 1, lang);
   const modeOptions = [
     { value: "book" as const, label: t(lang, "C-sop-book-view-book") },
