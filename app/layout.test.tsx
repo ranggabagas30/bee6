@@ -18,6 +18,7 @@ import RootLayout from "@/app/layout";
 import { DemoBarLoader } from "@/app/demo/DemoBarLoader";
 import { JudgeGuideLoader } from "@/app/demo/JudgeGuideLoader";
 import { DEMO_STATE_KEY } from "@/app/demo/demo-state-key";
+import { FIRST_PAINT_SCRIPT } from "@/app/demo/first-paint";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
@@ -128,16 +129,28 @@ describe("RootLayout demo bar space (R-19 PR-5, CLS)", () => {
     return scripts(el.props.children, out);
   }
 
-  it("with DEMO_MODE on, a tiny inline script puts b6-topbar-reserved on <html> from the demo state key, and <html> tolerates it at hydration", async () => {
+  it("with DEMO_MODE on, the tiny first-paint script (app/demo/first-paint.ts, tested for real there) is inlined: it puts b6-topbar-reserved and b6-panel-reserved on <html>, and <html> tolerates that at hydration", async () => {
     vi.stubEnv("DEMO_MODE", "true");
     const tree = await RootLayout({ children: <main id="page" /> });
     const found = scripts(tree);
     expect(found).toHaveLength(1);
+    expect(found[0]!.html).toBe(FIRST_PAINT_SCRIPT);
     expect(found[0]!.html).toContain(DEMO_STATE_KEY);
     expect(found[0]!.html).toContain("b6-topbar-reserved");
+    expect(found[0]!.html).toContain("b6-panel-reserved");
     expect(found[0]!.html).toContain("catch");
-    expect(found[0]!.html.length).toBeLessThan(300);
+    expect(found[0]!.html.length).toBeLessThan(400);
     expect((findHtml(tree) as unknown as ReactElement<{ suppressHydrationWarning?: boolean }>).props.suppressHydrationWarning).toBe(true);
+  });
+
+  it("the script comes before the demo bar's slot and the page, so the classes are set before either paints", async () => {
+    vi.stubEnv("DEMO_MODE", "true");
+    const tree = await RootLayout({ children: <main id="page" /> });
+    const body = (findHtml(tree) as unknown as ReactElement<{ children: ReactElement<{ children: ReactElement<{ children: unknown[] }> }> }>).props.children;
+    const kids = body.props.children.props.children as ReactElement[];
+    const scriptAt = kids.findIndex((k) => k.type === "script");
+    expect(scriptAt).toBeGreaterThanOrEqual(0);
+    expect(scriptAt).toBeLessThan(kids.findIndex((k) => k.type === DemoBarLoader));
   });
 
   it("the pilot gets no script", async () => {

@@ -526,6 +526,16 @@
   padding-top: calc(var(--b6-panel-pill-h) + 14px + 8px);
 }
 
+/* The class above lands in an effect, so on a full page load the padding arrived only after hydration and every
+   page jumped down by it. A host that knows at first paint that the pill will be there (the root layout's inline
+   script) puts b6-panel-reserved on <html> before anything paints; at panel widths that reserves the same padding
+   from the first frame. An open panel wins (right inset only), exactly as the collapsed class behaves. */
+@media (min-width: 900px) {
+  .b6-panel-reserved:not(.b6-panel-open) body {
+    padding-top: calc(var(--b6-panel-pill-h) + 14px + 8px);
+  }
+}
+
 /* Top bar room (R-19 PR-5): a notice bar that mounts after hydration gets its space held by this slot from the first
    paint, so the page below it does not jump. The class on <html> is set by a first-paint script when the bar will
    show. The bar (.b6-topbar) and its slot share ONE deterministic height per width: two text lines tall (54 px)
