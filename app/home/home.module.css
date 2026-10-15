@@ -167,10 +167,13 @@
   color: var(--b6-muted);
 }
 
-/* Text link that keeps the 48 px target (CLAUDE.md §2 global constraint). */
+/* Text link that keeps the 44 x 48 px target (CLAUDE.md §2 global constraint) whatever the copy: "Tinjau" (the
+   Bahasa Review) is 38 px wide on its own (integration QA, 360 px), so the box, not the label, sets the width. */
 .link {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  min-width: 44px;
   min-height: 48px;
   color: var(--b6-teal-ink);
   font-size: var(--b6-fs-ui);

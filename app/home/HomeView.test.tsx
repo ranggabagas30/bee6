@@ -173,6 +173,21 @@ describe("HomeView: waiting for your approval (W4)", () => {
     expect(screen.queryByText(/more in Approvals/)).toBeNull();
   });
 
+  // Integration QA (R-19): "Tinjau" measured 38 x 48 px at 360 px. The width comes from the `.link` rule (44 px min,
+  // home-css.test.ts), so both the EN and the ID label must carry that class, not a copy-dependent one.
+  it("the per-row Review link carries the .link tap-target rule in English (Review) and Bahasa (Tinjau)", () => {
+    const data = baseData({ waiting_approval: { count: 1, items: [{ proposal_id: UUID_A, change_title: "Read the order back" }] } });
+    const { unmount } = renderView(data, "en");
+    const en = screen.getByRole("link", { name: "Review: Read the order back" });
+    expect(en.textContent).toBe("Review");
+    expect(en.className).toContain("link");
+    unmount();
+    renderView(data, "id");
+    const id = screen.getByRole("link", { name: "Tinjau: Read the order back" });
+    expect(id.textContent).toBe("Tinjau");
+    expect(id.className).toContain("link");
+  });
+
   it("count beyond the five items shows '+N more in Approvals' linking to /proposals", () => {
     const items = Array.from({ length: 5 }, (_, i) => ({ proposal_id: `${i}1111111-1111-4111-8111-111111111111`, change_title: `T${i}` }));
     renderView(baseData({ waiting_approval: { count: 8, items } }));
