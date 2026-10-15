@@ -219,15 +219,21 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
   const stage = currentStage(journey);
   const stageN = stageIndex(stage) + 1;
 
-  // Collapsed on every route change and card change; listening -> all spoken is one flow and keeps it open.
-  const prevRef = useRef({ pathname, key });
+  // Collapsed on every route change and on every card change the PAGE drives (a capture phase, the proposals page's
+  // screen, the role); listening -> all spoken is one flow and keeps it open. A card change that comes only from a
+  // progress read (the re-read on open, or the one a page write signals) never collapses it: the guide re-reads the
+  // counters the moment it opens, and shutting itself on that read was integration QA D1 (one tap opened it, the
+  // moved card closed it ~50 ms later, a second tap was needed).
+  const pageSig = `${pathname}|${bridge?.state.phase ?? ""}|${proposalsScreen ?? ""}|${webRole ?? ""}`;
+  const prevRef = useRef({ pathname, key, pageSig });
   useEffect(() => {
     const prev = prevRef.current;
-    prevRef.current = { pathname, key };
+    prevRef.current = { pathname, key, pageSig };
     if (prev.pathname === pathname && prev.key === key) return;
+    if (prev.pageSig === pageSig) return; // only the progress data moved: the open card updates in place
     const sameFlow = prev.pathname === pathname && prev.key === "capture_listening" && key === "capture_all_spoken";
     if (!sameFlow) setOpen(false);
-  }, [pathname, key]);
+  }, [pathname, key, pageSig]);
 
   // ── config refetches: once on every debrief phase change (End, preparing -> questions, debrief end), and a
   // 10 s re-poll while the next-day reason is transient (`busy`, `preparing`): a line, never a retry tap. ──────

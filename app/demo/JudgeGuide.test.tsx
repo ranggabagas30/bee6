@@ -590,6 +590,71 @@ describe("web routes: progress and the supervisor-visited flag", () => {
   });
 });
 
+// Integration QA D1 (wiring branch): opening the guide re-reads the progress; when the counters had moved since the
+// last read, the new card's key tripped the collapse-on-card-change rule and the guide shut itself ~50 ms after the
+// tap. A card change that comes only from a progress read never collapses the guide; page-driven changes still do.
+describe("D1: a progress-driven card change never collapses the guide", () => {
+  const STALE = { day: 2, days_done: 2, proposals_with_content: 0, feasible: 0, owner_decided: 0 };
+  const MOVED = { day: 3, days_done: 3, proposals_with_content: 2, feasible: 0, owner_decided: 0 };
+  const progressResponse = (p: object) => new Response(JSON.stringify({ data: p }), { status: 200 });
+
+  describe.each([
+    ["phone sheet", false],
+    ["laptop panel", true],
+  ])("%s", (_shell, isWide) => {
+    const guideIsOpen = () =>
+      isWide
+        ? screen.queryByRole("complementary", { name: "Judge guide" }) !== null
+        : screen.getByRole("button", { name: /judge guide/ }).getAttribute("aria-expanded") === "true";
+
+    it("counters changed since the last read (no page signal): ONE tap opens it, the re-read moves the card, and it stays open", async () => {
+      pathname = "/proposals";
+      wide = isWide;
+      seedWeb("supervisor");
+      vi.mocked(fetch).mockResolvedValue(progressResponse(STALE));
+      renderGuide();
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      // Two proposals were written meanwhile (the QA probe mutates the sandbox behind the page's back).
+      vi.mocked(fetch).mockResolvedValue(progressResponse(MOVED));
+      openGuide();
+      expect(guideIsOpen()).toBe(true);
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+      expect(await screen.findByRole("heading", { name: "Check each proposal" })).toBeTruthy();
+      expect(guideIsOpen()).toBe(true);
+    });
+
+    it("a page-signalled progress re-read while the guide is open moves the card without closing it", async () => {
+      pathname = "/proposals";
+      wide = isWide;
+      seedWeb("supervisor");
+      vi.mocked(fetch).mockResolvedValue(progressResponse(STALE));
+      renderGuide();
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      openGuide();
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+      expect(await screen.findByRole("heading", { name: "Ask Bee6 for a proposal" })).toBeTruthy();
+      vi.mocked(fetch).mockResolvedValue(progressResponse(MOVED));
+      act(() => publishProposalsProgress());
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+      expect(await screen.findByRole("heading", { name: "Check each proposal" })).toBeTruthy();
+      expect(guideIsOpen()).toBe(true);
+    });
+
+    it("a page-driven card change still collapses it: the list turns into Asking Bee6 after an Ask", async () => {
+      pathname = "/proposals";
+      wide = isWide;
+      seedWeb("supervisor");
+      vi.mocked(fetch).mockResolvedValue(progressResponse(STALE));
+      renderGuide();
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      openGuide();
+      expect(await screen.findByRole("heading", { name: "Ask Bee6 for a proposal" })).toBeTruthy();
+      act(() => publishProposalsScreen("generating"));
+      expect(guideIsOpen()).toBe(false);
+    });
+  });
+});
+
 describe("R-19 PR-5 QA fixes: scroll body, 48 px controls, open-session card, busy jump", () => {
   it("D3: the sheet's scroll body is a keyboard-focusable named region (axe scrollable-region-focusable), even when nothing inside is focusable", () => {
     pathname = "/capture";
