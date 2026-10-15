@@ -15,10 +15,12 @@ import { useLang } from "@/lib/i18n/context";
  * `lastUploadHttpStatus`, `lostSinceSuccess` and `headFailedAttempts`.
  * "Uploading" is inferred from `queuedCount > 0` while the connection is OK.
  *
- * Block order (UX-03 §5.7): the lost line (row L) first while a dropped segment
- * has not been cleared by a 2xx; then the retry / uploading / succeeded row. The
- * succeeded row is hidden while the lost line is up. Every string comes from the
- * copy dictionary in the one language the page is in (no stacked pairs).
+ * Block order (UX-03 §5.7): the lost notice (row L) first while a dropped segment
+ * has not been dismissed (R-23 L-3: sticky until Dismiss or the next Start, not
+ * cleared by a 2xx); then its Dismiss button; then the retry / uploading /
+ * succeeded row, which is shown under the notice so later uploads stay visible.
+ * Every string comes from the copy dictionary in the one language the page is in
+ * (no stacked pairs).
  */
 
 export type UploadView =
@@ -27,7 +29,7 @@ export type UploadView =
   | { phase: "succeeded" };
 
 export type UploadSource = Pick<CaptureStatus, "state" | "queuedCount" | "lastUploadHttpStatus"> &
-  Partial<Pick<CaptureStatus, "lostSinceSuccess" | "headFailedAttempts">>;
+  Partial<Pick<CaptureStatus, "lostSinceSuccess" | "headFailedAttempts" | "droppedCount">>;
 
 function isHttpSuccess(httpStatus: number | null | undefined): boolean {
   return typeof httpStatus === "number" && httpStatus >= 200 && httpStatus < 300;
@@ -57,6 +59,16 @@ export function deriveUploadView(status: UploadSource | null | undefined): Uploa
 /** True while a dropped segment has not been cleared by a 2xx upload (row L). */
 export function deriveLostLine(status: UploadSource | null | undefined): boolean {
   return status?.lostSinceSuccess === true;
+}
+
+/**
+ * R-23 L-3: the sticky "Some speech was not captured" notice. True while the
+ * running engine's drop count is above the count the user dismissed. A later 2xx
+ * does not clear it; Dismiss (which records the current count) or a new Start (a
+ * fresh engine starts at 0 drops, and the page resets `dismissedAtDrops`) does.
+ */
+export function deriveLostNotice(status: UploadSource | null | undefined, dismissedAtDrops: number): boolean {
+  return (status?.droppedCount ?? 0) > dismissedAtDrops;
 }
 
 /**
@@ -98,23 +110,24 @@ const PHASE_KEY: Record<UploadView["phase"], DictKey> = {
 export const UPLOAD_TOAST_MS = 3000;
 
 /**
- * True for UPLOAD_TOAST_MS after a success row (or a lost line cleared) that
- * follows a failure: a retry row or an open loss. The failure flag survives the
- * "uploading" phase in between, so retry → uploading → succeeded still toasts.
+ * True for UPLOAD_TOAST_MS after a success row that follows a failure: a retry
+ * row or a raised loss. Dismissing the sticky lost notice is not a recovery.
+ * The failure flag survives the "uploading" phase in between, so
+ * retry → uploading → succeeded still toasts.
  */
 function useRecoveryToast(phase: UploadView["phase"] | undefined, lost: boolean): boolean {
   const [visible, setVisible] = useState(false);
   const failedSinceSuccessRef = useRef(false);
   const wasLostRef = useRef(lost);
-  const succeededShown = phase === "succeeded" && !lost;
+  const succeededShown = phase === "succeeded";
 
   useEffect(() => {
-    // A 2xx that clears the lost line also recovers the upload, even when no
-    // succeeded row is shown (after a stop the succeeded row is not carried).
-    const lossCleared = wasLostRef.current && !lost;
+    // R-23: the notice is sticky, so only the moment it is RAISED counts as a failure; otherwise every
+    // later routine success under it would toast "Upload working again" again.
+    const lossRaised = !wasLostRef.current && lost;
     wasLostRef.current = lost;
-    if (phase === "retrying" || lost) failedSinceSuccessRef.current = true;
-    if ((succeededShown || lossCleared) && failedSinceSuccessRef.current) {
+    if (phase === "retrying" || lossRaised) failedSinceSuccessRef.current = true;
+    if (succeededShown && failedSinceSuccessRef.current) {
       failedSinceSuccessRef.current = false;
       setVisible(true);
     }
@@ -131,24 +144,29 @@ function useRecoveryToast(phase: UploadView["phase"] | undefined, lost: boolean)
 
 /**
  * `online` is the navigator.onLine hint. Omit it to show no connectivity detail.
- * `lost` shows the lost line (row L) first, and hides the succeeded row while it is up.
+ * `lost` shows the lost notice (row L) first; the succeeded row stays visible under it.
+ * `onDismissLost` adds the Dismiss button to the notice (R-23 L-3).
  */
 export function UploadStatusLine({
   view,
   online,
   httpStatus,
   lost = false,
+  onDismissLost,
 }: {
   view: UploadView | null;
   online?: boolean;
   /** HTTP status of the most recent upload, or null for a network failure. */
   httpStatus?: number | null;
   lost?: boolean;
+  /** Renders a Dismiss button under the lost notice; the page records the drop count it hides. */
+  onDismissLost?: () => void;
 }) {
   const { lang } = useLang();
   const toastVisible = useRecoveryToast(view?.phase, lost);
   const hasContent = Boolean(view || lost);
-  const showView = view !== null && !(lost && view.phase === "succeeded");
+  const showView = view !== null;
+  const regionRef = useRef<HTMLDivElement>(null);
   const color = showView ? COLOR[view.phase] : "#444";
   const retryCount =
     showView && view.phase === "retrying" && view.failedAttempts !== undefined
@@ -166,16 +184,19 @@ export function UploadStatusLine({
       : null;
   // One live region for the whole upload block, mounted once (UX-03 §5.7): the
   // lost value, its helper and the retry / uploading / succeeded row are read
-  // together, in visual order. The helper is not aria-hidden. The "(Nx)" count
+  // together, in visual order (notice, helper, Dismiss, row). The helper is not aria-hidden. The "(Nx)" count
   // is aria-hidden so count growth is never read. The toast is a sibling outside
   // the block, with its own role="status".
   return (
     <>
       <div
+        ref={regionRef}
         data-testid="upload-status"
         role="status"
         aria-live="polite"
-        style={hasContent ? { marginTop: 12, fontSize: 14 } : undefined}
+        // Focus parks here after Dismiss removes the button the user was on.
+        tabIndex={-1}
+        style={hasContent ? { marginTop: 12, fontSize: 14, outline: "none" } : { outline: "none" }}
       >
         {lost ? (
           <p style={{ margin: 0, fontWeight: 600, color: WARN_TOKEN }}>
@@ -184,6 +205,30 @@ export function UploadStatusLine({
           </p>
         ) : null}
         {lost ? <p style={{ margin: "2px 0 0" }}>{t(lang, "C-u-lost-help")}</p> : null}
+        {lost && onDismissLost ? (
+          <button
+            type="button"
+            onClick={() => {
+              onDismissLost();
+              regionRef.current?.focus();
+            }}
+            style={{
+              display: "block",
+              minHeight: 44,
+              padding: "10px 0",
+              margin: 0,
+              background: "none",
+              border: "none",
+              font: "inherit",
+              fontWeight: 600,
+              color: WARN_TOKEN,
+              textDecoration: "underline",
+              cursor: "pointer",
+            }}
+          >
+            {t(lang, "C-u-lost-dismiss")}
+          </button>
+        ) : null}
         {showView ? (
           <p style={{ margin: lost ? "8px 0 0" : 0, fontWeight: 600, color }}>
             {t(lang, PHASE_KEY[view.phase])}

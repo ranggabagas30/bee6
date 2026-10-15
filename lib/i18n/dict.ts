@@ -74,6 +74,7 @@ export const ID_BASE = {
   "C-u-ok": "Unggah berhasil",
   "C-u-lost": "Sebagian suara tidak tercatat",
   "C-u-lost-help": "Catatan itu jadi tidak lengkap. Tidak bisa dipulihkan.", // lost-line helper, in the copy sheet (UX-03 copy keys; UX-03 section 5.7 row L, decision F)
+  "C-u-lost-dismiss": "Tutup", // PROVISIONAL (R-23 L-3: hides the sticky lost notice until the next Start)
   "C-u-toast": "Unggah berhasil lagi",
   "C-h-idle": "Belum mulai",
   "C-h-idle-help": "Ketuk Mulai untuk memulai sesi hari ini.", // shown only when Mulai is offered (UX-03 5.2)
@@ -572,6 +573,7 @@ export const EN_BASE: Record<keyof typeof ID_BASE, string> = {
   "C-u-ok": "Upload succeeded",
   "C-u-lost": "Some speech was not captured",
   "C-u-lost-help": "That note is now incomplete. It cannot be recovered.", // lost-line helper, in the copy sheet (UX-03 copy keys; UX-03 section 5.7 row L, decision F)
+  "C-u-lost-dismiss": "Dismiss", // R-23 L-3: hides the sticky lost notice until the next Start
   "C-u-toast": "Upload working again",
   "C-h-idle": "Not started",
   "C-h-idle-help": "Tap Start to begin today's session.", // shown only when Mulai is offered (UX-03 5.2)

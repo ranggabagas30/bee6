@@ -6,7 +6,7 @@ import { StatusBanner, headlineStateFor } from "@/app/capture/StatusBanner";
 import { DevPanel } from "@/app/capture/DevPanel";
 import {
   UploadStatusLine,
-  deriveLostLine,
+  deriveLostNotice,
   deriveRetainedUploadView,
   deriveUploadView,
 } from "@/app/capture/UploadStatusLine";
@@ -205,6 +205,9 @@ export default function CapturePage() {
   const drawerLayout = useDrawerLayout();
   const [status, setStatus] = useState<CaptureStatus | null>(null);
   const [lastUploadStatus, setLastUploadStatus] = useState<CaptureStatus | null>(null);
+  // R-23 L-3: the drop count the user dismissed. The "not captured" notice shows while the engine's drop count is
+  // above it; a Start resets it with the (zeroed) retained status, so the notice ends at the next Start.
+  const [dismissedDrops, setDismissedDrops] = useState(0);
   const retainedUploadRef = useRef<RetainedUpload>(NO_RETAINED_UPLOAD);
   const [micSource, setMicSource] = useState<MicSourceClass>("unknown");
   const [sampleRateMsg, setSampleRateMsg] = useState<string | null>(null);
@@ -506,6 +509,14 @@ export default function CapturePage() {
     };
   }, []);
 
+  // R-23 L-3: a new engine starts at 0 drops, so the old notice ends at Start. The retained status still holds the
+  // previous engine's drop count until the new engine's first report, so zero the displayed copy here (the retained
+  // ref keeps its carried loss for the retry row) and forget the dismissed count.
+  function resetLostNotice() {
+    setDismissedDrops(0);
+    setLastUploadStatus((s) => (s === null ? s : { ...s, droppedCount: 0 }));
+  }
+
   function engineCallbacks(gen: number) {
     const isCurrent = () => gen === sessionGenRef.current;
     return {
@@ -571,6 +582,7 @@ export default function CapturePage() {
       businessDateOf(startedAt, config.timezone);
     const gen = ++sessionGenRef.current;
     retainedUploadRef.current = beginSessionRetention(retainedUploadRef.current, gen);
+    resetLostNotice();
     const captureSession = await startCaptureSession(
       auth,
       config,
@@ -677,10 +689,15 @@ export default function CapturePage() {
     () => ({ jumpToClosing: () => void jumpRef.current(), refetchConfig: refreshConfig }),
     [refreshConfig],
   );
-  // The engine's own mic / upload trouble, as a flag (drives the guide's "Not picking up your voice?" hint).
-  const micTrouble =
-    status !== null &&
-    (status.state === "mic_error" || status.micError !== null || status.lostSinceSuccess || status.headFailedAttempts > 0);
+  // The engine's own mic trouble, as a flag (drives the guide's "Not picking up your voice?" hint). R-23: mic only;
+  // a stalled upload is `uploadBusy` and a drop is the page's own notice.
+  const micTrouble = status !== null && (status.state === "mic_error" || status.micError !== null);
+  // R-23: the queue head is being retried (server refusal or network failure): the guide says "Bee6 is catching up".
+  const uploadBusy = status !== null && status.headFailedAttempts > 0;
+  // R-23 L-3: the sticky "not captured" notice (until Dismiss or the next Start), read from the running engine, or
+  // from the last one's retained status after a stop.
+  const uploadSource = sessionRunning ? status : lastUploadStatus;
+  const lostNotice = deriveLostNotice(uploadSource, dismissedDrops);
   const sessionId = session?.session_id ?? null;
   const sessionClosingReached = session ? closingReached : null;
   const startOffered = idle?.offered ?? false;
@@ -704,10 +721,10 @@ export default function CapturePage() {
       startOffered,
     });
     publishCaptureBridge({
-      state: { profile: demoSession, phase, sessionId, linesThisSession, closingBusy, closingError, micTrouble },
+      state: { profile: demoSession, phase, sessionId, linesThisSession, closingBusy, closingError, micTrouble, uploadBusy },
       actions: bridgeActions,
     });
-  }, [view, demoSession, nowMs, sessionClosingReached, lastEnded, debriefDoneFlag, debriefView, startOffered, sessionId, linesThisSession, closingBusy, closingError, micTrouble, bridgeActions]);
+  }, [view, demoSession, nowMs, sessionClosingReached, lastEnded, debriefDoneFlag, debriefView, startOffered, sessionId, linesThisSession, closingBusy, closingError, micTrouble, uploadBusy, bridgeActions]);
   useEffect(() => () => publishCaptureBridge(null), []);
 
   // ── Batalkan (§5.6, web spec §6.6.5) ────────────────────────────────────────
@@ -911,6 +928,7 @@ export default function CapturePage() {
     devStopRequestedRef.current = false;
     const gen = ++sessionGenRef.current;
     retainedUploadRef.current = beginSessionRetention(retainedUploadRef.current, gen);
+    resetLostNotice();
     void (async () => {
       try {
         const captureSession = await startCaptureSession(auth, config, engineCallbacks(gen));
@@ -1287,15 +1305,16 @@ export default function CapturePage() {
 
       {/* Upload block (UX-03 §5.7): shown in every mode, including idle and
           stopped. While a session runs it follows the live status; after a
-          stop it keeps only the lost line and the retry row, until the next
-          2xx. It never changes the headline. */}
+          stop it keeps the lost notice (until Dismiss or the next Start, R-23)
+          and the retry row. It never changes the headline. */}
       <UploadStatusLine
         view={
           sessionRunning
             ? deriveUploadView(status)
             : deriveRetainedUploadView(lastUploadStatus)
         }
-        lost={deriveLostLine(lastUploadStatus)}
+        lost={lostNotice}
+        onDismissLost={() => setDismissedDrops(uploadSource?.droppedCount ?? 0)}
         online={networkOnline}
         httpStatus={
           sessionRunning ? status?.lastUploadHttpStatus : lastUploadStatus?.lastUploadHttpStatus

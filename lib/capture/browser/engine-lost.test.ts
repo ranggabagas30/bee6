@@ -25,7 +25,7 @@ function speakSegment(engine: CaptureEngine, startMs: number) {
 
 function makeEngine(opts: {
   upload: UploadFn;
-  maxAttempts?: number;
+  headBudgetMs?: number;
 }) {
   const statuses: CaptureStatus[] = [];
   let seq = 0;
@@ -38,7 +38,7 @@ function makeEngine(opts: {
     sampleRate: SR,
     genSegId: () => `seg-${++seq}`,
     sleep: async () => {},
-    maxAttempts: opts.maxAttempts,
+    headBudgetMs: opts.headBudgetMs,
     batcher: new SegmentBatcher({ maxSegmentMs: 1_000, prerollMs: 0 }),
     onStatusChange: (s) => statuses.push(s),
   });
@@ -69,10 +69,10 @@ describe("lostSinceSuccess (lost line, UX-03 §5.7 row L)", () => {
     expect(engine.status.droppedCount).toBe(1);
   });
 
-  it("turns true after a server-error give-up (maxAttempts), and a 2xx clears it", async () => {
-    const results: Array<number | null> = [503, 503, 200];
+  it("turns true after a server-error give-up (headBudgetMs), and a 2xx clears it", async () => {
+    const results: Array<number | null> = [503, 200];
     const upload = vi.fn(async () => results.shift() ?? 200);
-    const { engine } = makeEngine({ upload, maxAttempts: 2 });
+    const { engine } = makeEngine({ upload, headBudgetMs: 0 });
 
     speakSegment(engine, 0);
     await engine.drain();

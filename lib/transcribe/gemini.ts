@@ -29,9 +29,11 @@ import type {
  * The call is audio-only (no text prompt / system instruction / structured
  * output), VERBATIM mode, with an optional language hint and custom vocabulary.
  * A ~30 s TOTAL budget (R-22): transient upstream failures (429/500/502/503/504)
- * are retried inside that budget with jittered backoff (1 s -> 4 s, 4 attempts),
- * reusing the same in-memory payload. A timeout or any other failure is not
- * retried, so the route still answers 503 within ~30 s and the phone retries.
+ * are retried ONCE after a jittered 0.5–1 s wait (2 attempts, R-23: the 429 is
+ * capacity-shaped over minutes, so longer in-request waits recovered almost
+ * nothing and only slowed the phone's own retry cycle), reusing the same
+ * in-memory payload. A timeout or any other failure is not retried, so the
+ * route still answers 503 within ~30 s and the phone retries.
  */
 
 export const TRANSCRIBE_MODEL = "gemini-3.5-transcribe-preview";
@@ -52,7 +54,7 @@ export interface TranscribeRetryOptions {
 }
 
 export const TRANSCRIBE_RETRY: TranscribeRetryOptions = {
-  attempts: 4,
+  attempts: 2,
   baseMs: 1_000,
   factor: 2,
   maxDelayMs: 4_000,

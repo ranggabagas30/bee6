@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, act } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, act } from "@testing-library/react";
 import type { ReactElement } from "react";
 import {
   UPLOAD_TOAST_MS,
   UploadStatusLine,
   deriveLostLine,
+  deriveLostNotice,
   deriveRetainedUploadView,
   deriveUploadView,
 } from "@/app/capture/UploadStatusLine";
@@ -66,6 +67,24 @@ describe("deriveUploadView (pure, language-free)", () => {
     expect(deriveLostLine({ ...base, lostSinceSuccess: true })).toBe(true);
     expect(deriveLostLine({ ...base })).toBe(false);
     expect(deriveLostLine(null)).toBe(false);
+  });
+});
+
+describe("deriveLostNotice (R-23: sticky until Dismiss or the next Start)", () => {
+  const base = { state: "listening" as const, queuedCount: 0, lastUploadHttpStatus: 200 };
+  it("is true only while droppedCount is above the count dismissed", () => {
+    expect(deriveLostNotice({ ...base, droppedCount: 0 }, 0)).toBe(false);
+    expect(deriveLostNotice({ ...base, droppedCount: 1 }, 0)).toBe(true);
+    expect(deriveLostNotice({ ...base, droppedCount: 1 }, 1)).toBe(false);
+    expect(deriveLostNotice({ ...base, droppedCount: 2 }, 1)).toBe(true);
+  });
+  it("is false for null, undefined and a status without a drop count", () => {
+    expect(deriveLostNotice(null, 0)).toBe(false);
+    expect(deriveLostNotice(undefined, 0)).toBe(false);
+    expect(deriveLostNotice({ ...base }, 0)).toBe(false);
+  });
+  it("stays true after a later 2xx cleared lostSinceSuccess", () => {
+    expect(deriveLostNotice({ ...base, droppedCount: 1, lostSinceSuccess: false, lastUploadHttpStatus: 200 }, 0)).toBe(true);
   });
 });
 
@@ -233,10 +252,58 @@ describe("UploadStatusLine renders one language per render", () => {
     }
   });
 
-  it("hides the succeeded row while the lost line is up", () => {
+  it("shows the succeeded row under the lost line (R-23 L-3)", () => {
     render(withLang("en", <UploadStatusLine view={{ phase: "succeeded" }} lost={true} />));
-    expect(screen.getByText("Some speech was not captured")).toBeTruthy();
-    expect(screen.queryByText("Upload succeeded")).toBeNull();
+    const lostValue = screen.getByText("Some speech was not captured");
+    const ok = screen.getByText("Upload succeeded");
+    expect(lostValue.compareDocumentPosition(ok) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("renders the Dismiss button only with onDismissLost, inside the live region, between the helper and the row", () => {
+    const { rerender } = render(withLang("en", <UploadStatusLine view={{ phase: "succeeded" }} lost={true} />));
+    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
+    const onDismissLost = vi.fn();
+    rerender(withLang("en", <UploadStatusLine view={{ phase: "succeeded" }} lost={true} onDismissLost={onDismissLost} />));
+    const button = screen.getByRole("button", { name: "Dismiss" });
+    expect(screen.getByTestId("upload-status").contains(button)).toBe(true);
+    expect(button.getAttribute("type")).toBe("button");
+    expect(button.style.minHeight).toBe("44px");
+    const helper = screen.getByText("That note is now incomplete. It cannot be recovered.");
+    const ok = screen.getByText("Upload succeeded");
+    expect(helper.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(button.compareDocumentPosition(ok) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(button);
+    expect(onDismissLost).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows no Dismiss button when there is no lost notice, even with a handler", () => {
+    render(withLang("en", <UploadStatusLine view={{ phase: "succeeded" }} onDismissLost={() => {}} />));
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("the Dismiss label is Tutup under id, in one language only", () => {
+    const { container } = render(withLang("id", <UploadStatusLine view={null} lost={true} onDismissLost={() => {}} />));
+    expect(screen.getByRole("button", { name: "Tutup" })).toBeTruthy();
+    expect(container.textContent).not.toMatch(/Dismiss/);
+  });
+
+  it("the live region is still ONE region with the Dismiss button inside it", () => {
+    const { container } = render(
+      withLang("en", <UploadStatusLine view={{ phase: "succeeded" }} lost={true} onDismissLost={() => {}} />),
+    );
+    expect(container.querySelectorAll("[aria-live]").length).toBe(1);
+    expect(screen.getByTestId("upload-status").textContent).toBe(
+      "▲ Some speech was not captured" +
+        "That note is now incomplete. It cannot be recovered." +
+        "Dismiss" +
+        "Upload succeeded",
+    );
+  });
+
+  it("moves focus to the live region after Dismiss so a keyboard user is not dropped to the page top", () => {
+    render(withLang("en", <UploadStatusLine view={null} lost={true} onDismissLost={() => {}} />));
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(document.activeElement).toBe(screen.getByTestId("upload-status"));
   });
 
   it("keeps the live region mounted even with nothing to say", () => {
@@ -271,6 +338,27 @@ describe("UploadStatusLine recovery toast (C-u-toast, UX-03 section 5.7)", () =>
     );
     rerender(withLang("id", <UploadStatusLine view={{ phase: "succeeded" }} />));
     expect(screen.getByTestId("upload-toast").textContent).toBe("Unggah berhasil lagi");
+  });
+
+  it("a sticky lost notice toasts the recovery once, not on every later routine success under it", () => {
+    const { rerender } = render(withLang("en", <UploadStatusLine view={{ phase: "uploading" }} />));
+    rerender(withLang("en", <UploadStatusLine view={{ phase: "uploading" }} lost={true} />));
+    rerender(withLang("en", <UploadStatusLine view={{ phase: "succeeded" }} lost={true} />));
+    expect(screen.getByTestId("upload-toast")).toBeTruthy();
+    act(() => {
+      vi.advanceTimersByTime(UPLOAD_TOAST_MS);
+    });
+    expect(screen.queryByTestId("upload-toast")).toBeNull();
+    rerender(withLang("en", <UploadStatusLine view={{ phase: "uploading" }} lost={true} />));
+    rerender(withLang("en", <UploadStatusLine view={{ phase: "succeeded" }} lost={true} />));
+    expect(screen.queryByTestId("upload-toast")).toBeNull();
+  });
+
+  it("Dismiss with no success in between shows no toast", () => {
+    const { rerender } = render(withLang("en", <UploadStatusLine view={null} />));
+    rerender(withLang("en", <UploadStatusLine view={null} lost={true} />));
+    rerender(withLang("en", <UploadStatusLine view={null} lost={false} />));
+    expect(screen.queryByTestId("upload-toast")).toBeNull();
   });
 
   it("never toasts a routine success", () => {

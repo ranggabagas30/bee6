@@ -106,8 +106,10 @@ export interface CaptureBridgeState {
   linesThisSession: number;
   closingBusy: boolean;
   closingError: { key: DictKey; vars?: Record<string, string | number> } | null;
-  /** The engine reports a microphone or upload problem (drives "Not picking up your voice?"). */
+  /** The engine reports a microphone problem (drives "Not picking up your voice?"). Mic only since R-23. */
   micTrouble: boolean;
+  /** R-23: the queue head is being retried after a server refusal or a network failure (drives "Bee6 is catching up"). */
+  uploadBusy: boolean;
 }
 
 export interface CaptureBridgeActions {

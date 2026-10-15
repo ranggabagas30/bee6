@@ -31,6 +31,15 @@ import { OUTLETS_READ_MAX } from "@/lib/reviews/constants";
  * the route helper only calls this for an sbx- outlet id. The check belongs AFTER
  * authentication, permission and body validation and BEFORE the first model or SDP call, so only an
  * authorised, well-formed request spends a cap and a capped one spends nothing downstream.
+ *
+ * Once-per-id charging (R-23): with `once` the caps count SEGMENTS, not attempts. The shared transcribe capacity
+ * answers 429/503 for minutes, the phone retries the same seg_id, and every retry used to spend a charge. Now a
+ * per-segment marker counter (`charge_once:<key>:<outlet id>:<id>`, same demo_counters collection and TTL) records
+ * that the id was charged: while the marker is within its allowance (1 + freeRetries PUTs) a retry is free, past it
+ * the full charge runs again (a replayed id cannot get unlimited free model calls). The kill switches are checked
+ * first and refuse a free retry too. The marker is written after the charges passed, never before: a refused first
+ * attempt must not make its retries free. A damaged marker reads as "never free". Unlike "charge only on success",
+ * the counter transactions of the first PUT remain the serialising abuse bound.
  */
 
 export type DemoCapKey = "segment" | "generate" | "fast_forward" | "redact" | "next_day";
@@ -177,8 +186,16 @@ export function modelDailyLimit(env: CapEnv = process.env): number {
 export type CapMode = "charge" | "check";
 
 export async function enforceDemoCaps(
-  store: Pick<DemoStore, "bumpCounter" | "readCounter">,
-  input: { outlet: Outlet; now_ms: number; key: DemoCapKey; env?: CapEnv; mode?: CapMode },
+  store: Pick<DemoStore, "bumpCounter" | "readCounter"> & Partial<Pick<DemoStore, "bumpCounterCount">>,
+  input: {
+    outlet: Outlet;
+    now_ms: number;
+    key: DemoCapKey;
+    env?: CapEnv;
+    mode?: CapMode;
+    /** R-23: charge once per `id` (see "Once-per-id charging" above). Ignored in mode "check". */
+    once?: { id: string; freeRetries: number };
+  },
 ): Promise<void> {
   const { outlet, now_ms } = input;
   // Callers only reach here for an sbx- outlet; one with no sandbox object is a broken doc: fail closed, never uncapped.
@@ -201,6 +218,27 @@ export async function enforceDemoCaps(
     throw new LockedError(midnight, "The demo has reached today's usage limit", "demo_model_cap");
   }
 
+  // Once-per-id charging (R-23). Marker already there and inside its allowance: a free retry, nothing is charged.
+  let markerId: string | null = null;
+  let firstOfId = false;
+  if (input.once && input.mode !== "check") {
+    if (!store.bumpCounterCount) throw new Error("demo caps: once-per-id charging needs bumpCounterCount");
+    const limit = 1 + input.once.freeRetries;
+    markerId = `charge_once:${input.key}:${outlet.outlet_id}:${input.once.id}`;
+    const seen = await store.readCounter(markerId); // a damaged marker reads as MAX_SAFE_INTEGER: never free
+    if (seen >= 1 && seen < limit) {
+      const n = await store.bumpCounterCount(markerId, "charge_once", day, limit, expiry);
+      if (n !== null && n > 1) return; // charged by an earlier attempt of this same id: free retry
+      // null: the allowance was used up in parallel (or the marker is damaged) -> charge below.
+      // 1: the marker expired between the read and the bump and this call just recreated it -> charge below, do not mark twice.
+      markerId = null;
+    } else if (seen === 0) {
+      firstOfId = true; // no marker yet: charge below, then write the marker
+    } else {
+      markerId = null; // allowance exhausted or damaged marker: the full charge runs, no marker write
+    }
+  }
+
   if (!(await count(`${spec.sandboxKind}:${outlet.outlet_id}`, spec.sandboxKind, spec.sandboxLimit))) {
     throw new LockedError(Math.max(1, Math.ceil((outlet.sandbox.expires_at_ms - now_ms) / 1000)), spec.message, spec.code);
   }
@@ -209,5 +247,12 @@ export async function enforceDemoCaps(
   }
   if (spec.model && !(await count(`model_day:${day}`, "model_day", modelDailyLimit(input.env)))) {
     throw new LockedError(midnight, "The demo has reached today's usage limit", "demo_model_cap");
+  }
+
+  // The marker is written only AFTER every charge passed: a refused first attempt leaves no marker, so
+  // retrying a refusal is never free and the counters stay the abuse bound. Parallel first PUTs of one id
+  // may each charge (over-charging, the safe side); the allowance itself is serialised by the marker transaction.
+  if (firstOfId && markerId && store.bumpCounterCount) {
+    await store.bumpCounterCount(markerId, "charge_once", day, 1 + input.once!.freeRetries, expiry);
   }
 }
