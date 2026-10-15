@@ -162,7 +162,7 @@ describe("GET /api/v1/capture/config", () => {
       const fake = fakeNextDayStore({ outlet: dayTwo, last_ended: endedToday });
       vi.mocked(demoStoreModule.firestoreNextDayStore).mockReturnValue(fake.store);
       const body = (await (await GET(req())).json()) as { data: Record<string, unknown> };
-      expect(body.data.demo_session).toMatchObject({ day: 2, days_done: 2, next_day: { allowed: true, reason: null }, script_id: "bakery-v1" });
+      expect(body.data.demo_session).toMatchObject({ day: 2, days_done: 2, next_day: { allowed: true, reason: null }, script_id: "bakery-v2" });
       expect(body.data.last_ended).toEqual({ business_date: "2026-10-14", end_reason: "selesai", debrief_ends_at_ms: NOW + 50 * 60_000 });
       expect(fake.calls).toEqual(["getOutlet:outlet-1", "readGuardState"]);
       expect(JSON.stringify(body)).not.toContain("dev-1");

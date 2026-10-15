@@ -12,7 +12,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 
 const replace = vi.fn();
 const router = { replace };
-vi.mock("next/navigation", () => ({ useRouter: () => router }));
+vi.mock("next/navigation", () => ({ useRouter: () => router, usePathname: () => "/capture" }));
+// The judge guide (rendered next to the page in one test below) reaches Firebase only on web routes; never here.
+vi.mock("@/lib/auth/client/firebase-client", () => ({ getClientAuth: () => null }));
 
 const isDevControlsEnabled = vi.fn(() => false);
 vi.mock("@/lib/capture/dev-mode", () => ({
@@ -50,10 +52,15 @@ vi.mock("@/lib/capture/browser/client", () => ({
   postSessionDiscard: (auth: unknown, id: string, body: unknown) =>
     postSessionDiscard(auth, id, body),
   postDemoClosing: (auth: unknown, id: string) => postDemoClosing(auth, id),
+  postDemoNextDay: vi.fn(),
 }));
+
+import { SHEET_RESERVE_PX } from "@/app/demo/JudgeGuide";
+import { readCaptureBridge } from "@/app/demo/guide-bridge";
 
 interface FakeCallbacks {
   onEvent?: (event: { type: string; [key: string]: unknown }) => void;
+  onStatus?: (status: Record<string, unknown>) => void;
 }
 interface FakeSession {
   stop: ReturnType<typeof vi.fn>;
@@ -155,7 +162,7 @@ function config(
  */
 const DEMO_PROFILE = {
   max_ms: 600_000,
-  script_id: "bakery-v1",
+  script_id: "bakery-v2",
   day: 1,
   days_total: 3,
   days_done: 0,
@@ -541,13 +548,18 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Start" }));
     await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
   }
-  /** Plan 5.4/5.5: the drawer's last-card Finish is the phone's "Jump to closing time" until PR-5 moves it to the guide. */
+  /** Plan 5.4/5.5: "Jump to closing time" lives in the judge guide card (PR-5), which calls the page's action through the bridge. */
   async function reachClosing() {
-    await screen.findByRole("region", { name: "Demo script" });
-    for (let i = 0; i < 9; i += 1) fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    fireEvent.click(screen.getByRole("button", { name: "Finish and end the day" }));
+    await waitFor(() => expect(readCaptureBridge()?.state.phase).toBe("listening"));
+    act(() => readCaptureBridge()!.actions.jumpToClosing());
     await waitFor(() => expect(postDemoClosing).toHaveBeenCalledTimes(1));
     return (await screen.findByRole("button", { name: "End today" })) as HTMLButtonElement;
+  }
+  /** The guide's own 409 branch; the page's alert line shows the same copy under End. */
+  async function jumpAndWaitForError() {
+    await waitFor(() => expect(readCaptureBridge()?.state.phase).toBe("listening"));
+    act(() => readCaptureBridge()!.actions.jumpToClosing());
+    await waitFor(() => expect(postDemoClosing).toHaveBeenCalledTimes(1));
   }
   const END_LOCKED = "End · available at closing time (22:00)";
 
@@ -593,27 +605,25 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
       code: "not_enough_speech",
       details: { have: 3, need: 5 },
     }));
-    await screen.findByRole("region", { name: "Demo script" });
-    for (let i = 0; i < 9; i += 1) fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    fireEvent.click(screen.getByRole("button", { name: "Finish and end the day" }));
+    await jumpAndWaitForError();
     await waitFor(() =>
       expect(screen.getByRole("alert").textContent).toBe(
         "Bee6 has not heard enough yet (3 of 5). Wait a few seconds for the last card to upload, then try again.",
       ),
     );
+    expect(readCaptureBridge()?.state.closingError).toEqual({ key: "C-sess-closing-not-enough", vars: { have: 3, need: 5 } });
     expect((screen.getByRole("button", { name: END_LOCKED }) as HTMLButtonElement).disabled).toBe(true);
     expect(postSessionEnd).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Finish and end the day" }));
+    act(() => readCaptureBridge()!.actions.jumpToClosing());
     await screen.findByRole("button", { name: "End today" });
     expect(screen.queryByRole("alert")).toBeNull();
+    expect(readCaptureBridge()?.state.closingError).toBeNull();
   });
 
   it("closing failure without details (network, or another 409): the generic line, End stays locked", async () => {
     await renderDemoRunning();
     postDemoClosing.mockImplementationOnce(async () => ({ ok: false, status: undefined, code: undefined, details: null }));
-    await screen.findByRole("region", { name: "Demo script" });
-    for (let i = 0; i < 9; i += 1) fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    fireEvent.click(screen.getByRole("button", { name: "Finish and end the day" }));
+    await jumpAndWaitForError();
     await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Could not process that. Try again."));
     expect((screen.getByRole("button", { name: END_LOCKED }) as HTMLButtonElement).disabled).toBe(true);
   });
@@ -803,136 +813,33 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
   });
 });
 
-describe("CapturePage script drawer (R-18, sandbox only)", () => {
-  afterEach(() => vi.unstubAllGlobals());
+describe("CapturePage judge-guide bridge (R-19 PR-5, sandbox only)", () => {
   const MON_1000_WIB = "2026-10-12T03:00:00Z";
-  const demoConfig = () => ({
+  const demoConfig = (extra: Record<string, unknown> = {}) => ({
     ...config({ sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } }),
     capture_mode: "room",
     demo_session: DEMO_PROFILE,
+    ...extra,
   });
+  // Only the clock is faked here: these tests never advance timers, and RTL's waitFor must keep polling with
+  // real intervals because a bridge publish is a passive effect that may land after the last DOM mutation.
   async function renderDemoIdle() {
-    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
-    vi.setSystemTime(new Date(MON_1000_WIB));
+    pinClock(MON_1000_WIB);
     fetchCaptureConfig.mockResolvedValue(demoConfig());
-    await renderReady();
+    const view = await renderReady();
     const start = await screen.findByRole("button", { name: "Start" });
-    await screen.findByRole("region", { name: "Demo script" }); // the drawer is a lazy chunk
-    return start;
+    return { start, ...view };
   }
   async function renderDemoRunning() {
-    fireEvent.click(await renderDemoIdle());
+    const view = await renderDemoIdle();
+    fireEvent.click(view.start);
     await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    return view;
   }
-  const goToLastCard = () => {
-    for (let i = 0; i < 9; i += 1) fireEvent.click(screen.getByRole("button", { name: "Next" }));
-  };
   const END_LOCKED = "End · available at closing time (22:00)";
-  /** First Finish = "Jump to closing time" (R-19 PR-4a); the End button then unlocks. */
-  async function finishToClosing() {
-    goToLastCard();
-    fireEvent.click(screen.getByRole("button", { name: "Finish and end the day" }));
-    await screen.findByRole("button", { name: "End today" });
-  }
-
-  it("9.T1 renders only with demo_session: the rules card and the Tap Start line before Mulai", async () => {
-    await renderDemoIdle();
-    const drawer = screen.getByRole("region", { name: "Demo script" });
-    expect(within(drawer).getByText("Tap Start to begin. Nothing is recorded until you do.")).toBeTruthy();
-  });
-
-  it("the cards appear once Mulai is tapped, and Listening, End (locked) and Cancel session stay on the page", async () => {
-    await renderDemoRunning();
-    const drawer = screen.getByRole("region", { name: "Demo script" });
-    expect(within(drawer).getByText("Card 1 of 10")).toBeTruthy();
-    expect(screen.getByText("Listening")).toBeTruthy();
-    expect(screen.getByRole("button", { name: END_LOCKED })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Cancel session" })).toBeTruthy();
-    // the drawer is a sibling of the page content, not a wrapper: nothing is hidden or inert
-    expect(drawer.contains(screen.getByRole("button", { name: END_LOCKED }))).toBe(false);
-    expect(document.querySelector("[inert], [aria-hidden='true'] button")).toBeNull();
-  });
-
-  it("Finish on the last card is first 'Jump to closing time' (End unlocks), then the existing Selesai path: selesai, no confirm dialog, engine stopped", async () => {
-    await renderDemoRunning();
-    await finishToClosing();
-    expect(postDemoClosing).toHaveBeenCalledTimes(1);
-    expect(postSessionEnd).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Finish and end the day" }));
-    await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
-    expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "selesai" });
-    expect(screen.queryByText("End today's operations?")).toBeNull();
-    await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
-    await waitFor(() =>
-      expect(screen.getByText("Done. Answer the debrief questions, then switch to Supervisor.")).toBeTruthy(),
-    );
-  });
-
-  it("9.T5 a double tap on Finish makes one closing request, and a double tap after closing one end request", async () => {
-    await renderDemoRunning();
-    goToLastCard();
-    const finish = screen.getByRole("button", { name: "Finish and end the day" });
-    fireEvent.click(finish);
-    fireEvent.click(finish);
-    await screen.findByRole("button", { name: "End today" });
-    await vi.advanceTimersByTimeAsync(2_000);
-    expect(postDemoClosing).toHaveBeenCalledTimes(1);
-    expect(postSessionEnd).not.toHaveBeenCalled();
-    const finishAgain = screen.getByRole("button", { name: "Finish and end the day" });
-    fireEvent.click(finishAgain);
-    fireEvent.click(finishAgain);
-    await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
-    await vi.advanceTimersByTimeAsync(2_000);
-    expect(postSessionEnd).toHaveBeenCalledTimes(1);
-  });
-
-  it("9.T6 the 10:00 auto-stop while on card 5 ends the drawer without a second end request", async () => {
-    await renderDemoRunning();
-    for (let i = 0; i < 4; i += 1) fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText("Card 5 of 10")).toBeTruthy();
-    await vi.advanceTimersByTimeAsync(10 * 60_000 + 1_000);
-    await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
-    expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "auto_stop" });
-    await waitFor(() =>
-      expect(screen.getByText("Done. Answer the debrief questions, then switch to Supervisor.")).toBeTruthy(),
-    );
-    await vi.advanceTimersByTimeAsync(5_000);
-    expect(postSessionEnd).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole("button", { name: "Finish and end the day" })).toBeNull();
-  });
-
-  it("Finish at 9:59.5 with the end request still pending, then the 10:00 stop fires: exactly one end call", async () => {
-    await renderDemoRunning();
-    await vi.advanceTimersByTimeAsync(9 * 60_000 + 59_000 - 1_000); // 9:58, the page clock ticks each second
-    await finishToClosing();
-    await vi.advanceTimersByTimeAsync(1_500); // 9:59.5
-    let release: (r: { ok: boolean }) => void = () => {};
-    postSessionEnd.mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
-    fireEvent.click(screen.getByRole("button", { name: "Finish and end the day" }));
-    await vi.advanceTimersByTimeAsync(2_000); // past the 10:00 stop while Finish is in flight
-    expect(postSessionEnd).toHaveBeenCalledTimes(1);
-    expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "selesai" });
-    release({ ok: true });
-    await vi.advanceTimersByTimeAsync(2_000);
-    expect(postSessionEnd).toHaveBeenCalledTimes(1);
-  });
-
-  it("the End dialog's 'Yes, end' while the 10:00 stop is in flight makes no second end call", async () => {
-    await renderDemoRunning();
-    await finishToClosing();
-    fireEvent.click(screen.getByRole("button", { name: "End today" }));
-    let release: (r: { ok: boolean }) => void = () => {};
-    postSessionEnd.mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
-    await vi.advanceTimersByTimeAsync(10 * 60_000 + 1_000);
-    expect(postSessionEnd).toHaveBeenCalledTimes(1);
-    expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "auto_stop" });
-    release({ ok: true });
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(postSessionEnd).toHaveBeenCalledTimes(1);
-  });
-
-  it("End dialog opened at 9:58, auto-stop fires at 10:00, 'Yes, end' tapped during the round trip: ONE end call, the debrief opens itself", async () => {
-    // R-19 PR-3 (§6.3): the sandbox debrief auto-opens after the auto-stop, so the questions route must answer.
+  const bridge = () => readCaptureBridge()!;
+  // R-19 PR-3 (plan 6.3): on a sandbox the debrief opens itself right after End and fetches the questions route.
+  function stubPreparingQuestions() {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -946,94 +853,190 @@ describe("CapturePage script drawer (R-18, sandbox only)", () => {
           }) as Response,
       ),
     );
-    await renderDemoRunning();
-    await finishToClosing();
-    await vi.advanceTimersByTimeAsync(9 * 60_000 + 58_000);
-    fireEvent.click(screen.getByRole("button", { name: "End today" }));
-    expect(screen.getByText("End today's operations?")).toBeTruthy();
-    let release: (r: { ok: boolean }) => void = () => {};
-    postSessionEnd.mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
-    await vi.advanceTimersByTimeAsync(2_500); // 10:00 passes: the auto-stop request is now in flight
-    expect(postSessionEnd).toHaveBeenCalledTimes(1);
-    expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "auto_stop" });
-    const yes = screen.getByRole("button", { name: "Yes, end" }) as HTMLButtonElement;
-    await waitFor(() => expect(yes.disabled).toBe(true));
-    fireEvent.click(yes);
-    await vi.advanceTimersByTimeAsync(500);
-    expect(postSessionEnd).toHaveBeenCalledTimes(1);
-    release({ ok: true });
-    await vi.advanceTimersByTimeAsync(2_000);
-    expect(postSessionEnd).toHaveBeenCalledTimes(1);
-    expect(screen.queryByText("End today's operations?")).toBeNull();
-    await waitFor(() => expect(screen.getByText("Preparing your questions")).toBeTruthy());
-  });
+  }
+  afterEach(() => vi.unstubAllGlobals());
 
-  it("the countdown follows the page clock, in text", async () => {
-    await renderDemoRunning();
-    expect(screen.getByText("Demo ends automatically in 10:00")).toBeTruthy();
-    await vi.advanceTimersByTimeAsync(61_000);
-    expect(screen.getByText("Demo ends automatically in 8:59")).toBeTruthy();
-  });
-
-  it("item 4: collapsed by default before Start, open as soon as Start is tapped, collapsed again after Cancel session", async () => {
+  it("publishes nothing on the pilot, and on a sandbox a ready snapshot: the profile, no session, 0 lines, no trouble", async () => {
+    pinClock(MON_1000_WIB);
+    fetchCaptureConfig.mockResolvedValue(
+      config({ sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } }),
+    );
+    await renderReady();
+    await screen.findByRole("button", { name: "Start" });
+    expect(readCaptureBridge()).toBeNull();
+    cleanup();
     await renderDemoIdle();
-    expect(screen.getByRole("button", { name: "Show script" }).getAttribute("aria-expanded")).toBe("false");
-    fireEvent.click(screen.getByRole("button", { name: "Start" }));
-    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
-    expect(screen.getByRole("button", { name: "Hide script" }).getAttribute("aria-expanded")).toBe("true");
-    await vi.advanceTimersByTimeAsync(1_000);
-    fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
-    await vi.advanceTimersByTimeAsync(1_000);
-    fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
-    await waitFor(() => expect(postSessionDiscard).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Show script" })).toBeTruthy());
+    await waitFor(() => expect(readCaptureBridge()).not.toBeNull());
+    expect(bridge().state).toMatchObject({ profile: DEMO_PROFILE, phase: "ready", sessionId: null, linesThisSession: 0, closingBusy: false, closingError: null, micTrouble: false });
+    expect(typeof bridge().actions.jumpToClosing).toBe("function");
+    expect(typeof bridge().actions.refetchConfig).toBe("function");
   });
 
-  it("item 4: the drawer sits in the page flow AFTER the Listening banner, End and Cancel (never over them), and nothing above it is fixed", async () => {
+  it("after Start: phase listening with the session id the start route got; segment_accepted counts add up (text never reaches the bridge)", async () => {
     await renderDemoRunning();
-    const drawer = screen.getByRole("region", { name: "Demo script" });
-    const follows = (el: Element) => Boolean(el.compareDocumentPosition(drawer) & Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(follows(screen.getByText("Listening"))).toBe(true);
-    expect(follows(screen.getByRole("button", { name: END_LOCKED }))).toBe(true);
-    expect(follows(screen.getByRole("button", { name: "Cancel session" }))).toBe(true);
+    await waitFor(() => expect(bridge().state.phase).toBe("listening"));
+    const sentId = (postSessionStart.mock.calls[0]![1] as { session_id: string }).session_id;
+    expect(bridge().state.sessionId).toBe(sentId);
+    act(() => {
+      lastCallbacks?.onEvent?.({ type: "segment_accepted", lines: 2 });
+      lastCallbacks?.onEvent?.({ type: "segment_accepted", lines: 1 });
+    });
+    await waitFor(() => expect(bridge().state.linesThisSession).toBe(3));
+    expect(JSON.stringify(bridge().state)).not.toMatch(/text|transcript|audio/);
+  });
+
+  it("the bridge's jumpToClosing is the page's closing call: busy while in flight, then End unlocks and the phase is closing", async () => {
+    await renderDemoRunning();
+    let release: (r: { ok: boolean; status?: number; code?: string; details?: unknown }) => void = () => {};
+    postDemoClosing.mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
+    await waitFor(() => expect(bridge().state.phase).toBe("listening"));
+    act(() => bridge().actions.jumpToClosing());
+    act(() => bridge().actions.jumpToClosing()); // a double tap makes one request
+    await waitFor(() => expect(bridge().state.closingBusy).toBe(true));
+    expect(postDemoClosing).toHaveBeenCalledTimes(1);
+    expect(postDemoClosing.mock.calls[0]![1]).toBe(bridge().state.sessionId);
+    await act(async () => release({ ok: true }));
+    await waitFor(() => expect(bridge().state.phase).toBe("closing"));
+    expect(bridge().state.closingBusy).toBe(false);
+    expect((screen.getByRole("button", { name: "End today" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByRole("button", { name: "Cancel session" })).toBeNull();
+  });
+
+  it("the engine's mic or upload trouble is published as a flag only (drives the guide's 'Not picking up your voice?')", async () => {
+    await renderDemoRunning();
+    await waitFor(() => expect(bridge().state.micTrouble).toBe(false));
+    const ok = { state: "listening", queuedCount: 0, droppedCount: 0, micError: null, lastUploadHttpStatus: 200, lostSinceSuccess: false, headFailedAttempts: 0 };
+    act(() => lastCallbacks?.onStatus?.({ ...ok, state: "mic_error", micError: "NotAllowedError" }));
+    await waitFor(() => expect(bridge().state.micTrouble).toBe(true));
+    act(() => lastCallbacks?.onStatus?.(ok));
+    await waitFor(() => expect(bridge().state.micTrouble).toBe(false));
+    act(() => lastCallbacks?.onStatus?.({ ...ok, lostSinceSuccess: true, lastUploadHttpStatus: 500, headFailedAttempts: 2 }));
+    await waitFor(() => expect(bridge().state.micTrouble).toBe(true));
+  });
+
+  it("after End the phase is the debrief; refetchConfig re-reads the config so Start comes back for the next day, and the End lock resets for that second session", async () => {
+    stubPreparingQuestions();
+    await renderDemoRunning();
+    await waitFor(() => expect(bridge().state.phase).toBe("listening"));
+    act(() => bridge().actions.jumpToClosing());
+    const end = await screen.findByRole("button", { name: "End today" });
+    fireEvent.click(end);
+    fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
+    await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(bridge().state.phase).toBe("debrief_question"));
+    expect(bridge().state.sessionId).toBeNull();
+    expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+    const callsBefore = fetchCaptureConfig.mock.calls.length; // mount, plus the page's own re-read after End (PR-4b)
+    // The judge jumped to tomorrow (PR-2): the server now says day 2 and yesterday's day is the last ended one.
+    fetchCaptureConfig.mockResolvedValue(
+      demoConfig({
+        last_ended: { business_date: "2026-10-11", end_reason: "selesai", debrief_ends_at_ms: Date.parse("2026-10-11T16:00:00Z") },
+        demo_session: { ...DEMO_PROFILE, day: 2, days_done: 1 },
+      }),
+    );
+    await act(async () => {
+      await bridge().actions.refetchConfig();
+    });
+    expect(fetchCaptureConfig).toHaveBeenCalledTimes(callsBefore + 1);
+    const start = await screen.findByRole("button", { name: "Start" });
+    expect(screen.getByText("Day 2 of 3 · Mon 12 Oct")).toBeTruthy();
+    await waitFor(() => expect(bridge().state.phase).toBe("ready"));
+    expect(bridge().state.profile.day).toBe(2);
+    fireEvent.click(start);
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    const locked = screen.getByRole("button", { name: END_LOCKED }) as HTMLButtonElement;
+    expect(locked.disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "End today" })).toBeNull();
+    await waitFor(() => expect(bridge().state.phase).toBe("listening"));
+    expect(bridge().state.linesThisSession).toBe(0);
+    expect(bridge().state.sessionId).not.toBe((postSessionStart.mock.calls[0]![1] as { session_id: string }).session_id);
+  });
+
+  // Round-3 D3: the guide card used to lag the done screen by up to 30 s (the bridge re-read the flag only on the
+  // page's clock tick). The flag writer announces itself on the document, so the bridge follows at once.
+  it("the phase becomes debrief_done the moment the done flag is written in this document, with no clock tick", async () => {
+    stubPreparingQuestions();
+    seedDoneFlag(0); // an in-memory localStorage (this jsdom has none); vi.unstubAllGlobals removes it
+    localStorage.removeItem(DEBRIEF_DONE_FLAG_KEY);
+    await renderDemoRunning();
+    await waitFor(() => expect(bridge().state.phase).toBe("listening"));
+    act(() => bridge().actions.jumpToClosing());
+    fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
+    await waitFor(() => expect(bridge().state.phase).toBe("debrief_question"));
+    const endsAtMs = Date.now() + DEBRIEF_MS; // End happened on the frozen clock
+    const { writeDoneFlag } = await import("@/lib/debrief/done-flag");
+    act(() => writeDoneFlag(localStorage, endsAtMs, { answered: 1, skipped: 0 }));
+    await waitFor(() => expect(bridge().state.phase).toBe("debrief_done"));
+    expect(Date.now() + DEBRIEF_MS).toBe(endsAtMs); // the clock never moved: no 30 s tick was involved
+  });
+
+  it("a failed refetch keeps the page as it was (no error view)", async () => {
+    await renderDemoIdle();
+    await waitFor(() => expect(readCaptureBridge()).not.toBeNull());
+    fetchCaptureConfig.mockRejectedValueOnce(new Error("offline"));
+    await act(async () => {
+      await bridge().actions.refetchConfig();
+    });
+    expect(screen.getByRole("button", { name: "Start" })).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(bridge().state.phase).toBe("ready");
+  });
+
+  it("unmount clears the bridge", async () => {
+    const { unmount } = await renderDemoIdle();
+    await waitFor(() => expect(readCaptureBridge()).not.toBeNull());
+    unmount();
+    expect(readCaptureBridge()).toBeNull();
+  });
+
+  // Replaces the R-18 drawer's "item 4" tests: the guide is a bottom sheet in the root layout, so the page keeps
+  // Start / End / Cancel in normal flow (nothing fixed), and the collapsed sheet reserves its own bottom space
+  // under the page (SHEET_RESERVE_PX + the safe-area inset, see app/demo/JudgeGuide.tsx) so they stay reachable.
+  it("with the layout's judge guide next to it: collapsed by default, Listening, End and Cancel precede the sheet's bottom reserve, nothing above them is fixed, and the guide card drives the closing jump", async () => {
+    pinClock(MON_1000_WIB);
+    fetchCaptureConfig.mockResolvedValue(demoConfig());
+    readDeviceAuth.mockReturnValue({ deviceToken: "t", deviceId: "d" });
+    const CapturePage = await importCapturePage();
+    const { JudgeGuide } = await import("@/app/demo/JudgeGuide");
+    const { LangProvider } = await import("@/lib/i18n/context");
+    const { container } = render(
+      <LangProvider initial="en">
+        <CapturePage />
+        <JudgeGuide config={null} />
+      </LangProvider>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    const handle = await screen.findByRole("button", { name: /Open the judge guide/ });
+    expect(handle.getAttribute("aria-expanded")).toBe("false");
+    expect(handle.textContent).toContain("Read this card aloud");
+    expect(handle.textContent).toContain("Day 1 of 3");
+    const reserve = container.querySelector("[data-testid='guide-sheet-reserve']") as HTMLElement;
+    expect(reserve.style.height).toBe(`calc(${SHEET_RESERVE_PX}px + env(safe-area-inset-bottom))`);
+    const precedes = (el: Element) => Boolean(el.compareDocumentPosition(reserve) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(precedes(screen.getByText("Listening"))).toBe(true);
+    expect(precedes(screen.getByRole("button", { name: END_LOCKED }))).toBe(true);
+    expect(precedes(screen.getByRole("button", { name: "Cancel session" }))).toBe(true);
     for (let el: HTMLElement | null = screen.getByRole("button", { name: END_LOCKED }); el; el = el.parentElement) {
       expect(el.style.position).not.toBe("fixed");
     }
-    expect(drawer.style.position).not.toBe("fixed");
+    expect(document.querySelector("[inert], [aria-hidden='true'] button")).toBeNull();
+    // the card: 5 cards, 1 heard line each, then Jump to closing time calls the page and End unlocks
+    fireEvent.click(handle);
+    for (let i = 1; i <= 5; i += 1) {
+      expect(screen.getByText(`Card ${i} of 5`)).toBeTruthy();
+      act(() => lastCallbacks?.onEvent?.({ type: "segment_accepted", lines: 1 }));
+      await waitFor(() => expect((screen.getByRole("button", { name: "I have spoken this" }) as HTMLButtonElement).disabled).toBe(false));
+      fireEvent.click(screen.getByRole("button", { name: "I have spoken this" }));
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Jump to closing time" }));
+    await waitFor(() => expect(postDemoClosing).toHaveBeenCalledTimes(1));
+    expect((await screen.findByRole("button", { name: "End today" }) as HTMLButtonElement).disabled).toBe(false);
+    await waitFor(() => expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("Tap End today"));
   });
 
-  it("item 7: right after Start the countdown reads 10:00, not 10:25, even when the page clock was 25 s stale", async () => {
-    const start = await renderDemoIdle();
-    vi.setSystemTime(new Date(Date.parse(MON_1000_WIB) + 25_000)); // 25 s pass; the 30 s tick has not fired
-    fireEvent.click(start);
-    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
-    expect(screen.getByText("Demo ends automatically in 10:00")).toBeTruthy();
-    expect(screen.queryByText(/Demo ends automatically in 10:[1-5]/)).toBeNull();
-  });
-
-  it("Cancel session returns the drawer to the rules card and offers Mulai again", async () => {
-    await renderDemoRunning();
-    await vi.advanceTimersByTimeAsync(1_000);
-    fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
-    await vi.advanceTimersByTimeAsync(1_000);
-    fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
-    await waitFor(() => expect(postSessionDiscard).toHaveBeenCalledTimes(1));
-    await waitFor(() =>
-      expect(screen.getByText("Tap Start to begin. Nothing is recorded until you do.")).toBeTruthy(),
-    );
-    const start = await screen.findByRole("button", { name: "Start" });
-    expect(start.getAttribute("aria-disabled")).not.toBe("true");
-  });
-
-  it("collapsing the drawer does not end or pause anything", async () => {
-    await renderDemoRunning();
-    fireEvent.click(screen.getByRole("button", { name: "Hide script" }));
-    expect(screen.getByRole("button", { name: "Show script" }).getAttribute("aria-expanded")).toBe("false");
-    expect(screen.getByText("Listening")).toBeTruthy();
-    expect(postSessionEnd).not.toHaveBeenCalled();
-  });
-
-  it("pilot: no script drawer, and the page container style is the unchanged pilot style", async () => {
+  it("pilot: no script drawer, no guide bridge, and the page container style is the unchanged pilot style", async () => {
     pinClock(MON_1000_WIB);
     fetchCaptureConfig.mockResolvedValue(
       config({ sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } }),
@@ -1041,6 +1044,7 @@ describe("CapturePage script drawer (R-18, sandbox only)", () => {
     const { container } = await renderReady();
     await screen.findByRole("button", { name: "Start" });
     expect(screen.queryByRole("region", { name: "Demo script" })).toBeNull();
+    expect(readCaptureBridge()).toBeNull();
     const main = container.querySelector("main")!;
     expect(main.getAttribute("style")).toBe(
       "max-width: 360px; margin: 0px auto; padding: 24px; font-family: system-ui, sans-serif;",
@@ -1078,10 +1082,10 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Start" }));
     await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
   }
+  /** "Jump to closing time" now lives in the judge guide (PR-5): the test calls the action the guide calls. */
   async function reachClosing() {
-    await screen.findByRole("region", { name: "Demo script" });
-    for (let i = 0; i < 9; i += 1) fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    fireEvent.click(screen.getByRole("button", { name: "Finish and end the day" }));
+    await waitFor(() => expect(readCaptureBridge()?.state.phase).toBe("listening"));
+    act(() => readCaptureBridge()!.actions.jumpToClosing());
     await screen.findByRole("button", { name: "End today" });
   }
   /** Lets the page's awaited steps (the engine stop, then the sign-out) settle under the faked intervals. */
@@ -1212,10 +1216,8 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       await settle();
       fireEvent.click(screen.getByRole("button", { name: "Start" }));
       await settle();
-      await vi.dynamicImportSettled(); // the lazily loaded script drawer
-      await settle();
-      for (let i = 0; i < 9; i += 1) fireEvent.click(screen.getByRole("button", { name: "Next" }));
-      fireEvent.click(screen.getByRole("button", { name: "Finish and end the day" }));
+      expect(readCaptureBridge()?.state.phase).toBe("listening");
+      act(() => readCaptureBridge()!.actions.jumpToClosing());
       await settle();
       expect(screen.getByRole("button", { name: "End today" })).toBeTruthy(); // closing reached
     }

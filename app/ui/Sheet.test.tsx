@@ -98,6 +98,28 @@ describe("Sheet", () => {
     expect(ruleDeclarations(css, ".b6-sheet__body[hidden]")["display"]).toBe("none");
   });
 
+  it("the handle never shrinks inside the flex column (a 360x640 phone squashed it to 50 px under 58 px of content)", () => {
+    expect(ruleDeclarations(css, ".b6-handle")["flex-shrink"]).toBe("0");
+  });
+
+  it("the scroll body is a keyboard-focusable region named by the caller (or by the handle's action text), with a visible focus ring", () => {
+    const { unmount } = render(<Harness initial />);
+    const body = document.querySelector(".b6-sheet__body") as HTMLElement;
+    expect(body.getAttribute("tabindex")).toBe("0");
+    expect(body.getAttribute("role")).toBe("region");
+    expect(screen.getByRole("region", { name: "Close the helper" })).toBe(body);
+    expect(ruleDeclarations(css, ".b6-sheet__body:focus-visible")["outline"]).toBe("2px solid var(--b6-focus)");
+    unmount();
+    render(
+      <Sheet label="Helper" open onOpenChange={() => {}} openLabel="o" closeLabel="c" handle={<span>h</span>} bodyLabelledBy="card-h">
+        <h2 id="card-h">Card heading</h2>
+      </Sheet>,
+    );
+    const named = document.querySelector(".b6-sheet__body") as HTMLElement;
+    expect(named.getAttribute("aria-labelledby")).toBe("card-h");
+    expect(screen.getByRole("region", { name: "Card heading" })).toBe(named);
+  });
+
   it("the handle focus ring is drawn inside the handle, so the full-width edge cannot clip it", () => {
     expect(ruleDeclarations(css, ".b6-handle:focus-visible")["outline-offset"]).toBe("-2px");
     expect(ruleDeclarations(css, ".b6-handle:focus-visible")["outline"]).toBe("2px solid var(--b6-focus)");

@@ -14,13 +14,11 @@ const DEMO_KEYS = [
   "C-demo-path",
   "C-demo-fictional",
   "C-demo-bar",
-  "C-demo-switch",
   "C-demo-role-staff",
   "C-demo-role-supervisor",
   "C-demo-role-owner",
   "C-demo-busy",
   "C-demo-expired",
-  "C-demo-restart",
   "C-demo-restart-confirm",
   "C-demo-restart-yes",
   "C-demo-restart-keep",
@@ -47,7 +45,6 @@ describe("R-12 demo copy block", () => {
   it("fills the bar and switch placeholders", () => {
     expect(t("en", "C-demo-bar", { role: "Staff", time: "14:05" })).toBe("Demo · Signed in as Staff · Ends at 14:05");
     expect(t("id", "C-demo-bar", { role: "Staf", time: "14:05" })).toBe("Demo · Masuk sebagai Staf · Berakhir pukul 14:05");
-    expect(t("en", "C-demo-switch", { role: "Owner" })).toBe("Switch to Owner");
   });
 
   it("never carries a raw IP, key or template word in the copy", () => {
@@ -111,7 +108,7 @@ describe("R-18 P1 role sign-in and demo credential copy", () => {
   });
 
   it("the word Try is gone from the demo sign-in labels and the old Try-as keys no longer exist", () => {
-    for (const key of [...SIGNIN_ROLE_KEYS, ...DEMO_CRED_KEYS, "C-demo-path", "C-demo-bar", "C-demo-restart"] as const) {
+    for (const key of [...SIGNIN_ROLE_KEYS, ...DEMO_CRED_KEYS, "C-demo-path", "C-demo-bar"] as const) {
       expect(EN[key], `EN ${key}`).not.toMatch(/\btry\b/i);
       expect(ID[key], `ID ${key}`).not.toMatch(/\bcoba\b/i);
     }

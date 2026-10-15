@@ -6,6 +6,7 @@ import { DebriefListResponseSchema } from "@/lib/debrief/contract";
 import { appendAnswer, CacheWriteError, cachedIds, pendingSummary, purgeNow, readCache } from "@/lib/debrief/answer-cache";
 import { createAnswerUploader, type AnswerUploader, type Disposition } from "@/lib/debrief/answer-uploader";
 import { readDoneFlag, readProgress, writeDoneFlag, writeProgress, type DoneSummary } from "@/lib/debrief/done-flag";
+import { publishDebriefView } from "@/lib/debrief/view-signal";
 import {
   ANSWER_PURGE_INTERVAL_MS,
   ANSWER_RETRY_MS,
@@ -283,6 +284,13 @@ export function DebriefFlow({
     handleOpen();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-once auto-open
   }, []);
+
+  // R-19 PR-5 (demo): tell the judge-guide bridge which screen is up, the moment it changes (round-4 D2).
+  const viewKind = state.view.kind;
+  useEffect(() => {
+    if (demo) publishDebriefView(viewKind);
+  }, [demo, viewKind]);
+  useEffect(() => () => publishDebriefView(null), []);
 
   // R-19 (demo): entering `done` writes the completion flag, so a reload inside the hour restores this summary.
   const doneCounts = state.view.kind === "done" ? state.view : null;

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { readCaptureBridge } from "@/app/demo/guide-bridge";
 import { LangProvider } from "@/lib/i18n/context";
 import { parseLangCookie, type Lang } from "@/lib/i18n/lang";
 
@@ -225,7 +226,7 @@ describe("capture page: the End and Cancel panels in the sandbox (R-18)", () => 
     capture_mode: "room",
     demo_session: {
       max_ms: 600_000,
-      script_id: "bakery-v1",
+      script_id: "bakery-v2",
       day: 1,
       days_total: 3,
       days_done: 0,
@@ -246,11 +247,10 @@ describe("capture page: the End and Cancel panels in the sandbox (R-18)", () => 
     await waitFor(() => expect(screen.queryByRole("button", { name: startName })).toBeNull());
     return container;
   }
-  /** R-19 PR-4a: End is locked until closing; the drawer's last-card Finish is the phone's "Jump to closing time". */
-  async function reachClosing(nextName: string, finishName: string, endName: string) {
-    await screen.findByRole("button", { name: nextName });
-    for (let i = 0; i < 9; i += 1) fireEvent.click(screen.getByRole("button", { name: nextName }));
-    fireEvent.click(screen.getByRole("button", { name: finishName }));
+  /** R-19 PR-4a/PR-5: End is locked until closing; "Jump to closing time" is the guide card, which calls the page through the bridge. */
+  async function reachClosing(endName: string) {
+    await waitFor(() => expect(readCaptureBridge()?.state.phase).toBe("listening"));
+    act(() => readCaptureBridge()!.actions.jumpToClosing());
     return screen.findByRole("button", { name: endName });
   }
   const panelText = () =>
@@ -273,14 +273,14 @@ describe("capture page: the End and Cancel panels in the sandbox (R-18)", () => 
 
   it("EN sandbox, End: 'The 1-hour debrief starts now. This cannot be undone.' and no restart date", async () => {
     await openRunning("en", SANDBOX, "Start");
-    fireEvent.click(await reachClosing("Next", "Finish and end the day", "End today"));
+    fireEvent.click(await reachClosing("End today"));
     expect(panelText()).toContain("The 1-hour debrief starts now. This cannot be undone.");
     expect(panelText()).not.toMatch(/tap Start again|Mon 12 Oct|01:00/);
   });
 
   it("ID sandbox, End: Bahasa body and no restart date", async () => {
     await openRunning("id", SANDBOX, "Mulai");
-    fireEvent.click(await reachClosing("Berikutnya", "Selesai dan akhiri hari", "Akhiri hari ini"));
+    fireEvent.click(await reachClosing("Akhiri hari ini"));
     expect(panelText()).toContain("Debrief 1 jam dimulai sekarang. Tidak bisa dikembalikan.");
     expect(panelText()).not.toMatch(/ditekan lagi|12 Okt|01:00/);
   });

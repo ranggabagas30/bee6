@@ -160,6 +160,18 @@ describe("SupervisorProposals — list screen (D2-03, D2-03a, D2-03b)", () => {
     renderScreen();
     await waitFor(() => expect(screen.getByText("Something went wrong. Try again.")).not.toBeNull());
   });
+
+  // R-19 PR-5 round 4 (QA on the merged PR-12a): the loading and error states rendered only a status line, so
+  // the page had no h1 there (axe page-has-heading-one). The page head is part of every state.
+  it("the page h1 'Proposals' is there while loading and when the load fails", async () => {
+    proposalsResult = { kind: "error" };
+    renderScreen();
+    expect(screen.getByText("Loading…")).not.toBeNull();
+    expect(screen.getByRole("heading", { level: 1, name: "Proposals" })).not.toBeNull();
+    await waitFor(() => expect(screen.getByText("Something went wrong. Try again.")).not.toBeNull());
+    expect(screen.getByRole("heading", { level: 1, name: "Proposals" })).not.toBeNull();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+  });
 });
 
 describe("SupervisorProposals — ask (D2-03d)", () => {

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DEBRIEF_DONE_FLAG_KEY, DEBRIEF_DONE_SUMMARY_KEY, DEBRIEF_PROGRESS_KEY } from "@/lib/debrief/constants";
+import { DEBRIEF_DONE_EVENT, DEBRIEF_DONE_FLAG_KEY, DEBRIEF_DONE_SUMMARY_KEY, DEBRIEF_PROGRESS_KEY } from "@/lib/debrief/constants";
 
 /**
  * R-19 PR-3 (`docs/tasks/R-19-demo-v2.md` §6.3, terminal done), sandbox judge devices only. On entering `done`
@@ -22,6 +22,8 @@ export function writeDoneFlag(storage: Storage, endsAtMs: number, summary: DoneS
   } catch {
     // quota or blocked storage: the done screen still renders; only the reload shortcut is lost
   }
+  // Same-document listeners (the capture page's guide bridge) re-read the flag now, not on their next tick.
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(DEBRIEF_DONE_EVENT));
 }
 
 /** The stored counts when the flag is this debrief's; null for no flag or another debrief's. */

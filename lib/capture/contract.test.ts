@@ -210,7 +210,7 @@ describe("CaptureConfigResponseSchema", () => {
     it("7.T4 / R-19 present as the full journey profile (a fresh sandbox: day 1 of 3, nothing run yet) only when all three hold", () => {
       expect(toCaptureConfig(sbxOutlet, null, 1, true, expiring).demo_session).toEqual({
         max_ms: 600_000,
-        script_id: "bakery-v1",
+        script_id: "bakery-v2",
         day: 1,
         days_total: 3,
         days_done: 0,
@@ -240,12 +240,13 @@ describe("CaptureConfigResponseSchema", () => {
         expect(parse({}).success).toBe(true);
         expect(parse({ open_session: null }).success).toBe(true);
       });
-      it("accepts both script ids until PR-5 narrows to bakery-v2, and refuses any other", () => {
-        expect(parse({ script_id: "bakery-v1" }).success).toBe(true);
+      it("accepts only bakery-v2 (PR-5 narrowed the enum to the literal); v1 and any other id are refused", () => {
         expect(parse({ script_id: "bakery-v2" }).success).toBe(true);
+        expect(parse({ script_id: "bakery-v1" }).success).toBe(false);
         expect(parse({ script_id: "bakery-v3" }).success).toBe(false);
       });
-      it("the fresh profile's script id is one the phone's script drawer can render (scriptFor is non-null)", () => {
+      it("the fresh profile's script id is bakery-v2 and one the judge guide can render (scriptFor is non-null)", () => {
+        expect(FRESH_DEMO_SESSION.script_id).toBe("bakery-v2");
         expect(scriptFor(FRESH_DEMO_SESSION.script_id)).not.toBeNull();
       });
       it("refuses another max_ms, an extra key and the old two-key profile", () => {
@@ -338,9 +339,9 @@ describe("projectDemoSessionProfile", () => {
     expect(projectDemoSessionProfile(base)).toEqual(FRESH_DEMO_SESSION);
   });
 
-  it("day = next_day_count + 1, days_done counts today's ended day, next_day is the guard's verdict; script stays bakery-v1 until PR-5", () => {
+  it("day = next_day_count + 1, days_done counts today's ended day, next_day is the guard's verdict; script is bakery-v2", () => {
     expect(projectDemoSessionProfile({ next_day_count: 0, last_ended: last, today: "2026-10-14", open_session: null, next_day: { allowed: true, reason: null } })).toEqual({
-      max_ms: DEMO_SESSION_MAX_MS, script_id: "bakery-v1", day: 1, days_total: 3, days_done: 1, closing_reached: false, open_session: null, next_day: { allowed: true, reason: null },
+      max_ms: DEMO_SESSION_MAX_MS, script_id: "bakery-v2", day: 1, days_total: 3, days_done: 1, closing_reached: false, open_session: null, next_day: { allowed: true, reason: null },
     });
     expect(projectDemoSessionProfile({ next_day_count: 1, last_ended: { ...last, business_date: "2026-10-13" }, today: "2026-10-14", open_session: null, next_day: { allowed: false, reason: "day_not_ended" } })).toMatchObject({ day: 2, days_done: 1 });
     expect(projectDemoSessionProfile({ next_day_count: 2, last_ended: last, today: "2026-10-14", open_session: null, next_day: { allowed: false, reason: "max_days" } })).toMatchObject({ day: 3, days_done: 3, next_day: { allowed: false, reason: "max_days" } });

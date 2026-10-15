@@ -96,7 +96,9 @@
   /* layout */
   --b6-tap: 44px;
   --b6-panel-w: 360px;
+  --b6-panel-pill-h: 48px;
   --b6-z-overlay: 40;
+  --b6-z-dialog: 50;
 }
 
 .b6-sr-only {
@@ -390,6 +392,8 @@
 
 .b6-handle {
   box-sizing: border-box;
+  /* In the sheet's flex column the handle must keep its content height: without this a 360x640 phone shrinks it. */
+  flex-shrink: 0;
   width: 100%;
   min-height: 48px;
   padding: 0;
@@ -445,6 +449,13 @@
   display: none;
 }
 
+/* The scroll bodies are tab stops (tabindex=0), so a keyboard user can scroll them even with nothing focusable inside. */
+.b6-sheet__body:focus-visible,
+.b6-panel__body:focus-visible {
+  outline: 2px solid var(--b6-focus);
+  outline-offset: -2px;
+}
+
 /* ---- side panel (laptop) ---- */
 .b6-panel {
   position: fixed;
@@ -482,8 +493,8 @@
 .b6-panel__close {
   flex: none;
   box-sizing: border-box;
-  min-width: var(--b6-tap);
-  min-height: var(--b6-tap);
+  min-width: 48px;
+  min-height: 48px;
   border: 0;
   border-radius: var(--b6-r-control);
   background: var(--b6-surface-soft);
@@ -502,13 +513,72 @@
   overflow-y: auto;
 }
 
+/* While the laptop panel is open every page keeps its content left of it (the panel is fixed and 360 px wide):
+   SidePanel puts the class on <html> for exactly as long as it is open. */
+.b6-panel-open body {
+  padding-right: var(--b6-panel-w);
+}
+
+/* While it is collapsed the pill (fixed, top 14, right 20) would sit on the page header controls at laptop widths:
+   SidePanel puts this class on <html> for exactly as long as the pill is shown, and every page starts below it
+   (pill height + its 14 px offset + 8 px of air). The open panel uses the right inset above instead. */
+.b6-panel-collapsed body {
+  padding-top: calc(var(--b6-panel-pill-h) + 14px + 8px);
+}
+
+/* The class above lands in an effect, so on a full page load the padding arrived only after hydration and every
+   page jumped down by it. A host that knows at first paint that the pill will be there (the root layout's inline
+   script) puts b6-panel-reserved on <html> before anything paints; at panel widths that reserves the same padding
+   from the first frame. An open panel wins (right inset only), exactly as the collapsed class behaves. */
+@media (min-width: 900px) {
+  .b6-panel-reserved:not(.b6-panel-open) body {
+    padding-top: calc(var(--b6-panel-pill-h) + 14px + 8px);
+  }
+}
+
+/* Top bar room (R-19 PR-5): a notice bar that mounts after hydration gets its space held by this slot from the first
+   paint, so the page below it does not jump. The class on <html> is set by a first-paint script when the bar will
+   show. The bar (.b6-topbar) and its slot share ONE deterministic height per width: two text lines tall (54 px)
+   below 500 px, one line (36 px) from 500 px up, the bar's text centred in it. A bar whose text happens to fit
+   one line on a phone is still 54 px, so the slot never shows an empty strip under it and nothing shifts. The
+   one-line band starts where the longest line (392 px in the inherited serif) fits beside the page's 8 px body
+   margin, the bar's padding and a classic scrollbar with room to spare, and the line is kept on one line there
+   (ellipsis, never a wrap) so an unusually wide fallback font cannot make the bar taller than its slot. */
+.b6-topbar-reserved .b6-topbar-slot--reserve {
+  min-height: 54px;
+}
+
+.b6-topbar {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 54px;
+}
+
+@media (min-width: 500px) {
+  .b6-topbar-reserved .b6-topbar-slot--reserve {
+    min-height: 36px;
+  }
+
+  .b6-topbar {
+    min-height: 36px;
+  }
+
+  .b6-topbar > p {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+}
+
 .b6-panel-pill {
   position: fixed;
   top: 14px;
   right: 20px;
   z-index: var(--b6-z-overlay);
   width: auto;
-  min-height: 48px;
+  min-height: var(--b6-panel-pill-h);
   display: flex;
   align-items: center;
   gap: 10px;

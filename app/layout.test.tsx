@@ -16,6 +16,9 @@ vi.mock("@/app/ui/fonts", () => ({ fontVariableClassNames: "mock-sans mock-mono"
 
 import RootLayout from "@/app/layout";
 import { DemoBarLoader } from "@/app/demo/DemoBarLoader";
+import { JudgeGuideLoader } from "@/app/demo/JudgeGuideLoader";
+import { DEMO_STATE_KEY } from "@/app/demo/demo-state-key";
+import { FIRST_PAINT_SCRIPT } from "@/app/demo/first-paint";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
@@ -90,7 +93,8 @@ describe("RootLayout demo bar (R-12 Task 8.4)", () => {
     const body = (findHtml(tree) as unknown as ReactElement<{ children: ReactElement<{ children: ReactElement<{ children: unknown[] }> }> }>).props.children;
     const provider = body.props.children;
     const kids = provider.props.children as ReactElement[];
-    expect(kids[0]!.type).toBe(DemoBarLoader);
+    expect(kids.findIndex((k) => k.type === DemoBarLoader)).toBeGreaterThanOrEqual(0);
+    expect(kids.findIndex((k) => k.type === DemoBarLoader)).toBeLessThan(kids.findIndex((k) => (k as ReactElement<{ id?: string }>).props?.id === "page"));
   });
 
   it("the layout and its loader only import the bar lazily, so a pilot page does not download the demo or Firebase Auth chunks", () => {
@@ -107,6 +111,89 @@ describe("RootLayout demo bar (R-12 Task 8.4)", () => {
     if (value === undefined) vi.stubEnv("DEMO_MODE", undefined as unknown as string);
     else vi.stubEnv("DEMO_MODE", value);
     expect(containsType(await RootLayout({ children: null }), DemoBarLoader)).toBeNull();
+  });
+});
+
+describe("RootLayout demo bar space (R-19 PR-5, CLS)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  function scripts(node: unknown, out: Array<{ html: string }> = []): Array<{ html: string }> {
+    if (!node || typeof node !== "object") return out;
+    if (Array.isArray(node)) {
+      for (const c of node) scripts(c, out);
+      return out;
+    }
+    if (!("props" in node)) return out;
+    const el = node as ReactElement<{ children?: unknown; dangerouslySetInnerHTML?: { __html: string } }>;
+    if (el.type === "script") out.push({ html: el.props.dangerouslySetInnerHTML?.__html ?? "" });
+    return scripts(el.props.children, out);
+  }
+
+  it("with DEMO_MODE on, the tiny first-paint script (app/demo/first-paint.ts, tested for real there) is inlined: it puts b6-topbar-reserved and b6-panel-reserved on <html>, and <html> tolerates that at hydration", async () => {
+    vi.stubEnv("DEMO_MODE", "true");
+    const tree = await RootLayout({ children: <main id="page" /> });
+    const found = scripts(tree);
+    expect(found).toHaveLength(1);
+    expect(found[0]!.html).toBe(FIRST_PAINT_SCRIPT);
+    expect(found[0]!.html).toContain(DEMO_STATE_KEY);
+    expect(found[0]!.html).toContain("b6-topbar-reserved");
+    expect(found[0]!.html).toContain("b6-panel-reserved");
+    expect(found[0]!.html).toContain("catch");
+    expect(found[0]!.html.length).toBeLessThan(600); // round-4 D1: it now reads the record's expiry too
+    expect((findHtml(tree) as unknown as ReactElement<{ suppressHydrationWarning?: boolean }>).props.suppressHydrationWarning).toBe(true);
+  });
+
+  it("the script comes before the demo bar's slot and the page, so the classes are set before either paints", async () => {
+    vi.stubEnv("DEMO_MODE", "true");
+    const tree = await RootLayout({ children: <main id="page" /> });
+    const body = (findHtml(tree) as unknown as ReactElement<{ children: ReactElement<{ children: ReactElement<{ children: unknown[] }> }> }>).props.children;
+    const kids = body.props.children.props.children as ReactElement[];
+    const scriptAt = kids.findIndex((k) => k.type === "script");
+    expect(scriptAt).toBeGreaterThanOrEqual(0);
+    expect(scriptAt).toBeLessThan(kids.findIndex((k) => k.type === DemoBarLoader));
+  });
+
+  it("the pilot gets no script", async () => {
+    vi.stubEnv("DEMO_MODE", "false");
+    expect(scripts(await RootLayout({ children: <main /> }))).toHaveLength(0);
+  });
+});
+
+describe("RootLayout judge guide (R-19 PR-5, plan 7.2)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const read = (rel: string) => readFileSync(join(__dirname, rel), "utf8");
+
+  it("mounts the guide (lazily loaded) with the web config when DEMO_MODE is exactly true, AFTER the page content", async () => {
+    vi.stubEnv("DEMO_MODE", "true");
+    vi.stubEnv("FIREBASE_API_KEY", "k");
+    vi.stubEnv("FIREBASE_AUTH_DOMAIN", "p.firebaseapp.com");
+    vi.stubEnv("FIREBASE_PROJECT_ID", "p");
+    vi.stubEnv("FIREBASE_APP_ID", "1:1:web:a");
+    const tree = await RootLayout({ children: <main id="page" /> });
+    const guide = containsType(tree, JudgeGuideLoader);
+    expect(guide).not.toBeNull();
+    expect(guide!.props.config).toEqual({ apiKey: "k", authDomain: "p.firebaseapp.com", projectId: "p", appId: "1:1:web:a" });
+    const body = (findHtml(tree) as unknown as ReactElement<{ children: ReactElement<{ children: ReactElement<{ children: unknown[] }> }> }>).props.children;
+    const kids = body.props.children.props.children as ReactElement[];
+    expect(kids.at(-1)!.type).toBe(JudgeGuideLoader);
+    expect(kids.findIndex((k) => k.type === JudgeGuideLoader)).toBeGreaterThan(kids.findIndex((k) => (k as ReactElement<{ id?: string }>).props?.id === "page"));
+  });
+
+  it.each([undefined, "", "false", "TRUE", "1"])("renders no guide when DEMO_MODE is %j (pilot)", async (value) => {
+    if (value === undefined) vi.stubEnv("DEMO_MODE", undefined as unknown as string);
+    else vi.stubEnv("DEMO_MODE", value);
+    expect(containsType(await RootLayout({ children: null }), JudgeGuideLoader)).toBeNull();
+  });
+
+  it("the layout and its loader only import the guide lazily (next/dynamic, ssr: false, from a client component), so a pilot page never downloads the script text or the demo credentials", () => {
+    const layout = read("layout.tsx");
+    expect(layout).not.toMatch(/from\s+["']@\/app\/demo\/JudgeGuide["']/);
+    expect(layout).not.toMatch(/@\/lib\/demo\/(script|credentials|guide)/);
+    const loader = read("demo/JudgeGuideLoader.tsx");
+    expect(loader).toMatch(/^"use client";/);
+    expect(loader).not.toMatch(/^import\s[^;]*from\s+["']@\/app\/demo\/JudgeGuide["']/m);
+    expect(loader).toMatch(/import\(\s*["']@\/app\/demo\/JudgeGuide["']\s*\)/);
+    expect(loader).toMatch(/ssr:\s*false/);
   });
 });
 

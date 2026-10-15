@@ -8,8 +8,13 @@ import type { QueuedSegment, UploadFn } from "@/lib/capture/browser/engine";
 import {
   ClosingRefusalDetailsSchema,
   DemoClosingResponseSchema,
+  DemoNextDayResponseSchema,
+  NextDayRefusalDetailsSchema,
   type ClosingRefusalDetails,
   type DemoClosingResponse,
+  type DemoNextDayBody,
+  type DemoNextDayResponse,
+  type NextDayRefusalDetails,
 } from "@/lib/demo/contract";
 
 /**
@@ -264,6 +269,41 @@ export async function postDemoClosing(auth: DeviceAuth, sessionId: string): Prom
     }
     const payload: { data?: unknown } = await res.json();
     return { ok: true, data: DemoClosingResponseSchema.parse(payload.data) };
+  } catch {
+    return { ok: false, status: undefined, code: undefined, details: null };
+  }
+}
+
+// ── R-19 PR-5: "Jump to tomorrow" (plan section 4; sandbox judge devices only, called from the judge guide) ───
+
+/**
+ * Outcome of `POST /api/v1/demo/next-day`. A 409 `unanswered_questions` carries the validated `{unanswered}` count;
+ * any other shape, status, a body that fails the response schema, or a network failure reads as `details: null`.
+ * Never throws; never reads the server's `error.message`.
+ */
+export type DemoNextDayResult =
+  | { ok: true; data: DemoNextDayResponse }
+  | { ok: false; status: number | undefined; code: string | undefined; details: NextDayRefusalDetails | null };
+
+export async function postDemoNextDay(auth: DeviceAuth, body: DemoNextDayBody): Promise<DemoNextDayResult> {
+  try {
+    const res = await fetch("/api/v1/demo/next-day", {
+      method: "POST",
+      headers: { ...deviceAuthHeaders(auth), "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const payload: { error?: { code?: string; details?: unknown } } | null = await res.json().catch(() => null);
+      const details = NextDayRefusalDetailsSchema.safeParse(payload?.error?.details);
+      return {
+        ok: false,
+        status: res.status,
+        code: payload?.error?.code,
+        details: details.success && details.data.unanswered !== undefined ? details.data : null,
+      };
+    }
+    const payload: { data?: unknown } = await res.json();
+    return { ok: true, data: DemoNextDayResponseSchema.parse(payload.data) };
   } catch {
     return { ok: false, status: undefined, code: undefined, details: null };
   }

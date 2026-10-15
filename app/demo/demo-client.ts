@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { DemoRoleSchema, DemoSessionResponseSchema, type DemoRole, type DemoSessionResponse } from "@/lib/demo/contract";
 import { signInWithCustomToken, signOut, type Auth } from "@/lib/auth/client/firebase-client";
+import { DEMO_STATE_KEY } from "@/app/demo/demo-state-key";
 import { DEVICE_ID_KEY, DEVICE_TOKEN_KEY } from "@/lib/capture/browser/client";
 
 /**
@@ -16,7 +17,7 @@ import { DEVICE_ID_KEY, DEVICE_TOKEN_KEY } from "@/lib/capture/browser/client";
  * Tokens are never stored here and nothing is logged or put in a URL.
  */
 
-export const DEMO_STATE_KEY = "bee6.demo";
+export { DEMO_STATE_KEY };
 const DEMO_CHANGE_EVENT = "bee6:demo-change";
 const SESSION_PATH = "/api/v1/demo/session";
 /** The uid prefix of every judge web user (`demo-<role>-<sandbox>`). */

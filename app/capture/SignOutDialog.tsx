@@ -132,7 +132,7 @@ export function SignOutDialog({ kind, lang, busy, finishing, errorKey, onConfirm
       style={{
         position: "fixed",
         inset: 0,
-        zIndex: 50,
+        zIndex: "var(--b6-z-dialog)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

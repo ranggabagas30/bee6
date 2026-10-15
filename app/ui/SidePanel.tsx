@@ -17,6 +17,8 @@ export interface SidePanelProps {
   /** Content of the panel's header row, next to the close button. */
   header: ReactNode;
   children: ReactNode;
+  /** Id of the element that names the scrolling body (a card heading). Without it the body is named by `label`. */
+  bodyLabelledBy?: string;
   className?: string;
 }
 
@@ -26,7 +28,7 @@ export interface SidePanelProps {
  * to the pill on close, so the keyboard never lands on a removed element. Escape closes it.
  * It holds no copy of its own: every string comes from the caller.
  */
-export function SidePanel({ label, open, onOpenChange, openLabel, closeLabel, pill, header, children, className }: SidePanelProps) {
+export function SidePanel({ label, open, onOpenChange, openLabel, closeLabel, pill, header, children, bodyLabelledBy, className }: SidePanelProps) {
   const bodyId = useId();
   const pillRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -36,6 +38,22 @@ export function SidePanel({ label, open, onOpenChange, openLabel, closeLabel, pi
     if (open && !wasOpen.current) closeRef.current?.focus();
     if (!open && wasOpen.current) pillRef.current?.focus();
     wasOpen.current = open;
+  }, [open]);
+
+  // While open the panel covers the right 360 px: tell the page (CSS on <html>) to keep its content left of it.
+  useEffect(() => {
+    if (!open) return;
+    const root = document.documentElement;
+    root.classList.add("b6-panel-open");
+    return () => root.classList.remove("b6-panel-open");
+  }, [open]);
+
+  // While collapsed the pill sits fixed at the top right: tell the page to start below it (see globals.css).
+  useEffect(() => {
+    if (open) return;
+    const root = document.documentElement;
+    root.classList.add("b6-panel-collapsed");
+    return () => root.classList.remove("b6-panel-collapsed");
   }, [open]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
@@ -67,7 +85,15 @@ export function SidePanel({ label, open, onOpenChange, openLabel, closeLabel, pi
           <span aria-hidden="true">›</span>
         </button>
       </div>
-      <div className="b6-panel__body">{children}</div>
+      <div
+        className="b6-panel__body"
+        role="region"
+        tabIndex={0}
+        aria-labelledby={bodyLabelledBy}
+        aria-label={bodyLabelledBy ? undefined : label}
+      >
+        {children}
+      </div>
     </aside>
   );
 }

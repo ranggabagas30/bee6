@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import dynamic from "next/dynamic";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { StatusBanner, headlineStateFor } from "@/app/capture/StatusBanner";
 import { DevPanel } from "@/app/capture/DevPanel";
@@ -24,7 +23,8 @@ import { DebriefFlow } from "@/app/capture/debrief/DebriefFlow";
 import { OpenSessionView } from "@/app/capture/OpenSessionView";
 import { SignOutDialog, type SignOutKind } from "@/app/capture/SignOutDialog";
 import { configPollMs, dropOpenSession, markOpenSessionClosed, mergeRefreshedLastEnded } from "@/app/capture/config-refresh";
-import { drawerInsetStyle, isCompactChrome, useDrawerLayout, type DrawerState } from "@/app/capture/drawer-layout";
+import { drawerInsetStyle, isCompactChrome, useDrawerLayout } from "@/app/capture/drawer-layout";
+import { capturePhaseFor, publishCaptureBridge, useDebriefDoneFlag, useDebriefView, type CaptureBridgeActions } from "@/app/demo/guide-bridge";
 import { ShopTopBar } from "@/app/shop/ShopTopBar";
 import { Button, Chip } from "@/app/ui";
 import { useLang } from "@/lib/i18n/context";
@@ -79,13 +79,11 @@ import type { MicSourceClass } from "@/lib/capture/mic-source";
  */
 
 /**
- * The R-18 script drawer (sandbox judge devices only). Loaded lazily and only rendered when the server's
- * capture config carries `demo_session`, so the pilot /capture never downloads the script text. The page
- * must not import the drawer or the script data statically (see app/demo/import-boundaries.test.ts).
+ * R-19 PR-5: the judge guide (script cards, Jump to closing time, Jump to tomorrow) lives in the root layout,
+ * mounted only when DEMO_MODE is on. This page never imports it or the script data (see
+ * app/demo/import-boundaries.test.ts); for a sandbox judge device it publishes ONE snapshot through
+ * app/demo/guide-bridge.ts (profile, phase, counts, two callbacks; never text) and the guide subscribes.
  */
-const ScriptDrawer = dynamic(() => import("@/app/capture/ScriptDrawer").then((m) => m.ScriptDrawer), {
-  ssr: false,
-});
 
 const PAGE_STYLE: React.CSSProperties = {
   maxWidth: 360,
@@ -203,9 +201,7 @@ export default function CapturePage() {
   const sessionRef = useRef<CaptureSession | null>(null);
   const sessionGenRef = useRef(0);
   const [sessionRunning, setSessionRunning] = useState(false);
-  // R-18 script drawer (sandbox only): open/collapsed is page state (the side-panel layout moves the page
-  // column). Collapsed before Start; it opens by itself on Start (see the state change below).
-  const [scriptOpen, setScriptOpen] = useState(false);
+  // Sandbox only: from 900 px the judge guide's side panel takes the right 360 px, so the page column moves left.
   const drawerLayout = useDrawerLayout();
   const [status, setStatus] = useState<CaptureStatus | null>(null);
   const [lastUploadStatus, setLastUploadStatus] = useState<CaptureStatus | null>(null);
@@ -307,20 +303,8 @@ export default function CapturePage() {
       ? idleViewFor({ config: effectiveConfig, nowMs, lang })
       : null;
 
-  // R-18: the script drawer exists only for a sandbox judge device (server field `demo_session`).
+  // The sandbox journey profile exists only for a sandbox judge device (server field `demo_session`).
   const demoSession = config?.demo_session;
-  const drawerState: DrawerState = session
-    ? "running"
-    : idle && !idle.offered && (idle.headline === "ended" || idle.headline === "ended_auto")
-      ? "ended"
-      : "before";
-  // The drawer is collapsed before Start and opens by itself as Start is tapped (and on the ended text); a
-  // return to "before" (Cancel session) collapses it again. A tap on its toggle wins until the next change.
-  const [seenDrawerState, setSeenDrawerState] = useState<DrawerState>(drawerState);
-  if (seenDrawerState !== drawerState) {
-    setSeenDrawerState(drawerState);
-    setScriptOpen(drawerState !== "before");
-  }
   const compactChrome = isCompactChrome({ present: demoSession !== undefined, wide: drawerLayout.wide });
 
   // R-19 PR-4b: the "cancel today" sign-out dialog promises a cancel. If the 10-min auto-stop ends the session
@@ -682,18 +666,49 @@ export default function CapturePage() {
     setClosingError({ key: sessionErrorKey(result.status, result.code) });
   }
 
-  // R-18: the drawer's Finish IS the Selesai confirmation (it skips the dialog) and runs the same handler.
-  // It does nothing while the 10:00 auto-stop is already ending the session.
-  // R-19 PR-4a: on a sandbox the first Finish is "Jump to closing time" (End is locked until then); once
-  // closing is reached it is the Selesai path as before. PR-5 moves the jump into the judge guide card.
-  function handleDrawerFinish() {
-    if (autoStopInFlightRef.current) return;
-    if (config?.demo_session !== undefined && !closingReached) {
-      void handleJumpToClosing();
+  // ── R-19 PR-5: publish the guide bridge (sandbox only) ───────────────────────
+  // The guide's "Jump to closing time" runs the latest handleJumpToClosing through a ref, so the published
+  // actions object is stable and the snapshot is re-published only when one of its fields changes.
+  const jumpRef = useRef<() => Promise<void>>(async () => {});
+  useEffect(() => {
+    jumpRef.current = handleJumpToClosing;
+  });
+  const bridgeActions: CaptureBridgeActions = useMemo(
+    () => ({ jumpToClosing: () => void jumpRef.current(), refetchConfig: refreshConfig }),
+    [refreshConfig],
+  );
+  // The engine's own mic / upload trouble, as a flag (drives the guide's "Not picking up your voice?" hint).
+  const micTrouble =
+    status !== null &&
+    (status.state === "mic_error" || status.micError !== null || status.lostSinceSuccess || status.headFailedAttempts > 0);
+  const sessionId = session?.session_id ?? null;
+  const sessionClosingReached = session ? closingReached : null;
+  const startOffered = idle?.offered ?? false;
+  // Re-read the moment the debrief's done screen writes it (R-19 PR-5 D3), not on the next 30 s tick.
+  const debriefDoneFlag = useDebriefDoneFlag();
+  // ...and the debrief's own screen (round-4 D2), so preparing -> question flips the phase with the page, not on
+  // the guide's next config re-poll.
+  const debriefView = useDebriefView();
+  useEffect(() => {
+    if (view !== "ready" || demoSession === undefined || nowMs === null) {
+      publishCaptureBridge(null);
       return;
     }
-    void confirmSelesai();
-  }
+    const phase = capturePhaseFor({
+      profile: demoSession,
+      session: sessionClosingReached === null ? null : { closingReached: sessionClosingReached },
+      lastEnded,
+      nowMs,
+      debriefDoneFlag,
+      debriefView,
+      startOffered,
+    });
+    publishCaptureBridge({
+      state: { profile: demoSession, phase, sessionId, linesThisSession, closingBusy, closingError, micTrouble },
+      actions: bridgeActions,
+    });
+  }, [view, demoSession, nowMs, sessionClosingReached, lastEnded, debriefDoneFlag, debriefView, startOffered, sessionId, linesThisSession, closingBusy, closingError, micTrouble, bridgeActions]);
+  useEffect(() => () => publishCaptureBridge(null), []);
 
   // ── Batalkan (§5.6, web spec §6.6.5) ────────────────────────────────────────
   function openBatalkan() {
@@ -1186,9 +1201,8 @@ export default function CapturePage() {
   const inset = drawerInsetStyle({
     present: view === "ready" && demoSession !== undefined,
     wide: drawerLayout.wide,
-    open: scriptOpen,
   });
-  // Compact top-of-page chrome keeps banner + End + Cancel + the open drawer on one 360 x 640 screen.
+  // Compact top-of-page chrome keeps banner + End + Cancel above the guide's collapsed handle on a 360 x 640 screen.
   const mainPadding = compactChrome ? "12px 24px 24px" : PAGE_STYLE.padding;
   const mainStyle: React.CSSProperties =
     Object.keys(inset).length === 0
@@ -1258,23 +1272,6 @@ export default function CapturePage() {
       ) : null}
 
       {view === "ready" ? (sessionRunning ? renderRunning() : renderIdle()) : null}
-
-      {view === "ready" && demoSession ? (
-        <ScriptDrawer
-          scriptId={demoSession.script_id}
-          lang={lang}
-          state={drawerState}
-          startedAtMs={session?.started_at_ms ?? null}
-          maxMs={demoSession.max_ms}
-          nowMs={nowMs}
-          onFinish={handleDrawerFinish}
-          finishing={closingBusy || selesaiBusy || autoStopBusy}
-          open={scriptOpen}
-          onToggle={() => setScriptOpen((o) => !o)}
-          wide={drawerLayout.wide}
-          reducedMotion={drawerLayout.reducedMotion}
-        />
-      ) : null}
 
       {signOutKind !== null ? (
         <SignOutDialog

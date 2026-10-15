@@ -1,9 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { LangProvider } from "@/lib/i18n/context";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
-import type { StartDemoResult } from "@/app/demo/demo-client";
 import { createMemoryStorage } from "@/lib/demo/testing/memory-storage";
 
 const CONFIG: FirebaseWebConfig = { apiKey: "k", authDomain: "p.firebaseapp.com", projectId: "p", appId: "1:1:web:a" };
@@ -23,12 +22,6 @@ vi.mock("@/lib/auth/client/firebase-client", () => ({
   getClientAuth: (...a: unknown[]) => getClientAuth(...a),
   signOut: (...a: unknown[]) => signOut(...a),
   signInWithCustomToken: vi.fn(),
-}));
-
-const startDemo = vi.fn<(role: string, options: Record<string, unknown>) => Promise<StartDemoResult>>();
-vi.mock("@/app/demo/demo-client", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/app/demo/demo-client")>()),
-  startDemo: (role: string, options: Record<string, unknown>) => startDemo(role, options),
 }));
 
 import { DemoBar, hhmm as barHhmm } from "@/app/demo/DemoBar";
@@ -57,27 +50,18 @@ function renderBar(lang: "en" | "id" = "en") {
     </LangProvider>,
   );
 }
-function deferred<T>() {
-  let resolve!: (v: T) => void;
-  const promise = new Promise<T>((r) => (resolve = r));
-  return { promise, resolve };
-}
-const status = () => screen.getByTestId("demo-bar-status");
 
-let consoleSpies: ReturnType<typeof vi.spyOn>[] = [];
 beforeEach(() => {
   pathname = "/day";
   vi.stubGlobal("localStorage", createMemoryStorage());
   FAKE_AUTH.currentUser = { uid: DEMO_UID };
   readyGate.current = Promise.resolve();
   getClientAuth.mockReturnValue(FAKE_AUTH);
-  consoleSpies = ["log", "info", "warn", "error"].map((m) => vi.spyOn(console, m as "log").mockImplementation(() => {}));
 });
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.restoreAllMocks();
-  startDemo.mockReset();
   push.mockReset();
   getClientAuth.mockReset();
   signOut.mockReset();
@@ -110,8 +94,8 @@ describe("DemoBar visibility", () => {
   });
 
   it("a second tab of the same browser shows the bar for the same sandbox, and follows a change made in the other tab", () => {
-    renderBar();
-    expect(screen.queryByRole("button", { name: /Switch to/ })).toBeNull();
+    const { container } = renderBar();
+    expect(container.innerHTML).toBe("");
     // Another tab started a visit: localStorage changes and a storage event arrives here.
     seed("owner", Date.now() + 3_600_000);
     act(() => void window.dispatchEvent(new StorageEvent("storage", { key: DEMO_STATE_KEY })));
@@ -134,16 +118,96 @@ describe("DemoBar visibility", () => {
   });
 });
 
-describe("DemoBar live session", () => {
-  it("shows the role and the local end time, and switches to the other two roles only", () => {
+// Round-4 D1: the first-paint script guesses whether the bar will show from the stored record; once the bar has
+// mounted its own verdict wins, so the slot's reserve (`b6-topbar-reserved` on <html>) never outlives the bar.
+describe("DemoBar keeps the slot's reserve class on <html> in step with whether it shows", () => {
+  const reserved = () => document.documentElement.classList.contains("b6-topbar-reserved");
+  beforeEach(() => {
+    document.documentElement.className = "b6-topbar-reserved"; // as the first-paint script left it
+  });
+  afterEach(() => {
+    document.documentElement.className = "";
+  });
+
+  it("keeps the class while a live bar shows on a web route", () => {
+    seed("owner", Date.now() + 3_600_000);
+    renderBar();
+    expect(screen.getByText(/Demo · Signed in as Owner/)).toBeTruthy();
+    expect(reserved()).toBe(true);
+  });
+
+  it("adds the class when the bar shows and the script had not set it (a state written after first paint)", () => {
+    document.documentElement.className = "";
+    seed("owner", Date.now() + 3_600_000);
+    renderBar();
+    expect(reserved()).toBe(true);
+  });
+
+  it("drops the class on /sign-in once the demo has ended, where the bar hides its ended line (no blank band)", async () => {
+    seed("owner", Date.now() - 1000);
+    pathname = "/sign-in";
+    const { container } = renderBar();
+    await act(async () => {});
+    expect(container.innerHTML).toBe("");
+    expect(reserved()).toBe(false);
+  });
+
+  it("keeps the class on /pair once the demo has ended, where the ended line shows", async () => {
+    seed("owner", Date.now() - 1000);
+    pathname = "/pair";
+    renderBar();
+    await act(async () => {});
+    expect(screen.getByText("Your demo session has ended.")).toBeTruthy();
+    expect(reserved()).toBe(true);
+  });
+
+  it("drops the class on /, where the bar hides itself", () => {
+    seed("owner", Date.now() + 3_600_000);
+    pathname = "/";
+    renderBar();
+    expect(reserved()).toBe(false);
+  });
+
+  it("drops the class for a malformed record and with no record at all", () => {
+    window.localStorage.setItem(DEMO_STATE_KEY, "{oops");
+    renderBar();
+    expect(reserved()).toBe(false);
+    cleanup();
+    document.documentElement.className = "b6-topbar-reserved";
+    window.localStorage.removeItem(DEMO_STATE_KEY);
+    renderBar();
+    expect(reserved()).toBe(false);
+  });
+
+  it("drops the class at the instant the demo ends while /sign-in is open (the bar flips to hidden)", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-19T08:00:00Z") });
+    seed("owner", Date.now() + 5_000);
+    pathname = "/sign-in";
+    renderBar();
+    expect(reserved()).toBe(true);
+    await act(async () => void vi.advanceTimersByTime(5_001));
+    expect(screen.queryByText(/Demo · Signed in as/)).toBeNull();
+    expect(reserved()).toBe(false);
+  });
+
+  it("leaves other classes on <html> alone", () => {
+    document.documentElement.className = "font-a b6-topbar-reserved b6-panel-reserved";
+    seed("owner", Date.now() - 1000);
+    pathname = "/sign-in";
+    renderBar();
+    expect(Array.from(document.documentElement.classList).sort()).toEqual(["b6-panel-reserved", "font-a"]);
+  });
+});
+
+describe("DemoBar live session (R-19 PR-5: the role line and the expiry notice only; no Switch row)", () => {
+  it("shows the role and the local end time, and offers no role switch (the judge signs out and picks again)", () => {
     const expires = Date.now() + 3_600_000;
     seed("staff", expires);
     renderBar();
     expect(screen.getByText(`Demo · Signed in as Staff · Ends at ${hhmm(expires)}`)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Switch to Supervisor" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Switch to Owner" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Switch to Staff" })).toBeNull();
-    for (const b of screen.getAllByRole("button")) expect(parseInt(b.style.minHeight, 10)).toBeGreaterThanOrEqual(48);
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(document.body.textContent).not.toMatch(/Switch to/);
   });
 
   it("is a labelled region and speaks Bahasa", () => {
@@ -152,107 +216,14 @@ describe("DemoBar live session", () => {
     renderBar("id");
     expect(screen.getByText(`Demo · Masuk sebagai Pemilik · Berakhir pukul ${hhmm(expires)}`)).toBeTruthy();
     expect(screen.getByRole("complementary", { name: /Demo · Masuk sebagai Pemilik/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Ganti ke Staf" })).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/Ganti ke/);
   });
 
-  it("switches once per tap, in the same sandbox, stopping (not restarting) on expiry", async () => {
+  it("never calls the demo session route by itself (no switch, no restart)", () => {
     seed("staff", Date.now() + 3_600_000);
-    startDemo.mockResolvedValue({ kind: "started" });
+    vi.stubGlobal("fetch", vi.fn());
     renderBar();
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Switch to Owner" })));
-    expect(startDemo).toHaveBeenCalledTimes(1);
-    const [role, options] = startDemo.mock.calls[0]!;
-    expect(role).toBe("owner");
-    expect(options.onExpired).toBe("stop");
-    expect(options.auth).toBe(FAKE_AUTH);
-  });
-
-  it("disables both switches while one is in flight and ignores a second tap", async () => {
-    seed("staff", Date.now() + 3_600_000);
-    const d = deferred<StartDemoResult>();
-    startDemo.mockReturnValue(d.promise);
-    renderBar();
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Switch to Owner" })));
-    expect((screen.getByRole("button", { name: "Switch to Owner" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Switch to Supervisor" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(status().textContent).toContain("Preparing your demo shop…");
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Switch to Owner" })));
-    expect(startDemo).toHaveBeenCalledTimes(1);
-    await act(async () => d.resolve({ kind: "started" }));
-    expect((screen.getByRole("button", { name: "Switch to Owner" }) as HTMLButtonElement).disabled).toBe(false);
-  });
-
-  it.each([
-    [{ kind: "rate_limited", retryAfterSeconds: 600 } as const, ["Too many demo sessions", "Try again in 10 min."]],
-    [{ kind: "busy", retryAfterSeconds: 2 } as const, ["The demo is busy for a moment.", "Try again in a few seconds."]],
-    [{ kind: "error" } as const, ["Something went wrong. Try again."]],
-  ])("keeps the bar and explains a refusal: %j", async (result, lines) => {
-    seed("staff", Date.now() + 3_600_000);
-    startDemo.mockResolvedValue(result);
-    renderBar();
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Switch to Owner" })));
-    for (const line of lines) expect(status().textContent).toContain(line);
-    expect(document.activeElement).toBe(status());
-    expect(screen.getByRole("button", { name: "Switch to Owner" })).toBeTruthy();
-  });
-
-  it("after a good switch, focus lands on the bar's role line so a screen reader hears the new role", async () => {
-    seed("staff", Date.now() + 3_600_000);
-    startDemo.mockResolvedValue({ kind: "started" });
-    renderBar();
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Switch to Owner" })));
-    expect(document.activeElement?.textContent).toMatch(/^Demo · Signed in as/);
-  });
-
-  it("when the server says the sandbox is gone, shows the ended state with a way to start again (never a silent new sandbox)", async () => {
-    seed("staff", Date.now() + 3_600_000);
-    startDemo.mockImplementation(async () => {
-      window.localStorage.removeItem(DEMO_STATE_KEY); // what startDemo does on a 409 with onExpired: stop
-      return { kind: "sandbox_expired" };
-    });
-    renderBar();
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Switch to Owner" })));
-    expect(screen.getByText("Your demo session has ended.")).toBeTruthy();
-    const link = screen.getByRole("link", { name: "Start a new demo" });
-    expect(link.getAttribute("href")).toBe("/");
-    expect(screen.queryByRole("button", { name: /Switch to/ })).toBeNull();
-    expect(startDemo).toHaveBeenCalledTimes(1);
-  });
-
-  it("forgets a locally noticed end once the visitor is back at the landing page, so the next sandbox is not greeted as ended", async () => {
-    seed("staff", Date.now() + 3_600_000);
-    startDemo.mockImplementation(async () => {
-      window.localStorage.removeItem(DEMO_STATE_KEY);
-      return { kind: "sandbox_expired" };
-    });
-    const view = renderBar();
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Switch to Owner" })));
-    expect(screen.getByText("Your demo session has ended.")).toBeTruthy();
-
-    pathname = "/"; // soft navigation via the restart link
-    view.rerender(
-      <LangProvider initial="en">
-        <DemoBar config={CONFIG} />
-      </LangProvider>,
-    );
-    seed("owner", Date.now() + 3_600_000); // a new visit started
-    pathname = "/home";
-    act(() => window.dispatchEvent(new Event("bee6:demo-change")));
-    view.rerender(
-      <LangProvider initial="en">
-        <DemoBar config={CONFIG} />
-      </LangProvider>,
-    );
-    expect(screen.queryByText("Your demo session has ended.")).toBeNull();
-    expect(screen.getByRole("button", { name: "Switch to Staff" })).toBeTruthy();
-  });
-
-  it("never logs", async () => {
-    seed("staff", Date.now() + 3_600_000);
-    startDemo.mockResolvedValue({ kind: "error" });
-    renderBar();
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Switch to Owner" })));
-    for (const s of consoleSpies) expect(s).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 
@@ -281,15 +252,6 @@ describe("DemoBar clears the judge phone's device keys once the demo has ended",
     renderBar();
     expect(keys()).toEqual(["t", "d"]);
     act(() => void vi.advanceTimersByTime(5_001));
-    expect(keys()).toEqual([null, null]);
-  });
-
-  it("removes them when a switch learns the sandbox is gone (409 / 404)", async () => {
-    seed("staff", Date.now() + 3_600_000);
-    startDemo.mockResolvedValue({ kind: "sandbox_expired" });
-    renderBar();
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Switch to Owner" })));
-    expect(screen.getByText("Your demo session has ended.")).toBeTruthy();
     expect(keys()).toEqual([null, null]);
   });
 
@@ -383,24 +345,24 @@ describe("DemoBar signs the Firebase web user out when the demo ends", () => {
 });
 
 describe("DemoBar expiry", () => {
-  it("shows the ended state with a restart link, and no switch buttons, when the stored sandbox is past expiry", () => {
+  it("shows the ended notice only (no restart link, no switch buttons) when the stored sandbox is past expiry; the way back is the entry page", () => {
     seed("owner", Date.now() - 1000);
     renderBar();
     expect(screen.getByText("Your demo session has ended.")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Start a new demo" }).getAttribute("href")).toBe("/");
-    expect(screen.queryByRole("button", { name: /Switch to/ })).toBeNull();
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
   });
 
   it("flips to the ended state on its own when the clock passes the expiry", () => {
     vi.useFakeTimers({ now: new Date("2026-10-19T08:00:00Z") });
     seed("owner", Date.now() + 5_000);
     renderBar();
-    expect(screen.getByRole("button", { name: "Switch to Staff" })).toBeTruthy();
+    expect(screen.getByText(/Demo · Signed in as Owner/)).toBeTruthy();
     act(() => {
       vi.advanceTimersByTime(5_001);
     });
     expect(screen.getByText("Your demo session has ended.")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Switch to/ })).toBeNull();
+    expect(screen.queryByText(/Demo · Signed in as Owner/)).toBeNull();
   });
 
   it("announces the ended state to a screen reader: the ended line is a status", () => {
@@ -420,26 +382,6 @@ describe("DemoBar expiry", () => {
     expect(region.textContent).toBe("Your demo session has ended.");
   });
 
-  it("announces a switch-induced end through the same live region too", async () => {
-    seed("staff", Date.now() + 3_600_000);
-    startDemo.mockResolvedValue({ kind: "sandbox_expired" });
-    renderBar();
-    const region = screen.getByRole("status");
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Switch to Owner" })));
-    expect(screen.getAllByRole("status")).toEqual([region]);
-    expect(region.textContent).toBe("Your demo session has ended.");
-    expect(document.activeElement).toBe(region);
-  });
-
-  it("when a tapped switch finds the sandbox gone, focus moves to the ended line (the button that had it is gone)", async () => {
-    seed("staff", Date.now() + 3_600_000);
-    startDemo.mockResolvedValue({ kind: "sandbox_expired" });
-    renderBar();
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Switch to Owner" })));
-    expect(document.activeElement).toBe(screen.getByRole("status"));
-    expect(document.activeElement?.textContent).toBe("Your demo session has ended.");
-  });
-
   it("does not steal focus when the timer ends the demo", () => {
     vi.useFakeTimers({ now: new Date("2026-10-19T08:00:00Z") });
     seed("owner", Date.now() + 5_000);
@@ -450,10 +392,16 @@ describe("DemoBar expiry", () => {
     expect(document.activeElement).toBe(before);
   });
 
-  it("the ended state's restart link is at least 48 px tall", () => {
+  // Round-3 D2: the bar sizes itself through the design system's .b6-topbar rule (same height as the slot at every
+  // width), live and ended alike, so the slot never shows an empty strip under a one-line bar.
+  it("the bar carries the b6-topbar class, live and ended, so its height is the slot's at every width", () => {
+    seed("owner", Date.now() + 3_600_000);
+    const live = renderBar();
+    expect(live.container.querySelector("aside")!.classList.contains("b6-topbar")).toBe(true);
+    cleanup();
     seed("owner", Date.now() - 1000);
-    renderBar();
-    expect(parseInt(screen.getByRole("link", { name: "Start a new demo" }).style.minHeight, 10)).toBeGreaterThanOrEqual(48);
+    const ended = renderBar();
+    expect(ended.container.querySelector("aside")!.classList.contains("b6-topbar")).toBe(true);
   });
 
   it("on /sign-in the ended state is left to the sign-in page's own link (no double message)", () => {
@@ -467,6 +415,6 @@ describe("DemoBar expiry", () => {
     seed("owner", Date.now() + 3_600_000);
     pathname = "/sign-in";
     renderBar();
-    expect(screen.getByRole("button", { name: "Switch to Staff" })).toBeTruthy();
+    expect(screen.getByText(/Demo · Signed in as Owner/)).toBeTruthy();
   });
 });

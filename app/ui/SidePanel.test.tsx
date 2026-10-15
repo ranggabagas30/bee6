@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SidePanel } from "@/app/ui/SidePanel";
 import { axeViolations } from "@/lib/testing/axe";
-import { minHeightPx, readGlobalsCss, rootTokens, ruleDeclarations } from "@/lib/testing/css";
+import { declarations, minHeightPx, parseCss, readGlobalsCss, rootTokens, ruleDeclarations } from "@/lib/testing/css";
 
 afterEach(() => cleanup());
 const css = readGlobalsCss();
@@ -71,7 +71,7 @@ describe("SidePanel", () => {
     const close = screen.getByRole("button", { name: "Close the helper" });
     expect(close.getAttribute("aria-label")).toBe("Close the helper");
     expect(close.querySelector('[aria-hidden="true"]')).toBeTruthy();
-    expect(minHeightPx(ruleDeclarations(css, ".b6-panel__close"), tokens)).toBeGreaterThanOrEqual(44);
+    expect(minHeightPx(ruleDeclarations(css, ".b6-panel__close"), tokens)).toBeGreaterThanOrEqual(48);
   });
 
   it("Escape closes the open panel", () => {
@@ -99,6 +99,86 @@ describe("SidePanel", () => {
     expect(pill["top"]).toBe("14px");
     expect(pill["right"]).toBe("20px");
     expect(minHeightPx(pill, tokens)).toBeGreaterThanOrEqual(48);
+  });
+
+  it("the scroll body is a keyboard-focusable region named by the caller (or by the panel's label)", () => {
+    const { unmount } = render(<Harness initial />);
+    const body = document.querySelector(".b6-panel__body") as HTMLElement;
+    expect(body.getAttribute("tabindex")).toBe("0");
+    expect(body.getAttribute("role")).toBe("region");
+    expect(body.getAttribute("aria-label")).toBe("Helper");
+    expect(ruleDeclarations(css, ".b6-panel__body:focus-visible")["outline"]).toBe("2px solid var(--b6-focus)");
+    unmount();
+    render(
+      <SidePanel label="Helper" open onOpenChange={() => {}} openLabel="o" closeLabel="c" pill={<span>p</span>} header={<span>h</span>} bodyLabelledBy="card-h">
+        <h2 id="card-h">Card heading</h2>
+      </SidePanel>,
+    );
+    expect(screen.getByRole("region", { name: "Card heading" })).toBe(document.querySelector(".b6-panel__body"));
+  });
+
+  it("while open it insets every page by the panel width (a class on <html>, padding on <body>); collapsing or unmounting removes it", () => {
+    const rule = ruleDeclarations(css, ".b6-panel-open body");
+    expect(rule["padding-right"]).toBe("var(--b6-panel-w)");
+    const { unmount } = render(<Harness />);
+    expect(document.documentElement.classList.contains("b6-panel-open")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: /Open the helper/ }));
+    expect(document.documentElement.classList.contains("b6-panel-open")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Close the helper" }));
+    expect(document.documentElement.classList.contains("b6-panel-open")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: /Open the helper/ }));
+    unmount();
+    expect(document.documentElement.classList.contains("b6-panel-open")).toBe(false);
+  });
+
+  it("while collapsed to the pill it pushes every page down below the pill (a class on <html>, top padding on <body>); open or unmounted removes it", () => {
+    const rule = ruleDeclarations(css, ".b6-panel-collapsed body");
+    // pill height + its 14 px top offset + 8 px of air = 70 px
+    expect(tokens["--b6-panel-pill-h"]).toBe("48px");
+    expect(rule["padding-top"]).toBe("calc(var(--b6-panel-pill-h) + 14px + 8px)");
+    expect(rule["padding-right"]).toBeUndefined();
+    expect(ruleDeclarations(css, ".b6-panel-open body")["padding-top"]).toBeUndefined();
+    expect(minHeightPx(ruleDeclarations(css, ".b6-panel-pill"), tokens)).toBe(48);
+    const root = document.documentElement;
+    const { unmount } = render(<Harness />);
+    expect(root.classList.contains("b6-panel-collapsed")).toBe(true);
+    expect(root.classList.contains("b6-panel-open")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: /Open the helper/ }));
+    expect(root.classList.contains("b6-panel-collapsed")).toBe(false);
+    expect(root.classList.contains("b6-panel-open")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Close the helper" }));
+    expect(root.classList.contains("b6-panel-collapsed")).toBe(true);
+    expect(root.classList.contains("b6-panel-open")).toBe(false);
+    unmount();
+    expect(root.classList.contains("b6-panel-collapsed")).toBe(false);
+    expect(root.classList.contains("b6-panel-open")).toBe(false);
+  });
+
+  // Round-3 D1: the collapsed class above lands in an effect, so on a full page load the 70 px arrived only after
+  // hydration (every page jumped down, CLS 0.01-0.06). A host that knows at first paint that the pill will be
+  // there puts `b6-panel-reserved` on <html> before anything paints; at panel widths (>= 900 px) that reserves
+  // the same padding from the first frame. An open panel wins (right inset only, no top padding), exactly as
+  // the collapsed class behaves.
+  it("CSS contract: b6-panel-reserved on <html> reserves the pill's top padding from the first paint at >= 900 px, unless the panel is open", () => {
+    const media = parseCss(css).find((r) => r.prelude === "@media (min-width: 900px)");
+    expect(media).toBeDefined();
+    const rule = media!.children.find((c) => c.prelude === ".b6-panel-reserved:not(.b6-panel-open) body");
+    expect(rule).toBeDefined();
+    const decls = Object.fromEntries(declarations(rule!.body));
+    expect(decls["padding-top"]).toBe(ruleDeclarations(css, ".b6-panel-collapsed body")["padding-top"]);
+    expect(Object.keys(decls)).toEqual(["padding-top"]);
+    // never outside the media query: a phone (bottom sheet, no pill) must not get the padding
+    expect(ruleDeclarations(css, ".b6-panel-reserved:not(.b6-panel-open) body")).toEqual({});
+    expect(ruleDeclarations(css, ".b6-panel-reserved body")).toEqual({});
+    // the host owns the reserve class: SidePanel neither adds nor removes it
+    const root = document.documentElement;
+    root.classList.add("b6-panel-reserved");
+    const { unmount } = render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: /Open the helper/ }));
+    expect(root.classList.contains("b6-panel-reserved")).toBe(true);
+    unmount();
+    expect(root.classList.contains("b6-panel-reserved")).toBe(true);
+    root.classList.remove("b6-panel-reserved");
   });
 
   it("has no axe violations collapsed or open", async () => {
