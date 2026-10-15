@@ -37,10 +37,10 @@ Suggested path:
 
 1. **Staff.** Sign in with the staff code on a phone or laptop with a microphone, and allow the microphone. The
    capture page opens a **script drawer** with a script of about 3 minutes of reading: tap Start, then read each card aloud and tap Next.
-   In the demo you can start at any time of day and end at once, and a session hard-stops 5 minutes after
+   In the demo you can start at any time of day and end at once, and a session hard-stops 20 minutes after
    Start. Then answer the debrief questions. Up to two questions from the fictional bakery's earlier days are added to
    your own, marked "Earlier day".
-   If several people start at the same time, start about a minute apart; the transcription service shares capacity.
+   No more than 4 people should read cards at the same time; if more are ready, wait until someone has finished their 5 cards (about 2 minutes) before tapping Start.
 2. **Supervisor.** Use the bar at the top to switch role inside the same sandbox. Open the day record, the questions
    queue and Proposals. Generate a proposal (the sandbox's earlier days already hold enough evidence), then mark it
    feasible or reject it.
