@@ -5,7 +5,6 @@ import type {
 } from "@google/genai";
 import {
   TRANSCRIBE_MODEL,
-  TRANSCRIBE_RETRY,
   geminiTranscriber,
   type TranscribeGenerate,
 } from "@/lib/transcribe/gemini";
@@ -264,7 +263,7 @@ describe("geminiTranscriber.transcribe retry (R-22 PR-A)", () => {
   it("retries a 429 then succeeds", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const { generate, calls } = flakyGenerate([{ status: 429 }, { status: 429 }]);
-    const { transcriber, sleeps } = build(generate);
+    const { transcriber, sleeps } = build(generate, { retry: { attempts: 4 } });
     const result = await transcriber.transcribe(input);
     expect(result.text).toBe("flat white");
     expect(calls).toHaveLength(3);
@@ -279,7 +278,7 @@ describe("geminiTranscriber.transcribe retry (R-22 PR-A)", () => {
       status: 503,
     });
     const { generate, calls } = flakyGenerate([failure, failure, failure, failure, failure]);
-    const { transcriber, sleeps } = build(generate);
+    const { transcriber, sleeps } = build(generate, { retry: { attempts: 4 } });
     let caught: unknown;
     try {
       await transcriber.transcribe(input);
@@ -293,7 +292,7 @@ describe("geminiTranscriber.transcribe retry (R-22 PR-A)", () => {
     expect(err.message).toBe("Transcription upstream unavailable");
     expect(err.message).not.toContain("fake-opus-bytes");
     expect(err.message).not.toContain(leak);
-    expect(calls).toHaveLength(TRANSCRIBE_RETRY.attempts);
+    expect(calls).toHaveLength(4);
     // Backoff capped at maxDelayMs (4 s): 1 s, 2 s, 4 s between 4 attempts.
     expect(sleeps).toEqual([1000, 2000, 4000]);
   });
@@ -343,6 +342,30 @@ describe("geminiTranscriber.transcribe retry (R-22 PR-A)", () => {
     expect(sleeps).toEqual([]);
   });
 
+  it("default is 2 attempts: a 429 then a 429 throws after exactly 2 calls and one sleep in [500, 1000]", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { generate, calls } = flakyGenerate([{ status: 429 }, { status: 429 }]);
+    const { transcriber, sleeps } = build(generate, { rng: () => 0 });
+    await expect(transcriber.transcribe(input)).rejects.toMatchObject({
+      stage: "transcribe",
+      upstream: 429,
+    });
+    expect(calls).toHaveLength(2);
+    expect(sleeps).toEqual([500]); // rng: () => 0 => min jitter
+  });
+
+  it("with rng: () => 1, the first sleep is 1000 (max jitter on first backoff)", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { generate, calls } = flakyGenerate([{ status: 429 }, { status: 429 }]);
+    const { transcriber, sleeps } = build(generate, { rng: () => 1 });
+    await expect(transcriber.transcribe(input)).rejects.toMatchObject({
+      stage: "transcribe",
+      upstream: 429,
+    });
+    expect(calls).toHaveLength(2);
+    expect(sleeps).toEqual([1000]); // rng: () => 1 => max jitter
+  });
+
   it("jitter is within [raw/2, raw]", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const low = build(flakyGenerate([{ status: 429 }]).generate, { rng: () => 0 });
@@ -369,7 +392,7 @@ describe("geminiTranscriber.transcribe retry (R-22 PR-A)", () => {
     const leak = audio.toString("base64");
     const failure = Object.assign(new Error(`body ${leak}`), { status: 429 });
     const { generate } = flakyGenerate([failure, failure]);
-    const { transcriber } = build(generate);
+    const { transcriber } = build(generate, { retry: { attempts: 4 } });
     await transcriber.transcribe(input);
     expect(warn.mock.calls).toEqual([
       ["transcribe.retry", { attempt: 1, upstream: 429, delayMs: 1000 }],
@@ -381,7 +404,7 @@ describe("geminiTranscriber.transcribe retry (R-22 PR-A)", () => {
   it("reuses the same base64 payload on every attempt and gives each attempt a fresh abort signal within budget", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const { generate, calls } = flakyGenerate([{ status: 503 }, { status: 503 }]);
-    const { transcriber } = build(generate);
+    const { transcriber } = build(generate, { retry: { attempts: 4 } });
     await transcriber.transcribe(input);
     expect(calls).toHaveLength(3);
     const datas = calls.map(
