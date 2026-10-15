@@ -1,8 +1,9 @@
 /*
  * Owner approvals = page-1 W8 "Review in order" (R-19 PR-12b, plan 9.5; boards D2-08, D2-08c, D2-08d, D2-08e) on the
- * PR-0b tokens (app/globals.css). Mobile-first: one column at 360 px (progress, order, card, decision stacked); from
- * 640 px the three tiles sit side by side; from 960 px the recommended order becomes a side column. Every control is
- * at least 44 px tall.
+ * PR-0b tokens (app/globals.css). Mobile-first: one column at 360 px (progress, order, card, decision stacked); the
+ * three tiles sit side by side once their own column is about 560 px wide (container query, so they fit in the single
+ * 720 px column); from 960 px the recommended order becomes a sticky side column and the tiles stack again. Every
+ * control is at least 44 px tall.
  */
 
 .screen {
@@ -94,11 +95,20 @@
   align-items: start;
 }
 
+/* The tiles go 3-up on the column's own width (container query), not the viewport's: in the single column (≤ 720 px
+   page) they fit from about 560 px; next to the sticky order column (≥ 960 px) the column is narrower and they stack. */
 .main {
   display: flex;
   flex-direction: column;
   gap: 14px;
   min-width: 0;
+  container-type: inline-size;
+}
+
+@container (min-width: 560px) {
+  .tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 /* ---- recommended order ---- */
@@ -480,9 +490,6 @@
   .cardTitle,
   .summaryTitle {
     font-size: 28px;
-  }
-  .tiles {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .links > * {
     flex: 0 1 auto;
