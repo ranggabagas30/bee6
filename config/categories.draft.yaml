@@ -31,7 +31,7 @@ categories:
     examples: {real: TODO, not_this: TODO}
   CORRECTION:
     parent: Normal
-    definition: Supervisor correcting a mistake just made (record the step, not the person).
+    definition: A supervisor correcting a mistake someone else just made (record the step, not the person). Not a speaker's own remark about what they themselves just did or forgot; that remark belongs to the thread of the event it is about.
     fields: [extracted_rules]
     needs_supervisor_confirm: true
     examples: {real: TODO, not_this: TODO}

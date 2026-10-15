@@ -76,4 +76,36 @@ describe("buildLabelPrompt", () => {
     expect(result.systemInstruction).toMatch(/Checked the oven temperature/);
     expect(result.systemInstruction).toMatch(/Chatting about ovens in general/);
   });
+
+  it("carries the threading rules between the category list and the structured-output block (R-21 F-1)", () => {
+    const raw = buildLabelPrompt({ config, unit: makeUnit(), open_threads: [] }).systemInstruction;
+    const si = raw.replace(/\s+/g, " "); // the rules are wrapped over several lines; compare sentences, not line breaks
+
+    expect(si).toContain("One event is one thread");
+    expect(si).toContain("Open a new thread for a different event");
+    // eval:label's trap (a what-if next to a real event on the same item) regressed 20/35 -> 4/35 with the broader
+    // "decide the category from all lines together" wording; this sentence is what keeps the two apart.
+    expect(si).toContain("A general instruction or a what-if is not the same event as something that actually happened");
+    const lastCategory = raw.lastIndexOf(`- ${config.decision_order.at(-1)}`);
+    const rules = raw.indexOf("Threading rules:");
+    const output = raw.indexOf("Respond with structured output only");
+    expect(lastCategory).toBeGreaterThan(-1);
+    expect(rules).toBeGreaterThan(lastCategory);
+    expect(output).toBeGreaterThan(rules);
+  });
+
+  it("has no { or } anywhere in the system instruction (same discipline as the proposal prompt)", () => {
+    const { systemInstruction } = buildLabelPrompt({ config, unit: makeUnit(), open_threads: [] });
+
+    expect(systemInstruction).not.toMatch(/[{}]/);
+  });
+
+  it("defines CORRECTION as someone else's mistake, not a speaker's own remark about what they did (R-21 F-1)", () => {
+    const { systemInstruction } = buildLabelPrompt({ config, unit: makeUnit(), open_threads: [] });
+    const line = systemInstruction.split("\n").find((l) => l.startsWith("- CORRECTION"))!;
+
+    expect(line).toContain("a mistake someone else just made");
+    expect(line).toContain("Not a speaker's own remark about what they themselves just did or forgot");
+    expect(line).toContain("belongs to the thread of the event it is about");
+  });
 });
