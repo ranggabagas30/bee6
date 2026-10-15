@@ -337,7 +337,8 @@
 
 .td {
   display: grid;
-  grid-template-columns: minmax(72px, 32%) 1fr;
+  /* minmax(0, 1fr): the value column may shrink below its content, so a long code chip is clipped, never widening the card. */
+  grid-template-columns: minmax(72px, 32%) minmax(0, 1fr);
   justify-items: start; /* the code chip keeps its own width instead of stretching across the value column */
   gap: 10px;
   padding: 4px 0;
@@ -354,6 +355,19 @@
   letter-spacing: 0.3px;
   color: var(--b6-muted);
   padding-top: 2px;
+}
+
+/*
+ * The code chip never widens its cell (QA D1): a step added by a Bee6 proposal has a 34-char id (the schema allows 40)
+ * and the global chip is nowrap, so the chip is clipped with an ellipsis inside the value column. The full id stays in
+ * the DOM text (screen readers, copy) and in the title.
+ */
+.code {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Title and text are one grid item, so both sit in the value column of the stacked layout. */
@@ -441,6 +455,15 @@
   .tdKeep {
     white-space: nowrap;
     width: 1%;
+  }
+
+  /*
+   * A percentage max-width is ignored while the auto table layout measures the cell, so the chip gets an absolute one
+   * here: CODE is bounded (about 12 characters plus the ellipsis) and STEP keeps its room whatever the id's length.
+   */
+  .code {
+    max-width: 15ch;
+    vertical-align: top;
   }
 
   .tr:last-child .td {

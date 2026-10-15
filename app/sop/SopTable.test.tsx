@@ -5,6 +5,7 @@ import type { SopChangeView, SopOverview, SopStepView } from "@/lib/sop/contract
 import { axeViolations } from "@/lib/testing/axe";
 import { SopTable } from "@/app/sop/SopTable";
 import { buildVersions } from "@/app/sop/versions";
+import styles from "@/app/sop/sop.module.css";
 
 afterEach(() => cleanup());
 
@@ -96,6 +97,23 @@ describe("SopTable (R-19 PR-9b §9.1)", () => {
     const stepCell = container.querySelectorAll("tbody tr")[0]!.querySelectorAll("td")[1]!;
     expect(stepCell.children).toHaveLength(1);
     expect(stepCell.children[0]!.textContent).toBe("Title open-01Text open-01");
+  });
+
+  it("a step added by a Bee6 proposal (34-char id) keeps the full code in the DOM and a title, on a chip that clips inside its cell", () => {
+    const added = step("p-3f9c2b7e4d1a4c8e9b0f1a2b3c4d5e6f", "Read the order back.");
+    const versions = buildVersions(
+      overview({
+        latest: { version: 2, effective_from_date: "2026-10-12", steps: [step("open-01"), added] },
+        changes: [change(2, { kind: "add", before: null, after: added })],
+      }),
+    );
+    const { container } = render(<SopTable view={versions[0]!} versions={versions} lang="en" />);
+    const chips = Array.from(container.querySelectorAll("tbody tr td:first-child span"));
+    expect(chips.map((c) => c.textContent)).toEqual(["open-01", "p-3f9c2b7e4d1a4c8e9b0f1a2b3c4d5e6f"]);
+    // The full id is visible to a screen reader and to copy; the title carries it for a mouse over the clipped chip.
+    expect(chips.map((c) => c.getAttribute("title"))).toEqual(["open-01", "p-3f9c2b7e4d1a4c8e9b0f1a2b3c4d5e6f"]);
+    // The same clipping rule applies to every code, whatever its length, at every width.
+    for (const chip of chips) expect(chip.className).toContain(styles.code);
   });
 
   it("model text renders as literal text, never HTML", () => {

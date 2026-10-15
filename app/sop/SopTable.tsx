@@ -61,7 +61,10 @@ export function SopTable({ view, versions, lang }: { view: SopVersionView; versi
           return (
             <tr key={step.step_id} role="row" className={styles.tr}>
               <td {...cell(0)} className={cx(styles.td, styles.tdKeep)}>
-                <Chip>{step.step_id}</Chip>
+                {/* A long id (a step added by a proposal) is clipped by CSS; the full text stays for readers and copy. */}
+                <Chip className={styles.code} title={step.step_id}>
+                  {step.step_id}
+                </Chip>
               </td>
               <td {...cell(1)}>
                 <span className={styles.tdStep}>
