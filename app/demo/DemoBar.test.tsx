@@ -311,6 +311,18 @@ describe("DemoBar expiry", () => {
     expect(document.activeElement).toBe(before);
   });
 
+  // Round-3 D2: the bar sizes itself through the design system's .b6-topbar rule (same height as the slot at every
+  // width), live and ended alike, so the slot never shows an empty strip under a one-line bar.
+  it("the bar carries the b6-topbar class, live and ended, so its height is the slot's at every width", () => {
+    seed("owner", Date.now() + 3_600_000);
+    const live = renderBar();
+    expect(live.container.querySelector("aside")!.classList.contains("b6-topbar")).toBe(true);
+    cleanup();
+    seed("owner", Date.now() - 1000);
+    const ended = renderBar();
+    expect(ended.container.querySelector("aside")!.classList.contains("b6-topbar")).toBe(true);
+  });
+
   it("on /sign-in the ended state is left to the sign-in page's own link (no double message)", () => {
     seed("owner", Date.now() - 1000);
     pathname = "/sign-in";

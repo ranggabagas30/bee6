@@ -23,8 +23,9 @@ import { authOrNull } from "@/app/demo/useDemoStart";
  * signed out. The expired record stays, so /sign-in can say the session ended.
  */
 
+// Height, box-sizing and the vertical centring come from `.b6-topbar` (globals.css), which keeps the bar exactly as
+// tall as the slot DemoBarLoader reserves at every width.
 const BAR_STYLE: CSSProperties = {
-  boxSizing: "border-box",
   width: "100%",
   padding: "8px 16px",
   background: "#fff7d6",
@@ -79,7 +80,7 @@ export function DemoBar({ config }: { config: FirebaseWebConfig | null }) {
   // the demo is announced when its text lands in it; a separate element that appears with its text already
   // in it is not reliably announced.
   return (
-    <aside aria-labelledby={ended ? "demo-bar-status-line" : "demo-bar-line"} style={BAR_STYLE}>
+    <aside aria-labelledby={ended ? "demo-bar-status-line" : "demo-bar-line"} className="b6-topbar" style={BAR_STYLE}>
       {!ended && (
         <p id="demo-bar-line" style={LINE_STYLE}>
           {t(lang, "C-demo-bar", { role: t(lang, ROLE_KEY[live.role]), time: hhmm(live.expires_at_ms) })}
