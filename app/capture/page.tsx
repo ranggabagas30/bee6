@@ -24,7 +24,7 @@ import { OpenSessionView } from "@/app/capture/OpenSessionView";
 import { SignOutDialog, type SignOutKind } from "@/app/capture/SignOutDialog";
 import { configPollMs, dropOpenSession, markOpenSessionClosed, mergeRefreshedLastEnded } from "@/app/capture/config-refresh";
 import { drawerInsetStyle, isCompactChrome, useDrawerLayout } from "@/app/capture/drawer-layout";
-import { DEBRIEF_DONE_FLAG_KEY, capturePhaseFor, publishCaptureBridge, type CaptureBridgeActions } from "@/app/demo/guide-bridge";
+import { capturePhaseFor, publishCaptureBridge, useDebriefDoneFlag, type CaptureBridgeActions } from "@/app/demo/guide-bridge";
 import { ShopTopBar } from "@/app/shop/ShopTopBar";
 import { Button, Chip } from "@/app/ui";
 import { useLang } from "@/lib/i18n/context";
@@ -684,16 +684,12 @@ export default function CapturePage() {
   const sessionId = session?.session_id ?? null;
   const sessionClosingReached = session ? closingReached : null;
   const startOffered = idle?.offered ?? false;
+  // Re-read the moment the debrief's done screen writes it (R-19 PR-5 D3), not on the next 30 s tick.
+  const debriefDoneFlag = useDebriefDoneFlag();
   useEffect(() => {
     if (view !== "ready" || demoSession === undefined || nowMs === null) {
       publishCaptureBridge(null);
       return;
-    }
-    let debriefDoneFlag: string | null = null;
-    try {
-      debriefDoneFlag = window.localStorage.getItem(DEBRIEF_DONE_FLAG_KEY);
-    } catch {
-      // storage blocked: the phase falls back to the window rule
     }
     const phase = capturePhaseFor({
       profile: demoSession,
@@ -707,7 +703,7 @@ export default function CapturePage() {
       state: { profile: demoSession, phase, sessionId, linesThisSession, closingBusy, closingError, micTrouble },
       actions: bridgeActions,
     });
-  }, [view, demoSession, nowMs, sessionClosingReached, lastEnded, startOffered, sessionId, linesThisSession, closingBusy, closingError, micTrouble, bridgeActions]);
+  }, [view, demoSession, nowMs, sessionClosingReached, lastEnded, debriefDoneFlag, startOffered, sessionId, linesThisSession, closingBusy, closingError, micTrouble, bridgeActions]);
   useEffect(() => () => publishCaptureBridge(null), []);
 
   // ── Batalkan (§5.6, web spec §6.6.5) ────────────────────────────────────────

@@ -952,6 +952,25 @@ describe("CapturePage judge-guide bridge (R-19 PR-5, sandbox only)", () => {
     expect(bridge().state.sessionId).not.toBe((postSessionStart.mock.calls[0]![1] as { session_id: string }).session_id);
   });
 
+  // Round-3 D3: the guide card used to lag the done screen by up to 30 s (the bridge re-read the flag only on the
+  // page's clock tick). The flag writer announces itself on the document, so the bridge follows at once.
+  it("the phase becomes debrief_done the moment the done flag is written in this document, with no clock tick", async () => {
+    stubPreparingQuestions();
+    seedDoneFlag(0); // an in-memory localStorage (this jsdom has none); vi.unstubAllGlobals removes it
+    localStorage.removeItem(DEBRIEF_DONE_FLAG_KEY);
+    await renderDemoRunning();
+    await waitFor(() => expect(bridge().state.phase).toBe("listening"));
+    act(() => bridge().actions.jumpToClosing());
+    fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
+    await waitFor(() => expect(bridge().state.phase).toBe("debrief_question"));
+    const endsAtMs = Date.now() + DEBRIEF_MS; // End happened on the frozen clock
+    const { writeDoneFlag } = await import("@/lib/debrief/done-flag");
+    act(() => writeDoneFlag(localStorage, endsAtMs, { answered: 1, skipped: 0 }));
+    await waitFor(() => expect(bridge().state.phase).toBe("debrief_done"));
+    expect(Date.now() + DEBRIEF_MS).toBe(endsAtMs); // the clock never moved: no 30 s tick was involved
+  });
+
   it("a failed refetch keeps the page as it was (no error view)", async () => {
     await renderDemoIdle();
     await waitFor(() => expect(readCaptureBridge()).not.toBeNull());

@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { DemoSessionProfile } from "@/lib/capture/contract";
-import { DEBRIEF_DONE_FLAG_KEY } from "@/lib/debrief/constants";
+import { DEBRIEF_DONE_EVENT, DEBRIEF_DONE_FLAG_KEY } from "@/lib/debrief/constants";
 import type { CapturePhase } from "@/lib/demo/guide";
 import type { DictKey } from "@/lib/i18n/dict";
 
@@ -16,6 +16,36 @@ import type { DictKey } from "@/lib/i18n/dict";
 
 /** PR-3 (plan 6.3) writes `localStorage[DEBRIEF_DONE_FLAG_KEY] = String(endsAtMs)` on entering the terminal done screen. */
 export { DEBRIEF_DONE_FLAG_KEY };
+
+function readDebriefDoneFlag(): string | null {
+  try {
+    return window.localStorage.getItem(DEBRIEF_DONE_FLAG_KEY);
+  } catch {
+    return null; // storage blocked: the phase falls back to the window rule
+  }
+}
+
+function subscribeDebriefDoneFlag(onChange: () => void): () => void {
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === null || e.key === DEBRIEF_DONE_FLAG_KEY) onChange();
+  };
+  window.addEventListener(DEBRIEF_DONE_EVENT, onChange);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(DEBRIEF_DONE_EVENT, onChange);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+/**
+ * The PR-3 done flag as the page sees it: re-read the moment `writeDoneFlag` runs in this document (its
+ * DEBRIEF_DONE_EVENT) or another tab writes it (the browser's `storage` event), so the published phase turns
+ * `debrief_done` with the done screen, not on the page's next 30 s clock tick. Null on the server and when
+ * storage is blocked.
+ */
+export function useDebriefDoneFlag(): string | null {
+  return useSyncExternalStore(subscribeDebriefDoneFlag, readDebriefDoneFlag, () => null);
+}
 
 export interface CaptureBridgeState {
   profile: DemoSessionProfile;

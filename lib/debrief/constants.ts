@@ -48,6 +48,12 @@ export const REFRESH_MIN_INTERVAL_MS = 5_000;
  * done screen was reached, so a reload inside the hour shows the done summary instead of the entry card.
  */
 export const DEBRIEF_DONE_FLAG_KEY = "bee6.debrief.done";
+/**
+ * R-19 PR-5 (sandbox only): the window event `writeDoneFlag` dispatches right after writing the flag, so the
+ * same document (the capture page's judge-guide bridge) re-reads it at once instead of on its next clock tick.
+ * Other tabs get the browser's own `storage` event. A plain Event: it carries no counts, ids or text.
+ */
+export const DEBRIEF_DONE_EVENT = "bee6:debrief-done";
 /** Beside the flag: `{"answered":n,"skipped":k}` so the restored done summary can state its counts. */
 export const DEBRIEF_DONE_SUMMARY_KEY = "bee6.debrief.done.summary";
 /**
