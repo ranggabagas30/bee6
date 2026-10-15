@@ -241,18 +241,33 @@ export function SupervisorProposals({ auth, lang, onBridge }: { auth: Auth; lang
     bridge.current?.({ type: "progress" });
   }
 
+  // The page head is part of every list-level state: a loading or failed read still has its h1 (axe
+  // page-has-heading-one, R-19 PR-5 round 4) and the page does not re-flow when the data lands.
+  const head = (
+    <header className={styles.head}>
+      <h1 className={styles.h1}>{t(lang, "C-prop-title")}</h1>
+      <p className={styles.sub}>{t(lang, "C-propw-sub")}</p>
+    </header>
+  );
+
   if (list.kind === "loading") {
     return (
-      <p role="status" aria-live="polite" className={styles.status}>
-        {t(lang, "C-day-loading")}
-      </p>
+      <>
+        {head}
+        <p role="status" aria-live="polite" className={styles.status}>
+          {t(lang, "C-day-loading")}
+        </p>
+      </>
     );
   }
   if (list.kind === "error") {
     return (
-      <p role="status" aria-live="polite" className={styles.status}>
-        {t(lang, list.messageKey)}
-      </p>
+      <>
+        {head}
+        <p role="status" aria-live="polite" className={styles.status}>
+          {t(lang, list.messageKey)}
+        </p>
+      </>
     );
   }
 
@@ -277,10 +292,7 @@ export function SupervisorProposals({ auth, lang, onBridge }: { auth: Auth; lang
 
   return (
     <>
-      <header className={styles.head}>
-        <h1 className={styles.h1}>{t(lang, "C-prop-title")}</h1>
-        <p className={styles.sub}>{t(lang, "C-propw-sub")}</p>
-      </header>
+      {head}
 
       <WatchPanel lang={lang} watch={watch} hasProposal={hasProposal} busy={generating} onAsk={(another) => void ask(another)} />
 
