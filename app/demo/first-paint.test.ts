@@ -74,6 +74,13 @@ describe("FIRST_PAINT_SCRIPT", () => {
     expect(classes()).toEqual(["b6-panel-reserved", "b6-topbar-reserved"]);
   });
 
+  it("R-21 D5: a LIVE state on /sign-in reserves the pill only, topbar is not reserved (the bar hides)", () => {
+    go("/sign-in");
+    window.localStorage.setItem(DEMO_STATE_KEY, live());
+    run();
+    expect(classes()).toEqual(["b6-panel-reserved"]);
+  });
+
   it.each(["/sop", "/home", "/day", "/signin", "/pairing", "/captured"])("%s is not an entry route: nothing without a state", (p) => {
     go(p);
     run();
