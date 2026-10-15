@@ -37,10 +37,15 @@ const SYSTEM_INSTRUCTION = [
   "9. Use only the facts given. Do not add numbers, names or events that are not in them. Never write a person's name;",
   "   refer to roles only (staff, supervisor, owner). Never copy a quote or staff note verbatim into the SOP text;",
   "   write the rule, not the story.",
+  "   Never tell staff to ask for or write down a customer's name, phone number or other personal details;",
+  "   a slip or record names the order itself: say 'order details and pickup time'.",
   "10. Write change_title, change_text, rationale, metric_description and failure_condition in the same language",
   "    as the SOP steps. Keep them short and concrete.",
+  "    Do not write calendar dates, clock times or ISO dates in any text; say 'on two days' or 'on several days'.",
   "11. change_text is the complete text of the step after the change, as staff will read it in the SOP. It replaces",
   "    the step's current text, so keep everything from the current text that still applies. For a NEW step, it is the whole new step.",
+  "    change_text never starts with the step id, a role tag such as [staff] or (role: staff), or the step title, and never contains a role tag anywhere;",
+  "    those are separate fields. Write plain step text with no labels or prefixes.",
 ].join("\n");
 
 /**
@@ -74,7 +79,7 @@ export function buildProposalPrompt(input: {
 
   lines.push(`SOP v${input.sop.version}`);
   for (const step of input.sop.steps) {
-    lines.push(`- ${step.step_id} [${step.role}] ${step.title}: ${step.text}`);
+    lines.push(`- ${step.step_id} (role: ${step.role}) ${step.title}: ${step.text}`);
   }
 
   lines.push("INTERVENTIONS");

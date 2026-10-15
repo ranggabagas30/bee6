@@ -1,0 +1,6 @@
+<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+  <!-- Teal rounded square background -->
+  <rect x="0" y="0" width="32" height="32" rx="6" fill="#1F6F6B"/>
+  <!-- White "b6" text centered -->
+  <text x="16" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="600" text-anchor="middle" fill="white">b6</text>
+</svg>

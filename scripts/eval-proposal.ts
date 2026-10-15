@@ -15,9 +15,11 @@
  *
  * Hard rules: Google only (the existing Vertex ADK agent, ADC), demo project only (`bee6-playground`, refused
  * elsewhere; never the pilot project), fictional fixture only (#8), no audio, nothing stored, Firestore never
- * touched. The report prints counts, fired rules and evidence aliases only: never fixture text or model text.
+ * touched. The report prints counts, fired rules and evidence aliases only: never fixture text or model text,
+ * EXCEPT with `--texts` (R-21): then it also prints each proposed change_title/change_text/rationale (fictional fixture
+ * and the demo project only) and greps them for `[staff]`, `(role:`, ISO dates, "phone number" and "name"; any hit fails (exit 2).
  *
- * Usage:   GOOGLE_CLOUD_PROJECT=bee6-playground npm run eval:proposal [-- --runs 3]
+ * Usage:   GOOGLE_CLOUD_PROJECT=bee6-playground npm run eval:proposal [-- --runs 3] [--texts]
  * Exit codes: 0 every case passes; 2 any genuine FAIL (or the offline floor check fails); 3 inconclusive cells and
  * no FAIL (rerun later); 1 setup/usage error.
  */
@@ -119,8 +121,33 @@ export function singleDateIsBlockedByFloor(): boolean {
   return candidates.length === 2 && !checkEvidenceFloor(candidates).passed;
 }
 
+/** The model's own proposal texts of one run (R-21 `--texts`). Fictional fixture only; never stored. */
+export interface ProposedTexts {
+  change_title: string;
+  change_text: string;
+  rationale: string;
+}
+
+/** R-21 wording gate: text a judge must never see in a generated step. Pure; returns "field: rule" per hit. */
+const TEXT_RULES: readonly { label: string; re: RegExp }[] = [
+  { label: "[staff]", re: /\[(staff|supervisor|owner)\]/i },
+  { label: "(role:", re: /\(role:/i },
+  { label: "ISO date", re: /\d{4}-\d{2}-\d{2}/ },
+  { label: "phone number", re: /phone number/i },
+  // R-21 PR-C: "name" must match customer/caller/person/their context, not "names", "rename", "menu item name".
+  { label: "name", re: /\b(customer'?s?|caller'?s?|their|person'?s?)\s+name\b|name\s+(and|or)\s+(phone|number)/i },
+];
+
+export function findTextViolations(texts: ProposedTexts): string[] {
+  const hits: string[] = [];
+  for (const field of ["change_title", "change_text", "rationale"] as const) {
+    for (const rule of TEXT_RULES) if (rule.re.test(texts[field])) hits.push(`${field}: ${rule.label}`);
+  }
+  return hits;
+}
+
 export type RunResult =
-  | { kind: "propose_pass"; cited?: string[]; intervention?: string }
+  | { kind: "propose_pass"; cited?: string[]; intervention?: string; texts?: ProposedTexts }
   | { kind: "propose_blocked"; rule: string }
   | { kind: "declined"; reason: string | null }
   | { kind: "invalid_output" }
@@ -160,7 +187,16 @@ async function runOne(input: CaseInput, deps: EvalDeps): Promise<RunResult> {
     if (parsed.data.decision === "no_proposal") return { kind: "declined", reason: parsed.data.no_proposal_reason };
     const gate = checkProposal(parsed.data, input.gateCtx);
     if (!gate.passed) return { kind: "propose_blocked", rule: gate.fired_rule ?? "unknown" };
-    return { kind: "propose_pass", cited: [...new Set(parsed.data.evidence)], intervention: parsed.data.intervention_id ?? undefined };
+    return {
+      kind: "propose_pass",
+      cited: [...new Set(parsed.data.evidence)],
+      intervention: parsed.data.intervention_id ?? undefined,
+      texts: {
+        change_title: parsed.data.change_title,
+        change_text: parsed.data.change_text,
+        rationale: parsed.data.rationale,
+      },
+    };
   }
   return { kind: "model_error", error_class: errorClass };
 }
@@ -188,9 +224,12 @@ export function judgeCase(spec: CaseSpec, results: readonly RunResult[]): CaseSu
 export interface EvalReport {
   cases: CaseSummary[];
   floor_blocks_single_date: boolean;
+  /** R-21: set when run with `--texts`; the report then prints the proposed texts and counts grep violations. */
+  texts?: boolean;
+  text_violations?: number;
 }
 
-export async function runEval(opts: { runs: number }, deps: EvalDeps): Promise<EvalReport> {
+export async function runEval(opts: { runs: number; texts?: boolean }, deps: EvalDeps): Promise<EvalReport> {
   const cases: CaseSummary[] = [];
   for (const spec of CASES) {
     const input = buildCaseInput(spec, deps.library);
@@ -198,12 +237,20 @@ export async function runEval(opts: { runs: number }, deps: EvalDeps): Promise<E
     for (let i = 0; i < opts.runs; i++) results.push(await runOne(input, deps));
     cases.push(judgeCase(spec, results));
   }
-  return { cases, floor_blocks_single_date: singleDateIsBlockedByFloor() };
+  const report: EvalReport = { cases, floor_blocks_single_date: singleDateIsBlockedByFloor() };
+  if (opts.texts) {
+    report.texts = true;
+    report.text_violations = cases
+      .flatMap((c) => c.runs)
+      .reduce((n, r) => n + (r.kind === "propose_pass" && r.texts ? findTextViolations(r.texts).length : 0), 0);
+  }
+  return report;
 }
 
 /** 0 all pass; 2 any genuine FAIL or the offline floor check failing; 3 inconclusive cells and no FAIL. */
 export function exitCodeFor(report: EvalReport): 0 | 2 | 3 {
   if (!report.floor_blocks_single_date || report.cases.some((c) => c.status === "FAIL")) return 2;
+  if ((report.text_violations ?? 0) > 0) return 2;
   if (report.cases.some((c) => c.status === "INCONCLUSIVE")) return 3;
   return 0;
 }
@@ -220,22 +267,40 @@ export function formatReport(report: EvalReport): string {
       if (r.kind === "propose_blocked") return [`run ${i + 1}: gate rule ${r.rule}`];
       if (r.kind === "declined") return [`run ${i + 1}: declined ${r.reason ?? "-"}`];
       if (r.kind === "model_error") return [`run ${i + 1}: error ${r.error_class}`];
-      if (r.kind === "propose_pass") return [`run ${i + 1}: cited ${(r.cited ?? []).join(",")} via ${r.intervention ?? "-"}`];
+      if (r.kind === "propose_pass") {
+        const head = `run ${i + 1}: cited ${(r.cited ?? []).join(",")} via ${r.intervention ?? "-"}`;
+        if (!report.texts || !r.texts) return [head];
+        const violations = findTextViolations(r.texts);
+        return [
+          head,
+          `  change_title: ${r.texts.change_title}`,
+          `  change_text: ${r.texts.change_text}`,
+          `  rationale: ${r.texts.rationale}`,
+          ...violations.map((v) => `  violation ${v}`),
+        ];
+      }
       return [`run ${i + 1}: invalid output`];
     });
     lines.push(...notes.map((n) => `             ${n}`));
   }
   lines.push(`${report.floor_blocks_single_date ? "PASS" : "FAIL"}         (d) single-date variant blocked by the floor offline`);
+  if (report.texts) {
+    const n = report.text_violations ?? 0;
+    lines.push(`${n === 0 ? "PASS" : "FAIL"}         (R-21) wording grep over the proposed texts: ${n} violation(s)`);
+  }
   return lines.join("\n");
 }
 
-export function parseArgs(argv: string[]): { runs: number } {
-  const args = { runs: DEFAULT_RUNS };
-  for (let i = 0; i < argv.length; i += 2) {
+export function parseArgs(argv: string[]): { runs: number; texts: boolean } {
+  const args = { runs: DEFAULT_RUNS, texts: false };
+  for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
-    const value = argv[i + 1];
+    if (flag === "--texts") {
+      args.texts = true;
+      continue;
+    }
     if (flag !== "--runs") throw new Error(`unknown argument ${flag}`);
-    const n = Number(value);
+    const n = Number(argv[++i]);
     if (!Number.isInteger(n) || n < 1 || n > 10) throw new Error("--runs must be an integer 1-10");
     args.runs = n;
   }
@@ -267,7 +332,9 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const location = getModelLocation(PROPOSAL_MODEL).location; // config/regions.yaml, never hard-coded (rule 5)
   console.log(`[eval:proposal] project=${project} model=${PROPOSAL_MODEL} location=${location} runs=${args.runs}`);
-  console.log("[eval:proposal] fictional fixture only (hard rule #8); the report prints counts, never text");
+  console.log(
+    `[eval:proposal] fictional fixture only (hard rule #8); the report prints ${args.texts ? "the proposed texts (--texts)" : "counts, never text"}`,
+  );
   const report = await runEval(args, {
     model: adkProposalModel,
     library: loadProposalLibrary({ allowDraft: true }),

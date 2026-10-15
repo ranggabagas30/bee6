@@ -802,6 +802,43 @@ describe("generateProposal", () => {
     expect(capturedInputs[0]).toContain("[STAFF] says call [NUMBER] now");
   });
 
+  it("R-21: strips a leading role tag from change_text and change_title before the redactor and the stored text", async () => {
+    const { store, state } = makeFakeStore();
+    const capturedInputs: string[][] = [];
+    const { deps, model } = makeDeps({
+      redact: async (texts) => {
+        capturedInputs.push([...texts]);
+        return [...texts];
+      },
+    });
+    model.mockResolvedValueOnce(
+      okModelResult(validWireText({ change_title: "(role: staff) Check more often", change_text: "[staff] Write the time on the tray." })),
+    );
+    await generateProposal(store, deps, { claims: claims(), from_date: "2026-10-01", to_date: "2026-10-02", now_ms: NOW_MS });
+    expect(capturedInputs[0]).toContain("Write the time on the tray.");
+    expect(capturedInputs[0]).toContain("Check more often");
+    expect(state.written[0]?.proposal.content?.change_text).toBe("Write the time on the tray.");
+    expect(state.written[0]?.proposal.content?.change_title).toBe("Check more often");
+  });
+
+  it("R-21 PR-C: when a field is only a role tag, fallback preserves it so ProposalSchema min(1) doesn't throw", async () => {
+    // When stripLeadingRoleTag empties a field (e.g., "[staff]" strips to ""),
+    // it falls back to the unstripped text instead, preventing ZodError at wire validation.
+    const { store, state } = makeFakeStore();
+    const { deps, model } = makeDeps({
+      redact: async (texts) => [...texts], // Return a copy; we care about the stored text, not redaction.
+    });
+    model.mockResolvedValueOnce(
+      okModelResult(validWireText({ change_title: "[staff]", change_text: "(role: supervisor)" })),
+    );
+    const result = await generateProposal(store, deps, { claims: claims(), from_date: "2026-10-01", to_date: "2026-10-02", now_ms: NOW_MS });
+    // Proposal should succeed (not throw ZodError at step 8f).
+    expect(result.proposal.status).toBe("awaiting_supervisor");
+    // The fallback text is stored as-is (unstripped).
+    expect(state.written[0]?.proposal.content?.change_title).toBe("[staff]");
+    expect(state.written[0]?.proposal.content?.change_text).toBe("(role: supervisor)");
+  });
+
   it("redactor throws -> 503, no proposal, no audit", async () => {
     const { store, state } = makeFakeStore();
     const { deps, model } = makeDeps({

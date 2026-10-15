@@ -132,7 +132,7 @@ export const GUIDE: Readonly<Record<GuideKey, GuideCard>> = z
     debrief_question: card(
       "Answer what really happened",
       [
-        "Answer what really happened in today's script. The phone order did happen, so answer Yes and type a few words why (for example: took a big order on the phone).",
+        "Answer what really happened in today's script. The phone order did happen, so answer Yes and type a few words why, for example: I did not read the order back to the caller.",
         "Answering does not end the debrief. It ends when every question is answered or the 60 minutes are over.",
         "When your questions are answered, jump to tomorrow to run the next day.",
       ],

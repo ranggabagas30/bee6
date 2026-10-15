@@ -131,9 +131,25 @@ describe("SopApp header", () => {
     });
     renderApp();
     const group = await screen.findByRole("group", { name: "SOP version" });
-    expect(Array.from(group.querySelectorAll("button")).map((b) => b.textContent)).toEqual(["05/10/26", "16/10/26 · current"]);
+    expect(Array.from(group.querySelectorAll("button")).map((b) => b.textContent)).toEqual(["05/10/26 · current", "16/10/26 · upcoming"]);
     expect(screen.queryByText(/starts on/)).toBeNull();
     expect(screen.queryByText(/Until then/)).toBeNull();
+  });
+
+  it("R-21 O-5: only the in_force_version shows '· current', newer shows '· upcoming'", async () => {
+    authedGetJson.mockResolvedValue({
+      kind: "ok",
+      data: overview({
+        latest: { version: 2, effective_from_date: "2026-10-16", steps: [step("a-01")] },
+        in_force_version: 1,
+        first_version_date: "2026-10-05",
+        changes: [changeView(2)],
+      }),
+    });
+    renderApp();
+    const group = await screen.findByRole("group", { name: "SOP version" });
+    // v1 is in_force_version=1, so "05/10/26 · current"; v2 is newer, so "16/10/26 · upcoming"
+    expect(Array.from(group.querySelectorAll("button")).map((b) => b.textContent)).toEqual(["05/10/26 · current", "16/10/26 · upcoming"]);
   });
 
   it("5.T4 no SOP shows the empty state (owner: with the upload-coming line) and no sections", async () => {

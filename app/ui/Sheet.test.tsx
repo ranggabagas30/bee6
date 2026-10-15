@@ -11,7 +11,15 @@ afterEach(() => cleanup());
 const css = readGlobalsCss();
 const tokens = rootTokens(css);
 
-function Harness({ initial = false, onOpenChange }: { initial?: boolean; onOpenChange?: (o: boolean) => void }) {
+function Harness({
+  initial = false,
+  onOpenChange,
+  collapseOnOutsidePointerDown,
+}: {
+  initial?: boolean;
+  onOpenChange?: (o: boolean) => void;
+  collapseOnOutsidePointerDown?: boolean;
+}) {
   const [open, setOpen] = useState(initial);
   return (
     <Sheet
@@ -24,6 +32,7 @@ function Harness({ initial = false, onOpenChange }: { initial?: boolean; onOpenC
       openLabel="Open the helper"
       closeLabel="Close the helper"
       handle={<span>Summary line</span>}
+      collapseOnOutsidePointerDown={collapseOnOutsidePointerDown}
     >
       <p>Sheet body</p>
       <button type="button">Inside</button>
@@ -100,6 +109,79 @@ describe("Sheet", () => {
     render(<Harness onOpenChange={onOpenChange} />);
     fireEvent.keyDown(screen.getByRole("button", { name: /Open the helper/ }), { key: "Escape" });
     expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  // R-21 F-2 / D7: the sheet covers the page's next button (End confirm, Set up); a tap elsewhere must hand the page back.
+  describe("collapseOnOutsidePointerDown (R-21)", () => {
+    it("an outside pointerdown collapses the open sheet once, and the event is not stopped", () => {
+      const onOpenChange = vi.fn();
+      render(<Harness initial collapseOnOutsidePointerDown onOpenChange={onOpenChange} />);
+      let reached = false;
+      const outside = document.createElement("button");
+      document.body.appendChild(outside);
+      outside.addEventListener("pointerdown", () => (reached = true));
+      fireEvent.pointerDown(outside);
+      expect(onOpenChange).toHaveBeenCalledTimes(1);
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+      expect(reached).toBe(true);
+      outside.remove();
+    });
+
+    it("a pointerdown inside the sheet (handle, body) does not collapse it", () => {
+      const onOpenChange = vi.fn();
+      render(<Harness initial collapseOnOutsidePointerDown onOpenChange={onOpenChange} />);
+      fireEvent.pointerDown(screen.getByRole("button", { name: "Inside" }));
+      fireEvent.pointerDown(screen.getByRole("button", { name: /Close the helper/ }));
+      expect(onOpenChange).not.toHaveBeenCalled();
+    });
+
+    it("without the prop an outside pointerdown does nothing", () => {
+      const onOpenChange = vi.fn();
+      render(<Harness initial onOpenChange={onOpenChange} />);
+      fireEvent.pointerDown(document.body);
+      expect(onOpenChange).not.toHaveBeenCalled();
+    });
+
+    it("while collapsed no listener is attached", () => {
+      const onOpenChange = vi.fn();
+      render(<Harness collapseOnOutsidePointerDown onOpenChange={onOpenChange} />);
+      fireEvent.pointerDown(document.body);
+      expect(onOpenChange).not.toHaveBeenCalled();
+    });
+
+    it("a pointerdown inside a portaled modal dialog does not collapse the sheet; taps outside the modal still do", () => {
+      const onOpenChange = vi.fn();
+      function ModalPortal() {
+        return createPortal(
+          <div role="dialog" aria-modal="true">
+            <button type="button">In modal</button>
+          </div>,
+          document.body,
+        );
+      }
+      render(
+        <Sheet
+          label="Helper"
+          open
+          onOpenChange={onOpenChange}
+          openLabel="Open"
+          closeLabel="Close"
+          handle={<span>h</span>}
+          collapseOnOutsidePointerDown
+        >
+          <ModalPortal />
+        </Sheet>,
+      );
+      // Pointerdown on the button inside the modal should not collapse.
+      fireEvent.pointerDown(screen.getByRole("button", { name: "In modal" }));
+      expect(onOpenChange).not.toHaveBeenCalled();
+      // But a pointerdown outside both the sheet and the modal should collapse.
+      const outside = document.createElement("div");
+      document.body.appendChild(outside);
+      fireEvent.pointerDown(outside);
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+      outside.remove();
+    });
   });
 
   it("is non-modal: no dialog role, no aria-modal, no focus trap", () => {
