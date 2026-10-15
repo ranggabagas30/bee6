@@ -153,8 +153,8 @@ describe("classifyRun", () => {
         cards,
         plans.map((plan) => ({ plan, wire: wireFor(plan, byId, perfect) })),
       );
-      expect(out.a).toEqual({ correct: true, as_fact: true, category: "CUSTOMER_SERVICE" });
-      expect(out.b).toEqual({ correct: true, as_fact: false, category: "PHONE_CALL" });
+      expect(out.a).toEqual({ correct: true, as_fact: true, category: "CUSTOMER_SERVICE", one_thread: true });
+      expect(out.b).toEqual({ correct: true, as_fact: false, category: "PHONE_CALL", one_thread: true });
       expect(out.contaminated).toBe(false);
       expect(out.failed_calls).toBe(0);
       // B (always a question) + the 3 routine threads, which also pass the gate as facts => 1 question
@@ -165,7 +165,7 @@ describe("classifyRun", () => {
   it("A below the 0.9 threshold is still correct but a question, not a fact", () => {
     const [plan] = buildUnits(cards, "U1", "t");
     const out = classifyRun(cards, [{ plan: plan!, wire: wireFor(plan!, byId, perfect, 0.6) }]);
-    expect(out.a).toEqual({ correct: true, as_fact: false, category: "CUSTOMER_SERVICE" });
+    expect(out.a).toEqual({ correct: true, as_fact: false, category: "CUSTOMER_SERVICE", one_thread: true });
     expect(out.questions).toBe(5); // every thread is below the threshold => one question each
   });
 
@@ -206,7 +206,7 @@ describe("classifyRun", () => {
       plans.map((plan) => ({ plan, wire: plan.unit.lines[0]!.line_id.includes("c2") ? null : wireFor(plan, byId, perfect) })),
     );
     expect(out.failed_calls).toBe(1);
-    expect(out.a).toEqual({ correct: false, as_fact: false, category: null });
+    expect(out.a).toEqual({ correct: false, as_fact: false, category: null, one_thread: false });
     expect(out.b!.correct).toBe(true);
   });
 
@@ -228,7 +228,32 @@ describe("classifyRun", () => {
     const [plan] = buildUnits(cards, "U1", "t");
     const wire = wireFor(plan!, byId, (c) => (c.kind === "problem_a" ? "NON_WORK" : perfect(c)));
     const out = classifyRun(cards, [{ plan: plan!, wire }]);
-    expect(out.a).toEqual({ correct: false, as_fact: false, category: null });
+    expect(out.a).toEqual({ correct: false, as_fact: false, category: null, one_thread: false });
+  });
+
+  it("one_thread: a card whose lines share one thread is true; a card split across two threads is false", () => {
+    const [plan] = buildUnits(cards, "U1", "t");
+    const bCard = cards.find((c) => c.kind === "problem_b")!;
+    expect(bCard.lines).toHaveLength(2);
+    // the model's real failure (round 2, F-1): the second phone line opens its own CORRECTION thread
+    const wire = wireFor(plan!, byId, perfect);
+    const bLines = plan!.unit.lines.flatMap((l, i) => (plan!.cardOfLine.get(l.line_id) === bCard.id ? [i] : []));
+    const bThread = wire.threads.find((t) => t.id === wire.lines[bLines[0]!]!.thread)!;
+    bThread.evidence = [bLines[0]!];
+    wire.lines[bLines[1]!]!.thread = "T9";
+    wire.threads.push({ id: "T9", category: "CORRECTION", confidence: 1, evidence: [bLines[1]!], summary: "fixture summary" });
+    const split = classifyRun(cards, [{ plan: plan!, wire }]);
+    expect(split.b).toMatchObject({ correct: true, one_thread: false });
+    expect(split.a!.one_thread).toBe(true);
+    // the clean run keeps the two lines together
+    const joined = classifyRun(cards, [{ plan: plan!, wire: wireFor(plan!, byId, perfect) }]);
+    expect(joined.b!.one_thread).toBe(true);
+  });
+
+  it("one_thread is false for a card none of whose lines reached a thread", () => {
+    const [plan] = buildUnits(cards, "U1", "t");
+    const wire = wireFor(plan!, byId, (c) => (c.kind === "problem_b" ? "NON_WORK" : perfect(c)));
+    expect(classifyRun(cards, [{ plan: plan!, wire }]).b).toMatchObject({ category: null, one_thread: false });
   });
 
   it("reports null for a problem card the day does not have", () => {
@@ -242,8 +267,8 @@ describe("classifyRun", () => {
 
 describe("summarizeRuns and judgeCell", () => {
   const ok = (over: Partial<RunOutcome> = {}): RunOutcome => ({
-    a: { correct: true, as_fact: true, category: "CUSTOMER_SERVICE" },
-    b: { correct: true, as_fact: false, category: "PHONE_CALL" },
+    a: { correct: true, as_fact: true, category: "CUSTOMER_SERVICE", one_thread: true },
+    b: { correct: true, as_fact: false, category: "PHONE_CALL", one_thread: true },
     contaminated: false,
     questions: 2,
     failed_calls: 0,
@@ -255,7 +280,7 @@ describe("summarizeRuns and judgeCell", () => {
   it("counts correct, fact, contamination, question-cap hits and A category distribution", () => {
     const s = summarizeRuns(
       five(
-        ok({ a: { correct: false, as_fact: false, category: "STAFF_CONSULT" } }),
+        ok({ a: { correct: false, as_fact: false, category: "STAFF_CONSULT", one_thread: true } }),
         ok({ contaminated: true }),
         ok({ questions: 6 }),
         ok({ failed_calls: 1 }),
@@ -285,7 +310,7 @@ describe("summarizeRuns and judgeCell", () => {
 
   it("exact: needs A and B 5/5, contamination 0, questions<=5 in 5/5", () => {
     expect(judge("exact", 2, summarizeRuns(five())).pass).toBe(true);
-    const aMiss = summarizeRuns(five(ok({ a: { correct: false, as_fact: false, category: "COMPLAINT" } })));
+    const aMiss = summarizeRuns(five(ok({ a: { correct: false, as_fact: false, category: "COMPLAINT", one_thread: true } })));
     expect(judge("exact", 2, aMiss)).toMatchObject({ pass: false, failures: [expect.stringContaining("A correct 4/5")] });
     const contam = summarizeRuns(five(ok({ contaminated: true })));
     expect(judge("exact", 2, contam).pass).toBe(false);
@@ -294,7 +319,7 @@ describe("summarizeRuns and judgeCell", () => {
   });
 
   it("exact: A as a fact must reach 3/5 on days 1 and 2 only", () => {
-    const notFact = ok({ a: { correct: true, as_fact: false, category: "CUSTOMER_SERVICE" } });
+    const notFact = ok({ a: { correct: true, as_fact: false, category: "CUSTOMER_SERVICE", one_thread: true } });
     const twoFacts = summarizeRuns([notFact, notFact, notFact, ok(), ok()]);
     expect(twoFacts.a_fact).toBe(2);
     expect(judge("exact", 1, twoFacts).pass).toBe(false);
@@ -306,14 +331,14 @@ describe("summarizeRuns and judgeCell", () => {
   it("variants: A and B >= 4/5, contamination <= 1/5, no question cap, no fact requirement", () => {
     const s = summarizeRuns(
       five(
-        ok({ a: { correct: false, as_fact: false, category: "STAFF_CONSULT" }, contaminated: true, questions: 9 }),
+        ok({ a: { correct: false, as_fact: false, category: "STAFF_CONSULT", one_thread: true }, contaminated: true, questions: 9 }),
       ),
     );
     expect(judge("v1", 2, s).pass).toBe(true);
     const two = summarizeRuns(
       five(
-        ok({ a: { correct: false, as_fact: false, category: "STAFF_CONSULT" } }),
-        ok({ b: { correct: false, as_fact: false, category: "ROUTINE_OPS" } }),
+        ok({ a: { correct: false, as_fact: false, category: "STAFF_CONSULT", one_thread: true } }),
+        ok({ b: { correct: false, as_fact: false, category: "ROUTINE_OPS", one_thread: true } }),
         ok({ contaminated: true }),
         ok({ contaminated: true }),
       ),
@@ -323,13 +348,41 @@ describe("summarizeRuns and judgeCell", () => {
     expect(j.failures.some((f) => f.includes("contamination"))).toBe(true);
   });
 
+  it("counts one-thread runs per card", () => {
+    const split = { correct: true, as_fact: false, category: "PHONE_CALL", one_thread: false };
+    const s = summarizeRuns(five(ok({ b: split }), ok({ b: split })));
+    expect(s).toMatchObject({ a_one_thread: 5, b_one_thread: 3 });
+  });
+
+  it("exact: B one thread needs ceil(0.8 N) runs; a 1/1 split in 2 of 5 runs fails with the exact message", () => {
+    const split = { correct: true, as_fact: false, category: "PHONE_CALL", one_thread: false };
+    const oneSplit = summarizeRuns(five(ok({ b: split })));
+    expect(judge("exact", 2, oneSplit).pass).toBe(true); // 4/5 is enough
+    const twoSplit = summarizeRuns(five(ok({ b: split }), ok({ b: split })));
+    expect(judge("exact", 2, twoSplit)).toMatchObject({ status: "FAIL", pass: false, failures: ["B one thread 3/5 (need 4)"] });
+    expect(judge("exact", 3, twoSplit).failures).toEqual(["B one thread 3/5 (need 4)"]);
+  });
+
+  it("exact: A one thread is a regression guard with the same threshold", () => {
+    const split = { correct: true, as_fact: true, category: "CUSTOMER_SERVICE", one_thread: false };
+    const twoSplit = summarizeRuns(five(ok({ a: split }), ok({ a: split })));
+    expect(judge("exact", 1, twoSplit).failures).toEqual(["A one thread 3/5 (need 4)"]);
+  });
+
+  it("variants: one thread is reported only, never a failure", () => {
+    const split = { correct: true, as_fact: false, category: "PHONE_CALL", one_thread: false };
+    const s = summarizeRuns(five(ok({ b: split }), ok({ b: split }), ok({ b: split }), ok({ b: split }), ok({ b: split })));
+    expect(s.b_one_thread).toBe(0);
+    expect(judge("v1", 2, s).pass).toBe(true);
+  });
+
   it("a cell with a retryable-failed unit is INCONCLUSIVE, never PASS or FAIL; a parse failure stays a genuine FAIL", () => {
-    const retry = summarizeRuns(five(ok({ a: { correct: false, as_fact: false, category: null }, failed_calls: 1, retryable_failures: 1 })));
+    const retry = summarizeRuns(five(ok({ a: { correct: false, as_fact: false, category: null, one_thread: false }, failed_calls: 1, retryable_failures: 1 })));
     expect(judgeCell({ variant: "exact", day: 2, summary: retry }).status).toBe("INCONCLUSIVE");
     // a retryable failure in an otherwise passing variant cell is still not a clean PASS
     const quiet = summarizeRuns(five(ok({ failed_calls: 1, retryable_failures: 1 })));
     expect(judgeCell({ variant: "v1", day: 2, summary: quiet }).status).toBe("INCONCLUSIVE");
-    const parse = summarizeRuns(five(ok({ a: { correct: false, as_fact: false, category: null }, failed_calls: 1 })));
+    const parse = summarizeRuns(five(ok({ a: { correct: false, as_fact: false, category: null, one_thread: false }, failed_calls: 1 })));
     expect(judgeCell({ variant: "exact", day: 2, summary: parse })).toMatchObject({ status: "FAIL", pass: false });
     expect(judgeCell({ variant: "exact", day: 2, summary: summarizeRuns(five()) }).status).toBe("PASS");
   });
@@ -337,7 +390,7 @@ describe("summarizeRuns and judgeCell", () => {
   it("scales the thresholds with the run count (--runs 3: exact still needs all, variant needs ceil(0.8*3)=3)", () => {
     const three = (b: RunOutcome) => summarizeRuns([ok(), ok(), b]);
     expect(judge("exact", 2, three(ok())).pass).toBe(true);
-    expect(judge("v1", 2, three(ok({ a: { correct: false, as_fact: false, category: null } }))).pass).toBe(false);
+    expect(judge("v1", 2, three(ok({ a: { correct: false, as_fact: false, category: null, one_thread: false } }))).pass).toBe(false);
   });
 });
 
@@ -374,6 +427,9 @@ describe("runScenario (fake label model)", () => {
     const text = formatReport(report);
     expect(text).toContain("PASS");
     expect(text).not.toMatch(/egg tart|croissant|Bakery/i);
+    // R-21: the one-thread counts are on every row (day 2 has both problem cards, day 1 only A)
+    expect(text).toMatch(/day 2 \| exact \| U2 .*A 2\/2.*B 2\/2.*A one thread 2\/2.*B one thread 2\/2/);
+    expect(text).toMatch(/day 1 \| exact \| U1 .*A one thread 2\/2.*B one thread -/);
   });
 
   it("fails (and says which cell) when the model calls the egg-tart moment STAFF_CONSULT", async () => {

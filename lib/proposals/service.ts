@@ -9,6 +9,7 @@ import {
   ValidationError,
 } from "@/lib/http/errors";
 import { maskDigitRuns } from "@/lib/constraints/normalize";
+import { stripLeadingRoleTag } from "@/lib/proposals/text";
 import { scrubStaffNames } from "@/lib/pipeline/label/scrub";
 import type { AttributionSession } from "@/lib/day/attribution";
 import type { WorkCategory } from "@/lib/pipeline/categories";
@@ -566,8 +567,8 @@ async function generateProposalCore(
 
     // 8e. redaction (staff names were read at 8c).
     const rawTexts: Record<string, string> = {
-      change_title: wire.change_title,
-      change_text: wire.change_text,
+      change_title: stripLeadingRoleTag(wire.change_title),
+      change_text: stripLeadingRoleTag(wire.change_text),
       rationale: wire.rationale,
       metric_description: wire.metric_description,
       failure_condition: wire.failure_condition,

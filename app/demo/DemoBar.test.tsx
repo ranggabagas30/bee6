@@ -179,13 +179,23 @@ describe("DemoBar keeps the slot's reserve class on <html> in step with whether 
     expect(reserved()).toBe(false);
   });
 
-  it("drops the class at the instant the demo ends while /sign-in is open (the bar flips to hidden)", async () => {
-    vi.useFakeTimers({ now: new Date("2026-10-19T08:00:00Z") });
-    seed("owner", Date.now() + 5_000);
+  it("R-21 D5: a LIVE state on /sign-in renders nothing and reserves nothing", () => {
+    seed("owner", Date.now() + 3_600_000); // Not ended, still live
     pathname = "/sign-in";
     renderBar();
+    expect(screen.queryByText(/Demo · Signed in as/)).toBeNull();
+    expect(reserved()).toBe(false);
+  });
+
+  it("R-21 D5: moving from /pair (bar shown, class reserved) to /sign-in (remount) hides the bar and drops the class", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-19T08:00:00Z") });
+    seed("owner", Date.now() + 5_000);
+    pathname = "/pair"; // Start on /pair where the bar is shown
+    renderBar();
     expect(reserved()).toBe(true);
-    await act(async () => void vi.advanceTimersByTime(5_001));
+    pathname = "/sign-in"; // Then move to /sign-in
+    cleanup();
+    renderBar();
     expect(screen.queryByText(/Demo · Signed in as/)).toBeNull();
     expect(reserved()).toBe(false);
   });
@@ -411,10 +421,10 @@ describe("DemoBar expiry", () => {
     expect(container.innerHTML).toBe("");
   });
 
-  it("on /sign-in a live sandbox still shows the bar", () => {
+  it("R-21 D5: on /sign-in a live sandbox does not show the bar (page's own line carries the ending time)", () => {
     seed("owner", Date.now() + 3_600_000);
     pathname = "/sign-in";
     renderBar();
-    expect(screen.getByText(/Demo · Signed in as Owner/)).toBeTruthy();
+    expect(screen.queryByText(/Demo · Signed in as Owner/)).toBeNull();
   });
 });
