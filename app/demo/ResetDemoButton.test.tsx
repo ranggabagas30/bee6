@@ -144,6 +144,24 @@ describe("ResetDemoButton confirm dialog", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("The reset did not finish.");
   });
 
+  // Wiring-PR QA note: a live region must not sit in the tree as an EMPTY role=alert (screen readers announce "alert"
+  // for nothing, and axe flags it). The failure line is mounted only with its text; the busy line is a polite region.
+  it("renders no role=alert while nothing failed: not with the trigger alone, not with the dialog open, not while the request is in flight", async () => {
+    let finish!: (v: unknown) => void;
+    authedPostJson.mockReturnValue(new Promise((r) => (finish = r)));
+    await renderOwner();
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reset the demo" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(document.querySelectorAll("[role='alert']")).toHaveLength(0);
+    await act(async () => finish({ kind: "conflict", code: "busy" }));
+    // and when a failure does land, the alert carries its text from the first render (never an empty alert first)
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent?.trim()).not.toBe("");
+  });
+
   it("Bahasa copy (PROVISIONAL) follows the lang prop", async () => {
     await renderOwner("id");
     fireEvent.click(screen.getByRole("button", { name: "Atur ulang demo" }));
