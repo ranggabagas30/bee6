@@ -6,6 +6,8 @@
  */
 
 .head {
+  font-family: var(--b6-font-sans);
+  color: var(--b6-ink);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -22,6 +24,7 @@
 }
 
 .sub {
+  font-family: var(--b6-font-sans);
   margin: 0;
   font-size: var(--b6-fs-body);
   line-height: 1.5;
@@ -238,12 +241,16 @@
 }
 
 .sectionTitle {
+  font-family: var(--b6-font-sans);
+  color: var(--b6-ink);
   margin: 20px 0 10px;
   font-size: var(--b6-fs-title);
   font-weight: 500;
 }
 
 .status {
+  font-family: var(--b6-font-sans);
+  color: var(--b6-ink);
   margin: 0 0 12px;
   font-size: var(--b6-fs-body);
   line-height: 1.5;
@@ -256,6 +263,8 @@
 
 /* ---- detail ---- */
 .detail {
+  font-family: var(--b6-font-sans);
+  color: var(--b6-ink);
   display: flex;
   flex-direction: column;
   gap: 14px;
