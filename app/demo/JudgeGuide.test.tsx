@@ -26,8 +26,16 @@ vi.mock("@/lib/capture/browser/client", async (importOriginal) => ({
 }));
 
 const getIdToken = vi.fn(async () => "id-token");
+const FAKE_AUTH = { currentUser: { getIdToken } };
 vi.mock("@/lib/auth/client/firebase-client", () => ({
-  getClientAuth: () => ({ currentUser: { getIdToken } }),
+  getClientAuth: () => FAKE_AUTH,
+  getExistingClientAuth: () => FAKE_AUTH,
+}));
+// The reset control (PR-7, registered in guide-controls) reads the signed-in user's claims through useAuthUser.
+let claims: Record<string, unknown> = {};
+const USER = { uid: "u1", getIdTokenResult: async () => ({ claims }) }; // one stable user object, as Firebase gives
+vi.mock("@/lib/auth/client/use-auth-user", () => ({
+  useAuthUser: () => ({ status: "signed_in", user: USER }),
 }));
 
 import { JudgeGuide } from "@/app/demo/JudgeGuide";
@@ -432,7 +440,7 @@ describe("web routes: progress and the supervisor-visited flag", () => {
     expect(screen.getByText(/fresh egg tarts question under Customer service/)).toBeTruthy();
   });
 
-  it("supervisor on /proposals after 2 days: Ask Bee6; owner on /proposals: the approvals card; /home: the owner card with no reset control registered yet", async () => {
+  it("supervisor on /proposals after 2 days: Ask Bee6; owner on /proposals: the approvals card", async () => {
     pathname = "/proposals";
     seedWeb("supervisor");
     renderGuide();
@@ -443,12 +451,33 @@ describe("web routes: progress and the supervisor-visited flag", () => {
     renderGuide();
     await waitFor(() => expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("STAGE 5 OF 5"));
     expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("Approve one, reject the other");
-    cleanup();
+  });
+
+  it("/home: the owner card carries PR-7's Reset control, mounted only while the guide is open (one trigger, no second notice); a supervisor's claims get no control", async () => {
     pathname = "/home";
+    seedWeb("owner");
+    claims = { role: "owner", outlet_id: "sbx-1", demo_exp_ms: Date.now() + 3_600_000 };
+    renderGuide();
+    await waitFor(() => expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("Owner home"));
+    // Collapsed: the control is not in the tree at all (not merely hidden), so it reads the Firebase app only once the
+    // page has initialised it and the judge opens the card.
+    expect(screen.queryByRole("button", { name: "Reset the demo", hidden: true })).toBeNull();
+    openGuide();
+    expect(await screen.findAllByRole("button", { name: "Reset the demo" })).toHaveLength(1);
+    expect(document.body.textContent).not.toContain("Demo reset to day 1");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reset the demo" }));
+    expect(screen.getAllByRole("alertdialog")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: /Close the judge guide/ }));
+    expect(screen.queryByRole("button", { name: "Reset the demo", hidden: true })).toBeNull();
+    cleanup();
+    claims = { role: "supervisor", outlet_id: "sbx-1", demo_exp_ms: Date.now() + 3_600_000 };
     renderGuide();
     await waitFor(() => expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("Owner home"));
     openGuide();
-    expect(screen.queryByRole("button", { name: /Reset/ })).toBeNull();
+    await act(async () => {});
+    expect(screen.queryByRole("button", { name: "Reset the demo" })).toBeNull();
   });
 
   it("a failed progress fetch keeps the default card (no error text from the server)", async () => {

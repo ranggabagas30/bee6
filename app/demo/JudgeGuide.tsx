@@ -271,6 +271,7 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
         openClosingReached={openClosingReached}
         lang={lang}
         bridge={bridge}
+        open={open}
         onAllSpoken={setAllSpokenFor}
       />
     </>
@@ -331,11 +332,13 @@ interface GuideCardViewProps {
   openClosingReached: boolean | undefined;
   lang: Lang;
   bridge: CaptureBridge | null;
+  /** The sheet / panel is open: a registered control is mounted only then (see `RegisteredControl`). */
+  open: boolean;
   /** Called with the session id once every card of the day is marked spoken. */
   onAllSpoken: (sessionId: string) => void;
 }
 
-function GuideCardView({ guideKey, day, openClosingReached, lang, bridge, onAllSpoken }: GuideCardViewProps) {
+function GuideCardView({ guideKey, day, openClosingReached, lang, bridge, open, onAllSpoken }: GuideCardViewProps) {
   const card = guideCard(guideKey, day, { openClosingReached });
   const action = card.action;
   return (
@@ -352,12 +355,18 @@ function GuideCardView({ guideKey, day, openClosingReached, lang, bridge, onAllS
       {action?.kind === "script_card" && bridge ? <ScriptCard lang={lang} bridge={bridge} onAllSpoken={onAllSpoken} /> : null}
       {action?.kind === "jump_closing" && bridge ? <JumpClosing lang={lang} bridge={bridge} /> : null}
       {action?.kind === "jump_tomorrow" && bridge ? <JumpTomorrow lang={lang} bridge={bridge} /> : null}
-      {action?.kind === "reset_demo" ? <RegisteredControl kind="reset_demo" lang={lang} /> : null}
+      {action?.kind === "reset_demo" && open ? <RegisteredControl kind="reset_demo" lang={lang} /> : null}
       {card.footnote ? <p style={FOOTNOTE}>{fill(pick(card.footnote, lang))}</p> : null}
     </article>
   );
 }
 
+/**
+ * A registered control gets only `{ lang }` and reads the Firebase app the page initialised, at its own mount (the
+ * reset control's `useIsDemoOwner` reads `getExistingClientAuth()` in render and nothing re-renders it when the app
+ * appears later). The guide's body is rendered collapsed too, so the control is mounted only once the card is OPEN:
+ * by then the page has long initialised the app, including after a hard reload of an owner page.
+ */
 function RegisteredControl({ kind, lang }: { kind: "reset_demo"; lang: Lang }) {
   const Control = GUIDE_CONTROLS[kind];
   return Control ? <Control lang={lang} /> : null;
