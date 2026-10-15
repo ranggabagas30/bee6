@@ -529,36 +529,17 @@ async function processOneDevice(
     // this device, so a ghost can only be written by a tick that started before the tombstone, and
     // the pending tombstone (cleanup_done_at_ms still null) makes the NEXT tick delete it before
     // labelling anything. A cleanup that throws ends this device's tick (`cleanup_failed`, see below).
+    // Neither an unreadable tombstone list nor a half-done cleanup may be followed by labelling. A
+    // half-done cleanup (threads are deleted last) can leave a ghost thread in `listRecentThreads`; with
+    // the tombstones unreadable nothing says a cleanup is pending, so a ghost is just as live. The new
+    // session's first unit could continue it and the next tick's cleanup would then delete the merged
+    // thread together with the real lines (their ledger rows stay `done`: silent loss). So no labelling
+    // this tick; the tombstone stays pending and the segments wait one tick. The lease is released by
+    // the `finally` below, exactly as for every other early return. The two failures keep distinct log
+    // messages (error class only, never the error message).
     let cleanups = 0;
-    let discardedSessionIds = new Set<string>();
-    let tombstones: Awaited<ReturnType<TickStore["listDiscardedSessions"]>> = [];
-    try {
-      tombstones = await store.listDiscardedSessions(outlet_id, device_id);
-      discardedSessionIds = new Set(tombstones.map((t) => t.session_id));
-    } catch (error) {
-      // A failed tombstone READ proceeds (nothing is known to be half-done); the next tick re-reads it.
-      console.error("[pipeline-tick] discard tombstone read failed", {
-        device_id,
-        error_class: classifyUnexpectedError(error),
-      });
-    }
-    try {
-      for (const tombstone of tombstones.filter((t) => t.cleanup_pending)) {
-        const candidates = await store.listGhostCandidates(outlet_id, device_id, tombstone.started_at_ms);
-        const plan = selectDiscardGhosts(tombstone, candidates);
-        await store.applyDiscardCleanup(outlet_id, device_id, plan, now_ms);
-        cleanups += 1;
-      }
-    } catch (error) {
-      // A half-done cleanup (threads are deleted last) can leave a ghost thread in `listRecentThreads`; the
-      // new session's first unit could continue it and the next tick's cleanup would then delete the merged
-      // thread together with the real lines (their ledger rows stay `done`: silent loss). So no labelling
-      // this tick; the tombstone stays pending and the segments wait one tick. The lease is released by
-      // the `finally` below, exactly as for every other early return.
-      console.error("[pipeline-tick] discard cleanup failed", {
-        device_id,
-        error_class: classifyUnexpectedError(error),
-      });
+    const cleanupFailed = (message: string, error: unknown): DeviceTickResult => {
+      console.error(message, { device_id, error_class: classifyUnexpectedError(error) });
       return {
         outlet_id,
         device_id,
@@ -570,6 +551,23 @@ async function processOneDevice(
         questions_expired: 0,
         discard_cleanups: cleanups,
       };
+    };
+    let tombstones: Awaited<ReturnType<TickStore["listDiscardedSessions"]>>;
+    try {
+      tombstones = await store.listDiscardedSessions(outlet_id, device_id);
+    } catch (error) {
+      return cleanupFailed("[pipeline-tick] discard tombstone read failed", error);
+    }
+    const discardedSessionIds = new Set(tombstones.map((t) => t.session_id));
+    try {
+      for (const tombstone of tombstones.filter((t) => t.cleanup_pending)) {
+        const candidates = await store.listGhostCandidates(outlet_id, device_id, tombstone.started_at_ms);
+        const plan = selectDiscardGhosts(tombstone, candidates);
+        await store.applyDiscardCleanup(outlet_id, device_id, plan, now_ms);
+        cleanups += 1;
+      }
+    } catch (error) {
+      return cleanupFailed("[pipeline-tick] discard cleanup failed", error);
     }
 
     // R-07: right after the lease, BEFORE listSegmentsForDevice, so a device
