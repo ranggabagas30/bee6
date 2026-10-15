@@ -211,6 +211,17 @@ describe("guideKeyFor (route x state table)", () => {
     expect(guideKeyFor("/proposals", web("supervisor", { days_done: 3, proposals_with_content: 2, feasible: 2 }, "detail"))).toBe("proposal_detail");
   });
 
+  // After-merge wiring: the proposals page reports its screen through lib/demo/proposals-signal; the supervisor's
+  // `list` screen says nothing on its own (the counters decide between waiting, ready and detail).
+  it("supervisor /proposals: the page's `feasible` screen is the hand-over even before the counters catch up; `list` falls back to the counters", () => {
+    expect(guideKeyFor("/proposals", web("supervisor", { days_done: 3, proposals_with_content: 2, feasible: 1 }, "feasible"))).toBe("proposals_feasible");
+    expect(guideKeyFor("/proposals", web("supervisor", { days_done: 1 }, "list"))).toBe("proposals_waiting");
+    expect(guideKeyFor("/proposals", web("supervisor", { days_done: 2 }, "list"))).toBe("proposals_ready");
+    expect(guideKeyFor("/proposals", web("supervisor", { days_done: 3, proposals_with_content: 1 }, "list"))).toBe("proposal_detail");
+    // an owner-only screen reported while the supervisor card is computed (a stale signal) changes nothing
+    expect(guideKeyFor("/proposals", web("supervisor", { days_done: 2 }, "all_decided"))).toBe("proposals_ready");
+  });
+
   it("owner web routes: home, approvals until every proposal is decided, then all decided", () => {
     expect(guideKeyFor("/home", web("owner"))).toBe("home");
     expect(guideKeyFor("/proposals", web("owner", null))).toBe("approvals");
@@ -218,6 +229,15 @@ describe("guideKeyFor (route x state table)", () => {
     expect(guideKeyFor("/proposals", web("owner", { proposals_with_content: 2, feasible: 2, owner_decided: 2 }))).toBe("approvals_done");
     expect(guideKeyFor("/sop", web("owner"))).toBe("sop");
     expect(guideKeyFor("/reviews", web("owner"))).toBe("reviews");
+  });
+
+  it("owner /proposals: the page's `all_decided` screen is the done card at once (the progress refetch may still be in flight); `review` and `empty` leave it to the counters; a supervisor screen is ignored", () => {
+    expect(guideKeyFor("/proposals", web("owner", { proposals_with_content: 2, feasible: 2, owner_decided: 1 }, "all_decided"))).toBe("approvals_done");
+    expect(guideKeyFor("/proposals", web("owner", null, "all_decided"))).toBe("approvals_done");
+    expect(guideKeyFor("/proposals", web("owner", { proposals_with_content: 2, feasible: 2, owner_decided: 1 }, "review"))).toBe("approvals");
+    expect(guideKeyFor("/proposals", web("owner", { proposals_with_content: 2, feasible: 2, owner_decided: 2 }, "review"))).toBe("approvals_done");
+    expect(guideKeyFor("/proposals", web("owner", { proposals_with_content: 0 }, "empty"))).toBe("approvals");
+    expect(guideKeyFor("/proposals", web("owner", { proposals_with_content: 2, feasible: 2, owner_decided: 1 }, "generating"))).toBe("approvals");
   });
 
   it("every key is reachable, and an unknown route falls back to the entry card", () => {
