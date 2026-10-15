@@ -151,6 +151,26 @@ describe("buildProposalPrompt", () => {
     expect(systemInstruction).not.toMatch(/[{}]/);
   });
 
+  describe("R-21 wording rules", () => {
+    const build = () =>
+      buildProposalPrompt({ library: LIBRARY, sop: SOP, aliased: ALIASED, reasons: NO_REASONS, constraints: [], range: RANGE });
+
+    it("renders SOP step roles as (role: staff), never [staff]", () => {
+      const { userContent } = build();
+      expect(userContent).toContain("- stock-01 (role: staff) Display check: Check the display hourly.");
+      expect(userContent).not.toContain("[staff]");
+    });
+
+    it("carries the three new rule sentences and still has no braces", () => {
+      const { systemInstruction } = build();
+      expect(systemInstruction).toContain("Never tell staff to ask for or write down a customer's name, phone number or other personal details");
+      expect(systemInstruction).toContain("order details and pickup time");
+      expect(systemInstruction).toContain("Do not write calendar dates, clock times or ISO dates in any text");
+      expect(systemInstruction).toContain("change_text never starts with the step id, a role tag");
+      expect(systemInstruction).not.toMatch(/[{}]/);
+    });
+  });
+
   describe("R-20 quotes and staff notes (data block only)", () => {
     const rows = selectCandidates([csDay1, csDay2, phoneDay2, phoneDay3], [], REHEARSAL_TZ, { from_date: "2026-10-13", to_date: "2026-10-15" });
     const fixtureAliased = rows.map((c, i) => ({ alias: `E${i + 1}`, c }));
