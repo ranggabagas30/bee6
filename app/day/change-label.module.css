@@ -1,6 +1,8 @@
 /*
  * Change-label dialog (R-19 PR-12a, board D2-02b) on the PR-0b tokens. The overlay pads itself so the panel never
  * touches the edge at 360 px; the panel scrolls inside the viewport; every row and button is at least 44 px tall.
+ * The actions stick to the panel's bottom edge (11 rows x 48 px overflow a 640 px phone), so Save / Cancel are
+ * always reachable while the rows scroll under them; the panel's bottom padding lives on the actions for that.
  */
 
 .overlay {
@@ -20,7 +22,7 @@
   width: min(100%, 460px);
   max-height: 100%;
   overflow-y: auto;
-  padding: 22px 20px;
+  padding: 22px 20px 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -96,10 +98,14 @@
 }
 
 .actions {
+  position: sticky;
+  bottom: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
   margin-top: 4px;
+  padding: 8px 0 22px;
+  background: var(--b6-surface);
 }
 
 .alert {
