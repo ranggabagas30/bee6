@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { signOut, type Auth } from "@/lib/auth/client/firebase-client";
 import { authedPostJson } from "@/lib/auth/client/api";
@@ -136,6 +136,16 @@ export function SupervisorProposals({ auth, lang, onBridge }: { auth: Auth; lang
   const noticeRef = useRef<HTMLParagraphElement>(null);
   const askingRef = useRef(false);
   const waitingSince = useRef<{ openIds: string[] } | null>(null);
+  // Integration QA D2 (layout shift on a 360 px phone): the constraints panel under the list must not move through
+  // an ask. (1) The asking block grows until the panel sits where it sat at the ask (`holdTop`, document px, read
+  // back in a layout effect once the block is in). (2) The written line is held back until the reloaded list is on
+  // screen, so the rows and the line land in ONE frame, not the old list plus the line first and the rows ~10 ms
+  // later. (3) The line's focus, which scrolls it into view, runs one painted frame after that (see below).
+  const listRef = useRef<HTMLDivElement>(null);
+  const askingBlockRef = useRef<HTMLDivElement>(null);
+  const holdTop = useRef<number | null>(null);
+  const [reserveHeight, setReserveHeight] = useState<number | undefined>(undefined);
+  const settleOnReload = useRef<Notice | null>(null);
   const bridge = useRef(onBridge);
   useEffect(() => {
     bridge.current = onBridge;
@@ -181,14 +191,44 @@ export function SupervisorProposals({ auth, lang, onBridge }: { auth: Auth; lang
     }
   }, [asking, data]);
 
+  // The reload after an answered ask has landed (`data` is the re-read list): leave the asking state and say so now.
   useEffect(() => {
-    if (notice) noticeRef.current?.focus();
+    const settled = settleOnReload.current;
+    if (!settled || !data) return;
+    settleOnReload.current = null;
+    setAsking("idle");
+    setNotice(settled);
+  }, [data]);
+
+  // The asking block is in: if the panel under it moved up (the block is shorter than the list and the cleared
+  // line), grow the block by that gap, before this frame paints.
+  useLayoutEffect(() => {
+    if (asking === "idle" || holdTop.current === null) return;
+    const block = askingBlockRef.current;
+    const panel = block?.nextElementSibling;
+    if (!block || !panel) return;
+    const gap = holdTop.current - (panel.getBoundingClientRect().top + window.scrollY);
+    holdTop.current = null;
+    if (gap > 0) setReserveHeight(Math.ceil(block.getBoundingClientRect().height + gap));
+  }, [asking]);
+
+  useEffect(() => {
+    if (!notice) return;
+    // Focus (and its scroll into view) one painted frame after the line landed: Chrome counts a scroll that lands in
+    // the same frame as a layout change (the rows after an ask) as a layout shift of whatever the scroll uncovers.
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => noticeRef.current?.focus());
+    });
+    return () => cancelAnimationFrame(frame);
   }, [notice]);
 
   async function ask(another: boolean) {
     if (!data || askingRef.current) return;
     askingRef.current = true;
     setNotice(null);
+    const panel = listRef.current?.nextElementSibling;
+    holdTop.current = panel ? panel.getBoundingClientRect().top + window.scrollY : null;
+    setReserveHeight(undefined);
     setAsking("calling");
     const body = another
       ? { from_date: data.watch.from_date, to_date: data.watch.to_date, another: true }
@@ -198,12 +238,15 @@ export function SupervisorProposals({ auth, lang, onBridge }: { auth: Auth; lang
 
     if (result.kind === "ok") {
       const { proposal, reused } = result.data;
-      setAsking("idle");
       if (proposal.content !== null) {
-        setNotice({ kind: "key", key: reused ? "C-prop-reused" : "C-propg-wrote" });
+        // Still "Asking Bee6…" until the reloaded list is on screen (the data effect above settles it).
+        settleOnReload.current = { kind: "key", key: reused ? "C-prop-reused" : "C-propg-wrote" };
         setReloadKey((k) => k + 1);
         bridge.current?.({ type: "progress" });
-      } else if (proposal.status === "blocked") {
+        return;
+      }
+      setAsking("idle");
+      if (proposal.status === "blocked") {
         setNotice({ kind: "key", key: "C-prop-blocked", vars: { rule: proposal.blocked_rule ?? "" } });
       } else {
         setNotice({ kind: "suppressed", another, proposal });
@@ -296,17 +339,29 @@ export function SupervisorProposals({ auth, lang, onBridge }: { auth: Auth; lang
 
       <WatchPanel lang={lang} watch={watch} hasProposal={hasProposal} busy={generating} onAsk={(another) => void ask(another)} />
 
-      <p ref={noticeRef} tabIndex={-1} role="status" aria-live="polite" className={notice ? styles.status : styles.statusEmpty}>
+      {/* While Bee6 is asked the cleared line keeps one line of height (D2): the rows do not move when the answer fills it. */}
+      <p
+        ref={noticeRef}
+        tabIndex={-1}
+        role="status"
+        aria-live="polite"
+        className={notice ? styles.status : generating ? `${styles.status} ${styles.statusHold}` : styles.statusEmpty}
+      >
         {notice?.kind === "key" && t(lang, notice.key, notice.vars)}
         {notice?.kind === "suppressed" && <SuppressedLines notice={notice} lang={lang} />}
       </p>
 
       {generating ? (
-        <GeneratingState lang={lang} />
+        // A plain block around the asking state (its margins collapse through), so the hold can read the block's
+        // height and the panel right after it.
+        <div ref={askingBlockRef}>
+          <GeneratingState lang={lang} minHeight={reserveHeight} />
+        </div>
       ) : nothingYet ? (
         <EmptyState title={t(lang, "C-web-empty-prop-h")} detail={t(lang, "C-web-empty-prop-p")} />
       ) : (
-        <>
+        // A plain block (no style of its own: child margins collapse through it as before), measured at the ask.
+        <div ref={listRef}>
           <section aria-labelledby="prop-list-open">
             <h2 id="prop-list-open" className={styles.sectionTitle}>
               {t(lang, "C-prop-list-open")}
@@ -349,7 +404,7 @@ export function SupervisorProposals({ auth, lang, onBridge }: { auth: Auth; lang
               </ul>
             </section>
           )}
-        </>
+        </div>
       )}
 
       <ConstraintsPanel auth={auth} role="supervisor" lang={lang} reloadKey={constraintsKey} />
