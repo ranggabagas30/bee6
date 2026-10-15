@@ -51,6 +51,16 @@ function buildSystemInstruction(config: CategoriesConfig): string {
 
   lines.push(
     "",
+    "Threading rules:",
+    "- One event is one thread. A speaker's own remark right after an event about what happened in it, what they",
+    "  did, or what they forgot (for example, after a phone call: 'that was a phone order, I did not read it back')",
+    "  belongs to that event's thread, not to a new one.",
+    "- Open a new thread for a different event (a different customer, call, task or topic). A general instruction or a",
+    "  what-if is not the same event as something that actually happened, even when both mention the same item.",
+  );
+
+  lines.push(
+    "",
     "Respond with structured output only, matching the given response schema:",
     "- lines[]: for every input line index i, say which thread it belongs to (`thread`, an alias",
     "  from this call's own set) and, if it is a reply/continuation of an earlier line in this same",
