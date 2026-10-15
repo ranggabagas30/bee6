@@ -7,7 +7,7 @@ import { useLang } from "@/lib/i18n/context";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import { WorkCategorySchema, type WorkCategory } from "@/lib/pipeline/categories";
 import { ConfirmResponseSchema, type SupervisorThread } from "@/lib/day/contract";
-import { CATEGORY_KEY } from "@/lib/day/view-model";
+import { ChangeLabelDialog } from "@/app/day/ChangeLabelDialog";
 
 /**
  * Supervisor confirm / change-category / reject controls (R-06 Task 10.7;
@@ -16,19 +16,22 @@ import { CATEGORY_KEY } from "@/lib/day/view-model";
  * decides eligibility itself, it only acts on a row the server already
  * said is reviewable.
  *
- * Only one inline panel (change-category or the reject confirm) is open at
+ * Only one panel (the change-label dialog or the reject confirm) is open at
  * a time; both share the busy/message state with the plain Confirm button
  * so a double tap while a request is in flight can only ever send one
  * request. Reject needs its own confirm step (Task 15.6, "Yes, reject")
  * to guard against a mis-tap — there is no undo button for either action:
  * a mistaken decision is fixed with Change category or the opposite action.
+ *
+ * R-19 PR-12a (plan 9.5, board D2-02b): "Change category" opens
+ * `ChangeLabelDialog` (a radio list of the work categories) instead of the
+ * inline select; Save sends the same `override` action. A failed save
+ * (GATE_BLOCKED, generic) shows inside the dialog, which stays open.
  */
 
 const BUTTON_ROW_STYLE: CSSProperties = { display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 };
 const ACTION_BUTTON_STYLE: CSSProperties = { minHeight: 48, padding: "0 16px", fontSize: 16 };
 const PANEL_STYLE: CSSProperties = { marginTop: 8, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" };
-const SELECT_STYLE: CSSProperties = { minHeight: 48, fontSize: 16, padding: "0 8px" };
-const LABEL_STYLE: CSSProperties = { fontSize: 16 };
 const STATUS_STYLE: CSSProperties = { margin: "8px 0 0 0" };
 
 type Phase = "idle" | "busy-confirm" | "busy-save" | "busy-reject";
@@ -45,7 +48,6 @@ export function ThreadActions({
 }) {
   const { lang } = useLang();
   const [panel, setPanel] = useState<Panel>("none");
-  const [selected, setSelected] = useState<WorkCategory>(thread.category);
   const [phase, setPhase] = useState<Phase>("idle");
   const [messageKey, setMessageKey] = useState<DictKey | null>(null);
   const rejectButtonRef = useRef<HTMLButtonElement>(null);
@@ -121,19 +123,19 @@ export function ThreadActions({
 
   function handleChangeTap() {
     if (busy) return;
-    setSelected(thread.category);
     setPanel("change");
     setMessageKey(null);
   }
 
   function handleCancelChange() {
     setPanel("none");
+    setMessageKey(null);
   }
 
-  function handleSaveTap() {
-    if (busy || selected === thread.category) return;
+  function handleSaveLabel(category: WorkCategory) {
+    if (busy || category === thread.category) return;
     setPhase("busy-save");
-    void post({ action: "override", category: selected });
+    void post({ action: "override", category });
   }
 
   function handleRejectTap() {
@@ -178,34 +180,15 @@ export function ThreadActions({
       </div>
 
       {panel === "change" && (
-        <div style={PANEL_STYLE}>
-          <label style={LABEL_STYLE}>
-            {t(lang, "C-act-select")}{" "}
-            <select
-              style={SELECT_STYLE}
-              disabled={busy}
-              value={selected}
-              onChange={(e) => setSelected(e.target.value as WorkCategory)}
-            >
-              {WorkCategorySchema.options.map((category) => (
-                <option key={category} value={category}>
-                  {t(lang, CATEGORY_KEY[category])}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            style={ACTION_BUTTON_STYLE}
-            disabled={busy || selected === thread.category}
-            onClick={handleSaveTap}
-          >
-            {phase === "busy-save" ? t(lang, "C-act-busy") : t(lang, "C-act-save")}
-          </button>
-          <button type="button" style={ACTION_BUTTON_STYLE} disabled={busy} onClick={handleCancelChange}>
-            {t(lang, "C-act-cancel")}
-          </button>
-        </div>
+        <ChangeLabelDialog
+          lang={lang}
+          current={thread.category}
+          runnerUp={thread.runner_up && WorkCategorySchema.safeParse(thread.runner_up.category).success ? (thread.runner_up.category as WorkCategory) : null}
+          busy={phase === "busy-save"}
+          errorKey={messageKey}
+          onSave={handleSaveLabel}
+          onCancel={handleCancelChange}
+        />
       )}
 
       {panel === "reject" && (
@@ -226,7 +209,7 @@ export function ThreadActions({
         </div>
       )}
 
-      {messageKey && (
+      {messageKey && panel !== "change" && (
         <p role="status" aria-live="polite" style={STATUS_STYLE}>
           {t(lang, messageKey)}
         </p>

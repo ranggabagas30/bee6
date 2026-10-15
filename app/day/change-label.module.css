@@ -1,0 +1,110 @@
+/*
+ * Change-label dialog (R-19 PR-12a, board D2-02b) on the PR-0b tokens. The overlay pads itself so the panel never
+ * touches the edge at 360 px; the panel scrolls inside the viewport; every row and button is at least 44 px tall.
+ */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 16px;
+  background: rgba(43, 42, 38, 0.42);
+}
+
+.panel {
+  box-sizing: border-box;
+  width: min(100%, 460px);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 22px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.body {
+  margin: 0;
+  font-size: var(--b6-fs-body);
+  line-height: 1.5;
+  color: var(--b6-muted);
+  overflow-wrap: anywhere;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.legend {
+  padding: 0;
+  margin: 0 0 2px;
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-kicker);
+  letter-spacing: 0.3px;
+  color: var(--b6-muted);
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 8px 12px;
+  border-radius: var(--b6-r-control);
+  background: var(--b6-surface-soft);
+  font-size: var(--b6-fs-ui);
+  cursor: pointer;
+}
+
+.option:has(input:checked) {
+  background: var(--b6-teal-bg);
+  box-shadow: inset 0 0 0 1px var(--b6-teal-line);
+}
+
+.option:has(input:focus-visible) {
+  outline: 2px solid var(--b6-focus);
+  outline-offset: 2px;
+}
+
+.option input {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  margin: 0;
+  accent-color: var(--b6-teal-ink);
+}
+
+.optionLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.alert {
+  margin: 0;
+  font-size: var(--b6-fs-body);
+  color: var(--b6-red-ink);
+  overflow-wrap: anywhere;
+}
