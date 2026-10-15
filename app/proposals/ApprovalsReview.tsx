@@ -6,7 +6,7 @@ import type { Auth } from "@/lib/auth/client/firebase-client";
 import { authedGetJson } from "@/lib/auth/client/api";
 import type { Lang } from "@/lib/i18n/lang";
 import { t, type DictKey } from "@/lib/i18n/dict";
-import type { ProposalListItem } from "@/lib/proposals/review-contract";
+import type { ListProposalsResponse, ProposalListItem } from "@/lib/proposals/review-contract";
 import { SopOverviewSchema, type SopOverview } from "@/lib/sop/contract";
 import { buttonClassName, Card, Glass, Kicker, Pill } from "@/app/ui";
 import { EmptyState } from "@/app/web/EmptyState";
@@ -164,11 +164,29 @@ function AllDecided({ lang, queue, sop }: { lang: Lang; queue: ProposalListItem[
   );
 }
 
-export function ApprovalsReview({ auth, lang, onBridge }: { auth: Auth; lang: Lang; onBridge?: (event: ApprovalsBridgeEvent) => void }) {
+export function ApprovalsReview({
+  auth,
+  lang,
+  onBridge,
+  initialId,
+}: {
+  auth: Auth;
+  lang: Lang;
+  onBridge?: (event: ApprovalsBridgeEvent) => void;
+  /** The proposal to open first (`/proposals?id=…` from the owner's Home); unknown or decided ids fall back to the order. */
+  initialId?: string | null;
+}) {
   const [reloadKey, setReloadKey] = useState(0);
   const list = useProposalList(auth, reloadKey);
-  const [pick, setPick] = useState<string | null>(null);
+  const [pick, setPick] = useState<string | null>(initialId ?? null);
   const [notice, setNotice] = useState<DictKey | null>(null);
+  // Bumped on every settled decision so the answer takes focus again even when the message key repeats
+  // (reject → reject, or two 409s): keying the effect on `notice` alone would not re-run it.
+  const [settledCount, setSettledCount] = useState(0);
+  // The list object the last decision was taken on. `useProposalList` keeps that object on screen while the reload
+  // runs, so "the reload has not landed yet" is exactly `data === settledData`; the decision card stays locked until
+  // a fresh list arrives (a fast second tap would otherwise get a 409 that overwrites the "Approved." answer).
+  const [settledData, setSettledData] = useState<ListProposalsResponse | null>(null);
   const noticeRef = useRef<HTMLParagraphElement>(null);
   const bridge = useRef(onBridge);
   useEffect(() => {
@@ -195,11 +213,15 @@ export function ApprovalsReview({ auth, lang, onBridge }: { auth: Auth; lang: La
 
   useEffect(() => {
     if (notice) noticeRef.current?.focus();
-  }, [notice]);
+  }, [notice, settledCount]);
+
+  const pending = data !== null && data === settledData;
 
   function handleSettled(outcome: { messageKey: DictKey }) {
     setPick(null);
     setNotice(outcome.messageKey);
+    setSettledCount((n) => n + 1);
+    setSettledData(data);
     setReloadKey((k) => k + 1);
     bridge.current?.({ type: "progress" });
   }
@@ -251,7 +273,7 @@ export function ApprovalsReview({ auth, lang, onBridge }: { auth: Auth; lang: La
               />
               <div className={styles.main}>
                 <ApprovalCard lang={lang} item={current!} shipped={shippedChangeFor(current!, sop)} />
-                <ApprovalDecision key={current!.proposal.proposal_id} auth={auth} lang={lang} item={current!} onSettled={handleSettled} />
+                <ApprovalDecision key={current!.proposal.proposal_id} auth={auth} lang={lang} item={current!} pending={pending} onSettled={handleSettled} />
               </div>
             </div>
           )}

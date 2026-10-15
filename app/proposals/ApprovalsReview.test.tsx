@@ -197,6 +197,19 @@ describe("ApprovalsReview — review in order", () => {
     expect(screen.queryByRole("heading", { level: 2, name: "Proposal 1" })).toBeNull();
   });
 
+  it("opens the proposal from ?id= when it is in the queue", async () => {
+    render(<ApprovalsReview auth={AUTH} lang="en" initialId={uuid(2)} />);
+    expect(await screen.findByRole("heading", { level: 2, name: "Proposal 2" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { level: 2, name: "Proposal 1" })).toBeNull();
+    expect(screen.getByRole("button", { name: /^#2 Proposal 2/ }).getAttribute("aria-current")).toBe("true");
+  });
+
+  it("an unknown id falls back to the first undecided", async () => {
+    render(<ApprovalsReview auth={AUTH} lang="en" initialId={uuid(9)} />);
+    expect(await screen.findByRole("heading", { level: 2, name: "Proposal 1" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { level: 2, name: "Proposal 2" })).toBeNull();
+  });
+
   it("reports the screen to the bridge", async () => {
     const onBridge = vi.fn();
     renderScreen(onBridge);
@@ -264,6 +277,35 @@ describe("ApprovalsReview — approve", () => {
     expect(authedPostJson).toHaveBeenCalledWith(AUTH, `/api/v1/proposals/${uuid(2)}/approve`, { decision: "approve", acknowledged_constraint_ids: [uuid(9)] }, expect.anything());
   });
 
+  it("after the server answers, the decision stays locked until the reload lands (a fast second tap sends nothing)", async () => {
+    authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "approved", status: "approved" } });
+    renderScreen();
+    await screen.findByRole("heading", { level: 2, name: "Proposal 1" });
+    proposalsResult = new Promise(() => {}); // the reload never lands in this test
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    expect(await screen.findByText("Approved. It ships as a new SOP version.")).toBeTruthy();
+    const approve = screen.getByRole("button", { name: "Approve" });
+    expect(approve.hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Reject with reason" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByLabelText("Reject — why?").hasAttribute("disabled")).toBe(true);
+    fireEvent.click(approve);
+    expect(authedPostJson).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Approved. It ships as a new SOP version.")).toBeTruthy();
+  });
+
+  it("the lock lifts when the reload lands with the same proposal still waiting (409 SOP_CHANGED → reject stays possible)", async () => {
+    authedPostJson.mockResolvedValue({ kind: "conflict", code: "SOP_CHANGED" });
+    renderScreen();
+    await screen.findByRole("heading", { level: 2, name: "Proposal 1" });
+    proposalsResult = ok([item(1, "awaiting_owner", { notices: { sop_changed: true } }), item(2, "awaiting_owner")]);
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    expect(await screen.findByText("The SOP has changed, so this cannot go ahead. Generate again.")).toBeTruthy();
+    await screen.findByRole("button", { name: "Approve · not available" });
+    await waitFor(() => expect(screen.getByLabelText("Reject — why?").hasAttribute("disabled")).toBe(false));
+    fireEvent.change(screen.getByLabelText("Reject — why?"), { target: { value: "Not this week." } });
+    expect(screen.getByRole("button", { name: "Reject with reason" }).hasAttribute("disabled")).toBe(false);
+  });
+
   it("a 409 shows its message and reloads", async () => {
     authedPostJson.mockResolvedValue({ kind: "conflict", code: "SOP_CHANGED" });
     renderScreen();
@@ -295,6 +337,27 @@ describe("ApprovalsReview — reject with reason", () => {
     expect(await screen.findByText("Rejected. Your reason is now a rule Bee6 will respect.")).toBeTruthy();
     await screen.findByRole("heading", { level: 2, name: "Proposal 2" });
     expect((screen.getByLabelText("Reject — why?") as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("two rejections in a row each move focus to the answer (same message key twice)", async () => {
+    authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "rejected", status: "rejected" } });
+    renderScreen();
+    await screen.findByRole("heading", { level: 2, name: "Proposal 1" });
+    fireEvent.change(screen.getByLabelText("Reject — why?"), { target: { value: "The oven is too small." } });
+    proposalsResult = ok([item(2, "awaiting_owner")], [item(1, "rejected", { owner: REJECTED })]);
+    fireEvent.click(screen.getByRole("button", { name: "Reject with reason" }));
+    await screen.findByRole("heading", { level: 2, name: "Proposal 2" });
+    expect(document.activeElement?.textContent).toBe("Rejected. Your reason is now a rule Bee6 will respect.");
+
+    // the owner moves on to the second one: focus is on the send button when the answer comes back
+    fireEvent.change(screen.getByLabelText("Reject — why?"), { target: { value: "Not this week." } });
+    const send = screen.getByRole("button", { name: "Reject with reason" });
+    send.focus();
+    expect(document.activeElement).toBe(send);
+    proposalsResult = ok([], [item(1, "rejected", { owner: REJECTED }), item(2, "rejected", { owner: REJECTED })]);
+    fireEvent.click(send);
+    await screen.findByRole("heading", { level: 2, name: "Both decided." });
+    expect(document.activeElement?.textContent).toBe("Rejected. Your reason is now a rule Bee6 will respect.");
   });
 
   it("the SOP-changed proposal can still be rejected", async () => {

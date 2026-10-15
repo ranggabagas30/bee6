@@ -45,17 +45,23 @@ export interface ApprovalDecisionProps {
   auth: Auth;
   lang: Lang;
   item: ProposalListItem;
+  /**
+   * The parent is reloading the list after a settled decision and `item` may be stale: every control stays disabled
+   * until the fresh list lands (then this goes back to false, or the card is replaced by the next proposal's).
+   */
+  pending?: boolean;
   /** A server answer that ends the decision here: the parent shows the message, reloads and moves on. */
   onSettled: (outcome: { messageKey: DictKey; approved: boolean }) => void;
 }
 
-export function ApprovalDecision({ auth, lang, item, onSettled }: ApprovalDecisionProps) {
+export function ApprovalDecision({ auth, lang, item, pending = false, onSettled }: ApprovalDecisionProps) {
   const router = useRouter();
   const { proposal, notices } = item;
   const [reason, setReason] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [inflight, setInflight] = useState(false);
   const [message, setMessage] = useState<DictKey | null>(null);
+  const busy = inflight || pending;
   const inFlight = useRef(false);
   const ids = useId();
   const reasonId = `${ids}-reason`;
@@ -72,13 +78,13 @@ export function ApprovalDecision({ auth, lang, item, onSettled }: ApprovalDecisi
   const path = `/api/v1/proposals/${proposal.proposal_id}/approve`;
 
   async function submit(body: { decision: "approve"; acknowledged_constraint_ids: string[] } | { decision: "reject"; reason: string }) {
-    if (inFlight.current) return; // double-tap guard
+    if (inFlight.current || pending) return; // double-tap guard; nothing while the parent's reload is in flight
     inFlight.current = true;
-    setBusy(true);
+    setInflight(true);
     setMessage(null);
     const result = await authedPostJson(auth, path, body, DecisionResponseSchema);
     inFlight.current = false;
-    setBusy(false);
+    setInflight(false);
 
     if (result.kind === "ok") {
       if (result.data.result === "approved") {
