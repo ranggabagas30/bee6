@@ -9,6 +9,7 @@ import type { ProposalsGuideScreen } from "@/lib/demo/guide";
  * The same shape as lib/debrief/view-signal: a module-level value plus a data-less window Event per change. Only a
  * screen KIND and an event counter cross this seam: never a proposal, a summary, a reason, an id or a role. The
  * pilot never publishes (ProposalsApp passes `onBridge` only to a demo principal), and the guide never mounts there.
+ * The window events are the only subscription channel (guide-bridge listens to them); there is no listener set here.
  */
 
 export type { ProposalsGuideScreen };
@@ -18,10 +19,8 @@ export const PROPOSALS_PROGRESS_EVENT = "bee6:proposals-progress";
 
 let screen: ProposalsGuideScreen | null = null;
 let progressVersion = 0;
-const listeners = new Set<() => void>();
 
 function notify(event: string): void {
-  for (const l of [...listeners]) l();
   if (typeof window !== "undefined") window.dispatchEvent(new Event(event));
 }
 
@@ -43,9 +42,4 @@ export function readProposalsScreen(): ProposalsGuideScreen | null {
 
 export function readProposalsProgressVersion(): number {
   return progressVersion;
-}
-
-export function subscribeProposalsSignal(onChange: () => void): () => void {
-  listeners.add(onChange);
-  return () => void listeners.delete(onChange);
 }

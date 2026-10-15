@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   PROPOSALS_PROGRESS_EVENT,
   PROPOSALS_SCREEN_EVENT,
@@ -7,7 +7,6 @@ import {
   publishProposalsScreen,
   readProposalsProgressVersion,
   readProposalsScreen,
-  subscribeProposalsSignal,
 } from "@/lib/demo/proposals-signal";
 
 /**
@@ -62,17 +61,5 @@ describe("the proposals screen signal", () => {
     } finally {
       window.removeEventListener(PROPOSALS_PROGRESS_EVENT, listener);
     }
-  });
-
-  it("subscribers hear screen changes and progress changes, and stop after unsubscribing", () => {
-    const onChange = vi.fn();
-    const off = subscribeProposalsSignal(onChange);
-    publishProposalsScreen("review");
-    publishProposalsProgress();
-    expect(onChange).toHaveBeenCalledTimes(2);
-    off();
-    publishProposalsScreen("empty");
-    publishProposalsProgress();
-    expect(onChange).toHaveBeenCalledTimes(2);
   });
 });
