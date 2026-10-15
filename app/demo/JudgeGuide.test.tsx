@@ -482,6 +482,58 @@ describe("web routes: progress and the supervisor-visited flag", () => {
     expect(screen.queryByRole("button", { name: "Reset the demo" })).toBeNull();
   });
 
+  // The reset dialog is portaled to document.body, and React synthetic events climb the React tree: an Escape pressed
+  // inside the dialog also reaches the Sheet / SidePanel keydown. The shells ignore a keydown from outside their own
+  // DOM, so the dialog alone decides what Escape does (dismiss when idle, nothing while a request is in flight).
+  describe.each([
+    ["phone sheet", false],
+    ["laptop panel", true],
+  ])("/home, %s: Escape inside the reset dialog never collapses the guide", (_shell, isWide) => {
+    const guideStaysOpen = () => {
+      if (isWide) expect(screen.getByRole("complementary", { name: "Judge guide" })).toBeTruthy();
+      else expect(screen.getByRole("button", { name: /Close the judge guide/ }).getAttribute("aria-expanded")).toBe("true");
+    };
+    async function openResetDialog() {
+      pathname = "/home";
+      wide = isWide;
+      seedWeb("owner");
+      claims = { role: "owner", outlet_id: "sbx-1", demo_exp_ms: Date.now() + 3_600_000 };
+      renderGuide();
+      openGuide();
+      await screen.findByRole("heading", { name: "Owner home" }); // the pill names only the stage, so wait on the open card
+      const trigger = await screen.findByRole("button", { name: "Reset the demo" });
+      fireEvent.click(trigger);
+      expect(screen.getByRole("alertdialog")).toBeTruthy();
+      return trigger;
+    }
+
+    it("Escape on the dialog's Cancel closes only the dialog: the guide stays open and the trigger has focus", async () => {
+      const trigger = await openResetDialog();
+      const cancel = screen.getByRole("button", { name: "Cancel" });
+      expect(document.activeElement).toBe(cancel);
+      fireEvent.keyDown(cancel, { key: "Escape" });
+      expect(screen.queryByRole("alertdialog")).toBeNull();
+      guideStaysOpen();
+      expect(document.activeElement).toBe(trigger);
+    });
+
+    it("Escape while the reset request is in flight leaves the dialog on screen and the guide open", async () => {
+      vi.mocked(fetch).mockImplementation(async (url) =>
+        String(url).endsWith("/api/v1/demo/reset")
+          ? new Promise<Response>(() => {}) // never settles: the dialog stays busy
+          : new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 2, feasible: 2, owner_decided: 2 } }), { status: 200 }),
+      );
+      await openResetDialog();
+      fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+      const busy = await screen.findByRole("button", { name: "Resetting…" });
+      expect((busy as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.keyDown(screen.getByRole("alertdialog"), { key: "Escape" });
+      expect(screen.getByRole("alertdialog")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Resetting…" })).toBeTruthy();
+      guideStaysOpen();
+    });
+  });
+
   // After-merge wiring: /proposals reports its screen and its writes through lib/demo/proposals-signal.
   it("/proposals follows the page's published screen at once: Asking Bee6 while generating, the hand-over on feasible, All decided for the owner", async () => {
     pathname = "/proposals";

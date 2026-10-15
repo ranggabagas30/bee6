@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SidePanel } from "@/app/ui/SidePanel";
@@ -79,6 +80,26 @@ describe("SidePanel", () => {
     render(<Harness initial onOpenChange={onOpenChange} />);
     fireEvent.keyDown(screen.getByText("Panel body"), { key: "Escape" });
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  // R-19 wiring: the reset dialog is portaled to document.body from inside the guide's card. React synthetic events
+  // climb the React tree, not the DOM, so a keydown inside the portal reaches this onKeyDown too; it must not close
+  // the panel (the dialog decides what Escape does, and while a request is in flight it ignores it).
+  it("Escape from a child portaled outside the aside does not close the panel", () => {
+    const onOpenChange = vi.fn();
+    function Portaled() {
+      return createPortal(<button type="button">In a portal</button>, document.body);
+    }
+    render(
+      <SidePanel label="Helper" open onOpenChange={onOpenChange} openLabel="o" closeLabel="c" pill={<span>p</span>} header={<span>h</span>}>
+        <Portaled />
+      </SidePanel>,
+    );
+    const inPortal = screen.getByRole("button", { name: "In a portal" });
+    inPortal.focus();
+    fireEvent.keyDown(inPortal, { key: "Escape" });
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(inPortal);
   });
 
   it("is non-modal: no dialog role and nothing is made inert", () => {
