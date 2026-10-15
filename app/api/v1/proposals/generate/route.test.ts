@@ -227,7 +227,7 @@ describe("POST /api/v1/proposals/generate", () => {
         location: "asia-southeast1",
         agent_version: "proposal-v1",
         gate_version: "pgate-v1" as const,
-        library_version: { interventions: 1, rubric: 1 },
+        library_version: { interventions: 2, rubric: 1 },
         sop_version_id: SOP.sop_version_id,
         attempts: 1,
       },

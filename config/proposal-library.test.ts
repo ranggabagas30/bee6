@@ -17,6 +17,7 @@ const INTERVENTION_IDS = [
   "capture_unmet_request",
   "shift_schedule",
   "add_script",
+  "add_record_step",
 ];
 const RUBRIC_IDS = [
   "observable",
@@ -65,10 +66,10 @@ function makeTempBaseDir(opts: {
 }
 
 describe("the committed v0 library (real config/, no baseDir)", () => {
-  it("loads without throwing, status final, version 1, 6+6 entries in order", () => {
+  it("loads without throwing, status final, version 2, 7+6 entries in order", () => {
     const lib = loadProposalLibrary({ allowDraft: false });
     expect(lib.draft).toBe(false);
-    expect(lib.interventions.version).toBe(1);
+    expect(lib.interventions.version).toBe(2);
     expect(lib.rubric.version).toBe(1);
     expect(lib.interventions.entries.map((e) => e.id)).toEqual(INTERVENTION_IDS);
     expect(lib.rubric.entries.map((e) => e.id)).toEqual(RUBRIC_IDS);
@@ -84,11 +85,11 @@ describe("the committed v0 library (real config/, no baseDir)", () => {
 });
 
 describe("draft fixtures (temp baseDir)", () => {
-  it("parse; draft: true; 6 + 6 entries", () => {
+  it("parse; draft: true; 7 + 6 entries", () => {
     const baseDir = makeTempBaseDir({ interventions: "draft", rubric: "draft" });
     const lib = loadProposalLibrary({ allowDraft: true, baseDir });
     expect(lib.draft).toBe(true);
-    expect(lib.interventions.entries).toHaveLength(6);
+    expect(lib.interventions.entries).toHaveLength(7);
     expect(lib.rubric.entries).toHaveLength(6);
   });
 
