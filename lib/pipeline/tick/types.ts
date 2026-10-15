@@ -22,6 +22,8 @@ export interface SegmentForTick {
   device_end: string;
   received_at: string;
   lines: { text: string; start: number; end: number }[];
+  /** The capture session the segment belongs to (R-20); `null` for pre-P1 bundles. */
+  session_id: string | null;
 }
 
 /** A previously-stored thread, read back for the Decision-4 merge rule. */
@@ -107,6 +109,40 @@ export interface UnitWriteBatch {
   blank_line_ids: string[];
 }
 
+/**
+ * One `capture_sessions` tombstone (`end_reason == "discarded"`) of a device
+ * (R-20, Cancel-B). The interval is the attribution one
+ * (`lib/day/attribution.ts` `sessionInterval`): `started_at_ms <= ms < ended_at_ms`,
+ * where `ended_at_ms` here is already `min(ended_at_ms, auto_stop_at_ms)`.
+ */
+export interface DiscardTombstone {
+  session_id: string;
+  started_at_ms: number;
+  ended_at_ms: number;
+  /** True iff `cleanup_done_at_ms` is null/absent. */
+  cleanup_pending: boolean;
+}
+
+/** Raw material `selectDiscardGhosts` filters. Ids and timestamps only: no line text, summary or reason. */
+export interface GhostCandidates {
+  threads: Array<{ thread_id: string; first_line_start_ms: number }>;
+  questions: Array<{
+    question_id: string;
+    thread_id: string | null;
+    kind: "gate" | "unlabelled_unit";
+    window_start_ms: number;
+  }>;
+}
+
+/** What one discard cleanup deletes (built by `selectDiscardGhosts`). */
+export interface DiscardCleanupPlan {
+  session_id: string;
+  thread_ids: string[];
+  question_ids: string[];
+  /** Always equal to `question_ids`: a correction's doc id is its question's id. */
+  correction_ids: string[];
+}
+
 export interface TickStore {
   /** Devices eligible for a tick this round (paired, not revoked). */
   listActiveDevices(): Promise<ActiveDevice[]>;
@@ -159,4 +195,21 @@ export interface TickStore {
     debriefEndsAtMs: number,
     nowMs: number,
   ): Promise<number>;
+  /**
+   * Every discard tombstone of this device (`end_reason == "discarded"`), newest-first, capped at 50.
+   * (R-20) Equality-only query, so no composite index.
+   */
+  listDiscardedSessions(outletId: string, deviceId: string): Promise<DiscardTombstone[]>;
+  /**
+   * Threads of this device with `last_line_end_ms >= sinceMs` (same index as `listRecentThreads`) and
+   * every question of this device (R-20). Field-masked: never reads `lines`, `summary` or `reason_text`.
+   */
+  listGhostCandidates(outletId: string, deviceId: string, sinceMs: number): Promise<GhostCandidates>;
+  /**
+   * Deletes the plan's correction, question and thread docs by id (outlet-checked) and any leftover
+   * `segments` of that session, then sets `cleanup_done_at_ms = nowMs` on the tombstone and writes one
+   * counts-only `capture.session_cleanup` audit (R-20). Idempotent: a missing doc is a no-op, and the
+   * tombstone is marked done only after every delete committed, so a crash retries the whole plan.
+   */
+  applyDiscardCleanup(outletId: string, deviceId: string, plan: DiscardCleanupPlan, nowMs: number): Promise<void>;
 }

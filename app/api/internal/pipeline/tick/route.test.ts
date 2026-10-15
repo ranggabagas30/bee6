@@ -61,6 +61,7 @@ describe("POST /api/internal/pipeline/tick", () => {
           questions_written: 0,
           failed_units: 0,
           questions_expired: 0,
+          discard_cleanups: 0,
         },
       ],
     };

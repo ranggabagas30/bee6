@@ -1,7 +1,8 @@
 import type { DocumentReference, Firestore, Transaction } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import { COLLECTIONS } from "@/lib/firestore/collections";
-import { deviceDocId } from "@/lib/firestore/stores";
+import { captureSessionDocId, deviceDocId } from "@/lib/firestore/stores";
+import { sessionInterval } from "@/lib/day/attribution";
 import { segmentDocId } from "@/lib/capture/segment-types";
 import type { WorkCategory } from "@/lib/pipeline/categories";
 import { expireAtDebriefEnd } from "@/lib/pipeline/gate";
@@ -14,12 +15,17 @@ import {
   PipelineLockSchema,
   StaffSchema,
   DeviceSchema,
+  CaptureSessionSchema,
+  AuditLogSchema,
   type LastEnded,
   type Segment,
   type Thread,
 } from "@/lib/firestore/schema";
 import type {
   ActiveDevice,
+  DiscardCleanupPlan,
+  DiscardTombstone,
+  GhostCandidates,
   RecentThreadSummary,
   SegmentForTick,
   StoredThread,
@@ -29,6 +35,12 @@ import type {
 
 /** A chunk size safely under Firestore's 500-write transaction limit, with room for thread writes too. */
 const EXPIRE_CHUNK_SIZE = 100;
+/** R-20: ops per `WriteBatch` in a discard cleanup (Firestore's limit is 500; room for the audit + tombstone update). */
+const CLEANUP_BATCH_MAX = 400;
+/** R-20: refs per `getAll` (outlet check before a delete). */
+const CLEANUP_READ_CHUNK = 100;
+/** R-20: a device's newest tombstones considered per tick. */
+const DISCARD_TOMBSTONE_CAP = 50;
 
 /**
  * Firestore-backed `TickStore` (R-05b, Task 6). The pure orchestration in
@@ -67,6 +79,7 @@ function toSegmentForTick(data: Segment): SegmentForTick {
     device_end: data.device_end,
     received_at: data.received_at,
     lines: data.lines.map((l) => ({ text: l.text, start: l.start, end: l.end })),
+    session_id: data.session_id ?? null,
   };
 }
 
@@ -128,6 +141,49 @@ function carryOverStaffFields(stored: Record<string, unknown>): Record<string, u
   if ("confirmed_category" in stored) fields.confirmed_category = stored.confirmed_category;
   if ("excluded_from_evidence" in stored) fields.excluded_from_evidence = stored.excluded_from_evidence;
   return fields;
+}
+
+const GHOST_THREAD_SHAPE = ThreadSchema.pick({
+  outlet_id: true,
+  device_id: true,
+  thread_id: true,
+  first_line_start_ms: true,
+});
+const GHOST_QUESTION_SHAPE = QuestionSchema.pick({
+  outlet_id: true,
+  question_id: true,
+  thread_id: true,
+  kind: true,
+  window_start_ms: true,
+});
+
+/**
+ * Deletes `ids` of one collection, but only docs that exist and carry this outlet's `outlet_id`
+ * (a derived id could in theory collide across outlets). Existence is read in field-masked
+ * `getAll` chunks; deletes commit in `WriteBatch`es of at most `CLEANUP_BATCH_MAX`. Returns the
+ * number of docs actually deleted (a missing doc is a no-op and is not counted).
+ */
+async function deleteOutletDocs(
+  db: Firestore,
+  outletId: string,
+  collection: string,
+  ids: readonly string[],
+): Promise<number> {
+  const unique = Array.from(new Set(ids));
+  const toDelete: DocumentReference[] = [];
+  for (let i = 0; i < unique.length; i += CLEANUP_READ_CHUNK) {
+    const refs = unique.slice(i, i + CLEANUP_READ_CHUNK).map((id) => db.collection(collection).doc(id));
+    const snaps = await db.getAll(...refs, { fieldMask: ["outlet_id"] });
+    for (const snap of snaps) {
+      if (snap.exists && snap.data()?.outlet_id === outletId) toDelete.push(snap.ref);
+    }
+  }
+  for (let i = 0; i < toDelete.length; i += CLEANUP_BATCH_MAX) {
+    const batch = db.batch();
+    for (const ref of toDelete.slice(i, i + CLEANUP_BATCH_MAX)) batch.delete(ref);
+    await batch.commit();
+  }
+  return toDelete.length;
 }
 
 export function firestoreTickStore(db: Firestore = adminDb()): TickStore {
@@ -474,6 +530,148 @@ export function firestoreTickStore(db: Firestore = adminDb()): TickStore {
         });
       }
       return total;
+    },
+
+    async listDiscardedSessions(outletId: string, deviceId: string): Promise<DiscardTombstone[]> {
+      // Equality-only (outlet + device + end_reason): served by index merging, no composite index.
+      const snap = await db
+        .collection(COLLECTIONS.captureSessions)
+        .where("outlet_id", "==", outletId)
+        .where("device_id", "==", deviceId)
+        .where("end_reason", "==", "discarded")
+        .get();
+      const result: DiscardTombstone[] = [];
+      for (const doc of snap.docs) {
+        const parsed = CaptureSessionSchema.safeParse(doc.data());
+        if (!parsed.success) {
+          logSkippedDoc("capture_session", doc.id);
+          continue;
+        }
+        // Same interval as `attributedBusinessDate` (technical spec §8.4).
+        const interval = sessionInterval(parsed.data);
+        result.push({
+          session_id: parsed.data.session_id,
+          started_at_ms: interval.start_ms,
+          ended_at_ms: interval.end_ms,
+          cleanup_pending: parsed.data.cleanup_done_at_ms == null,
+        });
+      }
+      // No orderBy (it would need a composite index): sort here. Newest first, capped.
+      result.sort((a, b) => b.started_at_ms - a.started_at_ms);
+      return result.slice(0, DISCARD_TOMBSTONE_CAP);
+    },
+
+    async listGhostCandidates(outletId: string, deviceId: string, sinceMs: number): Promise<GhostCandidates> {
+      // Same query shape as `listRecentThreads` (existing composite index); field-masked, so no line
+      // text, summary or reason ever leaves Firestore here.
+      const threadSnap = await db
+        .collection(COLLECTIONS.threads)
+        .where("outlet_id", "==", outletId)
+        .where("device_id", "==", deviceId)
+        .where("last_line_end_ms", ">=", sinceMs)
+        .select("outlet_id", "device_id", "thread_id", "first_line_start_ms")
+        .get();
+      const threads: GhostCandidates["threads"] = [];
+      for (const doc of threadSnap.docs) {
+        const parsed = GHOST_THREAD_SHAPE.safeParse(doc.data());
+        if (!parsed.success) {
+          logSkippedDoc("thread", doc.id);
+          continue;
+        }
+        threads.push({ thread_id: parsed.data.thread_id, first_line_start_ms: parsed.data.first_line_start_ms });
+      }
+
+      // Every question of the device, whatever its status (equality-only: no composite index).
+      const questionSnap = await db
+        .collection(COLLECTIONS.questions)
+        .where("outlet_id", "==", outletId)
+        .where("device_id", "==", deviceId)
+        .select("outlet_id", "question_id", "thread_id", "kind", "window_start_ms")
+        .get();
+      const questions: GhostCandidates["questions"] = [];
+      for (const doc of questionSnap.docs) {
+        const parsed = GHOST_QUESTION_SHAPE.safeParse(doc.data());
+        if (!parsed.success) {
+          logSkippedDoc("question", doc.id);
+          continue;
+        }
+        questions.push({
+          question_id: parsed.data.question_id,
+          thread_id: parsed.data.thread_id,
+          kind: parsed.data.kind,
+          window_start_ms: parsed.data.window_start_ms,
+        });
+      }
+      return { threads, questions };
+    },
+
+    async applyDiscardCleanup(
+      outletId: string,
+      deviceId: string,
+      plan: DiscardCleanupPlan,
+      nowMs: number,
+    ): Promise<void> {
+      const tombstoneRef = db
+        .collection(COLLECTIONS.captureSessions)
+        .doc(captureSessionDocId({ device_id: deviceId, session_id: plan.session_id }));
+      const tombstoneSnap = await tombstoneRef.get();
+      if (!tombstoneSnap.exists) return; // nothing to mark; never delete on behalf of an unknown session
+      const tombstone = CaptureSessionSchema.safeParse(tombstoneSnap.data());
+      if (
+        !tombstone.success ||
+        tombstone.data.outlet_id !== outletId ||
+        tombstone.data.device_id !== deviceId ||
+        tombstone.data.end_reason !== "discarded"
+      ) {
+        return; // only a real discard tombstone of this outlet/device authorises a cleanup
+      }
+
+      // Order matters for crash safety: answers, then questions, then threads. The ghost set is
+      // recomputed from the threads, so a crash between steps leaves the threads (and the pending
+      // tombstone) in place and the next tick redoes the whole plan.
+      const corrections = await deleteOutletDocs(db, outletId, COLLECTIONS.corrections, plan.correction_ids);
+      const questions = await deleteOutletDocs(db, outletId, COLLECTIONS.questions, plan.question_ids);
+      const threads = await deleteOutletDocs(db, outletId, COLLECTIONS.threads, plan.thread_ids);
+
+      // Leftover segments of this session (the discard route's own delete pass may still be running).
+      let segments = 0;
+      for (;;) {
+        const page = await db
+          .collection(COLLECTIONS.segments)
+          .where("outlet_id", "==", outletId)
+          .where("device_id", "==", deviceId)
+          .where("session_id", "==", plan.session_id)
+          .limit(CLEANUP_BATCH_MAX)
+          .get();
+        if (page.empty) break;
+        const batch = db.batch();
+        for (const doc of page.docs) batch.delete(doc.ref);
+        await batch.commit();
+        segments += page.size;
+      }
+
+      // Last: mark done + audit (counts only, role "system"; fixed id, overwritten on a retry).
+      const audit = AuditLogSchema.parse({
+        outlet_id: outletId,
+        ts: new Date(nowMs).toISOString(),
+        actor_role: "system",
+        action: "capture.session_cleanup",
+        target_type: "capture_session",
+        target_id: plan.session_id,
+        details: {
+          threads_deleted: threads,
+          questions_deleted: questions,
+          corrections_deleted: corrections,
+          segments_deleted: segments,
+        },
+      });
+      const done = db.batch();
+      done.update(tombstoneRef, { cleanup_done_at_ms: nowMs });
+      done.set(
+        db.collection(COLLECTIONS.auditLog).doc(`${deviceId}:${plan.session_id}:capture.session_cleanup`),
+        audit,
+      );
+      await done.commit();
     },
   };
 }
