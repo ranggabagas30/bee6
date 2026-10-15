@@ -418,7 +418,7 @@ function FillCode({ lang, onFilled }: { lang: Lang; onFilled: () => void }) {
 
 /** Listening (plan 5.3): ONE script card, "I have spoken this" after 1 heard line, previous card read-only, lock text. */
 function ScriptCard({ lang, bridge, onAllSpoken }: { lang: Lang; bridge: CaptureBridge; onAllSpoken: (sessionId: string) => void }) {
-  const { profile, sessionId, linesThisSession, micTrouble } = bridge.state;
+  const { profile, sessionId, linesThisSession, micTrouble, uploadBusy } = bridge.state;
   const script = scriptFor(profile.script_id);
   const cards: readonly ScriptCardV2[] = script ? script.days[profile.day as ScriptDay] : [];
   const sid = sessionId ?? "none";
@@ -499,7 +499,9 @@ function ScriptCard({ lang, bridge, onAllSpoken }: { lang: Lang; bridge: Capture
             </Button>
           </div>
           {!live.canMarkSpoken ? <p style={MUTED_LINE}>{t(lang, "C-journey-waiting-hear")}</p> : null}
-          {!live.canMarkSpoken && micTrouble && linesSinceCardShown === 0 ? (
+          {/* R-23: a stalled upload is the service being busy, not the mic: say so and hold the mic hint back. */}
+          {!live.canMarkSpoken && uploadBusy ? <p style={MUTED_LINE}>{t(lang, "C-journey-catching-up")}</p> : null}
+          {!live.canMarkSpoken && micTrouble && !uploadBusy && linesSinceCardShown === 0 ? (
             <div style={MUTED_LINE}>
               <p style={{ margin: 0, fontWeight: 600 }}>{t(lang, "C-journey-not-picking-up")}</p>
               <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>

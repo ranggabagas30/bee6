@@ -867,7 +867,7 @@ describe("CapturePage judge-guide bridge (R-19 PR-5, sandbox only)", () => {
     cleanup();
     await renderDemoIdle();
     await waitFor(() => expect(readCaptureBridge()).not.toBeNull());
-    expect(bridge().state).toMatchObject({ profile: DEMO_PROFILE, phase: "ready", sessionId: null, linesThisSession: 0, closingBusy: false, closingError: null, micTrouble: false });
+    expect(bridge().state).toMatchObject({ profile: DEMO_PROFILE, phase: "ready", sessionId: null, linesThisSession: 0, closingBusy: false, closingError: null, micTrouble: false, uploadBusy: false });
     expect(typeof bridge().actions.jumpToClosing).toBe("function");
     expect(typeof bridge().actions.refetchConfig).toBe("function");
   });
@@ -910,8 +910,71 @@ describe("CapturePage judge-guide bridge (R-19 PR-5, sandbox only)", () => {
     await waitFor(() => expect(bridge().state.micTrouble).toBe(true));
     act(() => lastCallbacks?.onStatus?.(ok));
     await waitFor(() => expect(bridge().state.micTrouble).toBe(false));
+    // R-23: a lost line or a stalled upload is not a mic problem.
     act(() => lastCallbacks?.onStatus?.({ ...ok, lostSinceSuccess: true, lastUploadHttpStatus: 500, headFailedAttempts: 2 }));
-    await waitFor(() => expect(bridge().state.micTrouble).toBe(true));
+    await waitFor(() => expect(bridge().state.uploadBusy).toBe(true));
+    expect(bridge().state.micTrouble).toBe(false);
+    act(() => lastCallbacks?.onStatus?.(ok));
+    await waitFor(() => expect(bridge().state.uploadBusy).toBe(false));
+  });
+
+  it("a stalled upload (headFailedAttempts 1, healthy mic) publishes uploadBusy and no micTrouble (R-23)", async () => {
+    await renderDemoRunning();
+    await waitFor(() => expect(bridge().state.uploadBusy).toBe(false));
+    const stalled = { state: "offline", queuedCount: 3, droppedCount: 0, micError: null, lastUploadHttpStatus: 503, lostSinceSuccess: false, headFailedAttempts: 1 };
+    act(() => lastCallbacks?.onStatus?.(stalled));
+    await waitFor(() => expect(bridge().state.uploadBusy).toBe(true));
+    expect(bridge().state.micTrouble).toBe(false);
+  });
+
+  // R-23 L-3: the loss notice is sticky (until Dismiss or the next Start), and the succeeded row shows under it.
+  const LOST = "Some speech was not captured";
+  const okStatus = { state: "listening", queuedCount: 0, droppedCount: 0, micError: null, lastUploadHttpStatus: 200, lostSinceSuccess: false, headFailedAttempts: 0 };
+
+  it("a dropped segment keeps the lost notice after a later 2xx until Dismiss, and the succeeded row shows under it", async () => {
+    await renderDemoRunning();
+    expect(screen.queryByText(LOST)).toBeNull();
+    act(() => lastCallbacks?.onStatus?.({ ...okStatus, state: "offline", queuedCount: 1, droppedCount: 1, lostSinceSuccess: true, lastUploadHttpStatus: 503, headFailedAttempts: 1 }));
+    expect(screen.getByText(LOST)).toBeTruthy();
+    act(() => lastCallbacks?.onStatus?.({ ...okStatus, droppedCount: 1, lostSinceSuccess: false, lastUploadHttpStatus: 200 }));
+    expect(screen.getByText(LOST)).toBeTruthy();
+    expect(screen.getByText("Upload succeeded")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByText(LOST)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
+    expect(screen.getByText("Upload succeeded")).toBeTruthy();
+    // a later status report with the same drop count does not bring it back; a new drop does
+    act(() => lastCallbacks?.onStatus?.({ ...okStatus, droppedCount: 1, lastUploadHttpStatus: 200 }));
+    expect(screen.queryByText(LOST)).toBeNull();
+    act(() => lastCallbacks?.onStatus?.({ ...okStatus, droppedCount: 2, lostSinceSuccess: true, lastUploadHttpStatus: 200 }));
+    expect(screen.getByText(LOST)).toBeTruthy();
+  });
+
+  it("a new Start clears the lost notice, even one that was never dismissed, and a drop in the new session raises it again", async () => {
+    stubPreparingQuestions();
+    await renderDemoRunning();
+    act(() => lastCallbacks?.onStatus?.({ ...okStatus, droppedCount: 2, lostSinceSuccess: true }));
+    expect(screen.getByText(LOST)).toBeTruthy();
+    act(() => bridge().actions.jumpToClosing());
+    fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
+    await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(bridge().state.phase).toBe("debrief_question"));
+    expect(screen.getByText(LOST)).toBeTruthy(); // survives the stop
+    fetchCaptureConfig.mockResolvedValue(
+      demoConfig({
+        last_ended: { business_date: "2026-10-11", end_reason: "selesai", debrief_ends_at_ms: Date.parse("2026-10-11T16:00:00Z") },
+        demo_session: { ...DEMO_PROFILE, day: 2, days_done: 1 },
+      }),
+    );
+    await act(async () => {
+      await bridge().actions.refetchConfig();
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    expect(screen.queryByText(LOST)).toBeNull();
+    act(() => lastCallbacks?.onStatus?.({ ...okStatus, droppedCount: 1, lostSinceSuccess: true }));
+    expect(screen.getByText(LOST)).toBeTruthy();
   });
 
   it("after End the phase is the debrief; refetchConfig re-reads the config so Start comes back for the next day, and the End lock resets for that second session", async () => {

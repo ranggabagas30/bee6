@@ -77,7 +77,7 @@ const jumpToClosing = vi.fn();
 const refetchConfig = vi.fn(async () => {});
 function bridge(state: Partial<CaptureBridgeState> = {}): CaptureBridge {
   return {
-    state: { profile: profile(), phase: "ready", sessionId: null, linesThisSession: 0, closingBusy: false, closingError: null, micTrouble: false, ...state },
+    state: { profile: profile(), phase: "ready", sessionId: null, linesThisSession: 0, closingBusy: false, closingError: null, micTrouble: false, uploadBusy: false, ...state },
     actions: { jumpToClosing, refetchConfig },
   };
 }
@@ -340,6 +340,39 @@ describe("/capture: the script card (plan 5.3-5.4)", () => {
     act(() => publishCaptureBridge({ ...listening(0), state: { ...listening(0).state, micTrouble: true } }));
     expect(screen.getByText("Not picking up your voice?")).toBeTruthy();
     expect(screen.getByText("Check the microphone is allowed.")).toBeTruthy();
+    expect(screen.queryByText(/Bee6 is catching up/)).toBeNull();
+  });
+
+  it("an upload stall shows the catching-up line under 'Waiting for Bee6', and never the mic hint (R-23)", () => {
+    pathname = "/capture";
+    act(() => publishCaptureBridge(listening(0)));
+    renderGuide();
+    openGuide();
+    expect(screen.queryByText(/Bee6 is catching up/)).toBeNull();
+    act(() => publishCaptureBridge({ ...listening(0), state: { ...listening(0).state, uploadBusy: true } }));
+    const waiting = screen.getByText("Waiting for Bee6 to hear this card…");
+    const catching = screen.getByText(
+      "Bee6 is catching up: the transcription service is busy. Keep reading; this card unlocks when it has been heard.",
+    );
+    expect(waiting.compareDocumentPosition(catching) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText("Not picking up your voice?")).toBeNull();
+  });
+
+  it("with a real mic problem AND a stalled upload, the stall line wins and the mic hint stays hidden", () => {
+    pathname = "/capture";
+    act(() => publishCaptureBridge({ ...listening(0), state: { ...listening(0).state, micTrouble: true, uploadBusy: true } }));
+    renderGuide();
+    openGuide();
+    expect(screen.getByText(/Bee6 is catching up/)).toBeTruthy();
+    expect(screen.queryByText("Not picking up your voice?")).toBeNull();
+  });
+
+  it("the catching-up line is gone once the card can be marked spoken", () => {
+    pathname = "/capture";
+    act(() => publishCaptureBridge({ ...listening(1), state: { ...listening(1).state, uploadBusy: true } }));
+    renderGuide();
+    openGuide();
+    expect(screen.queryByText(/Bee6 is catching up/)).toBeNull();
   });
 });
 
