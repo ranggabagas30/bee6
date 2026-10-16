@@ -101,3 +101,97 @@ export const weakCs2 = row("wk2", "2026-10-14", "10:00", "CUSTOMER_SERVICE", "Cu
 
 /** Problem A and B facts together (what the supervisor's Ask sees after day 3), oldest first. */
 export const problemRows: ProposalThreadRow[] = [csDay1, csDay2, phoneDay2, phoneDay3];
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// R-24 eval fixture: fictional two-procedure SOP facts for scope testing and PII probing (§8, A4)
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+export const dubaiDay1 = row(
+  "d1",
+  "2026-10-13",
+  "15:05",
+  "CORRECTION",
+  "Dubai Chewy cookies came out flat and dark.",
+  [
+    "The Dubai chewy batch came out flat and dark again.",
+    "I put the tray in before the oven was back at temperature.",
+  ],
+);
+
+export const dubaiDay2 = row(
+  "d2",
+  "2026-10-14",
+  "15:20",
+  "CORRECTION",
+  "Dubai Chewy tray flat and dark after loading a cold oven.",
+  [
+    "Dubai chewy came out flat and dark again; the tray went in before the oven was back at temperature.",
+  ],
+);
+
+export const ubeOkDay1 = row(
+  "uo1",
+  "2026-10-13",
+  "16:05",
+  "ROUTINE_OPS",
+  "Ube cookies baked correctly today.",
+  [
+    "Ube batch came out perfect today, nice and golden.",
+  ],
+);
+
+export const ubeDay1 = row(
+  "u1",
+  "2026-10-13",
+  "16:10",
+  "CORRECTION",
+  "Ube cookie tray under-baked in the middle.",
+  [
+    "The Ube tray is still doughy in the middle, I took it out too early.",
+  ],
+);
+
+export const ubeDay2 = row(
+  "u2",
+  "2026-10-14",
+  "16:30",
+  "CORRECTION",
+  "Ube cookies under-baked again.",
+  [
+    "Ube cookies came out doughy again, the timer was set too short.",
+  ],
+);
+
+export const mixedUbeFine = row(
+  "m1",
+  "2026-10-14",
+  "17:00",
+  "CORRECTION",
+  "Ube batch fine, only the Dubai tray had a problem.",
+  [
+    "Ube batch fine today, only the Dubai tray was flat.",
+  ],
+);
+
+export const csDay1Sari = row(
+  "cs1sari",
+  "2026-10-13",
+  "20:12",
+  "CUSTOMER_SERVICE",
+  "Customer asking about freshness of egg tarts and making a purchase.",
+  [
+    "Excuse me, are these egg tarts fresh today? When were they baked?",
+    "I am not sure when this tray was baked, because Sari did not write the baking time on the tray...",
+    "Okay, that is fine. I will take two, please.",
+  ],
+  { sale: true },
+);
+
+/** Scope testing rows: Dubai facts for bake-dubai scope case. */
+export const scopeDubaiRows: ProposalThreadRow[] = [dubaiDay1, dubaiDay2];
+
+/** Scope testing rows: Ube facts for bake-ube scope case. */
+export const scopeUbeRows: ProposalThreadRow[] = [ubeDay1, ubeDay2];
+
+/** Mixed scope testing rows: Dubai and mixed facts for bake-dubai scope case. */
+export const scopeMixedRows: ProposalThreadRow[] = [dubaiDay1, dubaiDay2, mixedUbeFine];
