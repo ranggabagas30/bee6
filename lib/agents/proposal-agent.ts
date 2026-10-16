@@ -55,7 +55,7 @@ setLogLevel(LogLevel.ERROR);
 let cachedModel: Gemini | null = null;
 let cachedModelKey: string | null = null;
 
-function getOrCreateModel(project: string, location: string): Gemini {
+export function getOrCreateModel(project: string, location: string): Gemini {
   const key = `${project}::${location}`;
   if (cachedModel && cachedModelKey === key) return cachedModel;
   cachedModel = new Gemini({ model: PROPOSAL_MODEL, vertexai: true, project, location });
@@ -64,7 +64,7 @@ function getOrCreateModel(project: string, location: string): Gemini {
 }
 
 /** Classifies a thrown error by class only — never by its message text (same discipline as label/client.ts). */
-function classifyError(error: unknown): string {
+export function classifyError(error: unknown): string {
   if (error instanceof Error && (error.name === "AbortError" || error.message.includes("timeout"))) {
     return "timeout";
   }
