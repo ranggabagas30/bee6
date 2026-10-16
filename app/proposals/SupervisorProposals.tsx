@@ -15,6 +15,7 @@ import { Button, Card, Chip, Pill } from "@/app/ui";
 import { EmptyState } from "@/app/web/EmptyState";
 import { ConstraintsPanel } from "@/app/proposals/ConstraintsPanel";
 import { GeneratingState } from "@/app/proposals/GeneratingState";
+import type { AskEstimate } from "@/lib/proposals/v4/flag";
 import { ProposalDetail } from "@/app/proposals/ProposalDetail";
 import { WatchPanel } from "@/app/proposals/WatchPanel";
 import { useProposalList } from "@/app/proposals/useProposalList";
@@ -125,7 +126,18 @@ function SuppressedLines({ notice, lang }: { notice: Extract<Notice, { kind: "su
   );
 }
 
-export function SupervisorProposals({ auth, lang, onBridge }: { auth: Auth; lang: Lang; onBridge?: (event: ProposalsBridgeEvent) => void }) {
+export function SupervisorProposals({
+  auth,
+  lang,
+  onBridge,
+  askEstimate = null,
+}: {
+  auth: Auth;
+  lang: Lang;
+  onBridge?: (event: ProposalsBridgeEvent) => void;
+  /** R-24 D11: the estimated wait while THIS tab's Ask runs (v4 flag on); `null` = today's copy. Never shown while `waiting`. */
+  askEstimate?: AskEstimate | null;
+}) {
   const router = useRouter();
   const [reloadKey, setReloadKey] = useState(0);
   const [constraintsKey, setConstraintsKey] = useState(0);
@@ -355,7 +367,7 @@ export function SupervisorProposals({ auth, lang, onBridge }: { auth: Auth; lang
         // A plain block around the asking state (its margins collapse through), so the hold can read the block's
         // height and the panel right after it.
         <div ref={askingBlockRef}>
-          <GeneratingState lang={lang} minHeight={reserveHeight} />
+          <GeneratingState lang={lang} minHeight={reserveHeight} estimate={asking === "calling" ? askEstimate : null} />
         </div>
       ) : nothingYet ? (
         <EmptyState title={t(lang, "C-web-empty-prop-h")} detail={t(lang, "C-web-empty-prop-p")} />

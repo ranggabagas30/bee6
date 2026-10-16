@@ -369,6 +369,42 @@ describe("firestoreProposalStore.listThreadsInRange", () => {
     expect(result[1]?.lines).toBeUndefined();
   });
 
+  it("R-24: the field mask includes confidence and gate; a row without them still parses", async () => {
+    const base = { outlet_id: OUTLET_ID, device_id: "d1", category: "CUSTOMER_SERVICE", status: "fact", summary: "s" };
+    const { db, queryLog } = fakeDb({
+      [COLLECTIONS.threads]: {
+        old: { ...base, thread_id: "old", first_line_start_ms: 10 },
+        new: {
+          ...base,
+          thread_id: "new",
+          first_line_start_ms: 20,
+          confidence: 0.91,
+          gate: {
+            verdict: "fact",
+            fired_rule: "passed",
+            checks: [{ rule: "passed", passed: true }],
+            category: "CUSTOMER_SERVICE",
+            confidence: 0.91,
+            threshold: 0.8,
+            evidence_count: 2,
+            gate_version: "3",
+            question_id: "q_thread_new",
+          },
+        },
+      },
+    });
+    const result = await firestoreProposalStore(OUTLET_ID, db).listThreadsInRange(0, 100);
+    const entry = queryLog.find((q) => q.name === COLLECTIONS.threads);
+    expect(entry?.selectFields).toContain("confidence");
+    expect(entry?.selectFields).toContain("gate");
+    expect(result.map((r) => r.thread_id)).toEqual(["old", "new"]);
+    expect(result[0]?.confidence).toBeUndefined();
+    expect(result[0]?.gate).toBeUndefined();
+    expect(result[1]?.confidence).toBe(0.91);
+    // only the verdict and the rule survive: no checks, no question id (hard rule 7)
+    expect(result[1]?.gate).toEqual({ verdict: "fact", fired_rule: "passed" });
+  });
+
   it("drops a malformed doc, logging only { doc_id, error_class }", async () => {
     const { db } = fakeDb({
       [COLLECTIONS.threads]: {
