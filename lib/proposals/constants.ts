@@ -66,7 +66,12 @@ export const V4_TIMEOUT_MS = 45_000;
 /** A focus runs v4 only if `(now - askStart) + V4_TIMEOUT_MS + 65_000 <= this`; both focuses fit the 300 s lease. */
 export const V4_ASK_BUDGET_MS = 270_000;
 export const V4_QUOTE_MIN_CHARS = 8;
-export const V4_QUOTE_MAX_CHARS = 160;
+/**
+ * Longest `evidence_quotes[].quote` the v4 draft accepts. Derived from `FACT_EXCERPT_MAX_CHARS` on purpose: `get_evidence`
+ * returns the fact's quote clamped at that length, so a model that copies the whole returned text must still validate.
+ * (At 160 vs 320, ~4% of Asks failed `too_big` on a verbatim copy.) Quotes are never stored (`draftToWire` drops them).
+ */
+export const V4_QUOTE_MAX_CHARS = FACT_EXCERPT_MAX_CHARS;
 /** Minimum token length on both sides of the `scope_unsupported` rule; 3 so "Ube" counts (D15). */
 export const V4_SCOPE_TOKEN_MIN = 3;
 /** Words that never make a section "distinctive" (short English and Indonesian function words included, D15). */

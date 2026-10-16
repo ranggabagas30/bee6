@@ -57,7 +57,7 @@ const CHECK_PROPOSAL_DESCRIPTION =
   "quote_alias_not_cited, quotes_insufficient (quote at least two different cited facts), " +
   "quote_not_in_evidence (quote exactly as written in get_evidence; each evidence_quotes quote is at most " +
   V4_QUOTE_MAX_CHARS +
-  " characters, so for a longer text copy an exact piece of it), scope_unsupported (the cited facts must be " +
+  " characters; copy an exact piece of the text, all of it or a shorter piece), scope_unsupported (the cited facts must be " +
   "about the section you chose), change_is_noop (change_text must differ from the step's current text), " +
   "text_rule_violation:<field>:<label> (rewrite that field), plus the library, evidence and metric rules " +
   "(evidence_min, metric_not_in_evidence, constraints_unacknowledged, ...).";

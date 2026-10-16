@@ -56,7 +56,7 @@ export function buildProposalDraftV4Schema(ctx: V4WireContext) {
               .min(V4_QUOTE_MIN_CHARS)
               .max(V4_QUOTE_MAX_CHARS)
               .describe(
-                `An exact piece of the text get_evidence returned for this alias, at most ${V4_QUOTE_MAX_CHARS} characters. If that text is longer, copy a shorter exact piece, not the whole text.`,
+                `An exact piece of the text get_evidence returned for this alias, at most ${V4_QUOTE_MAX_CHARS} characters. Copy it word for word: all of it, or a shorter exact piece.`,
               ),
           })
           .strict(),
