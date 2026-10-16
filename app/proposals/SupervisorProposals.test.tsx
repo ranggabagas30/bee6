@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { SupervisorProposals, type ProposalsBridgeEvent } from "@/app/proposals/SupervisorProposals";
 import type { ListProposalsResponse, ProposalListItem, ProposalsWatch, WatchRow } from "@/lib/proposals/review-contract";
 import type { ProposalView } from "@/lib/proposals/contract";
+import type { AskEstimate } from "@/lib/proposals/v4/flag";
 
 const replace = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -99,8 +100,8 @@ function getsTo(path: string): number {
   return authedGetJson.mock.calls.filter((call) => call[1] === path).length;
 }
 
-function renderScreen(onBridge?: (e: ProposalsBridgeEvent) => void) {
-  return render(<SupervisorProposals auth={AUTH} lang="en" onBridge={onBridge} />);
+function renderScreen(onBridge?: (e: ProposalsBridgeEvent) => void, askEstimate?: AskEstimate | null) {
+  return render(<SupervisorProposals auth={AUTH} lang="en" onBridge={onBridge} askEstimate={askEstimate} />);
 }
 
 beforeEach(() => {
@@ -347,6 +348,70 @@ describe("SupervisorProposals — ask (D2-03d)", () => {
     });
     expect(screen.queryByText("Asking Bee6…", { selector: "p" })).toBeNull();
     expect(screen.getByText("Bee6 is still working. Reload this page in a moment.")).not.toBeNull();
+  });
+});
+
+// R-24 D11 (plan 3.11): the estimated wait belongs to THIS tab's own Ask only; a 409 never shows it.
+describe("SupervisorProposals — estimated wait while asking (R-24 D11)", () => {
+  const ESTIMATE: AskEstimate = { min_s: 10, max_s: 30 };
+  const FAKE: { toFake: ("setTimeout" | "clearTimeout" | "setInterval" | "clearInterval")[] } = {
+    toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"],
+  };
+
+  async function clickAsk() {
+    await act(async () => {
+      await Promise.resolve();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ask Bee6 for a proposal" }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+  }
+
+  it("calling with an estimate: the range, not 'up to a minute'; the overrun line after max_s", async () => {
+    vi.useFakeTimers(FAKE);
+    proposalsResult = listOk({ open: [], decided: [], watch: watchOf([row("CUSTOMER_SERVICE", 2, "ready")]) });
+    authedPostJson.mockImplementationOnce(() => new Promise(() => {}));
+    renderScreen(undefined, ESTIMATE);
+    await clickAsk();
+    const block = screen.getByText("Asking Bee6…", { selector: "p" }).closest("[role='status']") as HTMLElement;
+    expect(block.textContent).toContain("Usually 10–30 seconds");
+    expect(block.textContent).not.toContain("up to a minute");
+    await act(async () => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(block.textContent).toContain("Taking longer than usual. Bee6 is still working. Keep this page open.");
+  });
+
+  it("calling without an estimate (flag off): today's body line, never the range", async () => {
+    vi.useFakeTimers(FAKE);
+    proposalsResult = listOk({ open: [], decided: [], watch: watchOf([row("CUSTOMER_SERVICE", 2, "ready")]) });
+    authedPostJson.mockImplementationOnce(() => new Promise(() => {}));
+    renderScreen(undefined, null);
+    await clickAsk();
+    const block = screen.getByText("Asking Bee6…", { selector: "p" }).closest("[role='status']") as HTMLElement;
+    expect(block.textContent).toContain("This can take up to a minute. Keep this page open.");
+    expect(block.textContent).not.toContain("Usually");
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(block.textContent).not.toContain("Taking longer than usual");
+  });
+
+  it("409 waiting with an estimate: the plain body, no range, and no overrun line however long it waits", async () => {
+    vi.useFakeTimers(FAKE);
+    proposalsResult = listOk({ open: [], decided: [], watch: watchOf([row("CUSTOMER_SERVICE", 2, "ready")]) });
+    authedPostJson.mockResolvedValue({ kind: "conflict", code: "GENERATION_IN_PROGRESS" });
+    renderScreen(undefined, ESTIMATE);
+    await clickAsk();
+    const block = screen.getByText("Asking Bee6…", { selector: "p" }).closest("[role='status']") as HTMLElement;
+    expect(block.textContent).toContain("This can take up to a minute. Keep this page open.");
+    expect(block.textContent).not.toContain("Usually");
+    await act(async () => {
+      vi.advanceTimersByTime(40_000);
+    });
+    expect(block.textContent).toContain("This can take up to a minute.");
+    expect(block.textContent).not.toContain("Taking longer than usual");
   });
 });
 

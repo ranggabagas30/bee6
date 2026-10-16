@@ -6,6 +6,7 @@ import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import type { AuthUserState } from "@/lib/auth/client/use-auth-user";
 import { PROPOSALS_PROGRESS_EVENT, PROPOSALS_SCREEN_EVENT, publishProposalsScreen, readProposalsProgressVersion, readProposalsScreen } from "@/lib/demo/proposals-signal";
 import { ProposalsApp } from "@/app/proposals/ProposalsApp";
+import type { AskEstimate } from "@/lib/proposals/v4/flag";
 
 /**
  * /proposals is one route with two screens by role (R-19 PR-12a supervisor, PR-12b owner). This suite covers the
@@ -101,10 +102,10 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function renderApp(lang: "en" | "id" = "en") {
+function renderApp(lang: "en" | "id" = "en", askEstimate?: AskEstimate | null) {
   return render(
     <LangProvider initial={lang}>
-      <ProposalsApp config={CONFIG} />
+      <ProposalsApp config={CONFIG} askEstimate={askEstimate} />
     </LangProvider>,
   );
 }
@@ -165,6 +166,25 @@ describe("ProposalsApp — auth / role gate", () => {
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Proposals");
     expect(screen.queryByRole("link", { name: "‹ Back to home" })).toBeNull();
     expect(screen.getByRole("navigation")).not.toBeNull();
+  });
+
+  // R-24 D11: the page's `askEstimate` prop reaches the supervisor's Ask screen; no prop (flag off) keeps today's copy.
+  it("supervisor: the askEstimate prop reaches the Ask screen; without it the body line is today's", async () => {
+    getIdTokenResult.mockResolvedValue({ claims: { role: "supervisor" } });
+    const watch = { ...EMPTY_WATCH, categories: [{ category: "CUSTOMER_SERVICE", facts: 2, dates: 2, need_dates: 2, state: "ready" }] };
+    proposalsResult = { kind: "ok", data: { open: [], decided: [], watch } };
+    authedPostJson.mockImplementation(() => new Promise(() => {}));
+
+    renderApp("en", { min_s: 10, max_s: 30 });
+    fireEvent.click(await screen.findByRole("button", { name: "Ask Bee6 for a proposal" }));
+    expect((await screen.findByText(/Usually 10–30 seconds/)).closest("[role='status']")).not.toBeNull();
+    expect(screen.queryByText(/up to a minute/)).toBeNull();
+    cleanup();
+
+    renderApp("en");
+    fireEvent.click(await screen.findByRole("button", { name: "Ask Bee6 for a proposal" }));
+    expect(await screen.findByText("This can take up to a minute. Keep this page open.")).not.toBeNull();
+    expect(screen.queryByText(/Usually/)).toBeNull();
   });
 
   it("a staff-role token shows the forbidden message and neither screen", async () => {
