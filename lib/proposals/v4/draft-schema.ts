@@ -51,7 +51,13 @@ export function buildProposalDraftV4Schema(ctx: V4WireContext) {
         z
           .object({
             alias: z.enum(aliases),
-            quote: z.string().min(V4_QUOTE_MIN_CHARS).max(V4_QUOTE_MAX_CHARS),
+            quote: z
+              .string()
+              .min(V4_QUOTE_MIN_CHARS)
+              .max(V4_QUOTE_MAX_CHARS)
+              .describe(
+                `An exact piece of the text get_evidence returned for this alias, at most ${V4_QUOTE_MAX_CHARS} characters. If that text is longer, copy a shorter exact piece, not the whole text.`,
+              ),
           })
           .strict(),
       )

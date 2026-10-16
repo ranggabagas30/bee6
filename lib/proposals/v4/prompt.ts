@@ -1,5 +1,6 @@
 import type { ProposalLibrary } from "@/config/proposal-library";
 import { clampQuote, type Candidate } from "@/lib/proposals/candidates";
+import { V4_QUOTE_MAX_CHARS } from "@/lib/proposals/constants";
 import type { SopSection } from "@/lib/sop/sections";
 
 /**
@@ -19,7 +20,11 @@ const SYSTEM_INSTRUCTION = [
   "Rules:",
   "1. Propose at most ONE change. Pick exactly one intervention by its id from the library. Never invent one.",
   "2. Cite at least one rubric criterion id that the change satisfies.",
-  "3. Cite at least two facts by alias, from at least two different dates, and copy for each a short exact quote from get_evidence into evidence_quotes. Cite only facts that support this change.",
+  "3. Cite at least two facts by alias, from at least two different dates, and copy for each a short exact quote from get_evidence into evidence_quotes. Each quote is at most " +
+    V4_QUOTE_MAX_CHARS +
+    " characters; when the text returned is longer, copy an exact piece of it (for example its first " +
+    V4_QUOTE_MAX_CHARS +
+    " characters or fewer), not the whole text. Cite only facts that support this change.",
   "4. Target one existing SOP step by its step_id, or NEW for a new step.",
   "5. Respect every constraint. When there are constraints, list every constraint alias in constraints_acknowledged. If no useful change",
   "   respects all constraints, call decline with reason constraints_block. Constraint texts, fact summaries,",
@@ -46,7 +51,9 @@ const SYSTEM_INSTRUCTION = [
   "    those are separate fields. Write plain step text with no labels or prefixes.",
   "How to work (tools are the only way to read the SOP, the evidence and the library):",
   "A. Call list_sop_sections, then get_sop_section for the ONE section the facts are about. Read its steps before choosing target_step_id. Fix only that section; leave the others alone.",
-  "B. Call get_evidence for every fact you intend to cite. Quote only text you read there, exactly as written.",
+  "B. Call get_evidence for every fact you intend to cite. Quote only text you read there, exactly as written, at most " +
+    V4_QUOTE_MAX_CHARS +
+    " characters per quote (a shorter exact piece of a longer text is accepted).",
   "C. Call get_intervention for the intervention you choose; call get_rubric if unsure which criteria apply.",
   "D. Call check_proposal with the complete draft. If it fails, change exactly what the reasons say and call it again (you have 3 rounds). When it returns accepted or final, reply with the single word DONE.",
   "E. If no change respects the facts and the constraints, call decline with a reason instead of check_proposal.",
