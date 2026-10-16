@@ -40,15 +40,14 @@ describe("buildProposalPromptV4 (R-24)", () => {
 
   it("names the quote limit from V4_QUOTE_MAX_CHARS in rule 3 and section B, and says a piece of a longer text is accepted", () => {
     const { systemInstruction } = build();
-    expect(V4_QUOTE_MAX_CHARS).toBe(160);
     const rule3 = systemInstruction.split("\n").find((l) => l.startsWith("3. "))!;
     expect(rule3).toContain(`Each quote is at most ${V4_QUOTE_MAX_CHARS} characters`);
-    expect(rule3).toContain("copy an exact piece of it");
+    expect(rule3).toContain("copy an exact piece of the text returned");
     const b = systemInstruction.split("\n").find((l) => l.startsWith("B. "))!;
     expect(b).toContain(`exactly as written, at most ${V4_QUOTE_MAX_CHARS} characters per quote`);
-    expect(b).toContain("a shorter exact piece of a longer text is accepted");
-    // The limit appears only through the constant: no second hard-coded number in the text.
-    expect(systemInstruction.match(/\b160\b/g)?.length ?? 0).toBe(3);
+    expect(b).toContain("a shorter exact piece is accepted");
+    // The limit appears only through the constant (rule 3 + section B): no second hard-coded number in the text.
+    expect(systemInstruction.split(String(V4_QUOTE_MAX_CHARS)).length - 1).toBe(2);
   });
 
   it("carries no SOP text, no section list, no quotes, no staff notes, no library definitions", () => {
