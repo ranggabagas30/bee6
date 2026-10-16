@@ -19,16 +19,21 @@ import {
   type Constraint,
   type Outlet,
   type Proposal,
+  type ProposalRule,
   type SopVersion,
 } from "@/lib/firestore/schema";
 import { LibraryNotReadyError, type ProposalLibrary } from "@/config/proposal-library";
 import { PROPOSAL_AGENT_VERSION, PROPOSAL_MODEL, type ProposalModel } from "@/lib/agents/proposal-agent";
+import { PROPOSAL_AGENT_V4_VERSION, type ProposalAgentV4 } from "@/lib/agents/proposal-agent-v4";
 import {
   FLOOR_VERSION,
   MAX_FOCUS_PER_ASK,
   MODEL_TIMEOUT_MS,
+  PROPOSAL_CHECK_VERSION,
   PROPOSAL_GATE_VERSION,
   PROPOSAL_LEASE_MS,
+  V4_ASK_BUDGET_MS,
+  V4_TIMEOUT_MS,
 } from "@/lib/proposals/constants";
 import { evidenceReadWindow, validateRange } from "@/lib/proposals/range";
 import { aliasCandidates, selectCandidates, type Candidate, type ProposalThreadRow } from "@/lib/proposals/candidates";
@@ -41,6 +46,11 @@ import { buildProposalPrompt } from "@/lib/proposals/prompt";
 import { toProposalView } from "@/lib/proposals/view";
 import { GenerateResponseSchema, type ProposalView } from "@/lib/proposals/contract";
 import { isFreshFact, type FreshThread } from "@/lib/proposals/freshness";
+import { buildProposalDraftV4Schema, draftToWire, type V4WireContext } from "@/lib/proposals/v4/draft-schema";
+import { buildV4Tools } from "@/lib/proposals/v4/tools";
+import { buildProposalPromptV4 } from "@/lib/proposals/v4/prompt";
+import type { V4Rule, V4Session, V4Trace } from "@/lib/proposals/v4/types";
+import { deriveSections } from "@/lib/sop/sections";
 import { z } from "zod";
 
 /**
@@ -97,7 +107,28 @@ export interface ProposalDeps {
   resolveLocation: (model: string) => string;
   /** `crypto.randomUUID`. */
   newId: () => string;
+  /**
+   * R-24: the tool-using Proposal agent. Absent or `null` (the `PROPOSAL_AGENT_V4` flag is off) = today's path,
+   * byte for byte: nothing from `lib/proposals/v4/*` runs. When set, a focus tries it first and falls back to the
+   * v3 path for ONE attempt on any error, timeout or no decision.
+   */
+  agentV4?: ProposalAgentV4 | null;
+  /** R-24: wall clock in ms for the per-Ask v4 budget rule (§3.1). Tests inject one; default `Date.now`. */
+  clockMs?: () => number;
 }
+
+/** Room one v3 fallback needs after a v4 run starts: one model call raced at `MODEL_TIMEOUT_MS` + the 5 s backstop (§3.1). */
+const V3_FALLBACK_RESERVE_MS = MODEL_TIMEOUT_MS + 5_000;
+
+/** `generator.v4` as stored: the runner's trace plus whether the v3 path had to finish the focus. */
+type StoredV4Trace = V4Trace & { fell_back: boolean };
+
+/** Which agent produced a focus outcome (D10) and, when v4 ran, its trace. */
+interface RunInfo {
+  agent: "v3" | "v4";
+  v4?: StoredV4Trace;
+}
+const V3_RUN: RunInfo = { agent: "v3" };
 
 const STORED_TEXT_MAX: Record<string, number> = {
   change_title: 160,
@@ -228,6 +259,8 @@ async function generateProposalCore(
   // Step 7: lease.
   const token = await store.acquireLock(input.now_ms, PROPOSAL_LEASE_MS);
   if (!token) throw new ConflictError("Generation in progress", "GENERATION_IN_PROGRESS");
+  const clock = deps.clockMs ?? Date.now;
+  const askStartMs = clock(); // R-24 §3.1: the v4 budget is measured from the lease, not from the request body's now_ms
 
   try {
     // 8a. candidates (the read window is shared with the watch panel and the template check).
@@ -252,16 +285,20 @@ async function generateProposalCore(
 
     // 8b. evidence floor (hard rule #10: plain code decides sufficiency; the model is never called for this).
     const location = deps.resolveLocation(PROPOSAL_MODEL);
-    const generatorOf = (attempts: number) => ({
+    // R-24 D10: `agent_version` records what actually produced the doc. A v3 doc (the default, and every flag-off doc)
+    // carries exactly today's fields; only a v4 doc adds `check_version`, and only a doc whose focus ran v4 adds `v4`.
+    const generatorOf = (attempts: number, run: RunInfo = V3_RUN) => ({
       kind: deps.generatorKind,
       model: PROPOSAL_MODEL,
       location,
-      agent_version: PROPOSAL_AGENT_VERSION,
+      agent_version: run.agent === "v4" ? PROPOSAL_AGENT_V4_VERSION : PROPOSAL_AGENT_VERSION,
       gate_version: PROPOSAL_GATE_VERSION,
       library_version: { interventions: library.interventions.version, rubric: library.rubric.version },
       sop_version_id: sop.sop_version_id,
       attempts,
       floor_version: FLOOR_VERSION,
+      ...(run.agent === "v4" ? { check_version: PROPOSAL_CHECK_VERSION } : {}),
+      ...(run.v4 ? { v4: run.v4 } : {}),
     });
     if (readyRows.length === 0) {
       // `floor` = the pool's first row: the closest problem, which the result card shows ("1 of 2 days").
@@ -319,11 +356,14 @@ async function generateProposalCore(
     const outputTokens: Array<number | null> = [];
     const thoughtsTokens: Array<number | null> = [];
 
-    type GateChecks = ReturnType<typeof checkProposal>["checks"];
-    type FocusOutcome =
+    // R-24: a v4 check lists the eight `pgate-v1` rules and the ten v4 rules; `ProposalRule` itself is not widened.
+    type GateChecks = { rule: ProposalRule | V4Rule; passed: boolean }[];
+    type FocusDecision =
       | { kind: "proposed"; wire: ProposalWire; passedGateChecks: GateChecks; aliasToCandidate: Map<string, Candidate>; attempts: number }
       | { kind: "declined"; reason: ProposalWire["no_proposal_reason"]; attempts: number }
       | { kind: "blocked"; rule: string; checks: GateChecks; attempts: number };
+    /** A focus decision plus which agent produced it (R-24 D10) and, when v4 ran, its trace. */
+    type FocusOutcome = FocusDecision & RunInfo;
 
     /** One focus category: prompt + wire schema, then the attempt loop (at most 2). Model errors twice -> throws 503. */
     const tryFocus = async (focus: CategoryEvidence): Promise<FocusOutcome> => {
@@ -373,68 +413,185 @@ async function generateProposalCore(
         constraintAliases: wireCtx.constraintAliases,
       };
 
-      let lastFailureCode = "invalid_output";
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        const userContent =
-          attempt === 1
-            ? basePrompt.userContent
-            : `${basePrompt.userContent}\nPREVIOUS ANSWER REJECTED: ${lastFailureCode}. Fix it or answer no_proposal.`;
+      /**
+       * Today's path, unchanged: the v3 attempt loop (`maxAttempts` = 2). On the v4 fallback it runs ONCE (R-24 D6/D7),
+       * so the focus ends on that attempt exactly as attempt 2 ends it today (error -> 503, anything else -> blocked).
+       */
+      const runV3 = async (maxAttempts: number): Promise<FocusDecision> => {
+        let lastFailureCode = "invalid_output";
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          const userContent =
+            attempt === 1
+              ? basePrompt.userContent
+              : `${basePrompt.userContent}\nPREVIOUS ANSWER REJECTED: ${lastFailureCode}. Fix it or answer no_proposal.`;
 
-        const res = await deps.model(
-          { systemInstruction: basePrompt.systemInstruction, userContent, responseJsonSchema: jsonSchema },
-          { project: deps.project, location, timeoutMs: MODEL_TIMEOUT_MS },
-        );
+          const res = await deps.model(
+            { systemInstruction: basePrompt.systemInstruction, userContent, responseJsonSchema: jsonSchema },
+            { project: deps.project, location, timeoutMs: MODEL_TIMEOUT_MS },
+          );
 
-        if (res.kind === "error") {
-          console.error("[proposal] model error", {
-            outlet_id: outlet.outlet_id,
-            error_class: res.error_class,
-            attempt,
-          });
-          if (attempt === 2) {
-            throw new ServiceUnavailableError("Proposal model unavailable");
+          if (res.kind === "error") {
+            console.error("[proposal] model error", {
+              outlet_id: outlet.outlet_id,
+              error_class: res.error_class,
+              attempt,
+            });
+            if (attempt === maxAttempts) {
+              throw new ServiceUnavailableError("Proposal model unavailable");
+            }
+            lastFailureCode = "invalid_output";
+            continue;
           }
-          lastFailureCode = "invalid_output";
-          continue;
-        }
 
-        inputTokens.push(res.usage.input_tokens);
-        outputTokens.push(res.usage.output_tokens);
-        thoughtsTokens.push(res.usage.thoughts_tokens);
+          inputTokens.push(res.usage.input_tokens);
+          outputTokens.push(res.usage.output_tokens);
+          thoughtsTokens.push(res.usage.thoughts_tokens);
 
-        let parsedJson: unknown;
-        try {
-          parsedJson = JSON.parse(res.text);
-        } catch {
-          if (attempt === 2) return { kind: "blocked", rule: "schema_invalid", checks: [], attempts: attempt };
-          lastFailureCode = "invalid_output";
-          continue;
-        }
-        const parsed = wireSchema.safeParse(parsedJson);
-        if (!parsed.success) {
-          if (attempt === 2) return { kind: "blocked", rule: "schema_invalid", checks: [], attempts: attempt };
-          lastFailureCode = "invalid_output";
-          continue;
-        }
-
-        if (parsed.data.decision === "no_proposal") {
-          return { kind: "declined", reason: parsed.data.no_proposal_reason, attempts: attempt };
-        }
-
-        const gateResult = checkProposal(parsed.data, gateCtx);
-        if (!gateResult.passed) {
-          if (attempt === 2) {
-            // `rule` is the gate's own fired rule (never schema_invalid here).
-            return { kind: "blocked", rule: gateResult.fired_rule ?? "invalid_output", checks: gateResult.checks, attempts: attempt };
+          let parsedJson: unknown;
+          try {
+            parsedJson = JSON.parse(res.text);
+          } catch {
+            if (attempt === maxAttempts) return { kind: "blocked", rule: "schema_invalid", checks: [], attempts: attempt };
+            lastFailureCode = "invalid_output";
+            continue;
           }
-          lastFailureCode = gateResult.fired_rule ?? "invalid_output";
-          continue;
-        }
+          const parsed = wireSchema.safeParse(parsedJson);
+          if (!parsed.success) {
+            if (attempt === maxAttempts) return { kind: "blocked", rule: "schema_invalid", checks: [], attempts: attempt };
+            lastFailureCode = "invalid_output";
+            continue;
+          }
 
-        return { kind: "proposed", wire: parsed.data, passedGateChecks: gateResult.checks, aliasToCandidate, attempts: attempt };
+          if (parsed.data.decision === "no_proposal") {
+            return { kind: "declined", reason: parsed.data.no_proposal_reason, attempts: attempt };
+          }
+
+          const gateResult = checkProposal(parsed.data, gateCtx);
+          if (!gateResult.passed) {
+            if (attempt === maxAttempts) {
+              // `rule` is the gate's own fired rule (never schema_invalid here).
+              return { kind: "blocked", rule: gateResult.fired_rule ?? "invalid_output", checks: gateResult.checks, attempts: attempt };
+            }
+            lastFailureCode = gateResult.fired_rule ?? "invalid_output";
+            continue;
+          }
+
+          return { kind: "proposed", wire: parsed.data, passedGateChecks: gateResult.checks, aliasToCandidate, attempts: attempt };
+        }
+        // Unreachable: the last attempt always returns or throws above.
+        throw new Error("generateProposal: attempt loop ended with no decision");
+      };
+
+      // R-24: flag off (`deps.agentV4` null/absent) -> exactly today's two-attempt v3 path, nothing from v4 touched.
+      const agentV4 = deps.agentV4;
+      if (!agentV4) return { ...(await runV3(2)), ...V3_RUN };
+
+      // Flag on, but this focus cannot afford a v4 run plus a v3 fallback inside the lease (§3.1): v3, ONE attempt.
+      if (clock() - askStartMs + V4_TIMEOUT_MS + V3_FALLBACK_RESERVE_MS > V4_ASK_BUDGET_MS) {
+        return { ...(await runV3(1)), ...V3_RUN };
       }
-      // Unreachable: attempt 2 always returns or throws above.
-      throw new Error("generateProposal: attempt loop ended with no decision");
+
+      // Flag on: build this focus's tools and prompt. Anything that cannot be built is a v4 failure, not a 500 (D6).
+      const session: V4Session = {
+        fetchedSections: new Set(),
+        inspectedAliases: new Set(),
+        inspectedInterventions: new Set(),
+        checkRounds: 0,
+        toolCalls: [],
+        outcome: null,
+      };
+      let v4Input: Parameters<ProposalAgentV4>[0];
+      try {
+        const sections = deriveSections(sop.steps);
+        const draftSchema = buildProposalDraftV4Schema({ ...wireCtx, sectionIds: sections.map((x) => x.section_id) } satisfies V4WireContext);
+        const rowsByThread = new Map(rows.map((r) => [r.thread_id, { confidence: r.confidence, gate: r.gate, label_source: r.label_source }]));
+        const tools = buildV4Tools(
+          {
+            sections,
+            sop,
+            aliased: scrubbedAliased,
+            reasons: scrubbedReasons,
+            rows: rowsByThread,
+            library,
+            constraintAliases: wireCtx.constraintAliases,
+            draftSchema,
+            gateCtx,
+          },
+          session,
+        );
+        const promptV4 = buildProposalPromptV4({
+          library,
+          aliased: scrubbedAliased,
+          constraints: constraintAliased.map(({ alias, c }) => ({ alias, text: c.text })),
+          range,
+        });
+        v4Input = { systemInstruction: promptV4.systemInstruction, userContent: promptV4.userContent, tools, session };
+      } catch (err) {
+        console.error("[proposal] v4 setup error", {
+          outlet_id: outlet.outlet_id,
+          error_class: err instanceof Error ? err.constructor.name : "unknown",
+        });
+        return { ...(await runV3(1)), ...V3_RUN };
+      }
+
+      const v4StartedAt = clock();
+      let r: Awaited<ReturnType<ProposalAgentV4>>;
+      try {
+        r = await agentV4(v4Input, { project: deps.project, location, timeoutMs: V4_TIMEOUT_MS });
+      } catch (err) {
+        // The runner's contract is "never throws"; a thrown error is still only a v4 failure.
+        r = {
+          kind: "error",
+          error_class: err instanceof Error ? err.constructor.name : "unknown",
+          usage: { input_tokens: null, output_tokens: null, thoughts_tokens: null },
+          trace: {
+            model_calls: 0,
+            tool_calls: session.toolCalls.slice(0, 40),
+            check_rounds: Math.min(3, session.checkRounds),
+            ms: Math.max(0, clock() - v4StartedAt),
+            ended_by: "error",
+          },
+        };
+      }
+      // A failed run still spent tokens (CLAUDE.md §7): its usage counts like a successful one's.
+      inputTokens.push(r.usage.input_tokens);
+      outputTokens.push(r.usage.output_tokens);
+      thoughtsTokens.push(r.usage.thoughts_tokens);
+
+      const trace = (fellBack: boolean): StoredV4Trace => ({
+        model_calls: r.trace.model_calls,
+        tool_calls: r.trace.tool_calls.slice(0, 40),
+        check_rounds: Math.min(3, r.trace.check_rounds),
+        ms: Math.max(0, Math.round(r.trace.ms)),
+        ended_by: r.trace.ended_by,
+        fell_back: fellBack,
+      });
+
+      if (r.kind === "decided") {
+        const out = r.outcome;
+        const run: RunInfo = { agent: "v4", v4: trace(false) };
+        if (out.kind === "accepted") {
+          return {
+            kind: "proposed",
+            wire: draftToWire(out.draft),
+            passedGateChecks: out.checks,
+            aliasToCandidate,
+            attempts: 1,
+            ...run,
+          };
+        }
+        if (out.kind === "declined") return { kind: "declined", reason: out.reason, attempts: 1, ...run };
+        return { kind: "blocked", rule: out.rule, checks: out.checks, attempts: 1, ...run };
+      }
+
+      // v4 error, timeout, limit or no decision: log the class only (never model text), then ONE v3 attempt.
+      console.error("[proposal] v4 error", {
+        outlet_id: outlet.outlet_id,
+        error_class: r.error_class,
+        ended_by: r.trace.ended_by,
+      });
+      const fallback = await runV3(1);
+      return { ...fallback, attempts: 1 + fallback.attempts, agent: "v3", v4: trace(true) };
     };
 
     // 8d. focus loop (R-20): a decline tries the next READY category; a proposal or a block stops.
@@ -447,11 +604,13 @@ async function generateProposalCore(
     let modelDeclined: { reason: ProposalWire["no_proposal_reason"] } | null = null;
     let blockedRule: string | null = null;
     let lastGateChecks: GateChecks | null = null;
+    let run: RunInfo = V3_RUN; // R-24: the agent of the focus whose outcome the doc records (the last one tried)
 
     for (const row of readyRows.slice(0, MAX_FOCUS_PER_ASK)) {
       const outcome = await tryFocus(row);
       attempts += outcome.attempts;
       focusesTried += 1;
+      run = { agent: outcome.agent, ...(outcome.v4 ? { v4: outcome.v4 } : {}) };
       if (outcome.kind === "declined") {
         modelDeclined = { reason: outcome.reason }; // the LAST decline's reason is the one recorded
         continue;
@@ -497,6 +656,14 @@ async function generateProposalCore(
         thoughts_tokens: totalThoughtsTokens,
         candidate_facts: floor.facts,
         candidate_dates: floor.dates,
+        // R-24 (flag on only, so a flag-off log line is exactly today's): enums and counts, never text.
+        ...(deps.agentV4
+          ? {
+              agent_version: run.agent === "v4" ? PROPOSAL_AGENT_V4_VERSION : PROPOSAL_AGENT_VERSION,
+              v4_model_calls: run.v4?.model_calls ?? null,
+              v4_fell_back: run.v4?.fell_back ?? null,
+            }
+          : {}),
       });
     }
 
@@ -509,7 +676,7 @@ async function generateProposalCore(
         requested_by_role: requestedByRole,
         range,
         focus_category: null,
-        generator: generatorOf(attempts),
+        generator: generatorOf(attempts, run),
         gate: { passed: false, fired_rule: null, checks: [] },
         counts: { candidate_facts: floor.facts, candidate_dates: floor.dates, constraints: constraintList.length },
         suppression: { reason: "model_declined", model_reason: modelDeclined.reason, followup: followupFor(pool) },
@@ -538,7 +705,7 @@ async function generateProposalCore(
         requested_by_role: requestedByRole,
         range,
         focus_category: focus.category,
-        generator: generatorOf(attempts),
+        generator: generatorOf(attempts, run),
         gate: { passed: false, fired_rule: blockedRule, checks: lastGateChecks ?? [] },
         counts: { candidate_facts: floor.facts, candidate_dates: floor.dates, constraints: constraintList.length },
         suppression: null,
@@ -597,7 +764,7 @@ async function generateProposalCore(
         requested_by_role: requestedByRole,
         range,
         focus_category: focus.category,
-        generator: generatorOf(attempts),
+        generator: generatorOf(attempts, run),
         gate: { passed: false, fired_rule: "output_too_long", checks: [] },
         counts: { candidate_facts: floor.facts, candidate_dates: floor.dates, constraints: constraintList.length },
         suppression: null,
@@ -640,7 +807,7 @@ async function generateProposalCore(
           requested_by_role: requestedByRole,
           range,
           focus_category: focus.category,
-          generator: generatorOf(attempts),
+          generator: generatorOf(attempts, run),
           gate: { passed: false, fired_rule: "evidence_stale", checks: [] },
           counts: { candidate_facts: floor.facts, candidate_dates: floor.dates, constraints: constraintList.length },
           suppression: null,
@@ -676,7 +843,7 @@ async function generateProposalCore(
         requested_by_role: requestedByRole,
         range,
         focus_category: focus.category,
-        generator: generatorOf(attempts),
+        generator: generatorOf(attempts, run),
         // Gate checks = the checkProposal() result from the attempt that
         // passed (real per-rule results, never relabelled), plus the
         // evidence_stale check this commit transaction just ran itself.
