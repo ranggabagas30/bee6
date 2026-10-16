@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { ProposalThreadRow } from "@/lib/proposals/candidates";
+import { V4_QUOTE_MAX_CHARS } from "@/lib/proposals/constants";
 import { scopeDubaiRows } from "@/lib/proposals/testing/rehearsal-fixture";
 import { emptySession, makeWorld, validDraft, type V4World } from "@/lib/proposals/testing/v4-world";
 import { buildV4Tools } from "@/lib/proposals/v4/tools";
@@ -240,6 +241,16 @@ describe("buildV4Tools (R-24)", () => {
       const some = setup({ world: makeWorld({ constraintAliases: ["C1", "C2"] }) });
       const withProps = (z.toJSONSchema(some.byName.get("check_proposal")!.parameters) as { properties: Record<string, any> }).properties;
       expect(withProps.constraints_acknowledged.items.enum).toEqual(["C1", "C2"]);
+    });
+
+    it("names the quote limit (from V4_QUOTE_MAX_CHARS) in its description and on the quote field", () => {
+      const { byName } = setup();
+      const spec = byName.get("check_proposal")!;
+      expect(spec.description).toContain(`each evidence_quotes quote is at most ${V4_QUOTE_MAX_CHARS} characters`);
+      const props = (z.toJSONSchema(spec.parameters) as { properties: Record<string, any> }).properties;
+      const quote = props.evidence_quotes.items.properties.quote;
+      expect(quote.maxLength).toBe(V4_QUOTE_MAX_CHARS);
+      expect(quote.description).toContain(`at most ${V4_QUOTE_MAX_CHARS} characters`);
     });
 
     it("a draft that passes -> accepted, final, outcome = accepted with the 18 checks", () => {
