@@ -2,7 +2,12 @@ import { z } from "zod";
 import type { ProposalLibrary } from "@/config/proposal-library";
 import { MODEL_DECLINE_REASONS, type SopVersion } from "@/lib/firestore/schema";
 import { clampQuote, type Candidate, type ProposalThreadRow } from "@/lib/proposals/candidates";
-import { FACT_EXCERPT_MAX_CHARS, FACT_REASON_MAX_CHARS, V4_MAX_CHECK_ROUNDS } from "@/lib/proposals/constants";
+import {
+  FACT_EXCERPT_MAX_CHARS,
+  FACT_REASON_MAX_CHARS,
+  V4_MAX_CHECK_ROUNDS,
+  V4_QUOTE_MAX_CHARS,
+} from "@/lib/proposals/constants";
 import type { ProposalGateContext } from "@/lib/proposals/proposal-gate";
 import { checkProposalV4 } from "@/lib/proposals/v4/check";
 import type { buildProposalDraftV4Schema, ProposalDraftV4 } from "@/lib/proposals/v4/draft-schema";
@@ -50,7 +55,9 @@ const CHECK_PROPOSAL_DESCRIPTION =
   "section_not_fetched (read the section with get_sop_section first), step_not_in_section, " +
   "evidence_not_inspected (read every cited fact with get_evidence), intervention_not_inspected, " +
   "quote_alias_not_cited, quotes_insufficient (quote at least two different cited facts), " +
-  "quote_not_in_evidence (quote exactly as written in get_evidence), scope_unsupported (the cited facts must be " +
+  "quote_not_in_evidence (quote exactly as written in get_evidence; each evidence_quotes quote is at most " +
+  V4_QUOTE_MAX_CHARS +
+  " characters, so for a longer text copy an exact piece of it), scope_unsupported (the cited facts must be " +
   "about the section you chose), change_is_noop (change_text must differ from the step's current text), " +
   "text_rule_violation:<field>:<label> (rewrite that field), plus the library, evidence and metric rules " +
   "(evidence_min, metric_not_in_evidence, constraints_unacknowledged, ...).";
