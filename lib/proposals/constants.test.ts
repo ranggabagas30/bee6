@@ -7,6 +7,7 @@ import {
   V4_ASK_BUDGET_MS,
   V4_MAX_CHECK_ROUNDS,
   V4_MAX_MODEL_CALLS,
+  FACT_EXCERPT_MAX_CHARS,
   V4_QUOTE_MAX_CHARS,
   V4_QUOTE_MIN_CHARS,
   V4_SCOPE_STOP_WORDS,
@@ -33,8 +34,12 @@ describe("R-24 v4 constants", () => {
     expect(V4_TIMEOUT_MS).toBe(45_000);
     expect(V4_ASK_BUDGET_MS).toBe(270_000);
     expect(V4_QUOTE_MIN_CHARS).toBe(8);
-    expect(V4_QUOTE_MAX_CHARS).toBe(160);
     expect(V4_SCOPE_TOKEN_MIN).toBe(3);
+  });
+
+  it("drift guard: a v4 quote may be as long as a whole clamped get_evidence excerpt", () => {
+    expect(V4_QUOTE_MAX_CHARS).toBeGreaterThanOrEqual(FACT_EXCERPT_MAX_CHARS);
+    expect(V4_QUOTE_MAX_CHARS).toBe(FACT_EXCERPT_MAX_CHARS);
   });
 
   it("two worst-case focuses (v4 + backstop, then a v3 fallback + backstop) fit the budget and the lease", () => {

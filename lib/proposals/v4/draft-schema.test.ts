@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { clampQuote } from "@/lib/proposals/candidates";
+import { FACT_EXCERPT_MAX_CHARS, V4_QUOTE_MAX_CHARS, V4_QUOTE_MIN_CHARS } from "@/lib/proposals/constants";
 import { checkProposal, type ProposalGateContext } from "@/lib/proposals/proposal-gate";
 import { buildProposalWireSchema } from "@/lib/proposals/wire-schema";
 import {
@@ -85,16 +87,16 @@ describe("buildProposalDraftV4Schema", () => {
     expect(schema.safeParse(withoutSection).success).toBe(false);
   });
 
-  it("bounds: quote length 8..160, empty evidence/quotes/rubric, empty text, review days 7..28", () => {
+  it("bounds: quote length V4_QUOTE_MIN_CHARS..V4_QUOTE_MAX_CHARS, empty evidence/quotes/rubric, empty text, review days 7..28", () => {
     const schema = buildProposalDraftV4Schema(CTX);
     const q = (quote: string) => ({
       ...validDraft,
       evidence_quotes: [{ alias: "E1", quote }, { alias: "E2", quote: "no pistachio left" }],
     });
-    expect(schema.safeParse(q("1234567")).success).toBe(false);
-    expect(schema.safeParse(q("12345678")).success).toBe(true);
-    expect(schema.safeParse(q("x".repeat(160))).success).toBe(true);
-    expect(schema.safeParse(q("x".repeat(161))).success).toBe(false);
+    expect(schema.safeParse(q("x".repeat(V4_QUOTE_MIN_CHARS - 1))).success).toBe(false);
+    expect(schema.safeParse(q("x".repeat(V4_QUOTE_MIN_CHARS))).success).toBe(true);
+    expect(schema.safeParse(q("x".repeat(V4_QUOTE_MAX_CHARS))).success).toBe(true);
+    expect(schema.safeParse(q("x".repeat(V4_QUOTE_MAX_CHARS + 1))).success).toBe(false);
     expect(schema.safeParse({ ...validDraft, evidence: [] }).success).toBe(false);
     expect(schema.safeParse({ ...validDraft, evidence_quotes: [] }).success).toBe(false);
     expect(schema.safeParse({ ...validDraft, rubric_criterion_ids: [] }).success).toBe(false);
@@ -104,6 +106,17 @@ describe("buildProposalDraftV4Schema", () => {
     expect(schema.safeParse({ ...validDraft, review_after_days: 28 }).success).toBe(true);
     expect(schema.safeParse({ ...validDraft, review_after_days: 29 }).success).toBe(false);
     expect(schema.safeParse({ ...validDraft, review_after_days: 14.5 }).success).toBe(false);
+  });
+
+  it("a quote equal to a whole clamped get_evidence excerpt (the longest the tool returns) passes", () => {
+    const schema = buildProposalDraftV4Schema(CTX);
+    const fullExcerpt = clampQuote("a long thing said on the line ".repeat(40), FACT_EXCERPT_MAX_CHARS);
+    expect(Array.from(fullExcerpt)).toHaveLength(FACT_EXCERPT_MAX_CHARS); // clamped, ends in an ellipsis
+    const draft = {
+      ...validDraft,
+      evidence_quotes: [{ alias: "E1", quote: fullExcerpt }, { alias: "E2", quote: "no pistachio left" }],
+    };
+    expect(schema.safeParse(draft).success).toBe(true);
   });
 
   it("every enum guard throws on an empty list", () => {
