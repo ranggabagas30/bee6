@@ -166,6 +166,7 @@ Names only; values live in Secret Manager or an untracked `.env.local`, never in
 - Firebase web config: `FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID`, `FIREBASE_APP_ID`
 - Internal routes: `TASKS_INVOKER_SA`, `PIPELINE_TICK_AUDIENCE`, `REVIEW_RUN_AUDIENCE`
 - Thread action handles: `THREAD_HANDLE_KEY`
+- Firestore database: `FIRESTORE_DATABASE_ID` (optional; unset or empty uses the `(default)` database; the staging service sets a named database; server-only, read by `lib/firebase/admin.ts`)
 - Demo project only (`DEMO_MODE` must stay unset on the pilot): `DEMO_MODE`, `DEMO_IP_SALT`, `DEMO_XFF_FROM_END`,
   `DEMO_SWITCH_IP_CAP`, `DEMO_SANDBOX_DAILY_CAP`, `DEMO_SANDBOX_IP_CAP` (default 30), `DEMO_SEGMENT_SANDBOX_CAP`, `DEMO_SEGMENT_DAILY_CAP`,
   `DEMO_GENERATE_SANDBOX_CAP`, `DEMO_GENERATE_DAILY_CAP`, `DEMO_FAST_FORWARD_SANDBOX_CAP`,
