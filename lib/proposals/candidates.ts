@@ -13,6 +13,10 @@ export interface ProposalThreadRow {
   status: "fact" | "open" | "unverified";
   excluded_from_evidence?: boolean;
   label_source?: string; // string on purpose: R-06 PR-5 adds values
+  /** R-24: the label call's confidence; optional so older rows and fixtures stay valid. */
+  confidence?: number;
+  /** R-24: only the gate verdict and the rule that fired (never the checks, a question id or the category). */
+  gate?: { verdict: "fact" | "question"; fired_rule: string };
   first_line_start_ms: number;
   summary: string;
   fields?: Record<string, unknown>;

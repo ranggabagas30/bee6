@@ -3,6 +3,7 @@ import type { MODEL_DECLINE_REASONS, ProposalRule, SopVersion } from "@/lib/fire
 import type { Candidate } from "@/lib/proposals/candidates";
 import type { ProposalGateContext } from "@/lib/proposals/proposal-gate";
 import type { ProposalDraftV4 } from "@/lib/proposals/v4/draft-schema";
+import type { SopSection } from "@/lib/sop/sections";
 
 /**
  * R-24: shared types and constants for the v4 (tool-using) Proposal agent. TYPES AND CONSTS ONLY: no logic, no I/O,
@@ -25,15 +26,8 @@ export const V4_RULES = [
 ] as const;
 export type V4Rule = (typeof V4_RULES)[number];
 
-/**
- * One SOP section as `deriveSections` (`lib/sop/sections.ts`, slice A1) returns it. Declared structurally here so
- * this slice does not depend on A1; the two shapes are identical (`{ section_id, title, step_ids }`, plan §0.2).
- */
-export interface V4SectionLike {
-  section_id: string;
-  title: string;
-  step_ids: string[];
-}
+/** One SOP section as `deriveSections` (`lib/sop/sections.ts`) returns it. */
+export type V4SectionLike = SopSection;
 
 export interface ProposalCheckResult {
   passed: boolean;
