@@ -175,4 +175,90 @@ describe("deriveSections", () => {
     expect(sections[1]!.section_id).toBe("serve");
     expect(sections[1]!.step_ids).toEqual(["serve-01"]);
   });
+
+  it("step ids without hyphens before digits are stripped correctly", () => {
+    // Test cases: open01, open02 (no hyphen before digits)
+    // and a mixed set: prep1, prep2, bake-01, bake-02 giving 2 sections
+    const fixture: SopStep[] = [
+      {
+        step_id: "open01",
+        title: "Open shift",
+        text: "Text",
+        role: "staff",
+      },
+      {
+        step_id: "open02",
+        title: "Check supplies",
+        text: "Text",
+        role: "staff",
+      },
+      {
+        step_id: "prep1",
+        title: "Prep vegetables",
+        text: "Text",
+        role: "staff",
+      },
+      {
+        step_id: "prep2",
+        title: "Prep sauces",
+        text: "Text",
+        role: "staff",
+      },
+      {
+        step_id: "bake-01",
+        title: "Bake bread",
+        text: "Text",
+        role: "staff",
+      },
+      {
+        step_id: "bake-02",
+        title: "Bake pastries",
+        text: "Text",
+        role: "staff",
+      },
+    ];
+    const sections = deriveSections(fixture);
+    expect(sections).toHaveLength(3);
+    expect(sections[0]!.section_id).toBe("open");
+    expect(sections[0]!.step_ids).toEqual(["open01", "open02"]);
+    expect(sections[1]!.section_id).toBe("prep");
+    expect(sections[1]!.step_ids).toEqual(["prep1", "prep2"]);
+    expect(sections[2]!.section_id).toBe("bake");
+    expect(sections[2]!.step_ids).toEqual(["bake-01", "bake-02"]);
+  });
+
+  it("title that slugs to empty string falls through to step_id path", () => {
+    // Title "— · Mix" has group 1 = "—" which slugs to empty string
+    // Should fall through to step_id path and use section_id from step_id
+    const fixture: SopStep[] = [
+      {
+        step_id: "mix-01",
+        title: "— · Mix",
+        text: "Text",
+        role: "staff",
+      },
+      {
+        step_id: "mix-02",
+        title: "— · Blend",
+        text: "Text",
+        role: "staff",
+      },
+      {
+        step_id: "serve-01",
+        title: "Serve",
+        text: "Text",
+        role: "staff",
+      },
+    ];
+    const sections = deriveSections(fixture);
+    expect(sections).toHaveLength(2);
+    // First two steps should use "mix" from step_id (without trailing digits)
+    expect(sections[0]!.section_id).toBe("mix");
+    expect(sections[0]!.title).toBe("mix");
+    expect(sections[0]!.step_ids).toEqual(["mix-01", "mix-02"]);
+    // Last step should use "serve" from step_id
+    expect(sections[1]!.section_id).toBe("serve");
+    expect(sections[1]!.title).toBe("serve");
+    expect(sections[1]!.step_ids).toEqual(["serve-01"]);
+  });
 });

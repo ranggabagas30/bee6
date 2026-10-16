@@ -32,13 +32,17 @@ function slug(text: string): string {
 function deriveSectionFromStep(step: SopStep): { sectionId: string; sectionTitle: string } {
   const match = step.title.match(/^(.{1,60}?)\s·\s(.+)$/);
   if (match && match[1]) {
-    return {
-      sectionId: slug(match[1]),
-      sectionTitle: match[1],
-    };
+    const slugged = slug(match[1]);
+    // Fall through to step_id path if slug is empty
+    if (slugged) {
+      return {
+        sectionId: slugged,
+        sectionTitle: match[1],
+      };
+    }
   }
-  // Strip trailing -digits from step_id
-  const withoutTrailing = step.step_id.replace(/-\d+$/, "");
+  // Strip trailing -?digits (hyphen optional) from step_id
+  const withoutTrailing = step.step_id.replace(/-?\d+$/, "");
   const sectionId = withoutTrailing || step.step_id;
   const sectionTitle = sectionId.replace(/-/g, " ");
   return { sectionId, sectionTitle };
