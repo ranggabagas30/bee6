@@ -10,6 +10,7 @@ import { t } from "@/lib/i18n/dict";
 import type { Lang } from "@/lib/i18n/lang";
 import { publishProposalsProgress, publishProposalsScreen } from "@/lib/demo/proposals-signal";
 import { ProposalIdSchema } from "@/lib/proposals/review-contract";
+import type { AskEstimate } from "@/lib/proposals/v4/flag";
 import { WebTopBar } from "@/app/web/WebTopBar";
 import { ApprovalsReview, type ApprovalsBridgeEvent } from "@/app/proposals/ApprovalsReview";
 import { SupervisorProposals, type ProposalsBridgeEvent } from "@/app/proposals/SupervisorProposals";
@@ -50,7 +51,14 @@ function OwnerApprovals({ auth, lang, onBridge }: { auth: Auth; lang: Lang; onBr
   return <ApprovalsReview auth={auth} lang={lang} initialId={parsed.success ? parsed.data : null} onBridge={onBridge} />;
 }
 
-export function ProposalsApp({ config }: { config: FirebaseWebConfig | null }) {
+export function ProposalsApp({
+  config,
+  askEstimate = null,
+}: {
+  config: FirebaseWebConfig | null;
+  /** R-24 D11: the Ask's estimated wait (v4 flag on), or `null`. Only the supervisor screen uses it. */
+  askEstimate?: AskEstimate | null;
+}) {
   const { lang } = useLang();
   const router = useRouter();
   const auth: Auth | null = config ? getClientAuth(config) : null;
@@ -141,7 +149,7 @@ export function ProposalsApp({ config }: { config: FirebaseWebConfig | null }) {
     return (
       <main style={PAGE_STYLE}>
         <WebTopBar auth={auth} showSignOut current="proposals" />
-        <SupervisorProposals auth={auth} lang={lang} onBridge={onBridge} />
+        <SupervisorProposals auth={auth} lang={lang} onBridge={onBridge} askEstimate={askEstimate} />
       </main>
     );
   }
