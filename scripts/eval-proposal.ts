@@ -46,6 +46,7 @@ import {
   REHEARSAL_TZ,
 } from "@/lib/proposals/testing/rehearsal-fixture";
 import { buildProposalWireSchema, generateProposalJsonSchema, type WireContext } from "@/lib/proposals/wire-schema";
+import { findTextViolations, type ProposedTexts } from "@/lib/proposals/text";
 import { DEMO_SOP_V1 } from "@/scripts/demo-sop";
 
 /** The only project this harness runs against (the demo project; pilot data must never reach it). */
@@ -121,30 +122,9 @@ export function singleDateIsBlockedByFloor(): boolean {
   return candidates.length === 2 && !checkEvidenceFloor(candidates).passed;
 }
 
-/** The model's own proposal texts of one run (R-21 `--texts`). Fictional fixture only; never stored. */
-export interface ProposedTexts {
-  change_title: string;
-  change_text: string;
-  rationale: string;
-}
-
-/** R-21 wording gate: text a judge must never see in a generated step. Pure; returns "field: rule" per hit. */
-const TEXT_RULES: readonly { label: string; re: RegExp }[] = [
-  { label: "[staff]", re: /\[(staff|supervisor|owner)\]/i },
-  { label: "(role:", re: /\(role:/i },
-  { label: "ISO date", re: /\d{4}-\d{2}-\d{2}/ },
-  { label: "phone number", re: /phone number/i },
-  // R-21 PR-C: "name" must match customer/caller/person/their context, not "names", "rename", "menu item name".
-  { label: "name", re: /\b(customer'?s?|caller'?s?|their|person'?s?)\s+name\b|name\s+(and|or)\s+(phone|number)/i },
-];
-
-export function findTextViolations(texts: ProposedTexts): string[] {
-  const hits: string[] = [];
-  for (const field of ["change_title", "change_text", "rationale"] as const) {
-    for (const rule of TEXT_RULES) if (rule.re.test(texts[field])) hits.push(`${field}: ${rule.label}`);
-  }
-  return hits;
-}
+/** Re-export for backward compatibility (moved to lib/proposals/text.ts in R-24). */
+export type { ProposedTexts };
+export { findTextViolations };
 
 export type RunResult =
   | { kind: "propose_pass"; cited?: string[]; intervention?: string; texts?: ProposedTexts }
