@@ -4,17 +4,6 @@
  * Mobile-first: one column at 360 px; the note rows go to a three-column grid from 720 px. Every control is >= 44 px.
  */
 
-/* ---- page frame (swapped for WebShell when it lands) ---- */
-.page {
-  box-sizing: border-box;
-  width: 100%;
-  max-width: 1040px;
-  margin: 0 auto;
-  padding: 16px 16px 56px;
-  color: var(--b6-ink);
-  font-family: var(--b6-font-sans);
-}
-
 .content {
   display: flex;
   flex-direction: column;

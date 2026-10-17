@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
@@ -11,7 +11,7 @@ import { addDays } from "@/lib/capture/calendar";
 import { useLang } from "@/lib/i18n/context";
 import { t } from "@/lib/i18n/dict";
 import { DayRecordResponseSchema, type DayRecordResponse } from "@/lib/day/contract";
-import { WebTopBar } from "@/app/web/WebTopBar";
+import { WebShell } from "@/app/web/WebShell";
 import { Button, buttonClassName } from "@/app/ui";
 import styles from "@/app/day/day.module.css";
 import { DayRecordView } from "@/app/day/DayRecordView";
@@ -27,19 +27,6 @@ import { DayRecordView } from "@/app/day/DayRecordView";
  * (the `active` flag), and so `reload()` re-fetches without ever clearing
  * the currently-shown data first (no loading flash on a decision refetch).
  */
-
-/**
- * The page frame (R-25 T9): `main` + the top bar + the content column. One place, so adopting T8's `WebShell`
- * (bar + nav + `main`) is a one-component swap.
- */
-function Frame({ auth, showSignOut, children }: { auth: Parameters<typeof WebTopBar>[0]["auth"]; showSignOut: boolean; children: ReactNode }) {
-  return (
-    <main className={styles.page}>
-      <WebTopBar auth={auth} showSignOut={showSignOut} current="day" />
-      {children}
-    </main>
-  );
-}
 
 type ViewState =
   | { kind: "loading" }
@@ -116,11 +103,11 @@ export function DayRecordApp({
 
   if (!config || !auth) {
     return (
-      <Frame auth={null} showSignOut={false}>
+      <WebShell auth={null}>
         <p role="status" aria-live="polite" className="b6-sub">
           {t(lang, "C-signin-config")}
         </p>
-      </Frame>
+      </WebShell>
     );
   }
 
@@ -130,27 +117,27 @@ export function DayRecordApp({
 
   if (state.kind === "loading") {
     return (
-      <Frame auth={auth} showSignOut>
+      <WebShell auth={auth} current="day">
         <p role="status" aria-live="polite" className="b6-sub">
           {t(lang, "C-day-loading")}
         </p>
-      </Frame>
+      </WebShell>
     );
   }
 
   if (state.kind === "forbidden") {
     return (
-      <Frame auth={auth} showSignOut>
+      <WebShell auth={auth} current="day">
         <p role="status" aria-live="polite" className="b6-sub">
           {t(lang, "C-day-forbidden")}
         </p>
-      </Frame>
+      </WebShell>
     );
   }
 
   if (state.kind === "invalid") {
     return (
-      <Frame auth={auth} showSignOut>
+      <WebShell auth={auth} current="day">
         <div className={styles.state}>
           <p role="status" aria-live="polite" className="b6-sub">
             {t(lang, "C-day-invalid")}
@@ -159,13 +146,13 @@ export function DayRecordApp({
             {t(lang, "C-day-to-today")}
           </Link>
         </div>
-      </Frame>
+      </WebShell>
     );
   }
 
   if (state.kind === "error") {
     return (
-      <Frame auth={auth} showSignOut>
+      <WebShell auth={auth} current="day">
         <div className={styles.state}>
           <p role="status" aria-live="polite" className="b6-sub">
             {t(lang, "C-day-err")}
@@ -174,13 +161,13 @@ export function DayRecordApp({
             {t(lang, "C-day-retry")}
           </Button>
         </div>
-      </Frame>
+      </WebShell>
     );
   }
 
   const { data } = state;
   return (
-    <Frame auth={auth} showSignOut>
+    <WebShell auth={auth} current="day">
       <DayRecordView
         data={data}
         auth={auth}
@@ -188,6 +175,6 @@ export function DayRecordApp({
         onNext={() => goTo(addDays(data.day.date, 1))}
         onReload={reload}
       />
-    </Frame>
+    </WebShell>
   );
 }
