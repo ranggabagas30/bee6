@@ -71,14 +71,16 @@ describe("LangSwitch", () => {
     expect(screen.getByRole("button", { name: ID_NAME }).getAttribute("aria-pressed")).toBe("false");
   });
 
-  it("uses native buttons in tab order with 48 px targets", () => {
+  it("uses native buttons in tab order, styled as the page-2 segmented control", () => {
     renderSwitch("en");
+    const group = screen.getByRole("group", { name: "Choose language" });
+    expect(group.classList.contains("b6-seg")).toBe(true);
     for (const button of screen.getAllByRole("button")) {
       expect(button.tagName).toBe("BUTTON");
       expect(button.getAttribute("type")).toBe("button");
       expect(button.tabIndex).toBeGreaterThanOrEqual(0);
-      expect(button.style.minWidth).toBe("48px");
-      expect(button.style.minHeight).toBe("48px");
+      expect(button.classList.contains("b6-seg__item")).toBe(true);
+      expect(button.hasAttribute("style")).toBe(false); // the 38 px item size lives in the shared class, not inline
     }
   });
 
