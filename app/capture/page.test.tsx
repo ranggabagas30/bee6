@@ -1473,7 +1473,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
 
     it("replaces the idle Start whenever open_session exists (even though Start would be offered): no way to start a second session", async () => {
       await renderWithOpen(open());
-      await screen.findByRole("heading", { name: "Today's session was interrupted." });
+      await screen.findByRole("heading", { name: "Today's session was interrupted" });
       expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
       expect(screen.queryByText("Tap Start to begin today's session.")).toBeNull();
       expect(startCaptureSession).not.toHaveBeenCalled();
@@ -1481,7 +1481,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
 
     it("the page never resumes listening into the old session", async () => {
       await renderWithOpen(open({ closing_reached: true }));
-      await screen.findByRole("heading", { name: "Today's session is still open." });
+      await screen.findByRole("heading", { name: "Today's session is still open" });
       expect(startCaptureSession).not.toHaveBeenCalled();
       expect(postSessionStart).not.toHaveBeenCalled();
     });
@@ -1496,7 +1496,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       expect(body).toMatchObject({ started_at_ms: STARTED, end_reason: "selesai" });
       expect(body.ended_at_ms).toBe(Date.parse(MON_2230_WIB));
       await waitFor(() => expect(screen.getByText("Preparing your questions")).toBeTruthy());
-      expect(screen.queryByRole("heading", { name: "Today's session is still open." })).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Today's session is still open" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
     });
 
@@ -1518,7 +1518,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       expect(postSessionDiscard.mock.calls[0]![2]).toMatchObject({ started_at_ms: STARTED });
       expect(postSessionEnd).not.toHaveBeenCalled();
       await screen.findByRole("button", { name: "Start" });
-      expect(screen.queryByRole("heading", { name: "Today's session was interrupted." })).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Today's session was interrupted" })).toBeNull();
     });
 
     it("a failed End keeps the view and shows the generic line; a retry is possible", async () => {
@@ -1526,7 +1526,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       postSessionEnd.mockImplementationOnce(async () => ({ ok: false, status: 500 }));
       fireEvent.click(await screen.findByRole("button", { name: "End today" }));
       await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Could not process that. Try again."));
-      expect(screen.getByRole("heading", { name: "Today's session is still open." })).toBeTruthy();
+      expect(screen.getByRole("heading", { name: "Today's session is still open" })).toBeTruthy();
       expect((screen.getByRole("button", { name: "End today" }) as HTMLButtonElement).disabled).toBe(false);
     });
 
@@ -1534,13 +1534,13 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       await renderWithOpen(open());
       postSessionDiscard.mockImplementationOnce(async () => ({ ok: false, status: 409, code: "closing_reached" }));
       fireEvent.click(await screen.findByRole("button", { name: "Cancel today" }));
-      await screen.findByRole("heading", { name: "Today's session is still open." });
+      await screen.findByRole("heading", { name: "Today's session is still open" });
       expect(screen.getByRole("button", { name: "End today" })).toBeTruthy();
     });
 
     it("signing out with the closing-reached view asks first (the session stays open); with the interrupted view it leaves at once", async () => {
       await renderWithOpen(open({ closing_reached: true }));
-      await screen.findByRole("heading", { name: "Today's session is still open." });
+      await screen.findByRole("heading", { name: "Today's session is still open" });
       fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
       expect(screen.getByRole("dialog", { name: "Sign out?" })).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: "Sign out anyway" }));
@@ -1551,7 +1551,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       replace.mockClear();
       clearDeviceAuth.mockClear();
       await renderWithOpen(open());
-      await screen.findByRole("heading", { name: "Today's session was interrupted." });
+      await screen.findByRole("heading", { name: "Today's session was interrupted" });
       fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
       expect(screen.queryByRole("dialog")).toBeNull();
       expect(replace).toHaveBeenCalledWith("/");

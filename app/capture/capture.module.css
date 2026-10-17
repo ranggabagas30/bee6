@@ -297,3 +297,144 @@
     scale: 0.78;
   }
 }
+
+/* ---- dialog sheet (R-25 T5, boards P2-06/P2-07a/b and L2-06a/b) ----
+ * TEMPORARY stand-in for the G0 `DialogSheet` primitive (same API: labelledBy, describedBy, children, className);
+ * swapped for @/app/ui DialogSheet on rebase. Under 900 px a bottom sheet over a dim, from 900 px a centred card. */
+.dim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--b6-z-dialog);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(43, 42, 38, 0.42);
+}
+
+.dsheet {
+  box-sizing: border-box;
+  width: 100%;
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 24px 28px;
+  padding-bottom: max(28px, env(safe-area-inset-bottom));
+  border-radius: var(--b6-r-sheet) var(--b6-r-sheet) 0 0;
+  background: var(--b6-surface);
+  color: var(--b6-ink);
+  font-family: var(--b6-font-sans);
+  box-shadow: var(--b6-shadow-sheet);
+}
+
+.grip {
+  flex: none;
+  width: 40px;
+  height: 4px;
+  margin: 0 auto;
+  border-radius: 2px;
+  background: var(--b6-line-strong);
+}
+
+.dtitle {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.dbody {
+  margin: 0;
+  font-size: var(--b6-fs-body);
+  line-height: 1.5;
+  color: var(--b6-muted);
+}
+
+.dbody strong {
+  font-weight: 600;
+  color: var(--b6-ink);
+}
+
+.dnote {
+  margin: 0;
+  font-size: var(--b6-fs-ui);
+  color: var(--b6-muted);
+}
+
+.dfocus {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  outline: none;
+}
+
+.dsecond {
+  min-height: 48px;
+}
+
+@media (min-width: 900px) {
+  .dim {
+    align-items: center;
+  }
+
+  .dsheet {
+    width: 460px;
+    max-width: 92%;
+    padding: 28px;
+    border-radius: 22px;
+    box-shadow: 0 30px 60px -24px rgba(43, 42, 38, 0.5);
+  }
+
+  .grip {
+    display: none;
+  }
+}
+
+/* ---- upload block, page-2 look (sandbox) ---- */
+.upload {
+  width: 100%;
+  max-width: 420px;
+  margin: 12px auto 0;
+  box-sizing: border-box;
+  padding: 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: var(--b6-fs-small);
+}
+
+.alertAmber {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--b6-r-control);
+  background: var(--b6-amber-bg);
+  color: var(--b6-amber-ink);
+  font-size: var(--b6-fs-ui);
+  line-height: 1.45;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.alertLead {
+  margin: 0;
+  font-weight: 600;
+}
+
+.alertText {
+  margin: 0;
+}
+
+.uploadRow {
+  margin: 0;
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-small);
+  color: var(--b6-muted);
+  text-align: center;
+}
+
+.uploadRowWarn {
+  color: var(--b6-amber-ink);
+}

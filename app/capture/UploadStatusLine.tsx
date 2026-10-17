@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { CaptureStatus } from "@/lib/capture/browser/engine";
+import css from "@/app/capture/capture.module.css";
+import { Button } from "@/app/ui";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import { useLang } from "@/lib/i18n/context";
 
@@ -153,6 +155,7 @@ export function UploadStatusLine({
   httpStatus,
   lost = false,
   onDismissLost,
+  styled = false,
 }: {
   view: UploadView | null;
   online?: boolean;
@@ -161,6 +164,11 @@ export function UploadStatusLine({
   lost?: boolean;
   /** Renders a Dismiss button under the lost notice; the page records the drop count it hides. */
   onDismissLost?: () => void;
+  /**
+   * R-25 T5: the page-2 look for a sandbox screen (amber notice box, mono status line). Same words, same order
+   * (notice, helper, Dismiss, row), same single live region; the pilot never passes it and keeps its plain look.
+   */
+  styled?: boolean;
 }) {
   const { lang } = useLang();
   const toastVisible = useRecoveryToast(view?.phase, lost);
@@ -187,6 +195,53 @@ export function UploadStatusLine({
   // together, in visual order (notice, helper, Dismiss, row). The helper is not aria-hidden. The "(Nx)" count
   // is aria-hidden so count growth is never read. The toast is a sibling outside
   // the block, with its own role="status".
+  const dismiss = () => {
+    onDismissLost?.();
+    regionRef.current?.focus();
+  };
+  if (styled) {
+    return (
+      <>
+        <div
+          ref={regionRef}
+          data-testid="upload-status"
+          role="status"
+          aria-live="polite"
+          // Focus parks here after Dismiss removes the button the user was on.
+          tabIndex={-1}
+          className={hasContent ? css.upload : undefined}
+          style={{ outline: "none" }}
+        >
+          {lost ? (
+            <div className={css.alertAmber}>
+              <p className={css.alertLead}>
+                <span aria-hidden="true">▲ </span>
+                {t(lang, "C-u-lost")}
+              </p>
+              <p className={css.alertText}>{t(lang, "C-u-lost-help")}</p>
+              {onDismissLost ? (
+                <Button variant="secondary" onClick={dismiss}>
+                  {t(lang, "C-u-lost-dismiss")}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          {showView ? (
+            <p className={[css.uploadRow, view.phase === "retrying" ? css.uploadRowWarn : undefined].filter(Boolean).join(" ")}>
+              {t(lang, PHASE_KEY[view.phase])}
+              {retryCount !== null ? <span aria-hidden="true"> {retryCount}</span> : null}
+            </p>
+          ) : null}
+          {detailKey ? <p className={css.uploadRow}>{t(lang, detailKey)}</p> : null}
+        </div>
+        {toastVisible ? (
+          <div data-testid="upload-toast" role="status" aria-live="polite" className={css.uploadRow}>
+            <p style={{ margin: 0 }}>{t(lang, "C-u-toast")}</p>
+          </div>
+        ) : null}
+      </>
+    );
+  }
   return (
     <>
       <div

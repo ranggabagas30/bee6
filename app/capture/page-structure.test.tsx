@@ -130,6 +130,28 @@ describe("sandbox capture screen (R-25 T5): document order and landmarks", () =>
     expect(screen.queryByRole("button", { name: /cancels today/ })).toBeNull();
   });
 
+  it("End today opens the confirm as a labelled sheet over the screen: Not yet keeps listening, focus returns to End", async () => {
+    fetchCaptureConfig.mockResolvedValue({ ...base, demo_session: PROFILE });
+    await renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await screen.findByRole("heading", { level: 1, name: "Listening" });
+    await act(async () => {
+      readCaptureBridge()!.actions.jumpToClosing();
+    });
+    const end = await screen.findByRole("button", { name: "End today" });
+    end.focus();
+    fireEvent.click(end);
+    const dialog = screen.getByRole("dialog", { name: "End today's operations?" });
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(dialog.textContent).toContain("The 1-hour debrief starts now. This cannot be undone.");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Not yet, keep going" }));
+    // the screen is still there underneath (End did not unmount), and nothing ended
+    expect(screen.getByRole("heading", { level: 1, name: "Listening" })).toBeTruthy();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "End today" }));
+  });
+
   it("one polite status carries the headline; the stage itself is silent (decorative)", async () => {
     fetchCaptureConfig.mockResolvedValue({ ...base, demo_session: PROFILE });
     const { container } = await renderPage();

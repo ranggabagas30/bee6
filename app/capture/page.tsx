@@ -20,6 +20,7 @@ import { idleViewFor } from "@/app/capture/idle-view";
 import { selesaiViewFor } from "@/app/capture/selesai-view";
 import { isDiscardArmed, nextMulaiIsNow, shouldAutoClosePanel } from "@/app/capture/batalkan-panel";
 import { DebriefFlow } from "@/app/capture/debrief/DebriefFlow";
+import { EndConfirmSheet } from "@/app/capture/EndConfirmSheet";
 import { OpenSessionView } from "@/app/capture/OpenSessionView";
 import { SignOutDialog, type SignOutKind } from "@/app/capture/SignOutDialog";
 import { configPollMs, dropOpenSession, markOpenSessionClosed, mergeRefreshedLastEnded } from "@/app/capture/config-refresh";
@@ -1002,17 +1003,21 @@ export default function CapturePage() {
     const openSession = demoSession?.open_session ?? null;
     if (openSession) {
       return (
-        <>
-          <OpenSessionView
-            lang={lang}
-            closingReached={openSession.closing_reached}
-            busy={openBusy}
-            errorKey={openErrorKey}
-            onEnd={() => void handleOpenEnd()}
-            onCancel={() => void handleOpenCancel()}
-          />
-          <div className={css.foot}>{renderSignOutLink("muted")}</div>
-        </>
+        <OpenSessionView
+          lang={lang}
+          closingReached={openSession.closing_reached}
+          busy={openBusy}
+          errorKey={openErrorKey}
+          onEnd={() => void handleOpenEnd()}
+          onCancel={() => void handleOpenCancel()}
+          dayLine={dayLine}
+          footer={
+            <>
+              {renderNote()}
+              {renderSignOutLink("muted")}
+            </>
+          }
+        />
       );
     }
     if (!idle) return null;
@@ -1191,6 +1196,19 @@ export default function CapturePage() {
     // exist (Mulai is gated on it via `idle` above), so this is never the
     // fallback path in practice; the guard just avoids an impure render call.
     if (!session || !config || nowMs === null) return null;
+    // R-25 ruling R2: on a sandbox the End confirm is the page-2 bottom sheet (same handlers, same disabled rule).
+    if (config.demo_session) {
+      return (
+        <EndConfirmSheet
+          lang={lang}
+          body={t(lang, "C-script-end-b")}
+          busy={selesaiBusy || autoStopBusy}
+          errorKey={selesaiErrorKey}
+          onKeep={closeSelesaiConfirm}
+          onEnd={confirmSelesai}
+        />
+      );
+    }
     const tz = config.timezone;
     const now = nowMs;
     const nextDay = nextOpenLocalDate(session.local_date, config.weekly_hours);
@@ -1310,17 +1328,18 @@ export default function CapturePage() {
         ) : null}
         {session ? (
           <>
-            {!selesaiConfirmOpen ? renderSelesaiArea() : null}
-            {closingError && !selesaiConfirmOpen ? (
+            {renderSelesaiArea()}
+            {closingError ? (
               <p role="alert" className={css.alert}>
                 {t(lang, closingError.key, closingError.vars)}
               </p>
             ) : null}
-            {selesaiConfirmOpen ? renderSelesaiConfirmPanel() : null}
-            {!selesaiConfirmOpen ? renderSignOutLink(closingReached ? "muted" : "danger") : null}
+            {renderSignOutLink(closingReached ? "muted" : "danger")}
           </>
         ) : null}
         {renderNote()}
+        {/* The End confirm sits over the screen as a sheet, so End stays put underneath and gets focus back. */}
+        {session && selesaiConfirmOpen ? renderSelesaiConfirmPanel() : null}
       </StageScreen>
     );
   }
@@ -1462,6 +1481,7 @@ export default function CapturePage() {
           lost={lostNotice}
           onDismissLost={() => setDismissedDrops(uploadSource?.droppedCount ?? 0)}
           online={networkOnline}
+          styled={modern}
           httpStatus={
             sessionRunning ? status?.lastUploadHttpStatus : lastUploadStatus?.lastUploadHttpStatus
           }

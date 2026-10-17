@@ -1,6 +1,9 @@
 "use client";
 
-import { Button, Card } from "@/app/ui";
+import type { ReactNode } from "react";
+import { StageScreen } from "@/app/capture/StageScreen";
+import css from "@/app/capture/capture.module.css";
+import { Button } from "@/app/ui";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import type { Lang } from "@/lib/i18n/lang";
 
@@ -9,7 +12,8 @@ import type { Lang } from "@/lib/i18n/lang";
  * return. The phone never resumes listening into it (the R-P1 rule): it can only be ended or cancelled.
  * - closing reached: "End today" (the page runs the existing end route, then the debrief).
  * - not reached (reload or closed tab before closing): "Cancel today" (the existing discard route; Start is offered again).
- * It replaces the idle Start whenever `open_session` exists. Presentation only; no ids, no timestamps on screen.
+ * It replaces the idle Start whenever `open_session` exists. Page-2 look (R-25 T5): the stage, an h1, one sub line, the
+ * day line, then the one action. Presentation only; no ids, no timestamps on screen.
  */
 export interface OpenSessionViewProps {
   lang: Lang;
@@ -19,25 +23,30 @@ export interface OpenSessionViewProps {
   errorKey: DictKey | null;
   onEnd: () => void;
   onCancel: () => void;
+  /** "Day n of 3 · date", when the page has it. */
+  dayLine?: string | null;
+  /** The quiet controls under the action (the privacy note, the sign-out link): the page owns them. */
+  footer?: ReactNode;
 }
 
-export function OpenSessionView({ lang, closingReached, busy, errorKey, onEnd, onCancel }: OpenSessionViewProps) {
+export function OpenSessionView({ lang, closingReached, busy, errorKey, onEnd, onCancel, dayLine = null, footer }: OpenSessionViewProps) {
   return (
-    <Card as="section" aria-labelledby="open-session-h" style={{ marginTop: 16, padding: 20 }}>
-      <h2 id="open-session-h" style={{ fontSize: 20, margin: "0 0 8px" }}>
-        {t(lang, closingReached ? "C-sess-open-reached-h" : "C-sess-open-interrupted-h")}
-      </h2>
-      <p style={{ margin: "0 0 16px", fontSize: 16, lineHeight: 1.45 }}>
-        {t(lang, closingReached ? "C-sess-open-reached-b" : "C-sess-open-interrupted-b")}
-      </p>
+    <StageScreen
+      tone={closingReached ? "listening" : "idle"}
+      title={t(lang, closingReached ? "C-sess-open-reached-h" : "C-sess-open-interrupted-h")}
+      sub={<p className={css.sub}>{t(lang, closingReached ? "C-sess-open-reached-b" : "C-sess-open-interrupted-b")}</p>}
+      mono={dayLine}
+    >
       {errorKey ? (
-        <p role="alert" style={{ margin: "0 0 12px", fontSize: 14, color: "#b00020" }}>
+        <p role="alert" className={css.alert}>
           {t(lang, errorKey)}
         </p>
       ) : null}
       <Button variant="primary" size="lg" block onClick={closingReached ? onEnd : onCancel} disabled={busy}>
         {t(lang, closingReached ? "C-sess-end-today" : "C-sess-open-cancel")}
       </Button>
-    </Card>
+      {closingReached ? <p className={css.note}>{t(lang, "C-sess-open-note")}</p> : null}
+      {footer}
+    </StageScreen>
   );
 }
