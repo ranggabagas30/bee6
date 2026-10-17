@@ -1,4 +1,4 @@
-import { t } from "@/lib/i18n/dict";
+import { t, type DictKey } from "@/lib/i18n/dict";
 import type { Lang } from "@/lib/i18n/lang";
 import type { DebriefQuestionView } from "@/lib/debrief/contract";
 import type { WorkCategory } from "@/lib/pipeline/categories";
@@ -54,4 +54,54 @@ export function questionLines(lang: Lang, question: DebriefQuestionView): string
 /** `questionLines` joined into one string — for the radiogroup `aria-label` only; the on-screen heading renders each line separately. */
 export function questionText(lang: Lang, question: DebriefQuestionView): string {
   return questionLines(lang, question).join(" ");
+}
+
+/**
+ * R-25 T7 (board P2-09 `.chip` "CST"): the three-letter code shown on the question card, and the dictionary key of
+ * the category's full name (read aloud, since "CST" alone says nothing to a screen reader). Display only: the
+ * server still sends just the raw enum code, never a label.
+ */
+export const CATEGORY_CODE: Record<WorkCategory, { code: string; nameKey: DictKey }> = {
+  ROUTINE_OPS: { code: "RTN", nameKey: "C-cat-ROUTINE_OPS" },
+  CUSTOMER_SERVICE: { code: "CST", nameKey: "C-cat-CUSTOMER_SERVICE" },
+  TRAINING: { code: "TRN", nameKey: "C-cat-TRAINING" },
+  STAFF_CONSULT: { code: "CNS", nameKey: "C-cat-STAFF_CONSULT" },
+  CORRECTION: { code: "COR", nameKey: "C-cat-CORRECTION" },
+  PHONE_CALL: { code: "PHN", nameKey: "C-cat-PHONE_CALL" },
+  EVENT: { code: "EVT", nameKey: "C-cat-EVENT" },
+  COMPLAINT: { code: "CMP", nameKey: "C-cat-COMPLAINT" },
+  SAFETY_INCIDENT: { code: "SAF", nameKey: "C-cat-SAFETY_INCIDENT" },
+  SECURITY_INCIDENT: { code: "SEC", nameKey: "C-cat-SECURITY_INCIDENT" },
+  DISRUPTION: { code: "DSR", nameKey: "C-cat-DISRUPTION" },
+};
+
+/** The category chip's code and spoken name, or null for a block question (`unlabelled_unit`, or no category). */
+export function questionCategoryChip(lang: Lang, question: DebriefQuestionView): { code: string; name: string } | null {
+  if (question.kind !== "gate" || !question.category) return null;
+  const entry = CATEGORY_CODE[question.category];
+  return { code: entry.code, name: t(lang, entry.nameKey) };
+}
+
+const WHY_KEY: Record<WorkCategory, DictKey> = {
+  ROUTINE_OPS: "C-d2-why-ROUTINE_OPS",
+  CUSTOMER_SERVICE: "C-d2-why-CUSTOMER_SERVICE",
+  TRAINING: "C-d2-why-TRAINING",
+  STAFF_CONSULT: "C-d2-why-STAFF_CONSULT",
+  CORRECTION: "C-d2-why-CORRECTION",
+  PHONE_CALL: "C-d2-why-PHONE_CALL",
+  EVENT: "C-d2-why-EVENT",
+  COMPLAINT: "C-d2-why-COMPLAINT",
+  SAFETY_INCIDENT: "C-d2-why-SAFETY_INCIDENT",
+  SECURITY_INCIDENT: "C-d2-why-SECURITY_INCIDENT",
+  DISRUPTION: "C-d2-why-DISRUPTION",
+};
+
+/**
+ * R-25 T7 (board P2-09 explanation line): why Bee6 is asking, one fixed sentence per category. Role-agnostic and
+ * free of thread text, names, times and placeholders: it is built from the enum code alone (hard rule 7), so the
+ * moment-specific wording the board shows ("...the egg tarts were fresh") is deliberately not reachable here.
+ */
+export function questionWhy(lang: Lang, question: DebriefQuestionView): string {
+  const key = question.kind === "gate" && question.category ? WHY_KEY[question.category] : "C-d2-why-unlabelled";
+  return t(lang, key);
 }
