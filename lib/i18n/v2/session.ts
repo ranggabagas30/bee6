@@ -58,6 +58,15 @@ export const sessionID = {
   "C-sess-open-interrupted-h": "Sesi hari ini terputus.", // PROVISIONAL
   "C-sess-open-interrupted-b": "Batalkan sesi ini dan mulai hari ini lagi.", // PROVISIONAL
   "C-sess-open-cancel": "Batalkan hari ini", // PROVISIONAL
+
+  // R-25 T5 (boards P2-04..P2-06 / L2-02..L2-04): the page-2 staff screen on a sandbox. EN is final from the boards.
+  "C-sess-outlet-demo": "Demo Bakery · Outlet 1",
+  "C-sess-ready-h": "Siap buka", // PROVISIONAL
+  "C-sess-ready-sub": "Ketuk Mulai untuk mulai mendengarkan. Staf tetap melayani pelanggan seperti biasa.", // PROVISIONAL
+  "C-sess-listening-sub-1": "Fokus pada pelanggan Anda.", // PROVISIONAL
+  "C-sess-listening-sub-2": "Kami yang mencatat.", // PROVISIONAL
+  "C-sess-closing-sub": "Jam tutup sudah lewat. Ketuk Akhiri saat operasional selesai.", // PROVISIONAL
+  "C-sess-signout-running-link": "Keluar (membatalkan sesi hari ini)", // PROVISIONAL
 } as const satisfies Record<string, string>;
 
 export const sessionEN: Record<keyof typeof sessionID, string> = {
@@ -94,4 +103,12 @@ export const sessionEN: Record<keyof typeof sessionID, string> = {
   "C-sess-open-interrupted-h": "Today's session was interrupted.",
   "C-sess-open-interrupted-b": "Cancel it and start today again.",
   "C-sess-open-cancel": "Cancel today",
+
+  "C-sess-outlet-demo": "Demo Bakery · Outlet 1",
+  "C-sess-ready-h": "Ready to open",
+  "C-sess-ready-sub": "Tap Start to begin listening. Staff keep serving customers as normal.",
+  "C-sess-listening-sub-1": "Focus on your customers.",
+  "C-sess-listening-sub-2": "We'll keep the notes.",
+  "C-sess-closing-sub": "Closing time has passed. Tap End when operations are done.",
+  "C-sess-signout-running-link": "Sign out (cancels today's session)",
 };
