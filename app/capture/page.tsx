@@ -1113,30 +1113,34 @@ export default function CapturePage() {
       </>
     );
 
+    /** R-25 T5 / idle fix: the sandbox idle stage (board P2-04 / P2-04b). Also the debrief's `expiredFallback`. */
+    const idleView = idle;
+    function renderSandboxIdleStage() {
+      const ended = !idleView.offered;
+      const title = sandboxIdleTitle(idleView);
+      const subText = ended ? idleView.note : t(lang, "C-sess-ready-sub");
+      return (
+        <StageScreen
+          tone={ended ? "done" : "idle"}
+          orbLabel={ended ? undefined : t(lang, "C-b-mulai")}
+          title={title}
+          sub={subText ? <p className="b6-sub">{subText}</p> : null}
+          mono={dayLine}
+        >
+          {sandboxPrimary}
+          {renderNote()}
+          {renderSignOutLink("muted")}
+        </StageScreen>
+      );
+    }
+
     // nowMs is set by the mount-time tick effect before any debrief can
     // exist (debriefEndsAtMs only comes from a real Selesai/auto-stop, both
     // of which require config/nowMs already loaded), so the `nowMs === null`
     // arm is defensive only.
     const auth = debriefEndsAtMs !== null && nowMs !== null && effectiveConfig ? readDeviceAuth() : null;
     if (debriefEndsAtMs === null || nowMs === null || !effectiveConfig || !auth) {
-      if (sandbox) {
-        const ended = !idle.offered;
-        const title = sandboxIdleTitle(idle);
-        const subText = ended ? idle.note : t(lang, "C-sess-ready-sub");
-        return (
-          <StageScreen
-            tone={ended ? "done" : "idle"}
-            orbLabel={ended ? undefined : t(lang, "C-b-mulai")}
-            title={title}
-            sub={subText ? <p className="b6-sub">{subText}</p> : null}
-            mono={dayLine}
-          >
-            {sandboxPrimary}
-            {renderNote()}
-            {renderSignOutLink("muted")}
-          </StageScreen>
-        );
-      }
+      if (sandbox) return renderSandboxIdleStage();
       return (
         <>
           {headline}
@@ -1145,22 +1149,21 @@ export default function CapturePage() {
       );
     }
     return (
-      <>
-        <DebriefFlow
-          key={debriefEndsAtMs}
-          auth={auth}
-          endsAtMs={debriefEndsAtMs}
-          nowMs={nowMs}
-          tz={effectiveConfig.timezone}
-          nextMulaiText={nextMulaiText}
-          headline={headline}
-          primary={primary}
-          demo={config?.demo_session !== undefined}
-          dayNumber={demoSession?.day ?? null}
-        />
-        {/* UX-03 section 5.10: the privacy notice is on every screen of the page, the debrief included. */}
-        {sandbox ? <div className={cx("b6-foot", css.foot)}>{renderNote()}</div> : null}
-      </>
+      <DebriefFlow
+        key={debriefEndsAtMs}
+        auth={auth}
+        endsAtMs={debriefEndsAtMs}
+        nowMs={nowMs}
+        tz={effectiveConfig.timezone}
+        nextMulaiText={nextMulaiText}
+        headline={headline}
+        primary={primary}
+        demo={config?.demo_session !== undefined}
+        dayNumber={demoSession?.day ?? null}
+        expiredFallback={sandbox ? renderSandboxIdleStage() : undefined}
+        // UX-03 section 5.10: the privacy notice is on every screen of the page, the debrief included.
+        note={sandbox ? <div className={cx("b6-foot", css.foot)}>{renderNote()}</div> : undefined}
+      />
     );
   }
 

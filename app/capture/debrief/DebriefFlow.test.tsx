@@ -109,6 +109,8 @@ function Harness({
   demo,
   onSignOut,
   dayNumber,
+  expiredFallback,
+  note,
 }: {
   /** R-19: a sandbox judge device (auto-open, preparing, waiting-more, terminal done). */
   demo?: boolean;
@@ -121,6 +123,9 @@ function Harness({
   primary?: ReactNode;
   onSignOut?: () => void;
   dayNumber?: number | null;
+  /** R-25 idle fix: pass-throughs for the sandbox expired-never-opened fallback and the page's privacy note. */
+  expiredFallback?: ReactNode;
+  note?: ReactNode;
 }) {
   // Date is frozen per-test (see the file-level beforeEach), so these
   // Date.now()-relative defaults are stable across this render and every
@@ -146,6 +151,8 @@ function Harness({
         demo={demo}
         onSignOut={onSignOut}
         dayNumber={dayNumber}
+        expiredFallback={expiredFallback}
+        note={note}
       />
     </LangProvider>
   );
@@ -1101,6 +1108,77 @@ describe("DebriefFlow: R-19 demo debrief (sandbox only)", () => {
       const { fn } = server([], false);
       render(<Harness fetchFn={fn} storage={storage} demo />);
       await waitFor(() => expect(screen.getByText("There are no questions today.")).toBeTruthy());
+    });
+  });
+  // R-25 idle fix (QA R25-001): a fresh sandbox clone carries yesterday's expired `last_ended`, so the flow mounts
+  // already past its hour and never opened. The page's idle stage arrives as `expiredFallback`; `note` is the
+  // privacy block rendered after every other screen.
+  describe("expired and never opened: the page's idle fallback (R-25 idle fix)", () => {
+    it("shows the fallback and nothing else (no note, headline or primary), and fetches nothing", async () => {
+      const { fn, calls } = server([q("q1")], false);
+      render(
+        <Harness
+          fetchFn={fn}
+          storage={new FakeStorage()}
+          endsAtMs={Date.now() - 1}
+          demo
+          expiredFallback={<p>FALLBACK</p>}
+          note={<p>NOTE</p>}
+          headline={<p>PAGE HEADLINE</p>}
+          primary={<p>PRIMARY</p>}
+        />,
+      );
+      expect(screen.getByText("FALLBACK")).toBeTruthy();
+      expect(screen.queryByText("NOTE")).toBeNull();
+      expect(screen.queryByText("PAGE HEADLINE")).toBeNull();
+      expect(screen.queryByText("PRIMARY")).toBeNull();
+      expect(gets(calls)).toBe(0);
+    });
+
+    it("a done flag for this debrief wins: the done summary shows with the note, not the fallback", async () => {
+      const storage = new FakeStorage();
+      const endsAtMs = Date.now() - 1;
+      storage.setItem("bee6.debrief.done", String(endsAtMs));
+      const { fn } = server([q("q1")], false);
+      render(<Harness fetchFn={fn} storage={storage} endsAtMs={endsAtMs} demo expiredFallback={<p>FALLBACK</p>} note={<p>NOTE</p>} />);
+      expect(screen.getByRole("heading", { level: 1, name: "Debrief complete" })).toBeTruthy();
+      expect(screen.getByText("NOTE")).toBeTruthy();
+      expect(screen.queryByText("FALLBACK")).toBeNull();
+    });
+
+    it("a flow open when the hour ends keeps the Timeout screen (fallback never takes over), note under it", async () => {
+      const endsAtMs = Date.now() + 5_000;
+      const { fn } = server([q("q1")], true);
+      render(
+        <Harness fetchFn={fn} storage={new FakeStorage()} endsAtMs={endsAtMs} nowMs={Date.now()} demo expiredFallback={<p>FALLBACK</p>} note={<p>NOTE</p>} />,
+      );
+      await waitFor(() => expect(screen.getByText("Question 1 of 1")).toBeTruthy());
+      expect(screen.getByText("NOTE")).toBeTruthy();
+      expect(screen.queryByText("FALLBACK")).toBeNull();
+      fireEvent.click(screen.getByTestId("advance-now"));
+      await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Debrief closed" })).toBeTruthy());
+      expect(screen.getByText("NOTE")).toBeTruthy();
+      expect(screen.queryByText("FALLBACK")).toBeNull();
+    });
+
+    it("pilot (no demo): the fallback is ignored, the old closed arm (headline + primary) renders", async () => {
+      const { fn } = server([q("q1")], false);
+      render(
+        <Harness
+          fetchFn={fn}
+          storage={new FakeStorage()}
+          endsAtMs={Date.now() - 1}
+          expiredFallback={<p>FALLBACK</p>}
+          note={<p>NOTE</p>}
+          headline={<p>PAGE HEADLINE</p>}
+          primary={<p>PRIMARY</p>}
+        />,
+      );
+      expect(screen.getByText("PAGE HEADLINE")).toBeTruthy();
+      expect(screen.getByText("PRIMARY")).toBeTruthy();
+      expect(screen.queryByText("FALLBACK")).toBeNull();
+      // `note` is harmless here (the page never passes it on the pilot); only `demo` gates the fallback.
+      expect(screen.getByText("NOTE")).toBeTruthy();
     });
   });
 });

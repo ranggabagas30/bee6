@@ -749,6 +749,40 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
     expect(screen.queryByText(/Run today first/)).toBeNull();
   });
 
+  // R-25 idle fix (QA R25-001), case F: the page was closed during the hour, so on reload the debrief is expired
+  // and has no done flag. DebriefFlow hands the page's idle stage back instead of rendering nothing.
+  describe("an expired debrief that was never opened or finished (reload after the hour)", () => {
+    const expiredEnded = () => ({
+      ...demoConfig({ demo_session: { ...DEMO_PROFILE, days_done: 1, next_day: { allowed: true, reason: null } } }),
+      last_ended: { business_date: "2026-10-12", end_reason: "selesai", debrief_ends_at_ms: Date.parse(MON_2230_WIB) - 60_000 },
+    });
+
+    it("case F: no done flag shows the ended stage (Ended, locked Start, jump hint, one notice), not a blank page", async () => {
+      pinClock(MON_2230_WIB);
+      fetchCaptureConfig.mockResolvedValue(expiredEnded());
+      const { container } = await renderReady();
+      expect(await screen.findByRole("heading", { level: 1, name: "Ended" })).toBeTruthy();
+      expect(screen.getByText("Demo day finished. Switch to Supervisor to see it.")).toBeTruthy();
+      expect((screen.getByRole("button", { name: "Start unlocks tomorrow from 01:00" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.getByText("Use Jump to tomorrow in the judge guide")).toBeTruthy();
+      expect(screen.getAllByTestId("capture-notice")).toHaveLength(1);
+      expect(screen.queryByText("Debrief closed")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+      expect(container.querySelector(".b6-stage--done")).toBeTruthy();
+    });
+
+    it("case E guard: with the done flag the Debrief complete summary still shows, with one notice and no Ended stage", async () => {
+      pinClock(MON_2230_WIB);
+      seedDoneFlag(Date.parse(MON_2230_WIB) - 60_000);
+      fetchCaptureConfig.mockResolvedValue(expiredEnded());
+      await renderReady();
+      expect(await screen.findByRole("heading", { level: 1, name: "Debrief complete" })).toBeTruthy();
+      expect(screen.getByText("Use Jump to tomorrow in the judge guide")).toBeTruthy();
+      expect(screen.getAllByTestId("capture-notice")).toHaveLength(1);
+      expect(screen.queryByRole("heading", { name: "Ended" })).toBeNull();
+    });
+  });
+
   it("item 8: after End the sandbox never offers a 'tap Start again <date>' line", async () => {
     stubPreparingQuestions();
     await renderDemoRunning();
@@ -1722,6 +1756,8 @@ describe("CapturePage debrief wiring (R-18 Check button; R-19 §6.3: a sandbox o
   it("a sandbox device's debrief opens itself and offers 'Check for new questions'", async () => {
     await openDebrief(true);
     expect(screen.getByRole("button", { name: "Check for new questions" })).toBeTruthy();
+    // R-25 idle fix: the privacy notice moved into DebriefFlow's `note` prop; it must still sit under the question.
+    expect(screen.getAllByTestId("capture-notice")).toHaveLength(1);
   });
 
   it("pilot: the entry card must be tapped and the same debrief has no such button", async () => {
