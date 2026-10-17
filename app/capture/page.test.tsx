@@ -1490,6 +1490,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       postSessionEnd.mockImplementationOnce(() => new Promise((resolve) => { resolveEnd = resolve; }));
       await renderReady();
       fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+      fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
       await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
       expect((screen.getByRole("button", { name: "Sign out" }) as HTMLButtonElement).disabled).toBe(true);
       resolveEnd({ ok: true });
@@ -1526,6 +1527,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       stubPreparingQuestions();
       await renderWithOpen(open({ closing_reached: true }));
       fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+      fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
       await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
       const [, id, body] = postSessionEnd.mock.calls[0]! as [unknown, string, { started_at_ms: number; ended_at_ms: number; end_reason: string }];
       expect(id).toBe(SID);
@@ -1540,6 +1542,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       stubPreparingQuestions();
       await renderWithOpen(open({ closing_reached: true }));
       fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+      fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
       await waitFor(() => expect(screen.getByText("Preparing your questions")).toBeTruthy());
       expect(screen.queryByRole("button", { name: "Answer questions" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
@@ -1561,9 +1564,62 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       await renderWithOpen(open({ closing_reached: true }));
       postSessionEnd.mockImplementationOnce(async () => ({ ok: false, status: 500 }));
       fireEvent.click(await screen.findByRole("button", { name: "End today" }));
-      await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Could not process that. Try again."));
+      fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
+      // R25-002: the error shows inside the sheet (once), the sheet stays and "Yes, end" is enabled for the retry.
+      const dialog = await screen.findByRole("dialog", { name: "End today's operations?" });
+      await waitFor(() => expect(within(dialog).getByRole("alert").textContent).toBe("Could not process that. Try again."));
+      expect(screen.getAllByRole("alert")).toHaveLength(1);
+      expect((within(dialog).getByRole("button", { name: "Yes, end" }) as HTMLButtonElement).disabled).toBe(false);
+      fireEvent.click(within(dialog).getByRole("button", { name: "Not yet, keep going" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
       expect(screen.getByRole("heading", { name: "Today's session is still open" })).toBeTruthy();
       expect((screen.getByRole("button", { name: "End today" }) as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it("End today opens the End confirm first; Not yet keeps the open session, nothing posted", async () => {
+      await renderWithOpen(open({ closing_reached: true }));
+      fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+      const dialog = screen.getByRole("dialog", { name: "End today's operations?" });
+      expect(within(dialog).getByText("The 1-hour debrief starts now. This cannot be undone.")).toBeTruthy();
+      expect(postSessionEnd).not.toHaveBeenCalled();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Not yet, keep going" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.getByRole("button", { name: "End today" })).toBeTruthy();
+      expect(postSessionEnd).not.toHaveBeenCalled();
+    });
+
+    it("Yes, end ends THAT session once (selesai) and the debrief follows", async () => {
+      stubPreparingQuestions();
+      await renderWithOpen(open({ closing_reached: true }));
+      fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+      fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
+      await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+      const [, id, body] = postSessionEnd.mock.calls[0]! as [unknown, string, { end_reason: string }];
+      expect(id).toBe(SID);
+      expect(body.end_reason).toBe("selesai");
+      await waitFor(() => expect(screen.getByText("Preparing your questions")).toBeTruthy());
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Today's session is still open" })).toBeNull();
+    });
+
+    it("the sheet goes with the view when the 30 s re-poll drops the open session under it", async () => {
+      await renderWithOpen(open({ closing_reached: true }));
+      fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+      expect(screen.getByRole("dialog", { name: "End today's operations?" })).toBeTruthy();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000);
+      });
+      await waitFor(() => expect(screen.queryByRole("heading", { name: "Today's session is still open" })).toBeNull());
+      expect(screen.queryByRole("dialog", { name: "End today's operations?" })).toBeNull();
+      expect(postSessionEnd).not.toHaveBeenCalled();
+    });
+
+    it("Cancel today stays a single tap (no confirm)", async () => {
+      await renderWithOpen(open({ closing_reached: false }));
+      fireEvent.click(await screen.findByRole("button", { name: "Cancel today" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      await waitFor(() => expect(postSessionDiscard).toHaveBeenCalledTimes(1));
+      expect(screen.queryByRole("dialog")).toBeNull();
     });
 
     it("Cancel today refused with 409 closing_reached (closing was marked meanwhile) becomes End today", async () => {
