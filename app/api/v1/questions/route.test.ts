@@ -6,7 +6,7 @@ import * as debriefStoreModule from "@/lib/firestore/debrief-store";
 import * as dayStoreModule from "@/lib/firestore/day-store";
 import type { DebriefStore } from "@/lib/debrief/service";
 import type { ConfirmStore, DayStore } from "@/lib/day/service";
-import type { LastEnded, Question } from "@/lib/firestore/schema";
+import type { LastEnded, Question, Thread } from "@/lib/firestore/schema";
 
 vi.mock("@/lib/http/guard");
 vi.mock("@/lib/firestore/debrief-store");
@@ -44,6 +44,7 @@ function fakeStore(overrides: Partial<DebriefStore> = {}): DebriefStore {
     getLatestEndedSession: async () => null,
     listSessionLines: async () => [],
     listLabelledLineIds: async () => new Set(),
+    getThread: async () => null,
     ...overrides,
   };
 }
@@ -193,6 +194,139 @@ describe("GET /api/v1/questions", () => {
       const response = await GET(getRequest());
       const body = await response.json();
       expect(Object.keys(body.data).sort()).toEqual(["debrief", "questions"]);
+    });
+  });
+
+  describe("demo-feedback-2 item 10: `lines` on a sandbox outlet only", () => {
+    const activeLastEnded = (): LastEnded => ({
+      business_date: "2026-10-07",
+      end_reason: "selesai",
+      ended_at_ms: Date.now() - 60_000,
+      debrief_ends_at_ms: Date.now() + 3_600_000,
+    });
+    const deviceClaims = () =>
+      vi.spyOn(guardModule, "requireDevice").mockResolvedValueOnce({ outlet_id: "outlet-1", device_id: "device-1", role: "device" });
+    const aThread = (over: Partial<Thread> = {}): Thread => ({
+      outlet_id: "outlet-1",
+      thread_id: "t1",
+      device_id: "device-1",
+      category: "CUSTOMER_SERVICE",
+      confidence: 0.6,
+      line_ids: ["l0", "l1"],
+      evidence_line_ids: ["l1"],
+      lines: [
+        { line_id: "l0", start_ms: 1, end_ms: 2, text: "Ari bilang kopi habis." },
+        { line_id: "l1", start_ms: 3, end_ms: 4, text: "Pelanggan tanya roti tawar habis." },
+      ],
+      first_line_start_ms: 1,
+      last_line_end_ms: 4,
+      summary: "s",
+      label_conflict: false,
+      status: "open",
+      gate: {
+        verdict: "question",
+        fired_rule: "below_threshold",
+        checks: [{ rule: "invalid_label", passed: true }],
+        category: "CUSTOMER_SERVICE",
+        confidence: 0.6,
+        threshold: 0.9,
+        evidence_count: 1,
+        gate_version: "1",
+      },
+      created_at_ms: 0,
+      updated_at_ms: 0,
+      ...over,
+    });
+
+    it("sandbox: the question carries the scrubbed evidence line; the store is built from the verified claims", async () => {
+      deviceClaims();
+      const factory = vi
+        .spyOn(debriefStoreModule, "firestoreDebriefStore")
+        .mockReturnValueOnce(
+          fakeStore({
+            getOutletCalendar: async () => ({ tz: "Asia/Jakarta", retention_days: 14, sandbox: true }),
+            getLastEnded: async () => activeLastEnded(),
+            listOpenQuestions: async () => [makeQuestion()],
+            listStaffNames: async () => ["Ari Demo"],
+            getThread: async () => aThread(),
+          }),
+        );
+      const response = await GET(getRequest());
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.data.questions[0].lines).toEqual(["Pelanggan tanya roti tawar habis."]);
+      expect(factory).toHaveBeenCalledWith("outlet-1");
+    });
+
+    it("sandbox: a thread of another device is not returned", async () => {
+      deviceClaims();
+      vi.spyOn(debriefStoreModule, "firestoreDebriefStore").mockReturnValueOnce(
+        fakeStore({
+          getOutletCalendar: async () => ({ tz: "Asia/Jakarta", retention_days: 14, sandbox: true }),
+          getLastEnded: async () => activeLastEnded(),
+          listOpenQuestions: async () => [makeQuestion()],
+          getThread: async () => aThread({ device_id: "device-2" }),
+        }),
+      );
+      const body = await (await GET(getRequest())).json();
+      expect(body.data.questions[0]).not.toHaveProperty("lines");
+    });
+
+    it("pilot: the question keeps exactly its five keys even when a readable thread exists", async () => {
+      deviceClaims();
+      const getThread = vi.fn(async () => aThread());
+      vi.spyOn(debriefStoreModule, "firestoreDebriefStore").mockReturnValueOnce(
+        fakeStore({
+          getLastEnded: async () => activeLastEnded(),
+          listOpenQuestions: async () => [makeQuestion()],
+          getThread,
+        }),
+      );
+      const body = await (await GET(getRequest())).json();
+      expect(Object.keys(body.data.questions[0]).sort()).toEqual(["category", "end_hm", "kind", "question_id", "start_hm"]);
+      expect(getThread).not.toHaveBeenCalled();
+    });
+
+    it("an error response and the console never carry line text", async () => {
+      deviceClaims();
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.spyOn(debriefStoreModule, "firestoreDebriefStore").mockReturnValueOnce(
+        fakeStore({
+          getOutletCalendar: async () => {
+            throw new Error("boom: Pelanggan tanya roti tawar habis.");
+          },
+          getLastEnded: async () => activeLastEnded(),
+          listOpenQuestions: async () => [makeQuestion()],
+          getThread: async () => aThread(),
+        }),
+      );
+      const response = await GET(getRequest());
+      const text = await response.text();
+      expect(response.status).toBeGreaterThanOrEqual(500);
+      expect(text).not.toContain("Pelanggan");
+      expect(JSON.stringify([...logSpy.mock.calls, ...errSpy.mock.calls])).not.toContain("tanya roti");
+      logSpy.mockRestore();
+      errSpy.mockRestore();
+    });
+
+    it("a successful sandbox response logs counts only", async () => {
+      deviceClaims();
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      vi.spyOn(debriefStoreModule, "firestoreDebriefStore").mockReturnValueOnce(
+        fakeStore({
+          getOutletCalendar: async () => ({ tz: "Asia/Jakarta", retention_days: 14, sandbox: true }),
+          getLastEnded: async () => activeLastEnded(),
+          listOpenQuestions: async () => [makeQuestion()],
+          getThread: async () => aThread(),
+        }),
+      );
+      await GET(getRequest());
+      const logged = JSON.stringify(logSpy.mock.calls);
+      expect(logged).toContain("debrief.lines");
+      expect(logged).not.toContain("roti");
+      expect(logged).not.toContain("kopi");
+      logSpy.mockRestore();
     });
   });
 

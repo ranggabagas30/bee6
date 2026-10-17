@@ -48,6 +48,7 @@ function fakeStore(overrides: Partial<DebriefStore> = {}): DebriefStore {
     getLatestEndedSession: async () => null,
     listSessionLines: async () => [],
     listLabelledLineIds: async () => new Set(),
+    getThread: async () => null,
     ...overrides,
   };
   return store;
