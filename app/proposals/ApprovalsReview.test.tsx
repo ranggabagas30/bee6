@@ -544,7 +544,7 @@ describe("ApprovalsReview — page-2 layout (R-25 T11)", () => {
 describe("ApprovalsReview — Bahasa", () => {
   it("renders the provisional Bahasa copy", async () => {
     render(<ApprovalsReview auth={AUTH} lang="id" />);
-    expect((await screen.findByRole("heading", { level: 1 })).textContent).toBe("Proposal 1");
+    expect(await screen.findByRole("heading", { level: 1, name: "Proposal 1" })).toBeTruthy();
     expect(screen.getByText("PERSETUJUAN · 1 DARI 2 · SISA 2")).toBeTruthy();
     expect(screen.getByRole("heading", { level: 2, name: "Keputusan Anda" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Setujui" })).toBeTruthy();
