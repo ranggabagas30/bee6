@@ -358,6 +358,28 @@ describe("RoleSignIn on a demo deployment (demo=true)", () => {
     expect(screen.getAllByRole("radio")).toHaveLength(3);
   });
 
+  it("tabbed path: the URL sync re-rendering with initialRole supervisor or owner does not drop the radios (mode frozen at first render)", async () => {
+    for (const next of ["supervisor", "owner"] as const) {
+      const view = renderSignIn({ demo: true, initialRole: "staff" });
+      expect(screen.getAllByRole("radio")).toHaveLength(3);
+      view.rerender(
+        <LangProvider initial="en">
+          <RoleSignIn config={CONFIG} demo initialRole={next} />
+        </LangProvider>,
+      );
+      expect(screen.getAllByRole("radio")).toHaveLength(3);
+      expect(screen.queryByText(/^Sign in as (Supervisor|Owner)$/)).toBeNull();
+      cleanup();
+    }
+    const bare = renderSignIn({ demo: true, initialRole: null });
+    bare.rerender(
+      <LangProvider initial="en">
+        <RoleSignIn config={CONFIG} demo initialRole="supervisor" />
+      </LangProvider>,
+    );
+    expect(screen.getAllByRole("radio")).toHaveLength(3);
+  });
+
   it("solo supervisor: the typed demo credential still opens the demo (startOrSwitch once, role from the credential), and a real account still goes to Firebase", async () => {
     startOrSwitch.mockResolvedValue({ kind: "started" });
     await renderDemo("supervisor");

@@ -78,6 +78,9 @@ export function RoleSignIn({ config, demo, initialRole, headingLevel = 1, redire
   const router = useRouter();
   const [role, setRole] = useState<SignInRole | null>(initialRole);
   const [paired, setPaired] = useState<PairedInfo | null>(null);
+  // Solo mode is decided by the first render only: chooseRole() syncs ?as= with router.replace, the page is dynamic, and the
+  // refetch re-renders this component with a new initialRole. Deriving soloRole from the prop would make the radios vanish.
+  const [soloRole] = useState<SignInRole | null>(() => (demo && (initialRole === "supervisor" || initialRole === "owner") ? initialRole : null));
   const emailFields = useEmailFields();
   const panelRef = useRef<HTMLDivElement>(null);
   // Armed by a pointer press (tap or click) on a role radio only. A native radio group also fires change on arrow keys, and
@@ -182,7 +185,6 @@ export function RoleSignIn({ config, demo, initialRole, headingLevel = 1, redire
   const panel = <DemoHooksConsumer>{renderPanel}</DemoHooksConsumer>;
   const Heading = headingLevel === 1 ? "h1" : "h2";
   // Solo mode: a demo deployment on the supervisor or owner path shows that one role's form and no chooser.
-  const soloRole = demo && (initialRole === "supervisor" || initialRole === "owner") ? initialRole : null;
   return (
     <section className={styles.screen}>
       <Heading className={headingLevel === 1 ? "b6-h1-web" : undefined}>{t(lang, "C-signin-title")}</Heading>
