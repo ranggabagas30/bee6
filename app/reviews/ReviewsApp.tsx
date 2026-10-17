@@ -13,7 +13,8 @@ import {
   ListReviewsResponseSchema,
   type ListReviewsResponse,
 } from "@/lib/reviews/contract";
-import { WebTopBar } from "@/app/web/WebTopBar";
+import { WebShell } from "@/app/web/WebShell";
+import { PageHead } from "@/app/web/PageHead";
 import { ReviewCard } from "@/app/reviews/ReviewCard";
 import { VerdictPanel } from "@/app/reviews/VerdictPanel";
 import { EmptyState } from "@/app/web/EmptyState";
@@ -42,7 +43,6 @@ type View =
   | { kind: "forbidden" }
   | { kind: "error" };
 
-const PAGE_STYLE: CSSProperties = { maxWidth: 720, margin: "0 auto", padding: 16, boxSizing: "border-box" };
 const LINE_STYLE: CSSProperties = { margin: "0 0 8px 0", overflowWrap: "anywhere" };
 const SECTION_STYLE: CSSProperties = { marginTop: 24, overflowWrap: "anywhere" };
 const BANNER_STYLE: CSSProperties = { margin: "16px 0 8px 0", overflowWrap: "anywhere" };
@@ -157,35 +157,32 @@ export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
 
   if (!config || !auth) {
     return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={null} showSignOut={false} />
+      <WebShell auth={null}>
         <p role="status" aria-live="polite">
           {t(lang, "C-signin-config")}
         </p>
-      </main>
+      </WebShell>
     );
   }
 
   if (authUser.status === "loading" || authUser.status === "signed_out" || role === null) {
     return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut current="reviews" />
+      <WebShell auth={auth} current="reviews">
         <p role="status" aria-live="polite">
           {t(lang, "C-day-loading")}
         </p>
-      </main>
+      </WebShell>
     );
   }
 
   if (role === "other" || view.kind === "forbidden") {
     return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut current="reviews" />
-        <h1>{t(lang, "C-rev-title")}</h1>
+      <WebShell auth={auth} current="reviews">
+        <PageHead title={t(lang, "C-rev-title")} />
         <p role="status" aria-live="polite">
           {t(lang, "C-rev-err-forbidden")}
         </p>
-      </main>
+      </WebShell>
     );
   }
 
@@ -196,69 +193,70 @@ export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
   const fastForwardAvailable = view.kind === "ok" && view.data.fast_forward_available;
 
   return (
-    <main style={PAGE_STYLE}>
-      <WebTopBar auth={auth} showSignOut current="reviews" />
-      <h1>{t(lang, "C-rev-title")}</h1>
+    <WebShell auth={auth} current="reviews">
+      <PageHead title={t(lang, "C-rev-title")} sub={t(lang, "C-web-reviews-sub")} />
 
-      <p
-        ref={bannerRef}
-        tabIndex={-1}
-        role="status"
-        aria-live="polite"
-        style={banner ? BANNER_STYLE : BANNER_EMPTY_STYLE}
-      >
-        {banner ? t(lang, banner) : ""}
-      </p>
-
-      {view.kind === "loading" && (
-        <p role="status" aria-live="polite">
-          {t(lang, "C-day-loading")}
+      <div>
+        <p
+          ref={bannerRef}
+          tabIndex={-1}
+          role="status"
+          aria-live="polite"
+          style={banner ? BANNER_STYLE : BANNER_EMPTY_STYLE}
+        >
+          {banner ? t(lang, banner) : ""}
         </p>
-      )}
 
-      {view.kind === "error" && (
-        <div>
-          <p role="status" aria-live="polite" style={LINE_STYLE}>
-            {t(lang, "C-srv-generic")}
+        {view.kind === "loading" && (
+          <p role="status" aria-live="polite">
+            {t(lang, "C-day-loading")}
           </p>
-          <button type="button" onClick={retry} style={BUTTON_STYLE}>
-            {t(lang, "C-rev-retry")}
-          </button>
-        </div>
-      )}
+        )}
 
-      {fastForwardAvailable && (
-        <div>
-          <button type="button" disabled={ffBusy} onClick={() => void fastForward()} style={BUTTON_STYLE}>
-            {t(lang, "C-rev-ff")}
-          </button>
-          <p style={SIMULATED_LABEL_STYLE}>{t(lang, "C-rev-simulated")}</p>
-        </div>
-      )}
+        {view.kind === "error" && (
+          <div>
+            <p role="status" aria-live="polite" style={LINE_STYLE}>
+              {t(lang, "C-srv-generic")}
+            </p>
+            <button type="button" onClick={retry} style={BUTTON_STYLE}>
+              {t(lang, "C-rev-retry")}
+            </button>
+          </div>
+        )}
 
-      {view.kind === "ok" && open.length === 0 && decided.length === 0 && (
-        <EmptyState title={t(lang, "C-web-empty-rev-h")} detail={t(lang, "C-web-empty-rev-p")} />
-      )}
+        {fastForwardAvailable && (
+          <div>
+            <button type="button" disabled={ffBusy} onClick={() => void fastForward()} style={BUTTON_STYLE}>
+              {t(lang, "C-rev-ff")}
+            </button>
+            <p style={SIMULATED_LABEL_STYLE}>{t(lang, "C-rev-simulated")}</p>
+          </div>
+        )}
 
-      {open.length > 0 && (
-        <section style={SECTION_STYLE} aria-labelledby="rev-list-open">
-          <h2 id="rev-list-open">{t(lang, "C-rev-open")}</h2>
-          {open.map((review) => (
-            <ReviewCard key={review.version} review={review} lang={lang}>
-              <VerdictPanel auth={auth} role={role} review={review} lang={lang} onSettled={handleSettled} />
-            </ReviewCard>
-          ))}
-        </section>
-      )}
+        {view.kind === "ok" && open.length === 0 && decided.length === 0 && (
+          <EmptyState title={t(lang, "C-web-empty-rev-h")} detail={t(lang, "C-web-empty-rev-p")} />
+        )}
 
-      {decided.length > 0 && (
-        <section style={SECTION_STYLE} aria-labelledby="rev-list-decided">
-          <h2 id="rev-list-decided">{t(lang, "C-rev-decided")}</h2>
-          {decided.map((review) => (
-            <ReviewCard key={review.version} review={review} lang={lang} />
-          ))}
-        </section>
-      )}
-    </main>
+        {open.length > 0 && (
+          <section style={SECTION_STYLE} aria-labelledby="rev-list-open">
+            <h2 id="rev-list-open">{t(lang, "C-rev-open")}</h2>
+            {open.map((review) => (
+              <ReviewCard key={review.version} review={review} lang={lang}>
+                <VerdictPanel auth={auth} role={role} review={review} lang={lang} onSettled={handleSettled} />
+              </ReviewCard>
+            ))}
+          </section>
+        )}
+
+        {decided.length > 0 && (
+          <section style={SECTION_STYLE} aria-labelledby="rev-list-decided">
+            <h2 id="rev-list-decided">{t(lang, "C-rev-decided")}</h2>
+            {decided.map((review) => (
+              <ReviewCard key={review.version} review={review} lang={lang} />
+            ))}
+          </section>
+        )}
+      </div>
+    </WebShell>
   );
 }

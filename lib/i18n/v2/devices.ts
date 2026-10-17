@@ -10,6 +10,18 @@
  * - no machine translation; mark unreviewed Bahasa with a trailing `// PROVISIONAL` comment as the base table does.
  */
 
-export const devicesID = {} as const satisfies Record<string, string>;
+/*
+ * R-25 T8 (decision R11, D2-05 OUT): /devices is a tidy "coming soon" placeholder in the page-2 look. No device row, no
+ * device id and no pairing code on a supervisor screen (CLAUDE.md hard rule 7).
+ */
+export const devicesID = {
+  "C-web-devices-sub": "HP yang mendengarkan toko ini.", // PROVISIONAL
+  "C-web-devices-soon-kick": "SEGERA HADIR", // PROVISIONAL
+  "C-web-devices-soon-p": "Kode pemasangan untuk HP baru akan dibuat di sini. Untuk demo ini, HP staf sudah disiapkan.", // PROVISIONAL
+} as const satisfies Record<string, string>;
 
-export const devicesEN: Record<keyof typeof devicesID, string> = {};
+export const devicesEN: Record<keyof typeof devicesID, string> = {
+  "C-web-devices-sub": "Phones that listen for this shop.",
+  "C-web-devices-soon-kick": "COMING SOON",
+  "C-web-devices-soon-p": "Pairing codes for a new phone will be made here. For this demo the staff phone is already set up.",
+};

@@ -1,23 +1,17 @@
-import type { CSSProperties } from "react";
+"use client";
+
+import { Segmented, type SegmentedOption } from "@/app/ui";
 import { useLang } from "@/lib/i18n/context";
 import { t } from "@/lib/i18n/dict";
 import type { WorkCategory } from "@/lib/pipeline/categories";
 import { CATEGORY_KEY, categoryOptions, type CategoryFilterValue } from "@/lib/day/view-model";
+import styles from "@/app/day/day.module.css";
 
 /**
- * The category filter row (R-06 Task 7.4 item 3). Rendered only by the
- * caller when there is at least one thread. Pure chips: no fetch, selection
- * lives in `DayRecordView`.
+ * The category filter row (R-06 Task 7.4 item 3; board D2-02 / R-25 T9: a plain `Segmented` above the notes card).
+ * Rendered only by the caller when there is at least one thread. Pure chips: no fetch, selection lives in
+ * `DayRecordView`. The group wraps onto more lines when the categories do not fit one line.
  */
-
-const CHIP_STYLE: CSSProperties = {
-  minHeight: 48,
-  padding: "0 12px",
-  fontSize: 16,
-  borderRadius: 8,
-  cursor: "pointer",
-};
-
 export function CategoryFilter({
   threads,
   unlabelledCount = 0,
@@ -31,43 +25,25 @@ export function CategoryFilter({
   onChange: (value: CategoryFilterValue) => void;
 }) {
   const { lang } = useLang();
-  const options = categoryOptions(threads);
+  const options: SegmentedOption<CategoryFilterValue>[] = [
+    { value: "ALL", label: t(lang, "C-day-filter-all", { N: threads.length + unlabelledCount }) },
+    ...categoryOptions(threads).map(({ category, count }) => ({
+      value: category,
+      label: t(lang, "C-day-filter-cat", { label: t(lang, CATEGORY_KEY[category]), N: count }),
+    })),
+    ...(unlabelledCount > 0
+      ? [{ value: "UNLABELLED" as const, label: t(lang, "C-day-filter-unlabelled", { N: unlabelledCount }) }]
+      : []),
+  ];
 
   return (
-    <div
-      role="group"
-      aria-label={t(lang, "C-day-filter-group")}
-      style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}
-    >
-      <button
-        type="button"
-        aria-pressed={value === "ALL"}
-        onClick={() => onChange("ALL")}
-        style={CHIP_STYLE}
-      >
-        {t(lang, "C-day-filter-all", { N: threads.length + unlabelledCount })}
-      </button>
-      {options.map(({ category, count }) => (
-        <button
-          key={category}
-          type="button"
-          aria-pressed={value === category}
-          onClick={() => onChange(category)}
-          style={CHIP_STYLE}
-        >
-          {t(lang, "C-day-filter-cat", { label: t(lang, CATEGORY_KEY[category]), N: count })}
-        </button>
-      ))}
-      {unlabelledCount > 0 && (
-        <button
-          type="button"
-          aria-pressed={value === "UNLABELLED"}
-          onClick={() => onChange("UNLABELLED")}
-          style={CHIP_STYLE}
-        >
-          {t(lang, "C-day-filter-unlabelled", { N: unlabelledCount })}
-        </button>
-      )}
-    </div>
+    <Segmented
+      variant="plain"
+      label={t(lang, "C-day-filter-group")}
+      options={options}
+      value={value}
+      onChange={onChange}
+      className={styles.filter}
+    />
   );
 }

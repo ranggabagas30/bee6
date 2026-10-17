@@ -1,7 +1,7 @@
-import type { ReactNode } from "react";
+import type { ComponentPropsWithRef, ReactNode } from "react";
 import { cx } from "@/app/ui/cx";
 
-export interface DialogSheetProps {
+export interface DialogSheetProps extends Omit<ComponentPropsWithRef<"div">, "children" | "className" | "role" | "aria-modal" | "aria-labelledby" | "aria-describedby"> {
   /** Id of the element that names the dialog (its title). Required: a dialog without a name is not announced. */
   labelledBy: string;
   /** Id of the element that describes it (the body paragraph), when there is one. */
@@ -15,12 +15,14 @@ export interface DialogSheetProps {
 /**
  * Modal dialog shell: dim backdrop plus the sheet (`role="dialog"`, `aria-modal`). Markup and looks only.
  * The caller owns what makes a dialog work: moving focus in, trapping Tab, Escape, restoring focus, and any live region.
+ * Other div props and `ref` (React 19 ref-as-prop) go onto the dialog element, so a caller can pass `tabIndex={-1}` and focus it.
  * Use `.b6-dsheet__title` on the heading and `.b6-dsheet__body` on the paragraph.
  */
-export function DialogSheet({ labelledBy, describedBy, children, className, centred = false }: DialogSheetProps) {
+export function DialogSheet({ labelledBy, describedBy, children, className, centred = false, ...rest }: DialogSheetProps) {
   return (
     <div className="b6-dsheet-backdrop">
       <div
+        {...rest}
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}

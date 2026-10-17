@@ -16,6 +16,7 @@ import { redirectTarget } from "@/app/sign-in/redirect-target";
 import type { DemoAccessProps, DemoFill, DemoPanelHooks } from "@/app/sign-in/panel-hooks";
 import { DemoHooksConsumer } from "@/app/sign-in/demo-hooks";
 import { SIGN_IN_ROLES, type SignInRole } from "@/app/sign-in/roles";
+import styles from "@/app/sign-in/sign-in.module.css";
 
 /**
  * The official sign-in (R-18 P1): a native radio group for Staff / Supervisor / Owner and the matching panel.
@@ -38,26 +39,10 @@ const ROLE_KEY: Record<SignInRole, DictKey> = {
   owner: "C-signin-role-owner",
 };
 
-const FIELDSET_STYLE: CSSProperties = { border: 0, margin: "0 0 16px 0", padding: 0, minWidth: 0 };
-const LEGEND_STYLE: CSSProperties = { padding: 0, marginBottom: 8, fontWeight: 700 };
-const RADIOS_STYLE: CSSProperties = { display: "flex", flexWrap: "wrap", gap: 8 };
 const LINK_STYLE: CSSProperties = { display: "inline-flex", alignItems: "center", minHeight: 48, padding: "0 4px", fontSize: 16 };
 
-function radioLabelStyle(selected: boolean): CSSProperties {
-  return {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    boxSizing: "border-box",
-    flex: "1 1 96px",
-    minHeight: 48,
-    padding: "0 12px",
-    border: selected ? "3px solid currentColor" : "1px solid currentColor",
-    borderRadius: 8,
-    fontWeight: selected ? 700 : 400,
-    cursor: "pointer",
-  };
-}
+/** The look is in sign-in.module.css; only the tap height stays here (the label is a 48 px target at any width). */
+const ROLE_LABEL_STYLE: CSSProperties = { minHeight: 48 };
 
 const DEVICE_TOKEN_KEY = "bee6.device_token";
 
@@ -162,7 +147,7 @@ export function RoleSignIn({ config, demo, initialRole, headingLevel = 1, redire
     }
     return (
       <>
-        <p>{t(lang, "C-signin-help")}</p>
+        <p className="b6-sub">{t(lang, "C-signin-help")}</p>
         <EmailSignInForm
           auth={auth}
           disabled={busy}
@@ -206,13 +191,13 @@ export function RoleSignIn({ config, demo, initialRole, headingLevel = 1, redire
   const panel = <DemoHooksConsumer>{renderPanel}</DemoHooksConsumer>;
   const Heading = headingLevel === 1 ? "h1" : "h2";
   return (
-    <section>
-      <Heading>{t(lang, "C-signin-title")}</Heading>
-      <fieldset style={FIELDSET_STYLE}>
-        <legend style={LEGEND_STYLE}>{t(lang, "C-signin-as")}</legend>
-        <div style={RADIOS_STYLE}>
+    <section className={styles.screen}>
+      <Heading className={headingLevel === 1 ? "b6-h1-web" : undefined}>{t(lang, "C-signin-title")}</Heading>
+      <fieldset className={styles.fieldset}>
+        <legend className={styles.legend}>{t(lang, "C-signin-as")}</legend>
+        <div className={styles.roles}>
           {SIGN_IN_ROLES.map((r) => (
-            <label key={r} style={radioLabelStyle(role === r)} onPointerDown={() => (pointerChange.current = true)}>
+            <label key={r} className={styles.role} style={ROLE_LABEL_STYLE} onPointerDown={() => (pointerChange.current = true)}>
               <input
                 type="radio"
                 name="signin-role"
