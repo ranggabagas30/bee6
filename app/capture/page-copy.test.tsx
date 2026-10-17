@@ -285,18 +285,18 @@ describe("capture page: the End and Cancel panels in the sandbox (R-18)", () => 
     expect(panelText()).not.toMatch(/ditekan lagi|12 Okt|01:00/);
   });
 
-  it("EN sandbox, Cancel: Start can be tapped again now, no date", async () => {
+  // R-25 (ruling R10, board P2-05): a sandbox has no "Cancel session" button any more. The one red footer link
+  // opens the sign-out dialog, which cancels today's session; the cancel panel and its copy stay for the pilot.
+  it("EN sandbox, running: no Cancel session button; the footer link says what it does", async () => {
     await openRunning("en", SANDBOX, "Start");
-    fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
-    expect(panelText()).toContain("You can tap Start again straight away.");
-    expect(panelText()).not.toMatch(/Mon 12 Oct|Tue 13 Oct|01:00/);
+    expect(screen.queryByRole("button", { name: "Cancel session" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Sign out (cancels today's session)" })).toBeTruthy();
   });
 
-  it("ID sandbox, Cancel: Mulai bisa ditekan segera, no date", async () => {
+  it("ID sandbox, running: no Batalkan sesi button; the footer link is in Bahasa", async () => {
     await openRunning("id", SANDBOX, "Mulai");
-    fireEvent.click(screen.getByRole("button", { name: "Batalkan sesi" }));
-    expect(panelText()).toContain("Mulai baru bisa ditekan segera.");
-    expect(panelText()).not.toMatch(/ditekan lagi|12 Okt|13 Okt|01:00/);
+    expect(screen.queryByRole("button", { name: "Batalkan sesi" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Keluar (membatalkan sesi hari ini)" })).toBeTruthy();
   });
 
   it("pilot Cancel panel is unchanged: it still names the next Start day and 01:00 (the pilot End panel is covered in page.test.tsx)", async () => {
