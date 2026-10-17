@@ -1113,6 +1113,9 @@
 .b6-codefield::placeholder {
   color: var(--b6-faint);
   opacity: 1;
+  /* six dots must fit a 280 px content box at 360 (QA M-003): the hint is spaced tighter than the digits */
+  letter-spacing: 4px;
+  text-indent: 4px;
 }
 
 .b6-field {
