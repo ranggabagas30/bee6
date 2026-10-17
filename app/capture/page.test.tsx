@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEBRIEF_DONE_FLAG_KEY, DEBRIEF_DONE_SUMMARY_KEY } from "@/lib/debrief/constants";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
@@ -1495,6 +1495,92 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       expect((screen.getByRole("button", { name: "Sign out" }) as HTMLButtonElement).disabled).toBe(true);
       resolveEnd({ ok: true });
       await waitFor(() => expect((screen.getByRole("button", { name: "Sign out" }) as HTMLButtonElement).disabled).toBe(false));
+    });
+  });
+
+  // R25-003 (boards L2-*): from 900 px the one sign-out control is the header's secondary button, no footer link.
+  describe("sign-out at >= 900 px (R25-003)", () => {
+    beforeEach(() => {
+      vi.stubGlobal("matchMedia", (q: string) => ({
+        matches: q === "(min-width: 900px)",
+        media: q,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }));
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    const headerOf = (container: HTMLElement) => within(container.querySelector("header")!);
+    const mainOf = (container: HTMLElement) => within(container.querySelector("main")!);
+
+    it("idle: the header carries Sign out and the footer has none; the header button signs out at once", async () => {
+      pinClock(MON_2230_WIB);
+      fetchCaptureConfig.mockResolvedValue(demoConfig());
+      const { container } = await renderReady();
+      await screen.findByRole("button", { name: "Start" });
+      expect(headerOf(container).getByRole("button", { name: "Sign out" })).toBeTruthy();
+      expect(mainOf(container).queryByRole("button", { name: /Sign out/ })).toBeNull();
+      fireEvent.click(headerOf(container).getByRole("button", { name: "Sign out" }));
+      expect(screen.queryByRole("dialog")).toBeNull(); // no session: nothing to ask
+      expect(clearDeviceAuth).toHaveBeenCalledTimes(1);
+      expect(replace).toHaveBeenCalledWith("/");
+    });
+
+    it("running before closing: the header button opens the cancel-today dialog; no red footer link anywhere", async () => {
+      await startDemoSession();
+      const container = document.body;
+      expect(headerOf(container).getByRole("button", { name: "Sign out" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: SIGN_OUT_RUNNING_LINK })).toBeNull();
+      expect(mainOf(container).queryByRole("button", { name: /Sign out/ })).toBeNull();
+      fireEvent.click(headerOf(container).getByRole("button", { name: "Sign out" }));
+      expect(screen.getByRole("dialog", { name: "Sign out and cancel today?" })).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Keep listening" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(postSessionDiscard).not.toHaveBeenCalled();
+    });
+
+    it("after closing: the header button opens the closed dialog (nothing is deleted)", async () => {
+      await startDemoSession();
+      await reachClosing();
+      const header = headerOf(document.body);
+      fireEvent.click(header.getByRole("button", { name: "Sign out" }));
+      expect(screen.getByRole("dialog", { name: "Sign out?" })).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Stay" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(postSessionDiscard).not.toHaveBeenCalled();
+      expect(clearDeviceAuth).not.toHaveBeenCalled();
+    });
+
+    it("open-session view: the header carries Sign out, the footer has none", async () => {
+      vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+      vi.setSystemTime(new Date(MON_2230_WIB));
+      fetchCaptureConfig.mockResolvedValue(demoConfig({ open_session: open({ closing_reached: true }), closing_reached: true }));
+      const { container } = await renderReady();
+      await screen.findByRole("heading", { name: "Today's session is still open" });
+      expect(headerOf(container).getByRole("button", { name: "Sign out" })).toBeTruthy();
+      expect(mainOf(container).queryByRole("button", { name: /Sign out/ })).toBeNull();
+    });
+
+    it("the header button is disabled while the Start request is in flight", async () => {
+      vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+      vi.setSystemTime(new Date(MON_2230_WIB));
+      fetchCaptureConfig.mockResolvedValue(demoConfig());
+      let resolveStart: (v: { ok: boolean; status?: number }) => void = () => {};
+      postSessionStart.mockImplementationOnce(() => new Promise((resolve) => { resolveStart = resolve; }));
+      const { container } = await renderReady();
+      fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+      await waitFor(() => expect(postSessionStart).toHaveBeenCalledTimes(1));
+      expect((headerOf(container).getByRole("button", { name: "Sign out" }) as HTMLButtonElement).disabled).toBe(true);
+      resolveStart({ ok: false, status: 500 });
+      await waitFor(() => expect((headerOf(container).getByRole("button", { name: "Sign out" }) as HTMLButtonElement).disabled).toBe(false));
+    });
+
+    it("pilot (no sandbox): no header Sign out even when wide", async () => {
+      pinClock(MON_2230_WIB);
+      fetchCaptureConfig.mockResolvedValue(pilotConfig());
+      await renderReady();
+      await screen.findByRole("button", { name: "Start" });
+      expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
     });
   });
 
