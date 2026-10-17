@@ -15,7 +15,7 @@ vi.mock("@/lib/auth/client/firebase-client", () => ({ getClientAuth: () => ({ ki
 
 vi.mock("@/app/demo/guide-bridge", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/app/demo/guide-bridge")>()),
-  publishPairDone: vi.fn(),
+  publishPairDone: vi.fn(() => () => {}),
 }));
 
 const startOrSwitch = vi.fn<(role: string, options: { navigate?: (path: string) => void }) => Promise<StartDemoResult>>();

@@ -55,9 +55,7 @@ export function PairedChecklist({ outletId, auth, headingLevel = 1, demo = false
   // pairing into an error: step 3 simply stays hidden.
   const [untilHm, setUntilHm] = useState<string | undefined>(undefined);
 
-  useEffect(() => {
-    publishPairDone();
-  }, []);
+  useEffect(() => publishPairDone(), []);
 
   useEffect(() => {
     if (demo || !auth) return;

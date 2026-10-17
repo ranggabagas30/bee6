@@ -6,7 +6,7 @@ import { axeViolations } from "@/lib/testing/axe";
 import { StaffTopBar, type StaffTopBarProps } from "@/app/shop/StaffTopBar";
 
 let expiry: string | null = null;
-vi.mock("@/app/demo/DemoBar", () => ({ useDemoExpiryHHMM: () => expiry }));
+vi.mock("@/app/demo/demo-expiry", () => ({ useDemoExpiryHHMM: () => expiry }));
 
 afterEach(() => {
   cleanup();

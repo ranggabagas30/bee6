@@ -3,7 +3,7 @@
 import { useLang } from "@/lib/i18n/context";
 import { t } from "@/lib/i18n/dict";
 import { LangSwitch } from "@/app/shop/LangSwitch";
-import { useDemoExpiryHHMM } from "@/app/demo/DemoBar";
+import { useDemoExpiryHHMM } from "@/app/demo/demo-expiry"; // Firebase-free module: the pilot bar must not pull demo-client
 import { Button, Chip, Logo } from "@/app/ui";
 import styles from "@/app/shop/shop.module.css";
 
