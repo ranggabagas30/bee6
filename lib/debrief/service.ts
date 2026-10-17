@@ -44,8 +44,11 @@ export interface EndedDebrief {
 export interface DebriefStore {
   /** This device's own latest ended business day (`devices/{id}.last_ended`). */
   getLastEnded(device_id: string): Promise<LastEnded | null>;
-  /** `sandbox: true` only for a demo sandbox outlet (R-18); the key is absent on every pilot outlet. */
-  getOutletCalendar(): Promise<{ tz: string; retention_days: number; sandbox?: boolean }>;
+  /**
+   * `sandbox: true` only for a demo sandbox outlet (R-18); the key is absent on every pilot outlet. `name` (the
+   * outlet's display name, demo-feedback-2 D-1) is likewise present on a sandbox outlet only.
+   */
+  getOutletCalendar(): Promise<{ tz: string; retention_days: number; sandbox?: boolean; name?: string }>;
   /** `outlet_id ==`, `device_id ==`, `status == "open"` — the store scopes by device, the service re-checks outlet too. */
   listOpenQuestions(device_id: string): Promise<Question[]>;
   /** Any outlet/device — the caller (`submitAnswer`) checks scope itself (same 404 for "wrong scope" and "missing"). */
@@ -116,12 +119,12 @@ function truncateLine(line: string): string {
  * otherwise survive as a prefix), then trimmed, blank lines dropped, and truncated. Evidence
  * lines (the ones the gate counted) win; with none usable the thread's first lines stand in. Never persisted.
  */
-function pickQuestionLines(thread: Thread, staffNames: readonly string[]): string[] {
+function pickQuestionLines(thread: Thread, staffNames: readonly string[], outletName?: string): string[] {
   const byStart = (a: { start_ms: number }, b: { start_ms: number }) => a.start_ms - b.start_ms;
   const clean = (candidates: Thread["lines"]): string[] =>
     [...candidates]
       .sort(byStart)
-      .map((line) => scrubQuestionLine(stripInvisibleChars(line.text), staffNames).trim())
+      .map((line) => scrubQuestionLine(stripInvisibleChars(line.text), staffNames, outletName).trim())
       .filter((text) => text.length > 0)
       .slice(0, QUESTION_LINES_MAX)
       .map(truncateLine);
@@ -141,6 +144,7 @@ async function loadQuestionLines(
   claims: { outlet_id: string; device_id: string },
   ranked: readonly Question[],
   log: (entry: Record<string, unknown>) => void,
+  outletName?: string,
 ): Promise<Map<string, string[]>> {
   const result = new Map<string, string[]>();
   const candidates = ranked.filter((q) => q.kind === "gate" && q.thread_id !== null);
@@ -172,7 +176,7 @@ async function loadQuestionLines(
     // Scope: this device's own thread of this outlet, and the very thread the question points at.
     if (thread.outlet_id !== claims.outlet_id || thread.device_id !== claims.device_id) continue;
     if (thread.thread_id !== q.thread_id) continue;
-    const lines = pickQuestionLines(thread, staffNames);
+    const lines = pickQuestionLines(thread, staffNames, outletName);
     if (lines.length > 0) result.set(q.question_id, lines);
   }
   log({ event: "debrief.lines", candidates: candidates.length, shown: result.size, degraded: false });
@@ -198,7 +202,7 @@ export async function listDebriefQuestions(
 
   const calendar = await store.getOutletCalendar();
   // demo-feedback-2 item 10, sandbox only: a pilot response never carries `lines` (and costs no extra read).
-  const quoted = calendar.sandbox === true ? await loadQuestionLines(store, claims, ranked, log) : new Map<string, string[]>();
+  const quoted = calendar.sandbox === true ? await loadQuestionLines(store, claims, ranked, log, calendar.name) : new Map<string, string[]>();
   const questions: DebriefQuestionView[] = ranked.map((q) => ({
     question_id: q.question_id,
     kind: q.kind,

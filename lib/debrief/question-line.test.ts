@@ -91,3 +91,38 @@ describe("scrubQuestionLine: astral characters before a name", () => {
     expect(scrubQuestionLine("😀😀 itu Budinya ya", ["Budi"])).toBe("😀😀 itu [STAFF] ya");
   });
 });
+
+describe("scrubQuestionLine: staff token that is also a word of the outlet name (D-1)", () => {
+  const staff = ["Ari Demo", "Bella Demo"];
+
+  it("keeps the shop name, scrubs the given names and the full name", () => {
+    expect(scrubQuestionLine("Hello, Demo Bakery, thanks for calling", staff, "Demo Bakery")).toBe(
+      "Hello, Demo Bakery, thanks for calling",
+    );
+    expect(scrubQuestionLine("Ari, Bella and Ari Demo at Demo Bakery", staff, "Demo Bakery")).toBe(
+      "[STAFF], [STAFF] and [STAFF] at Demo Bakery",
+    );
+  });
+
+  it("still scrubs clitic forms of the given names", () => {
+    expect(scrubQuestionLine("Itu Arinya di Demo Bakery", staff, "Demo Bakery")).toBe("Itu [STAFF] di Demo Bakery");
+  });
+
+  it("compares case- and diacritic-insensitively", () => {
+    expect(scrubQuestionLine("Welcome to DEMO Bakery", staff, "démo bakery")).toBe("Welcome to DEMO Bakery");
+  });
+
+  it("only exempts whole words of the outlet name (a longer outlet word does not exempt a shorter token)", () => {
+    expect(scrubQuestionLine("Demo called", staff, "Demonstration Bakery")).toBe("[STAFF] called");
+  });
+
+  it("scrubs a surname that is not in the outlet name", () => {
+    expect(scrubQuestionLine("Ask Santoso", ["Ari Santoso"], "Demo Bakery")).toBe("Ask [STAFF]");
+  });
+
+  it("without an outlet name behaves exactly as before", () => {
+    expect(scrubQuestionLine("Hello, Demo Bakery", staff)).toBe("Hello, [STAFF] Bakery");
+    expect(scrubQuestionLine("Hello, Demo Bakery", staff, undefined)).toBe("Hello, [STAFF] Bakery");
+    expect(scrubQuestionLine("Hello, Demo Bakery", staff, "")).toBe("Hello, [STAFF] Bakery");
+  });
+});

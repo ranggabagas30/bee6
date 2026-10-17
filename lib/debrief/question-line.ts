@@ -1,5 +1,5 @@
-import { foldString } from "@/lib/pipeline/label/scrub";
-import { expandScrubNames, scrubReason } from "@/lib/debrief/scrub";
+import { foldString, scrubStaffNames } from "@/lib/pipeline/label/scrub";
+import { expandScrubNames } from "@/lib/debrief/scrub";
 
 /**
  * Read-time hygiene for the thread lines quoted on a sandbox question (demo-feedback-2 item 10). Used ONLY by that
@@ -30,9 +30,8 @@ export function stripInvisibleChars(text: string): string {
   return text.replace(WHITESPACE_CONTROL, " ").replace(INVISIBLE_FORMAT, "").replace(OTHER_CONTROL, "");
 }
 
-/** Replaces `staff-name + clitic` (not followed by a letter, digit or "_") with `[STAFF]`, on text `scrubReason` already ran over. */
-function scrubCliticForms(text: string, staffNames: readonly string[]): string {
-  const names = expandScrubNames(staffNames);
+/** Replaces `staff-name + clitic` (names already expanded) (not followed by a letter, digit or "_") with `[STAFF]`, on text `scrubReason` already ran over. */
+function scrubCliticForms(text: string, names: readonly string[]): string {
   if (names.length === 0 || text.length === 0) return text;
 
   const foldedLower = foldString(text).toLowerCase();
@@ -74,13 +73,25 @@ function scrubCliticForms(text: string, staffNames: readonly string[]): string {
   return result + chars.slice(cursor).join("");
 }
 
+/** Folded, lower-cased words (letter/number runs) of the outlet's display name. */
+function outletWords(outletName: string | undefined): Set<string> {
+  if (!outletName) return new Set();
+  return new Set(foldString(outletName).toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []);
+}
+
 /**
- * Staff-name scrub for one quoted line: the regular `scrubReason`, then the clitic forms it misses ("Budinya",
+ * Staff-name scrub for one quoted line: the regular staff-name scrub, then the clitic forms it misses ("Budinya",
  * "Budiku", "Budimu", "Budilah", "Budikah"), case- and diacritic-insensitive, same `[STAFF]` placeholder, same
  * tokens (full name + each token of >= 3 code points).
  *
+ * `outletName` (demo-feedback-2 D-1): a staff token that is also a whole word of the outlet's own name is NOT
+ * scrubbed here, because the shop name is not a person ("Ari Demo" the cook vs "Demo Bakery" the shop). The full
+ * name ("Ari Demo") and the other tokens ("Ari") are still scrubbed. Omitted or empty: behaves as before.
+ *
  * KNOWN GAP (accepted): a nickname shorter than 3 code points, and a name that is not in `staff`, are not caught.
  */
-export function scrubQuestionLine(text: string, staffNames: readonly string[]): string {
-  return scrubCliticForms(scrubReason(text, staffNames), staffNames);
+export function scrubQuestionLine(text: string, staffNames: readonly string[], outletName?: string): string {
+  const shopWords = outletWords(outletName);
+  const names = expandScrubNames(staffNames).filter((name) => !shopWords.has(foldString(name).toLowerCase()));
+  return scrubCliticForms(scrubStaffNames(text, names), names);
 }

@@ -298,6 +298,7 @@ describe("firestoreDebriefStore.getOutletCalendar", () => {
       tz: "Asia/Jakarta",
       retention_days: 14,
       sandbox: true,
+      name: "Proofed", // D-1: the sandbox calendar carries the display name (for the question-line scrub)
     });
     expect(Object.keys(await firestoreDebriefStore("pilot", db).getOutletCalendar())).toEqual(["tz", "retention_days"]);
   });
