@@ -24,6 +24,8 @@ export interface HomeProposalRow {
   owner_decision: { decision: "approved" | "rejected"; decided_at_ms: number } | null;
   /** `content.change_title`; null on a contentless doc. */
   change_title: string | null;
+  /** When the proposal was created; the Home's waiting list orders by it, like the approvals queue. */
+  created_at_ms: number;
   updated_at_ms: number;
 }
 
@@ -63,11 +65,14 @@ export function progressTallies(rows: readonly HomeProposalRow[], today: string,
   return { week, month, since_start };
 }
 
-/** Proposals the supervisor handed over (`awaiting_owner`): total count, and the newest 5 titles. */
+/**
+ * Proposals the supervisor handed over (`awaiting_owner`): total count, and the first 5 titles in the approvals-queue
+ * order (oldest `created_at_ms` first, ties by `proposal_id`), so the first row is the one "Review in order" opens.
+ */
 export function waitingApproval(rows: readonly HomeProposalRow[]): HomeR19Extension["waiting_approval"] {
   const open = rows
     .filter((r): r is HomeProposalRow & { change_title: string } => r.status === "awaiting_owner" && r.change_title !== null)
-    .sort((a, b) => b.updated_at_ms - a.updated_at_ms || a.proposal_id.localeCompare(b.proposal_id));
+    .sort((a, b) => a.created_at_ms - b.created_at_ms || a.proposal_id.localeCompare(b.proposal_id));
   return {
     count: open.length,
     items: open.slice(0, HOME_WAITING_MAX).map((r) => ({ proposal_id: r.proposal_id, change_title: r.change_title })),

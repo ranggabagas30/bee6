@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { SopChangeView, SopStepView } from "@/lib/sop/contract";
 import { axeViolations } from "@/lib/testing/axe";
 import { SopVersionSteps } from "@/app/sop/SopVersionSteps";
@@ -68,16 +68,40 @@ describe("SopVersionSteps (R-19 PR-9a §9.1)", () => {
     expect(changed.textContent).toContain("Done by: Staff");
   });
 
-  it("links the changed step to why it changed and the result, carrying the SOP version number (not an id)", () => {
-    render(<SopVersionSteps view={v2} lang="en" />);
-    const link = screen.getByRole("link", { name: "See why it changed and the result" });
-    expect(link.getAttribute("href")).toBe("/proposals?v=2");
+  it("the why control is a disclosure: closed by default, it opens the approved change under its step", () => {
+    const { container } = render(<SopVersionSteps view={v2} lang="en" />);
+    const control = screen.getByRole("button", { name: "See why it changed and the result" });
+    expect(control.getAttribute("aria-expanded")).toBe("false");
+    const panelId = control.getAttribute("aria-controls")!;
+    const panel = container.querySelector(`[id="${panelId}"]`) as HTMLElement;
+    expect(panel.hidden).toBe(true);
+    expect(screen.queryByText("Check the display more often")).toBeNull();
+
+    fireEvent.click(control);
+    expect(control.getAttribute("aria-expanded")).toBe("true");
+    expect(panel.hidden).toBe(false);
+    // The card sits inside the improved step's own list item, and carries the metric and review date.
+    expect(panel.closest("li")?.textContent).toContain("IMPROVED · NEW ON 12/10/26");
+    expect(screen.getByText("Check the display more often")).not.toBeNull();
+    expect(screen.getByText("Review on Mon 26 Oct")).not.toBeNull();
+    // The step already shows both wordings, so the card does not repeat them as a before/after block.
+    expect(screen.queryByText("Before (version 1)")).toBeNull();
+
+    fireEvent.click(control);
+    expect(control.getAttribute("aria-expanded")).toBe("false");
+    expect(panel.hidden).toBe(true);
   });
 
-  it("the why link carries the version of the change that made the shown version", () => {
-    const view: SopVersionView = { ...v2, version: 3, change: change({ version: 3, previous_version: 2 }) };
-    render(<SopVersionSteps view={view} lang="en" />);
-    expect(screen.getByRole("link", { name: "See why it changed and the result" }).getAttribute("href")).toBe("/proposals?v=3");
+  it("only the changed step has the control, and it is not a link (no navigation away from the book)", () => {
+    render(<SopVersionSteps view={v2} lang="en" />);
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  it("numbers the steps by chapter, decoratively (the list already numbers them)", () => {
+    const { container } = render(<SopVersionSteps view={v2} lang="en" chapterNumber={3} />);
+    const nums = Array.from(container.querySelectorAll('li > span[aria-hidden="true"]')).map((n) => n.textContent);
+    expect(nums).toEqual(["3.1", "3.2", "3.3"]);
   });
 
   it("an add change says NEW ON dd/mm/yy and strikes nothing", () => {
@@ -91,7 +115,7 @@ describe("SopVersionSteps (R-19 PR-9a §9.1)", () => {
     expect(items[1]!.textContent).toContain("NEW ON 12/10/26");
     expect(items[1]!.textContent).not.toContain("IMPROVED");
     expect(container.querySelector("del")).toBeNull();
-    expect(screen.getByRole("link", { name: "See why it changed and the result" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "See why it changed and the result" })).not.toBeNull();
   });
 
   it("the seed version shows no badge, no struck text and no link", () => {
@@ -99,7 +123,7 @@ describe("SopVersionSteps (R-19 PR-9a §9.1)", () => {
     expect(container.querySelectorAll("ol > li")).toHaveLength(2);
     expect(container.textContent).not.toContain("NEW ON");
     expect(container.querySelector("del")).toBeNull();
-    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
     expect(container.textContent).toContain("Check the display every hour.");
   });
 
@@ -119,12 +143,14 @@ describe("SopVersionSteps (R-19 PR-9a §9.1)", () => {
     const { container } = render(<SopVersionSteps view={v2} lang="id" />);
     expect(container.textContent).toContain("DIPERBAIKI · BARU PADA 12/10/26");
     expect(container.querySelector(".b6-sr-only")?.textContent).toBe("Sebelumnya:");
-    expect(screen.getByRole("link", { name: "Lihat alasan perubahan dan hasilnya" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Lihat alasan perubahan dan hasilnya" })).not.toBeNull();
     expect(container.textContent).toContain("Dikerjakan oleh: Staf");
   });
 
-  it("has no axe violations", async () => {
+  it("has no axe violations, closed or with the change opened", async () => {
     const { container } = render(<SopVersionSteps view={v2} lang="en" />);
+    expect(await axeViolations(container)).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "See why it changed and the result" }));
     expect(await axeViolations(container)).toEqual([]);
   });
 });
