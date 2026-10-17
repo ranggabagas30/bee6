@@ -10,10 +10,15 @@ import { AppNav, NAV, type NavItemId } from "@/app/web/AppNav";
 
 afterEach(cleanup);
 
-function renderNav(role: "supervisor" | "owner", current?: NavItemId, lang: "en" | "id" = "en") {
+function renderNav(
+  role: "supervisor" | "owner",
+  current?: NavItemId,
+  lang: "en" | "id" = "en",
+  extra: { variant?: "rail" | "row"; proposalsBadge?: number } = {},
+) {
   return render(
     <LangProvider initial={lang}>
-      <AppNav role={role} current={current} />
+      <AppNav role={role} current={current} {...extra} />
     </LangProvider>,
   );
 }
@@ -57,6 +62,31 @@ describe("AppNav (R-19 PR-6 §8.2, D-9)", () => {
     expect(names()).toEqual(["Beranda", "Persetujuan", "SOP", "Tinjauan"]);
   });
 
+  it("draws no badge unless a count is given, and never a zero (the shell fetches no count)", () => {
+    renderNav("supervisor", "day");
+    expect(document.querySelector(".b6-badge")).toBeNull();
+    cleanup();
+    renderNav("supervisor", "day", "en", { proposalsBadge: 0 });
+    expect(document.querySelector(".b6-badge")).toBeNull();
+  });
+
+  it("a given count is a badge on Proposals only, announced as '2 waiting' (owner: Approvals)", () => {
+    renderNav("supervisor", "day", "en", { proposalsBadge: 2 });
+    const link = screen.getByRole("link", { name: /Proposals/ });
+    expect(link.textContent).toBe("Proposals" + "2" + "2 waiting");
+    expect(link.querySelector(".b6-badge")?.getAttribute("aria-hidden")).toBe("true");
+    expect(screen.getByRole("link", { name: "SOP" }).querySelector(".b6-badge")).toBeNull();
+    cleanup();
+    renderNav("owner", "home", "id", { proposalsBadge: 1 });
+    expect(screen.getByRole("link", { name: /Persetujuan/ }).textContent).toContain("1 menunggu");
+  });
+
+  it("the rail variant is the same links in the same order; the nav carries the b6-nav contract class", () => {
+    renderNav("supervisor", "reviews", "en", { variant: "rail" });
+    expect(names()).toEqual(["Day record", "Proposals", "SOP", "Reviews", "Connected devices"]);
+    expect(screen.getByRole("navigation", { name: "Main" }).className).toContain("b6-nav");
+  });
+
   it("axe finds no violation", async () => {
     const { container } = renderNav("supervisor", "day");
     expect(await axeViolations(container)).toEqual([]);
@@ -74,7 +104,7 @@ describe("AppNav (R-19 PR-6 §8.2, D-9)", () => {
 
   it("the nav CSS fades only on request (data-fade), keeps the focus ring clear, and drops the fade from 900 px", () => {
     const css = readFileSync(join(__dirname, "shell.module.css"), "utf8");
-    const nav = css.match(/\n\.nav\s*{[^}]*}/)?.[0] ?? "";
+    const nav = css.match(/\n\.shell \.nav\s*{[^}]*}/)?.[0] ?? "";
     expect(nav).not.toMatch(/mask-image/); // never unconditional
     expect(nav).toMatch(/scroll-padding-inline:/);
     expect(css).toMatch(/\.nav\[data-fade="true"\]\s*{[^}]*mask-image:\s*linear-gradient\(to right/);
