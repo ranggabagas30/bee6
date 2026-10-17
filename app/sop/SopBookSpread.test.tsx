@@ -58,9 +58,43 @@ describe("SopBookSpread (R-19 PR-9b §9.1)", () => {
     expect(screen.getByText("From your SOP").parentElement!.textContent).toContain("4");
     expect(screen.getByText("Improved with Bee6").parentElement!.textContent).toContain("1");
     expect(screen.getByRole("heading", { level: 3, name: "Opening & closing" })).not.toBeNull();
-    expect(screen.getByText("CHAPTER 1 OF 4")).not.toBeNull();
+    expect(screen.getByText("Chapter 1 of 4")).not.toBeNull();
     expect(stepIdsShown()).toEqual(["Title open-01", "Title close-01"]);
     expect(screen.getByText("Page 1 of 4")).not.toBeNull();
+  });
+
+  it("R-25 T12: the cover carries the outlet line (when given), the title and the edition; the right page has a running head and the Who line", () => {
+    const versions = buildVersions(overview());
+    render(<SopBookSpread view={versions[0]!} versions={versions} lang="en" outletLine="Demo Bakery · Outlet 1" />);
+    const cover = screen.getByText("Standard Operating Procedures").parentElement!;
+    expect(cover.textContent).toContain("Demo Bakery · Outlet 1");
+    expect(cover.textContent).toContain("Version 2 · in use from Mon 12 Oct · 5 steps");
+    // The outlet line comes first, then the title, then the edition (the board's order).
+    const order = Array.from(cover.children).map((n) => n.textContent);
+    expect(order[0]).toBe("Demo Bakery · Outlet 1");
+    expect(order[1]).toBe("Standard Operating Procedures");
+    // Running head: the version's date and the chapter, decorative (hidden from assistive technology).
+    const run = screen.getByText("SOP 12/10/26").parentElement!;
+    expect(run.getAttribute("aria-hidden")).toBe("true");
+    expect(run.textContent).toContain("CHAPTER 1 · OPENING & CLOSING");
+    expect(screen.getByText("Who: Staff · 2 steps")).not.toBeNull();
+  });
+
+  it("R-25 T12: with no outlet line (a real outlet) the cover has only the title and the edition", () => {
+    const versions = buildVersions(overview());
+    render(<SopBookSpread view={versions[0]!} versions={versions} lang="en" />);
+    const cover = screen.getByText("Standard Operating Procedures").parentElement!;
+    expect(Array.from(cover.children).map((n) => n.textContent)).toHaveLength(2);
+  });
+
+  it("R-25 T12: an undated version reads 'Version n' on the cover and 'SOP vn' in the running head; Bahasa renders", () => {
+    const versions = buildVersions(overview());
+    const undated = { ...versions[1]!, effective_from_date: null };
+    render(<SopBookSpread view={undated} versions={versions} lang="id" />);
+    expect(screen.getByText("Prosedur Operasi Standar")).not.toBeNull();
+    expect(screen.getByText(/^Versi 1 · \d+ langkah$/)).not.toBeNull();
+    expect(screen.getByText("SOP v1")).not.toBeNull();
+    expect(screen.getByText("Bab 1 dari 4")).not.toBeNull();
   });
 
   it("the legend counts for the shown version: on the seed nothing is improved yet", () => {
