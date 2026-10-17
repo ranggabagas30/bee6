@@ -11,26 +11,26 @@ import { t } from "@/lib/i18n/dict";
 import type { Lang } from "@/lib/i18n/lang";
 import { dayLabel } from "@/lib/i18n/format";
 import { SopOverviewSchema, type SopOverview } from "@/lib/sop/contract";
-import { Pill, Segmented } from "@/app/ui";
-import { cx } from "@/app/ui/cx";
-import { WebTopBar } from "@/app/web/WebTopBar";
+import { Chip, Segmented } from "@/app/ui";
+import { WebShell } from "@/app/web/WebShell";
+import { PageHead } from "@/app/web/PageHead";
+import { useRoleClaim } from "@/app/web/useRoleClaim";
 import { EmptyState } from "@/app/web/EmptyState";
-import { SopChangeCard } from "@/app/sop/SopChangeCard";
 import { SopBookSpread } from "@/app/sop/SopBookSpread";
 import { SopTable } from "@/app/sop/SopTable";
 import { buildVersions, shortDate, type SopVersionView } from "@/app/sop/versions";
+import { cx } from "@/app/ui/cx";
 import styles from "@/app/sop/sop.module.css";
 
 /**
  * /sop (R-10 Task 5.3; SOP book in R-19 PR-9a + PR-9b §9.1). Owner and supervisor see the same read-only screen:
  * the version switch by date (dd/mm/yy, newest "· current"), the Book/Table toggle, the selected version's steps
  * (Book: a two-page spread by chapter; Table: one row per step) with the improved badge on the step that version
- * changed, the plain before/after list of approved changes (newest first) and the read-only footer.
+ * changed (its "why" link opens the approved change inline) and the read-only footer. R-25 T12: page-2 look on
+ * `WebShell` (D2-04 boards); the separate "Changes" list is gone, the same card now sits under the improved step.
  * No Add SOP, Download or Open in Sheets control (V7). The role read here is UI-only; the server (`sop:diff` +
  * outlet) is the boundary and still answers 403 for anyone else.
  */
-
-type Role = "owner" | "supervisor" | "other";
 
 type Outcome =
   | { kind: "loading" }
@@ -79,7 +79,7 @@ function headerLine(data: SopOverview, hasSwitch: boolean, lang: Lang): string |
 
 type ViewMode = "book" | "table";
 
-function SopBook({ data, lang }: { data: SopOverview; lang: Lang }) {
+function SopBook({ data, lang, demo }: { data: SopOverview; lang: Lang; demo: boolean }) {
   // Oldest first, as the board reads left to right; the newest is selected until the reader picks another.
   const versions = useMemo(() => buildVersions(data).reverse(), [data]);
   const newest = versions[versions.length - 1]!;
@@ -98,29 +98,42 @@ function SopBook({ data, lang }: { data: SopOverview; lang: Lang }) {
 
   return (
     <>
-      {header !== null && <p className={styles.line}>{header}</p>}
-      <div className={styles.switchRow}>
-        {versions.length > 1 ? (
-          <Segmented
-            label={t(lang, "C-sop-book-switch")}
-            variant="plain"
-            options={options}
-            value={String(view.version)}
-            onChange={(value) => setSelected(Number(value))}
-            className={styles.switch}
-          />
-        ) : (
-          <Pill tone="teal">{options[0]!.label}</Pill>
-        )}
+      <div className={styles.controls}>
+        <div className={styles.versionGroup}>
+          <span className={cx("b6-kick", styles.versionKick)} aria-hidden="true">
+            {t(lang, "C-sop-book-version-kick")}
+          </span>
+          {versions.length > 1 ? (
+            <Segmented
+              label={t(lang, "C-sop-book-switch")}
+              variant="plain"
+              options={options}
+              value={String(view.version)}
+              onChange={(value) => setSelected(Number(value))}
+              className={styles.switch}
+            />
+          ) : (
+            <Chip variant="teal">{options[0]!.label}</Chip>
+          )}
+          {header !== null && <span className={styles.versionNote}>{header}</span>}
+        </div>
         <Segmented label={t(lang, "C-sop-book-view")} variant="plain" options={modeOptions} value={mode} onChange={setMode} />
       </div>
 
       <section aria-labelledby="sop-steps-heading">
-        <h2 id="sop-steps-heading" className={styles.sectionTitle}>
+        {/* The board has no "Steps in version n" heading; it stays for screen readers so the page keeps its outline. */}
+        <h2 id="sop-steps-heading" className="b6-sr-only">
           {t(lang, "C-sop-steps", { version: view.version })}
         </h2>
         {mode === "book" ? (
-          <SopBookSpread view={view} versions={versions} lang={lang} chapter={chapter} onChapterChange={setChapter} />
+          <SopBookSpread
+            view={view}
+            versions={versions}
+            lang={lang}
+            chapter={chapter}
+            onChapterChange={setChapter}
+            outletLine={demo ? t(lang, "C-web-outlet-demo") : null}
+          />
         ) : (
           <SopTable view={view} versions={versions} lang={lang} />
         )}
@@ -134,7 +147,9 @@ export function SopApp({ config }: { config: FirebaseWebConfig | null }) {
   const router = useRouter();
   const auth: Auth | null = config ? getClientAuth(config) : null;
   const authUser = useAuthUser(auth);
-  const [role, setRole] = useState<Role | null>(null);
+  // Role and demo flag from the fresh ID token's claims: UI-only, never the security boundary. A claim that cannot be
+  // read fails closed ("other").
+  const { role, demo } = useRoleClaim(auth);
   const [outcome, setOutcome] = useState<Outcome>({ kind: "loading" });
 
   const uid = authUser.status === "signed_in" ? authUser.user.uid : null;
@@ -142,27 +157,6 @@ export function SopApp({ config }: { config: FirebaseWebConfig | null }) {
   useEffect(() => {
     if (authUser.status === "signed_out") router.replace("/sign-in");
   }, [authUser.status, router]);
-
-  // Role from the fresh ID token's claims: UI-only, never the security
-  // boundary. A claim that cannot be read fails closed ("other").
-  useEffect(() => {
-    if (authUser.status !== "signed_in" || uid === null) return;
-    let active = true;
-    const user = authUser.user;
-    void user.getIdTokenResult().then(
-      (result) => {
-        if (!active) return;
-        const claimed = result.claims.role;
-        setRole(claimed === "owner" || claimed === "supervisor" ? claimed : "other");
-      },
-      () => {
-        if (active) setRole("other");
-      },
-    );
-    return () => {
-      active = false;
-    };
-  }, [authUser, uid]);
 
   const allowed = role === "owner" || role === "supervisor";
 
@@ -191,80 +185,61 @@ export function SopApp({ config }: { config: FirebaseWebConfig | null }) {
 
   if (!config || !auth) {
     return (
-      <main className={styles.page}>
-        <WebTopBar auth={null} showSignOut={false} />
+      <WebShell auth={null}>
         <p role="status" aria-live="polite">
           {t(lang, "C-signin-config")}
         </p>
-      </main>
+      </WebShell>
     );
   }
 
   if (authUser.status === "loading" || authUser.status === "signed_out" || role === null) {
     return (
-      <main className={styles.page}>
-        <WebTopBar auth={auth} showSignOut current="sop" />
+      <WebShell auth={auth} current="sop">
         <p role="status" aria-live="polite">
           {t(lang, "C-day-loading")}
         </p>
-      </main>
+      </WebShell>
     );
   }
 
   if (role === "other" || outcome.kind === "forbidden") {
     return (
-      <main className={styles.page}>
-        <WebTopBar auth={auth} showSignOut current="sop" />
-        <h1 className={styles.title}>{t(lang, "C-sop-title")}</h1>
+      <WebShell auth={auth} current="sop">
+        <PageHead title={t(lang, "C-sop-book-title")} />
         <p role="status" aria-live="polite">
           {t(lang, "C-sop-err-forbidden")}
         </p>
-      </main>
+      </WebShell>
     );
   }
 
   if (outcome.kind === "loading" || outcome.kind === "error") {
     return (
-      <main className={styles.page}>
-        <WebTopBar auth={auth} showSignOut current="sop" />
-        <h1 className={styles.title}>{t(lang, "C-sop-title")}</h1>
+      <WebShell auth={auth} current="sop">
+        <PageHead title={t(lang, "C-sop-book-title")} sub={t(lang, "C-sop-book-sub")} />
         <p role="status" aria-live="polite">
           {outcome.kind === "loading" ? t(lang, "C-day-loading") : t(lang, "C-srv-generic")}
         </p>
-      </main>
+      </WebShell>
     );
   }
 
-  const { latest, changes } = outcome.data;
+  const { latest } = outcome.data;
   if (latest === null) {
     return (
-      <main className={styles.page}>
-        <WebTopBar auth={auth} showSignOut current="sop" />
-        <h1 className={styles.title}>{t(lang, "C-sop-title")}</h1>
+      <WebShell auth={auth} current="sop">
+        <PageHead title={t(lang, "C-sop-book-title")} sub={t(lang, "C-sop-book-sub")} />
         <EmptyState title={t(lang, "C-web-empty-sop-h")} detail={role === "owner" ? t(lang, "C-web-empty-sop-owner") : undefined} />
-      </main>
+      </WebShell>
     );
   }
 
   return (
-    <main className={styles.page}>
-      <WebTopBar auth={auth} showSignOut current="sop" />
-      <h1 className={styles.title}>{t(lang, "C-sop-title")}</h1>
-
-      <SopBook data={outcome.data} lang={lang} />
-
-      <section aria-labelledby="sop-changes-heading">
-        <h2 id="sop-changes-heading" className={styles.sectionTitle}>
-          {t(lang, "C-sop-changes")}
-        </h2>
-        {changes.length === 0 ? (
-          <p className={styles.line}>{t(lang, "C-sop-changes-empty")}</p>
-        ) : (
-          changes.map((change) => <SopChangeCard key={change.version} change={change} lang={lang} />)
-        )}
-      </section>
-
-      <p className={cx(styles.line, styles.footer)}>{t(lang, "C-sop-book-readonly")}</p>
-    </main>
+    <WebShell auth={auth} current="sop">
+      <PageHead title={t(lang, "C-sop-book-title")} sub={t(lang, "C-sop-book-sub")} />
+      <SopBook data={outcome.data} lang={lang} demo={demo} />
+      <p className={styles.footer}>{t(lang, "C-sop-book-readonly")}</p>
+    </WebShell>
   );
 }
