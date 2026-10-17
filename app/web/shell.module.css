@@ -1,57 +1,149 @@
 /*
- * Supervisor / owner shell (R-19 PR-6 §8.2): the top bar and the nav row, on the PR-0b tokens (app/globals.css).
- * Mobile-first: one column at 360 px, the nav scrolls sideways if the labels do not fit (with a right-edge fade as the cue); from 900 px the bar and
- * the nav sit on one line. Every control is at least 44 px tall (the nav links 48 px).
+ * Supervisor / owner web shell (R-25 T8; page-2 boards D2-02..D2-08): the `.dtop` bar, the left nav and `main`, on the
+ * PR-0b tokens (app/globals.css). Mobile-first: one column at 360 px (bar wraps to two rows, the nav is a sideways
+ * scrolling row with a right-edge fade as the cue); from 900 px the nav is the board's 210 px left column beside `main`.
+ * Every control is at least 44 px tall. The contract names `b6-dtop`, `b6-nav`, `b6-dwrap`, `b6-main`, `b6-badge` are
+ * also on the elements so G0's primitives can take over; until they merge this file carries the whole look.
  */
 
-.bar {
-  position: relative;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 16px;
-  min-height: 48px;
-  margin-bottom: 12px;
+/* cancels the browser's default 8px body margin on shell pages only, so the ground colour reaches the screen edge */
+:global(body):has(.shell) {
+  margin: 0;
+  background: var(--b6-ground);
+}
+
+.shell {
+  box-sizing: border-box;
   font-family: var(--b6-font-sans);
   color: var(--b6-ink);
 }
 
-.brandRow {
-  display: inline-flex;
+/* ---- top bar (board .dtop) ---- */
+
+.dtop {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 10px 16px;
+  padding-left: max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
+  border-bottom: 1px solid var(--b6-line-soft);
+  background: rgba(255, 255, 255, 0.55);
+  font-family: var(--b6-font-sans);
+  color: var(--b6-ink);
+}
+
+/* Under 900 px the left group dissolves into the bar: row 1 = brand + controls, row 2 = the outlet line and chips. */
+.dtopLeft {
+  display: contents;
+}
+
+.meta {
+  order: 3;
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
   min-width: 0;
 }
 
-/* A tap target: a 44 x 44 px minimum box around the 20 px wordmark. Under 900 px the bar wraps and the brand's row is
-   24 px tall, so a plain 44 px box would make that row taller (measured: the header grew 81 -> 100 px). The negative
-   block margins keep the margin box at the 24 px line (the row keeps its height) while the border box, what a finger
-   hits and what axe measures, is 44 px. The 20 px overhang is 13 px up (inside the page's 16 px top padding) and 7 px
-   down (inside the 8 px row gap, 1 px clear of the controls row; a 10/10 split measured 2 px into the language
-   switch), and the 6 px top padding leaves the wordmark exactly where it was. */
+.meta:empty {
+  display: none;
+}
+
+.dtopRight {
+  order: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The brand is a link: a 44 px tall tap box around the 26 px mark (WCAG 2.5.8). */
 .brand {
+  order: 1;
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   min-height: 44px;
   min-width: 44px;
-  margin-block: -13px -7px;
-  padding-top: 6px;
-  color: inherit;
+  color: var(--b6-ink);
   text-decoration: none;
-  font-size: 20px;
-  line-height: 24px;
-  font-weight: 700;
-  letter-spacing: -0.2px;
+  border-radius: var(--b6-r-control);
 }
 
-.controls {
+.brand:focus-visible {
+  outline: 2px solid var(--b6-focus);
+  outline-offset: 2px;
+}
+
+/* Logo stand-in (see BrandMark.tsx): mark 26 px in the teal, wordmark 18px/800/-0.035em. */
+.logo {
   display: inline-flex;
   align-items: center;
   gap: 8px;
 }
+
+.logoMark {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: block;
+  color: var(--b6-teal);
+}
+
+.logoWord {
+  font-size: var(--b6-fs-title);
+  font-weight: 800;
+  letter-spacing: -0.035em;
+}
+
+.outlet {
+  font-size: var(--b6-fs-ui);
+  color: var(--b6-muted);
+  overflow-wrap: anywhere;
+}
+
+.ends {
+  font-family: var(--b6-font-mono);
+  font-size: 13px;
+}
+
+.upper {
+  text-transform: uppercase;
+}
+
+/* ---- body: nav + main (board .dwrap) ---- */
+
+.dwrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.main {
+  box-sizing: border-box;
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding: 16px 16px 56px;
+  padding-left: max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
+}
+
+/* Keeps the main column from jumping while the role claim is still being read (the nav appears after it). */
+.navSlot {
+  display: none;
+}
+
+/* ---- nav (board .nav) ---- */
 
 .nav {
   /* The scroller clips on both axes: 4 px of its own padding (undone by the negative top margin and a smaller bottom one)
@@ -65,8 +157,14 @@
   scroll-padding-inline: 24px;
 }
 
+/* inside the shell the row has its own room under the bar, no negative margins */
+.navRail {
+  margin: 0;
+  padding: 8px 16px 0;
+}
+
 /* Edge fade: the cue that more items wait to the right. AppNav sets data-fade only while the row overflows and is not
-   scrolled to the end, so the last item is never dimmed. Dropped from 900 px, where the row wraps. */
+   scrolled to the end, so the last item is never dimmed. Dropped from 900 px, where the row wraps or becomes the rail. */
 .nav[data-fade="true"] {
   mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
 }
@@ -77,7 +175,7 @@
 
 .navList {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   margin: 0;
   padding: 2px 0;
   list-style: none;
@@ -87,23 +185,24 @@
 
 .navLink {
   box-sizing: border-box;
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  min-height: 48px;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: var(--b6-tap);
   padding: 0 14px;
-  border-radius: var(--b6-r-btn);
+  border-radius: var(--b6-r-control);
   font-family: var(--b6-font-sans);
-  font-size: var(--b6-fs-ui);
-  font-weight: 500;
-  color: var(--b6-ink-soft);
+  font-size: var(--b6-fs-body);
+  color: var(--b6-muted);
   text-decoration: none;
   white-space: nowrap;
   background: transparent;
-  box-shadow: inset 0 0 0 1px var(--b6-line-strong);
 }
 
 .navLink:hover {
-  background: var(--b6-surface-soft);
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--b6-ink);
 }
 
 .navLink:focus-visible {
@@ -111,22 +210,74 @@
   outline-offset: 2px;
 }
 
-.navLinkCurrent {
-  color: var(--b6-on-dark);
-  background: var(--b6-dark-mid);
-  box-shadow: none;
+.navLinkCurrent,
+.navLinkCurrent:hover {
+  background: var(--b6-surface);
+  color: var(--b6-ink);
+  font-weight: 500;
+  box-shadow: 0 1px 2px rgba(43, 42, 38, 0.06);
 }
 
-.navLinkCurrent:hover {
-  background: var(--b6-dark-hi);
+/* count on a nav item (board .badge) */
+.badge {
+  min-width: 22px;
+  height: 22px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  border-radius: 7px;
+  background: var(--b6-dark-mid);
+  color: var(--b6-surface);
+  font-size: var(--b6-fs-kicker);
+  font-weight: 500;
+}
+
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 @media (min-width: 900px) {
-  .bar {
-    margin-bottom: 20px;
+  .dtop {
+    padding: 14px 28px;
+    gap: 12px;
   }
+
+  .dtopLeft {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 14px;
+    min-width: 0;
+  }
+
+  .meta {
+    order: 0;
+    flex: 0 1 auto;
+    gap: 4px 14px;
+  }
+
+  .brand,
+  .dtopRight {
+    order: 0;
+  }
+
+  .dwrap {
+    flex-direction: row;
+  }
+
+  .main {
+    padding: 22px 32px 56px;
+  }
+
   .nav {
-    margin: 0 0 20px;
+    margin: 0 0 12px;
     padding: 0;
     overflow: visible; /* wrapped, not scrolled: nothing to clip, so the focus ring shows whole */
   }
@@ -137,5 +288,79 @@
     width: auto;
     min-width: 0;
     flex-wrap: wrap;
+  }
+
+  /* the board's left column: 210 px, items stacked */
+  .navRail {
+    flex: none;
+    width: 210px;
+    margin: 0;
+    padding: 16px 14px;
+  }
+  .navRail .navList {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 2px;
+    padding: 0;
+  }
+
+  .navSlot {
+    display: block;
+    flex: none;
+    width: 210px;
+  }
+}
+
+/* ---- page head (board: h1 38px/300 + 15px muted sub) and the plain card ---- */
+
+.pageHead {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.h1 {
+  margin: 0;
+  font-size: clamp(30px, 8.5vw, 38px);
+  line-height: 1.1;
+  font-weight: 300;
+  letter-spacing: -0.6px;
+  overflow-wrap: anywhere;
+}
+
+.sub {
+  margin: 0;
+  font-size: var(--b6-fs-body);
+  line-height: 1.5;
+  color: var(--b6-muted);
+}
+
+.softCard {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px;
+}
+
+.kick {
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-kicker);
+  letter-spacing: 0.3px;
+  color: var(--b6-muted);
+}
+
+.cardLine {
+  margin: 0;
+  max-width: 48ch;
+  font-size: var(--b6-fs-body);
+  line-height: 1.5;
+  color: var(--b6-muted);
+}
+
+@media (min-width: 900px) {
+  .softCard {
+    padding: 26px 28px;
   }
 }

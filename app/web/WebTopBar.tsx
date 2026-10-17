@@ -4,41 +4,68 @@ import Link from "next/link";
 import type { Auth } from "@/lib/auth/client/firebase-client";
 import { useLang } from "@/lib/i18n/context";
 import { t } from "@/lib/i18n/dict";
-import { Chip, Pill } from "@/app/ui";
+import { Chip } from "@/app/ui";
+import { cx } from "@/app/ui/cx";
 import { LangSwitch } from "@/app/shop/LangSwitch";
+import { BrandMark } from "@/app/web/BrandMark";
 import { SignOutButton } from "@/app/web/SignOutButton";
-import { AppNav, type NavItemId } from "@/app/web/AppNav";
-import { useRoleClaim } from "@/app/web/useRoleClaim";
+import { AppNav, type NavItemId, type NavRoleId } from "@/app/web/AppNav";
+import { useRoleClaim, type RoleClaim } from "@/app/web/useRoleClaim";
 import styles from "@/app/web/shell.module.css";
 
 /**
- * Owner/supervisor top bar (R-06 Task 4.6; nav shell in R-19 PR-6 §8.2). Brand, role chip and (on a demo sandbox)
- * the DEMO DATA chip on the left; the ID | EN switch and Sign out on the right; the role's nav row under it.
- * The role and the demo flag come from the ID token's own claims (`useRoleClaim`): labels and links only, never
- * the security boundary. No nav is drawn until the claim is read, and none for a non-web role.
+ * Owner/supervisor top bar (R-06 Task 4.6; nav shell in R-19 PR-6 §8.2; page-2 `.dtop` bar in R-25 T8). Left: the Bee6
+ * mark, on a demo sandbox "Demo Bakery · Outlet 1", the role chip and the DEMO DATA chip. Right: the
+ * ID | EN switch and Sign out. The role and the demo flag come from the ID token's own claims (`useRoleClaim`): labels
+ * and links only, never the security boundary. No nav is drawn until the claim is read, and none for a non-web role.
  *
- * Not shown: the outlet name (no client-reachable route returns it; PR-6 ships no contract change).
+ * Not shown on a real outlet: the outlet name (no client-reachable route returns it); the demo line is a fixed string.
+ *
+ * `WebTopBar` alone = the bar plus the nav row under it, for a page that has not adopted `WebShell` yet.
  */
-export function WebTopBar({ auth, showSignOut, current }: { auth: Auth | null; showSignOut: boolean; current?: NavItemId }) {
+
+export function webRoleOf(claim: RoleClaim): NavRoleId | null {
+  return claim.role === "owner" || claim.role === "supervisor" ? claim.role : null;
+}
+
+export function ShellBar({ auth, claim, showSignOut }: { auth: Auth | null; claim: RoleClaim; showSignOut: boolean }) {
   const { lang } = useLang();
-  const { role, demo } = useRoleClaim(auth);
-  const webRole = role === "owner" || role === "supervisor" ? role : null;
+  const webRole = webRoleOf(claim);
 
   return (
+    <header className={cx("b6-dtop", styles.dtop)}>
+      <div className={styles.dtopLeft}>
+        <Link href="/" className={styles.brand}>
+          <BrandMark />
+        </Link>
+        <div className={styles.meta}>
+          {claim.demo && (
+            <span className={styles.outlet}>
+              {t(lang, "C-web-outlet-demo")}
+            </span>
+          )}
+          {webRole && <Chip className={styles.upper}>{t(lang, webRole === "owner" ? "C-signin-role-owner" : "C-signin-role-supervisor")}</Chip>}
+          {claim.demo && (
+            <Chip variant="line" className={styles.upper}>
+              {t(lang, "C-web-demo-chip")}
+            </Chip>
+          )}
+        </div>
+      </div>
+      <div className={styles.dtopRight}>
+        <LangSwitch />
+        {showSignOut && auth ? <SignOutButton auth={auth} /> : null}
+      </div>
+    </header>
+  );
+}
+
+export function WebTopBar({ auth, showSignOut, current }: { auth: Auth | null; showSignOut: boolean; current?: NavItemId }) {
+  const claim = useRoleClaim(auth);
+  const webRole = webRoleOf(claim);
+  return (
     <>
-      <header className={styles.bar}>
-        <div className={styles.brandRow}>
-          <Link href="/" className={styles.brand}>
-            bee6
-          </Link>
-          {webRole && <Pill tone="neutral">{t(lang, webRole === "owner" ? "C-signin-role-owner" : "C-signin-role-supervisor")}</Pill>}
-          {demo && <Chip variant="amber">{t(lang, "C-web-demo-chip")}</Chip>}
-        </div>
-        <div className={styles.controls}>
-          <LangSwitch />
-          {showSignOut && auth ? <SignOutButton auth={auth} /> : null}
-        </div>
-      </header>
+      <ShellBar auth={auth} claim={claim} showSignOut={showSignOut} />
       {webRole && <AppNav role={webRole} current={current} />}
     </>
   );
