@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import { Button } from "@/app/ui";
+import { Button, DialogSheet } from "@/app/ui";
 import { authedPostJson } from "@/lib/auth/client/api";
 import { getExistingClientAuth, type Auth, type User } from "@/lib/auth/client/firebase-client";
 import { useAuthUser } from "@/lib/auth/client/use-auth-user";
@@ -11,7 +11,9 @@ import { t, type DictKey } from "@/lib/i18n/dict";
 import type { Lang } from "@/lib/i18n/lang";
 
 /**
- * R-19 PR-7 (plan 8.4; board D2-07b): the owner's "Reset the demo" control, DEMO ONLY.
+ * R-19 PR-7 (plan 8.4; board D2-07b): the owner's "Reset the demo" control, DEMO ONLY. R-25 T13 (R15): the owner Home
+ * no longer mounts it; the judge guide's owner-home card (`reset_demo`) is where a judge starts a reset. The confirm
+ * dialog is unchanged in behaviour (focus on Cancel, Tab trap, Escape, busy lock, the two failure lines).
  *
  * Owner-only by itself: it renders nothing unless the signed-in user's ID-token claims say `role: "owner"` AND carry
  * `demo_exp_ms` (only a demo sandbox principal has it), so mounting it anywhere is safe. This is navigation only; the
@@ -31,34 +33,9 @@ type FailKey = Extract<DictKey, "C-home-reset-failed" | "C-home-reset-busy">;
 const HOME_AFTER_RESET = "/home?demo_reset=1";
 const NOTICE_PARAM = "demo_reset";
 
-const VISUALLY_HIDDEN = { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" } as const;
-
-// 360 px: the overlay pads itself, the panel is at most the overlay's width, buttons wrap and are at least 44 px tall.
-const OVERLAY = {
-  position: "fixed",
-  inset: 0,
-  zIndex: 1000,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: 16,
-  boxSizing: "border-box",
-  background: "rgba(43, 42, 38, 0.45)",
-} as const;
-const PANEL = {
-  width: "min(100%, 420px)",
-  maxWidth: "100%",
-  maxHeight: "100%",
-  overflowY: "auto",
-  boxSizing: "border-box",
-  padding: 20,
-  borderRadius: 18,
-  background: "var(--b6-surface, #fff)",
-  color: "var(--b6-ink, #2b2a26)",
-  boxShadow: "0 12px 28px -14px rgba(43, 42, 38, 0.35)",
-} as const;
-const ACTIONS = { display: "flex", flexWrap: "wrap", gap: 12, marginTop: 16 } as const;
-const BTN = { minHeight: 44, flex: "1 1 120px" } as const;
+// Dialog look: G0's `DialogSheet` (bottom sheet under 900 px, centred 460 px card from 900 px; its classes set the page
+// font, so the portal on <body> no longer falls back to the browser serif). Buttons stack full width, 48 px tall.
+const BTN = { minHeight: 48 } as const;
 
 /** True while the signed-in user is the owner of a demo sandbox (claims only; navigation, never authority). */
 function useIsDemoOwner(): { auth: Auth | null; owner: boolean } {
@@ -86,8 +63,8 @@ function useIsDemoOwner(): { auth: Auth | null; owner: boolean } {
 }
 
 /**
- * ONE dialog for the whole page: the owner Home mounts this control at its bottom and the judge guide's card mounts
- * it again (after-merge wiring, `GUIDE_CONTROLS.reset_demo`). The dialog's "who opened it" is a module-level store
+ * ONE dialog for the whole page: the judge guide's card mounts this control (`GUIDE_CONTROLS.reset_demo`) and any other
+ * mount of it would share the same dialog. The dialog's "who opened it" is a module-level store
  * shared by every instance: the instance whose id is here renders the portal, a tap on any other trigger while it is
  * open does nothing (the dialog is modal and already on screen), and an instance that unmounts mid-dialog (the guide
  * collapsing) releases it. Only an instance id crosses this seam: no key, token or text.
@@ -191,11 +168,11 @@ interface ResetDialogProps {
   onDismiss: () => void;
 }
 
-/** Modal for real: the safe choice has focus, Tab cycles inside, Escape dismisses unless a request is in flight. */
+/** Modal for real (`role="dialog"`, `aria-modal`): the safe choice has focus, Tab cycles inside, Escape dismisses unless a request is in flight. */
 function ResetDialog({ lang, busy, failure, onConfirm, onDismiss }: ResetDialogProps) {
   const titleId = useId();
   const bodyId = useId();
-  const rootRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null); // the dialog element itself
   const cancelRef = useRef<HTMLButtonElement>(null);
   const latest = useRef({ busy, onDismiss });
   useEffect(() => {
@@ -225,7 +202,7 @@ function ResetDialog({ lang, busy, failure, onConfirm, onDismiss }: ResetDialogP
       const focusables = Array.from(root.querySelectorAll<HTMLElement>("button:not([disabled])"));
       if (focusables.length === 0) {
         e.preventDefault();
-        root.querySelector<HTMLElement>('[role="alertdialog"]')?.focus();
+        root.focus();
         return;
       }
       const first = focusables[0]!;
@@ -245,32 +222,28 @@ function ResetDialog({ lang, busy, failure, onConfirm, onDismiss }: ResetDialogP
   }, []);
 
   return (
-    <div ref={rootRef} style={OVERLAY}>
-      <div role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={bodyId} tabIndex={-1} style={PANEL}>
-        <h2 id={titleId} style={{ margin: 0, fontSize: 18 }}>
-          {t(lang, "C-home-reset-title")}
-        </h2>
-        <p id={bodyId} style={{ margin: "8px 0 0", fontSize: 15, lineHeight: 1.45 }}>
-          {t(lang, "C-home-reset-body")}
+    <DialogSheet ref={rootRef} labelledBy={titleId} describedBy={bodyId} tabIndex={-1}>
+      <h2 id={titleId} className="b6-dsheet__title">
+        {t(lang, "C-home-reset-title")}
+      </h2>
+      <p id={bodyId} className="b6-dsheet__body">
+        {t(lang, "C-home-reset-body")}
+      </p>
+      {failure ? (
+        <p role="alert" className="b6-alert b6-alert--red">
+          {t(lang, failure)}
         </p>
-        {failure ? (
-          <p role="alert" style={{ margin: "12px 0 0", fontSize: 15, color: "var(--b6-red-ink, #8e3526)" }}>
-            {t(lang, failure)}
-          </p>
-        ) : null}
-        <div style={ACTIONS}>
-          <Button ref={cancelRef} variant="secondary" style={BTN} disabled={busy} onClick={onDismiss}>
-            {t(lang, "C-home-reset-cancel")}
-          </Button>
-          <Button variant="destructive" style={BTN} disabled={busy} onClick={onConfirm}>
-            {busy ? t(lang, "C-home-reset-working") : t(lang, "C-home-reset-confirm")}
-          </Button>
-        </div>
-        <span style={VISUALLY_HIDDEN} aria-live="polite">
-          {busy ? t(lang, "C-home-reset-working") : ""}
-        </span>
-      </div>
-    </div>
+      ) : null}
+      <Button variant="destructive" block style={BTN} disabled={busy} onClick={onConfirm}>
+        {busy ? t(lang, "C-home-reset-working") : t(lang, "C-home-reset-confirm")}
+      </Button>
+      <Button ref={cancelRef} variant="secondary" block style={BTN} disabled={busy} onClick={onDismiss}>
+        {t(lang, "C-home-reset-cancel")}
+      </Button>
+      <span className="b6-sr-only" aria-live="polite">
+        {busy ? t(lang, "C-home-reset-working") : ""}
+      </span>
+    </DialogSheet>
   );
 }
 

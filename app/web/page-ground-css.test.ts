@@ -4,13 +4,14 @@ import { describe, expect, it } from "vitest";
 
 /**
  * /pair and the demo entry page cancel the browser's default body margin for their own page only (R-19 PR-6). A negative
- * margin on `.page` would pull it under the root layout's DemoBar, and a global reset is out of scope.
+ * margin on `.page` would pull it under the root layout's DemoBar, and a global reset is out of scope. (The owner Home left
+ * this list in R-25 T13: it now lives inside `WebShell`, whose own sheet resets the margin: see shell-css.test.ts.)
  */
 const ROOT = join(__dirname, "..", "..");
 const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
 
 describe("page ground CSS", () => {
-  for (const rel of ["app/pair/pair.module.css", "app/web/entry.module.css", "app/home/home.module.css"]) {
+  for (const rel of ["app/pair/pair.module.css", "app/web/entry.module.css"]) {
     it(`${rel} scopes the body-margin reset to the page and uses no negative margin`, () => {
       const css = read(rel);
       expect(css).toContain(":global(body):has(.page)");
