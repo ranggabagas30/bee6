@@ -46,9 +46,14 @@ async function deviceQuestionsGet(req: NextRequest) {
       // only; the service never hands this a line id or any text.
       (entry) => console.log(typeof entry.event === "string" ? entry.event : "debrief", entry),
     );
-    return jsonOk(data);
+    // A sandbox body can hold stored thread text (item 10): never let a browser or proxy cache it.
+    const res = jsonOk(data);
+    res.headers.set("Cache-Control", "private, no-store");
+    return res;
   } catch (error) {
-    return handleApiError(error);
+    const res = handleApiError(error);
+    res.headers.set("Cache-Control", "private, no-store");
+    return res;
   }
 }
 

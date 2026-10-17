@@ -310,6 +310,43 @@ describe("GET /api/v1/questions", () => {
       errSpy.mockRestore();
     });
 
+    it("sandbox 200 carries Cache-Control: private, no-store (the body now holds stored text)", async () => {
+      deviceClaims();
+      vi.spyOn(debriefStoreModule, "firestoreDebriefStore").mockReturnValueOnce(
+        fakeStore({
+          getOutletCalendar: async () => ({ tz: "Asia/Jakarta", retention_days: 14, sandbox: true }),
+          getLastEnded: async () => activeLastEnded(),
+          listOpenQuestions: async () => [makeQuestion()],
+          getThread: async () => aThread(),
+        }),
+      );
+      const response = await GET(getRequest());
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    });
+
+    it("pilot 200 also carries no-store, and its body is unchanged", async () => {
+      deviceClaims();
+      vi.spyOn(debriefStoreModule, "firestoreDebriefStore").mockReturnValueOnce(
+        fakeStore({
+          getLastEnded: async () => activeLastEnded(),
+          listOpenQuestions: async () => [makeQuestion()],
+        }),
+      );
+      const response = await GET(getRequest());
+      expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+      const body = await response.json();
+      expect(Object.keys(body.data.questions[0]).sort()).toEqual(["category", "end_hm", "kind", "question_id", "start_hm"]);
+    });
+
+    it("error responses of the device branch carry no-store too", async () => {
+      const { UnauthorizedError } = await import("@/lib/http/errors");
+      vi.spyOn(guardModule, "requireDevice").mockRejectedValueOnce(new UnauthorizedError("No token"));
+      const response = await GET(getRequest());
+      expect(response.status).toBe(401);
+      expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    });
+
     it("a successful sandbox response logs counts only", async () => {
       deviceClaims();
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
