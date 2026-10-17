@@ -251,7 +251,7 @@ describe("DayRecordApp", () => {
     authedGetJson.mockReturnValue(new Promise((r) => (resolveFetch = r)));
     renderApp();
     const nav = await screen.findByRole("navigation");
-    const bar = () => screen.getByText("bee6").closest("header") as HTMLElement;
+    const bar = () => screen.getByText("Bee6").closest("header") as HTMLElement;
     const banner = bar();
     resolveFetch({ kind: "ok", data: makeData() });
     await waitFor(() => expect(authedGetJson).toHaveBeenCalled());

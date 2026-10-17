@@ -1,31 +1,31 @@
-import { useState, type CSSProperties } from "react";
+import { useState } from "react";
 import type { Auth } from "@/lib/auth/client/firebase-client";
 import { useLang } from "@/lib/i18n/context";
 import { t } from "@/lib/i18n/dict";
 import type { DayRecordResponse, OwnerThread, SupervisorThread, SupervisorUnlabelled } from "@/lib/day/contract";
-import { buildTimeline, type CategoryFilterValue } from "@/lib/day/view-model";
+import { CATEGORY_KEY, buildTimeline, type CategoryFilterValue } from "@/lib/day/view-model";
 import { DayHeader } from "@/app/day/DayHeader";
 import { CategoryFilter } from "@/app/day/CategoryFilter";
 import { ThreadCard } from "@/app/day/ThreadCard";
 import { UnlabelledCard } from "@/app/day/UnlabelledCard";
+import { StaffDebrief } from "@/app/day/StaffDebrief";
+import { summarize } from "@/app/day/summary";
 import { EmptyState } from "@/app/web/EmptyState";
+import { Tile } from "@/app/ui";
+import styles from "@/app/day/day.module.css";
 
 /**
- * The day record screen body (R-06 Task 7.4). `WebTopBar` is rendered by
- * `DayRecordApp`, above this component. One component renders both shapes;
- * `ThreadCard` narrows on `view` for its evidence/staff-answer/action rows —
- * the owner/supervisor boundary is the response shape, not this split.
+ * The day record screen body (R-06 Task 7.4; restyled in R-25 T9 to board D2-02). `WebTopBar` is rendered by
+ * `DayRecordApp`, above this component. One component renders both shapes; `ThreadCard` narrows on `view` for its
+ * evidence and action rows: the owner/supervisor boundary is the response shape, not this split.
  *
- * `auth` is threaded through to `ThreadCard`'s supervisor variant, which
- * needs it once Task 10's `ThreadActions` renders inside it; `DayRecordApp`
- * never constructs this component before it has a non-null `Auth` (R-06
- * plan Task 7.4/7.5 gap, flagged to tech-lead — see the task handback).
+ * Order: header (title, date control), tiles (supervisor: work notes, debrief answers, need your check; owner: work
+ * notes), the category filter, the notes card, then the supervisor's "Staff debrief" section. The tiles and the
+ * debrief section only re-read fields the response already carries.
+ *
+ * `auth` is threaded through to `ThreadCard`'s supervisor variant, which needs it for `ThreadActions`;
+ * `DayRecordApp` never constructs this component before it has a non-null `Auth`.
  */
-
-const CONTAINER_STYLE: CSSProperties = { maxWidth: 720, margin: "0 auto", padding: 16, boxSizing: "border-box" };
-const LIST_STYLE: CSSProperties = { listStyle: "none", margin: 0, padding: 0 };
-const LIST_ITEM_STYLE: CSSProperties = { contentVisibility: "auto", containIntrinsicSize: "auto 160px" } as CSSProperties;
-
 export function DayRecordView({
   data,
   auth,
@@ -63,7 +63,7 @@ export function DayRecordView({
   const isEmpty = threads.length === 0 && unlabelled.length === 0;
 
   return (
-    <div style={CONTAINER_STYLE}>
+    <div className={styles.content}>
       <DayHeader
         view={data.view}
         day={data.day}
@@ -71,6 +71,15 @@ export function DayRecordView({
         onPrev={onPrev}
         onNext={onNext}
       />
+
+      {!isEmpty && (
+        <Tiles
+          view={data.view}
+          threads={data.view === "supervisor" ? data.threads : []}
+          unlabelled={unlabelled}
+          noteCount={threads.length}
+        />
+      )}
 
       {!isEmpty && (
         <CategoryFilter
@@ -89,28 +98,106 @@ export function DayRecordView({
         />
       )}
 
-      <ol style={LIST_STYLE}>
-        {timeline.map((item) =>
-          item.kind === "thread" ? (
-            <li key={item.thread.row} style={LIST_ITEM_STYLE}>
-              {data.view === "owner" ? (
-                <ThreadCard view="owner" thread={item.thread as OwnerThread} />
-              ) : (
-                <ThreadCard
-                  view="supervisor"
-                  thread={item.thread as SupervisorThread}
-                  onReload={onReload}
-                  auth={auth}
-                />
-              )}
-            </li>
-          ) : (
-            <li key={`u-${item.item.key}`} style={LIST_ITEM_STYLE}>
-              <UnlabelledCard item={item.item} />
-            </li>
-          ),
-        )}
-      </ol>
+      {timeline.length > 0 && (
+        <ol aria-label={t(lang, "C-day2-notes-label")} className={`b6-card ${styles.list}`}>
+          {timeline.map((item) =>
+            item.kind === "thread" ? (
+              <li key={item.thread.row} className={styles.item}>
+                {data.view === "owner" ? (
+                  <ThreadCard view="owner" thread={item.thread as OwnerThread} />
+                ) : (
+                  <ThreadCard
+                    view="supervisor"
+                    thread={item.thread as SupervisorThread}
+                    onReload={onReload}
+                    auth={auth}
+                  />
+                )}
+              </li>
+            ) : (
+              <li key={`u-${item.item.key}`} className={styles.item}>
+                <UnlabelledCard item={item.item} />
+              </li>
+            ),
+          )}
+        </ol>
+      )}
+
+      {data.view === "supervisor" && !isEmpty && (
+        <StaffDebrief timeline={buildTimeline(data.threads, data.unlabelled, "ALL")} />
+      )}
     </div>
+  );
+}
+
+/**
+ * The day's numbers (ruling R16: three tiles, no coverage figure, the API has none). The owner shape carries
+ * facts only, so it gets the one tile it can fill.
+ */
+function Tiles({
+  view,
+  threads,
+  unlabelled,
+  noteCount,
+}: {
+  view: "owner" | "supervisor";
+  threads: readonly SupervisorThread[];
+  unlabelled: readonly SupervisorUnlabelled[];
+  noteCount: number;
+}) {
+  const { lang } = useLang();
+
+  if (view === "owner") {
+    return (
+      <ul aria-label={t(lang, "C-day2-tiles-label")} className={`${styles.tiles} ${styles.tilesOne}`}>
+        <li>
+          <Tile label={t(lang, "C-day2-tile-notes")} value={noteCount} />
+        </li>
+      </ul>
+    );
+  }
+
+  const s = summarize(threads, unlabelled);
+  const answersDetail =
+    s.asked === 0
+      ? t(lang, "C-day2-tile-answers-none")
+      : s.unverified > 0
+        ? t(lang, "C-day2-tile-answers-unv", { n: s.unverified })
+        : s.open > 0
+          ? t(lang, "C-day2-tile-answers-open", { n: s.open })
+          : undefined;
+  const checkDetail =
+    s.check === 0
+      ? t(lang, "C-day2-tile-check-none")
+      : s.firstCheck
+        ? t(lang, "C-day2-tile-check-d", { time: s.firstCheck.start_hm, label: t(lang, CATEGORY_KEY[s.firstCheck.category]) }) +
+          (s.check > 1 ? ` ${t(lang, "C-day2-tile-check-more", { n: s.check - 1 })}` : "")
+        : undefined;
+
+  return (
+    <ul aria-label={t(lang, "C-day2-tiles-label")} className={styles.tiles}>
+      <li>
+        <Tile
+          label={t(lang, "C-day2-tile-notes")}
+          value={s.notes}
+          detail={s.unlabelled > 0 ? t(lang, "C-day2-tile-notes-d", { n: s.unlabelled }) : undefined}
+        />
+      </li>
+      <li>
+        <Tile
+          label={t(lang, "C-day2-tile-answers")}
+          value={s.asked === 0 ? t(lang, "C-web-empty-tile-value") : t(lang, "C-day2-tile-answers-v", { answered: s.answered, asked: s.asked })}
+          detail={answersDetail}
+        />
+      </li>
+      <li>
+        <Tile
+          tone={s.check > 0 ? "amber" : "default"}
+          label={t(lang, "C-day2-tile-check")}
+          value={s.check}
+          detail={checkDetail}
+        />
+      </li>
+    </ul>
   );
 }

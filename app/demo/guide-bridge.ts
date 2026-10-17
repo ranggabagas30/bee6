@@ -110,6 +110,10 @@ export interface CaptureBridgeState {
   micTrouble: boolean;
   /** R-23: the queue head is being retried after a server refusal or a network failure (drives "Bee6 is catching up"). */
   uploadBusy: boolean;
+  /** R-25 T6, optional: today's closing time as "HH:MM" on the shop clock; the guide's "Jump to closing time · 21:00". Absent: no time on the button. */
+  closeHm?: string | null;
+  /** R-25 T6, optional: the business date ("YYYY-MM-DD") the shop shows after "Jump to tomorrow"; absent: no date on the button. */
+  nextDate?: string | null;
 }
 
 export interface CaptureBridgeActions {
@@ -184,4 +188,46 @@ export function subscribeCaptureBridge(onChange: () => void): () => void {
 
 export function useCaptureBridge(): CaptureBridge | null {
   return useSyncExternalStore(subscribeCaptureBridge, readCaptureBridge, () => null);
+}
+
+// ── the pair bridge (R-25 R12, UI-021) ───────────────────────────────────────────────────────────────────────
+//
+// /pair tells the guide that this device is paired, so the guide stops asking for the demo code and points at the
+// listening page instead. Same event pattern as the capture bridge: a module-level flag, listeners, a hook. It
+// carries one boolean, nothing else. `publishPairDone()` is called by the paired checklist on mount and returns the
+// cleanup that takes the signal back, so `useEffect(() => publishPairDone(), [])` is the whole wiring; the guide
+// also clears it itself when the route leaves /pair, so a stale "paired" never greets an unpaired visit.
+
+let pairDone = false;
+const pairListeners = new Set<() => void>();
+
+function setPairDone(next: boolean): void {
+  if (pairDone === next) return;
+  pairDone = next;
+  for (const l of [...pairListeners]) l();
+}
+
+/** Mark this device as paired for the guide. Returns the cleanup (clears the signal). */
+export function publishPairDone(): () => void {
+  setPairDone(true);
+  return () => setPairDone(false);
+}
+
+/** Take the paired signal back (the guide calls it when the route leaves /pair). */
+export function clearPairDone(): void {
+  setPairDone(false);
+}
+
+export function readPairDone(): boolean {
+  return pairDone;
+}
+
+export function subscribePairBridge(onChange: () => void): () => void {
+  pairListeners.add(onChange);
+  return () => void pairListeners.delete(onChange);
+}
+
+/** True while the paired checklist is on screen. False on the server. */
+export function usePairBridge(): boolean {
+  return useSyncExternalStore(subscribePairBridge, readPairDone, () => false);
 }

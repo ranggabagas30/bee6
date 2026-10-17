@@ -183,8 +183,27 @@ describe("ProposalsApp — auth / role gate", () => {
 
     renderApp("en");
     fireEvent.click(await screen.findByRole("button", { name: "Ask Bee6 for a proposal" }));
-    expect(await screen.findByText("This can take up to a minute. Keep this page open.")).not.toBeNull();
+    expect(await screen.findByText("This can take up to a minute. Please keep this page open.")).not.toBeNull();
     expect(screen.queryByText(/Usually/)).toBeNull();
+  });
+
+  it("supervisor: one main landmark inside the page-2 shell, with the nav on 'Proposals'", async () => {
+    getIdTokenResult.mockResolvedValue({ claims: { role: "supervisor" } });
+    renderApp();
+    await waitFor(() => expect(screen.getByText("WHAT BEE6 IS WATCHING")).not.toBeNull());
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+    expect(screen.getByRole("navigation").querySelector("[aria-current='page']")?.textContent).toContain("Proposals");
+  });
+
+  it("supervisor on a demo sandbox (demo_exp_ms claim): both problem rows are there before anything is seen; a pilot supervisor gets none", async () => {
+    getIdTokenResult.mockResolvedValue({ claims: { role: "supervisor", demo_exp_ms: Date.now() + 60_000 } });
+    renderApp();
+    await waitFor(() => expect(screen.getAllByText("Not seen yet")).toHaveLength(2));
+    cleanup();
+    getIdTokenResult.mockResolvedValue({ claims: { role: "supervisor" } });
+    renderApp();
+    await waitFor(() => expect(screen.getByText("WHAT BEE6 IS WATCHING")).not.toBeNull());
+    expect(screen.queryByText("Not seen yet")).toBeNull();
   });
 
   it("a staff-role token shows the forbidden message and neither screen", async () => {

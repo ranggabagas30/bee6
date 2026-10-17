@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { QuestionScreen } from "@/app/capture/debrief/QuestionScreen";
 import type { DebriefView } from "@/lib/debrief/flow";
 import type { DebriefQuestionView } from "@/lib/debrief/contract";
@@ -108,31 +108,34 @@ describe("QuestionScreen: choice", () => {
     expect(screen.getByRole("radio", { name: "Yes" }).getAttribute("aria-checked")).toBe("true");
   });
 
-  it("at 360px both radios sit in one row with flex: 1 each", () => {
+  it("offers exactly Yes and No (no third answer: the route accepts yes or no only)", () => {
     render(<Harness initial={baseView()} />);
-    const group = screen.getByRole("radiogroup") as HTMLElement;
-    expect(group.style.display).toBe("flex");
-    for (const radio of screen.getAllByRole("radio")) {
-      expect((radio as HTMLElement).style.flex).toBe("1 1 0%");
-    }
+    expect(screen.getAllByRole("radio").map((r) => r.textContent?.trim())).toEqual(["Yes", "No"]);
+    expect(screen.queryByRole("radio", { name: /Not sure/i })).toBeNull();
+  });
+
+  it("the chosen answer carries a visible check mark, not only a colour", () => {
+    render(<Harness initial={baseView({ choice: "no" })} />);
+    expect(screen.getByRole("radio", { name: "No" }).textContent).toContain("✓");
+    expect(screen.getByRole("radio", { name: "Yes" }).textContent).not.toContain("✓");
   });
 });
 
 describe("QuestionScreen: reason and Lanjut", () => {
   it("Lanjut is disabled with no choice", () => {
     render(<Harness initial={baseView({ choice: null, reason: "" })} />);
-    expect(button("Next").disabled).toBe(true);
+    expect(button("Next question").disabled).toBe(true);
   });
 
   it("Lanjut is disabled with a choice and a whitespace-only reason", () => {
     render(<Harness initial={baseView({ choice: "yes", reason: "   " })} />);
-    expect(button("Next").disabled).toBe(true);
+    expect(button("Next question").disabled).toBe(true);
     expect(screen.getByText("Choose Yes or No, then give a reason.")).toBeTruthy();
   });
 
   it("Lanjut is enabled with a choice and a one-character reason", () => {
     render(<Harness initial={baseView({ choice: "yes", reason: "a" })} />);
-    expect(button("Next").disabled).toBe(false);
+    expect(button("Next question").disabled).toBe(false);
   });
 
   it("the textarea has no maxlength attribute, so a 600-char paste is kept in full", () => {
@@ -149,7 +152,7 @@ describe("QuestionScreen: reason and Lanjut", () => {
     render(<Harness initial={baseView({ choice: "yes", reason: "a".repeat(600) })} />);
     // Shown twice by design: once as the counter, once as the disabled-reason helper.
     expect(screen.getAllByText("Too long. Remove 100 characters.")).toHaveLength(2);
-    expect(button("Next").disabled).toBe(true);
+    expect(button("Next question").disabled).toBe(true);
     expect(setItemSpy).not.toHaveBeenCalled();
     setItemSpy.mockRestore();
   });
@@ -159,7 +162,7 @@ describe("QuestionScreen: reason and Lanjut", () => {
     render(<Harness initial={baseView({ choice: "yes", reason })} />);
     // 500 is still inside the warning band (450-500 inclusive), 0 left.
     expect(screen.getByText("500/500 · 0 left")).toBeTruthy();
-    expect(button("Next").disabled).toBe(false);
+    expect(button("Next question").disabled).toBe(false);
   });
 
   it("the counter switches to the warning tone/text at 450", () => {
@@ -219,7 +222,7 @@ describe("QuestionScreen: Lewati and the locked helper", () => {
   });
 
   it("does not show the locked helper on the second question", () => {
-    render(<Harness initial={baseView({ index: 1 })} />);
+    render(<Harness initial={baseView({ index: 1, answered: 1 })} />);
     expect(screen.queryByText("An answer sent with Next cannot be changed.")).toBeNull();
   });
 });
@@ -292,11 +295,11 @@ describe("QuestionScreen: R-18 Check for new questions", () => {
     render(<QuestionScreen view={baseView()} {...props} />);
     expect(screen.queryByRole("button", { name: /Check for new questions/ })).toBeNull();
   });
-  it("a 48 px button that calls onCheck; disabled and relabelled while checking", () => {
+  it("a full-width button that calls onCheck; disabled and relabelled while checking", () => {
     const onCheck = vi.fn();
     const { rerender } = render(<QuestionScreen view={baseView()} {...props} onCheck={onCheck} checking={false} />);
     const btn = screen.getByRole("button", { name: "Check for new questions" }) as HTMLButtonElement;
-    expect(btn.style.minHeight).toBe("48px");
+    expect(btn.className).toContain("b6-btn--block");
     fireEvent.click(btn);
     expect(onCheck).toHaveBeenCalledTimes(1);
     rerender(<QuestionScreen view={baseView()} {...props} onCheck={onCheck} checking />);
@@ -304,3 +307,107 @@ describe("QuestionScreen: R-18 Check for new questions", () => {
   });
 });
 
+
+describe("QuestionScreen: R-25 T7 page-2 layout (boards P2-09 / L2-08)", () => {
+  const props = { lang: "en" as const, uploadNote: null, onChoose: () => {}, onTypeReason: () => {}, onLanjut: () => {}, onLewati: () => {} };
+
+  it("header: the question counter and the minutes-left chip; no live region for the chip", () => {
+    render(<QuestionScreen view={baseView({ index: 1, answered: 1 })} {...props} minutesLeft={47} />);
+    expect(screen.getByText("Question 2 of 2")).toBeTruthy();
+    expect(screen.getByText("47 min left")).toBeTruthy();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("no chip without minutesLeft", () => {
+    render(<QuestionScreen view={baseView()} {...props} />);
+    expect(screen.queryByText(/min left/)).toBeNull();
+  });
+
+  it("progress: one list item per question over the whole debrief, the current one is aria-current, earlier ones are done", () => {
+    // Two answered and one skipped earlier (counters survive a reload), two questions still to come in this list.
+    render(<QuestionScreen view={baseView({ list: [q(), q({ question_id: "q2" })], index: 0, answered: 2, skipped: 1 })} {...props} minutesLeft={9} />);
+    expect(screen.getByText("Question 4 of 5")).toBeTruthy();
+    const bars = within(screen.getByRole("list", { name: "Progress" })).getAllByRole("listitem");
+    expect(bars).toHaveLength(5);
+    expect(bars.map((b) => b.getAttribute("aria-current"))).toEqual([null, null, null, "step", null]);
+  });
+
+  it("tech-lead addendum case: answered 3, skipped 0, first of a 2-question list reads QUESTION 4 OF 5 with five bars", () => {
+    render(<QuestionScreen view={baseView({ list: [q(), q({ question_id: "q2" })], index: 0, answered: 3, skipped: 0 })} {...props} />);
+    expect(screen.getByText("Question 4 of 5")).toBeTruthy();
+    expect(within(screen.getByRole("list", { name: "Progress" })).getAllByRole("listitem")).toHaveLength(5);
+  });
+
+  it("inside one list the counters already include the questions acted on, so the position is not counted twice", () => {
+    // 5 questions in one list, two answered in this list (counters 2, index 2): the third is on screen.
+    const five = ["a", "b", "c", "d", "e"].map((id) => q({ question_id: id }));
+    render(<QuestionScreen view={baseView({ list: five, index: 2, answered: 2, skipped: 0 })} {...props} />);
+    expect(screen.getByText("Question 3 of 5")).toBeTruthy();
+  });
+
+  it("a refresh that appends to the list grows the total, never shrinks the position", () => {
+    render(<QuestionScreen view={baseView({ list: [q(), q({ question_id: "q2" }), q({ question_id: "q3" })], index: 1, answered: 1 })} {...props} />);
+    expect(screen.getByText("Question 2 of 3")).toBeTruthy();
+    expect(within(screen.getByRole("list", { name: "Progress" })).getAllByRole("listitem")).toHaveLength(3);
+  });
+
+  it("card: the category code chip (spoken as the category name), the time, the heading and the fixed explanation", () => {
+    render(<QuestionScreen view={baseView({ list: [q({ category: "CUSTOMER_SERVICE", start_hm: "10:40" })] })} {...props} />);
+    expect(screen.getByText("CST")).toBeTruthy();
+    expect(screen.getByText("Customer service")).toBeTruthy(); // visually hidden, read by a screen reader
+    expect(screen.getByText("Today · 10:40")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("Around 10:40 there was customer service. Is that right?");
+    expect(screen.getByText("Bee6 heard a customer being served. It needs your answer to be sure.")).toBeTruthy();
+  });
+
+  it("an unlabelled block question has no category chip and the block explanation", () => {
+    render(<QuestionScreen view={baseView({ list: [q({ kind: "unlabelled_unit", category: null })] })} {...props} />);
+    expect(screen.queryByText("CST")).toBeNull();
+    expect(screen.getByText("Bee6 heard work here but could not tell what. It needs your answer to be sure.")).toBeTruthy();
+  });
+
+  it("an earlier-day question swaps 'Today' for the Earlier day chip and keeps the time", () => {
+    render(<QuestionScreen view={baseView({ list: [q({ business_date: "2026-10-12", start_hm: "10:40" })] })} debriefDate="2026-10-13" {...props} />);
+    expect(screen.getByText("Earlier day · Mon 12 Oct")).toBeTruthy();
+    expect(screen.queryByText(/^Today/)).toBeNull();
+    expect(screen.getByText("10:40")).toBeTruthy();
+  });
+
+  it("reason: always on screen with a visible label and the board placeholder; the label follows the choice", () => {
+    const { rerender } = render(<QuestionScreen view={baseView()} {...props} />);
+    const area = screen.getByLabelText(/Your reason\. Required, no names\./) as HTMLTextAreaElement;
+    expect(area.placeholder).toBe("Why? Add a short reason (required)");
+    expect(area.getAttribute("aria-required")).toBe("true");
+    rerender(<QuestionScreen view={baseView({ choice: "yes" })} {...props} />);
+    expect(screen.getByLabelText(/Did it follow the SOP\? If not, why\?/)).toBeTruthy();
+  });
+
+  it("the primary action is 'Next question'; Skip stays as a quiet button under it", () => {
+    render(<QuestionScreen view={baseView({ choice: "yes", reason: "ok" })} {...props} />);
+    const buttons = screen.getAllByRole("button").map((b) => b.textContent?.trim());
+    expect(buttons.indexOf("Next question")).toBeLessThan(buttons.indexOf("Skip"));
+    expect(button("Next question").className).toContain("b6-btn--lg");
+  });
+
+  it("notes: the debrief does not end on an answer, then the first question's cannot-be-changed line", () => {
+    render(<QuestionScreen view={baseView()} {...props} />);
+    const a = screen.getByText("Answering does not end the debrief. It ends when every question is answered or the 60 minutes are over.");
+    const b = screen.getByText("An answer sent with Next cannot be changed.");
+    expect(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("the disabled Next button is described by its help line", () => {
+    render(<QuestionScreen view={baseView()} {...props} />);
+    const next = button("Next question");
+    const helpId = next.getAttribute("aria-describedby");
+    expect(helpId).toBeTruthy();
+    expect(document.getElementById(helpId as string)?.textContent).toBe("Choose Yes or No, then give a reason.");
+  });
+
+  it("Bahasa: the same screen reads in Indonesian", () => {
+    render(<QuestionScreen view={baseView({ list: [q({ category: "PHONE_CALL" })] })} {...props} lang="id" minutesLeft={5} />);
+    expect(screen.getByText("sisa 5 mnt")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Pertanyaan berikutnya" })).toBeTruthy();
+    expect(screen.getByText("Bee6 mendengar yang terdengar seperti telepon. Bee6 butuh jawabanmu untuk memastikan.")).toBeTruthy();
+  });
+});

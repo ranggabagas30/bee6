@@ -30,6 +30,7 @@ const PROPOSAL_FIELDS = [
   "owner_decision.decision",
   "owner_decision.decided_at_ms",
   "content.change_title",
+  "created_at_ms",
   "updated_at_ms",
 ] as const;
 
@@ -41,6 +42,7 @@ const PROPOSAL_ROW_SHAPE = z.object({
   supervisor_review: z.object({ decision: z.enum(SUPERVISOR_DECISIONS) }).nullable().optional(),
   owner_decision: z.object({ decision: z.enum(OWNER_DECISIONS), decided_at_ms: z.number().int().min(0) }).nullable().optional(),
   content: z.object({ change_title: z.string().min(1) }).nullable().optional(),
+  created_at_ms: z.number().int().min(0),
   updated_at_ms: z.number().int().min(0),
 });
 
@@ -56,6 +58,7 @@ function toRow(parsed: z.infer<typeof PROPOSAL_ROW_SHAPE>): HomeProposalRow {
     supervisor_decision: parsed.supervisor_review?.decision ?? null,
     owner_decision: od === null ? null : { decision: od.decision, decided_at_ms: od.decided_at_ms },
     change_title: parsed.content?.change_title ?? null,
+    created_at_ms: parsed.created_at_ms,
     updated_at_ms: parsed.updated_at_ms,
   };
 }

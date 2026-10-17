@@ -19,7 +19,7 @@ export function Tile({ label, value, detail, tone = "default", surface = "card",
       className={cx(surface === "glass" ? "b6-glass" : "b6-card", "b6-tile", tone === "amber" && "b6-tile--amber", className)}
     >
       <Kicker>{label}</Kicker>
-      <span className="b6-tile__value">{value}</span>
+      <span className="b6-tile__value b6-tile__n">{value}</span>
       {detail ? <span className="b6-tile__detail">{detail}</span> : null}
     </div>
   );

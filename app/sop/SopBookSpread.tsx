@@ -4,11 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import type { Lang } from "@/lib/i18n/lang";
 import { t } from "@/lib/i18n/dict";
 import { groupByChapter, legendCounts } from "@/lib/sop/chapters";
-import { Button, Kicker } from "@/app/ui";
+import { dayLabel } from "@/lib/i18n/format";
+import { Button } from "@/app/ui";
 import { cx } from "@/app/ui/cx";
 import { CHAPTER_KEY } from "@/app/sop/SopTable";
 import { SopVersionSteps } from "@/app/sop/SopVersionSteps";
-import { stepOrigins, type SopVersionView } from "@/app/sop/versions";
+import { ROLE_KEY } from "@/app/sop/SopChangeCard";
+import { shortDate, stepOrigins, type SopVersionView } from "@/app/sop/versions";
 import styles from "@/app/sop/sop.module.css";
 
 /**
@@ -19,6 +21,11 @@ import styles from "@/app/sop/sop.module.css";
  * chapters. At 360 px the two pages stack into one column (CSS only; the open chapter is the only state, and the
  * parent may hold it via `chapter`/`onChapterChange`).
  *
+ * R-25 T12 (board D2-04): the left page opens with the cover (outlet line on a demo sandbox, "Standard Operating
+ * Procedures", the edition line), then the numbered contents; the right page has a running head, the chapter name in
+ * the board's light display size and a "Who" line. The outlet name is not reachable on the pilot, so the cover line is
+ * left out there (`outletLine` null).
+ *
  * The legend counts for the shown version: a step is "improved" when an approved change at or before that version
  * touched it, so the seed always reads 0 improved, as its steps carry no badge.
  */
@@ -28,6 +35,7 @@ export function SopBookSpread({
   lang,
   chapter: controlled,
   onChapterChange,
+  outletLine = null,
 }: {
   view: SopVersionView;
   versions: readonly SopVersionView[];
@@ -35,6 +43,8 @@ export function SopBookSpread({
   /** Controlled open chapter (the parent keeps it so it outlives a Book -> Table -> Book round trip); own state otherwise. */
   chapter?: number;
   onChapterChange?: (index: number) => void;
+  /** Cover line "DEMO BAKERY · OUTLET 1" on a demo sandbox; null (no line) on a real outlet. */
+  outletLine?: string | null;
 }) {
   const chapters = groupByChapter(view.steps);
   const total = chapters.length;
@@ -70,11 +80,29 @@ export function SopBookSpread({
   const stepCount = (c: (typeof chapters)[number]) =>
     c.steps.length === 1 ? t(lang, "C-sop-book-steps-1") : t(lang, "C-sop-book-steps-n", { n: c.steps.length });
 
+  const stepsLine = view.steps.length === 1 ? t(lang, "C-sop-book-steps-1") : t(lang, "C-sop-book-steps-n", { n: view.steps.length });
+  const edition =
+    view.effective_from_date === null
+      ? t(lang, "C-sop-book-edition-undated", { version: view.version })
+      : t(lang, "C-sop-book-edition", { version: view.version, date: dayLabel(view.effective_from_date, lang) });
+  const runVer =
+    view.effective_from_date === null
+      ? t(lang, "C-sop-book-run-ver-n", { version: view.version })
+      : t(lang, "C-sop-book-run-ver", { date: shortDate(view.effective_from_date) });
+  const who = chapter === null ? "" : [...new Set(chapter.steps.map((s) => t(lang, ROLE_KEY[s.role])))].join(", ");
+
   return (
     <div className={styles.spread}>
       <div className={cx(styles.bookPage, styles.pageLeft)} data-page="contents">
+        <div className={styles.cover}>
+          {outletLine !== null && <span className="b6-kick">{outletLine}</span>}
+          <p className={styles.coverTitle}>{t(lang, "C-sop-book-cover-title")}</p>
+          <p className={styles.coverEdition}>
+            {edition} · {stepsLine}
+          </p>
+        </div>
         <nav aria-label={t(lang, "C-sop-book-contents")}>
-          <Kicker className={styles.pageKicker}>{t(lang, "C-sop-book-contents").toUpperCase()}</Kicker>
+          <span className={cx("b6-kick", styles.pageKicker)}>{t(lang, "C-sop-book-contents")}</span>
           <ul className={styles.contents}>
             {chapters.map((c, i) => (
               <li key={c.chapter}>
@@ -113,11 +141,20 @@ export function SopBookSpread({
       <div className={cx(styles.bookPage, styles.pageRight)} data-page="chapter">
         {chapter !== null && (
           <>
-            <Kicker className={styles.pageKicker}>{t(lang, "C-sop-book-chapter-of", { n: index + 1, total }).toUpperCase()}</Kicker>
+            <div className={styles.runHead} aria-hidden="true">
+              <span className="b6-kick">{runVer}</span>
+              <span className="b6-kick">{t(lang, "C-sop-book-run-head", { n: index + 1, name: chapterName(chapter).toUpperCase() })}</span>
+            </div>
+            <span className={cx("b6-kick", styles.pageKicker, styles.chapterKick)}>
+              {t(lang, "C-sop-book-chapter-of", { n: index + 1, total })}
+            </span>
             <h3 ref={headingRef} tabIndex={-1} className={styles.chapterTitle}>
               {chapterName(chapter)}
             </h3>
-            <SopVersionSteps view={{ ...view, steps: chapter.steps }} lang={lang} />
+            <p className={styles.chapterWho}>
+              {t(lang, "C-sop-book-who", { who, steps: stepCount(chapter) })}
+            </p>
+            <SopVersionSteps view={{ ...view, steps: chapter.steps }} lang={lang} chapterNumber={index + 1} />
           </>
         )}
         {total > 1 && (

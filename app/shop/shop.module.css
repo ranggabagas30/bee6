@@ -1,0 +1,94 @@
+/*
+ * The staff top bar (R-25 T4; page-2 boards `.top` and `.dtop`). Phone: logo left, ID | EN right, the outlet line
+ * on its own 24 px row below. From 900 px: one row, logo + outlet line + chips on the left, switch (+ Sign out) on the
+ * right, a hairline under it. Page CSS stays in this module (CLAUDE: no page-specific rules in globals.css).
+ */
+
+.bar {
+  position: relative;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "logo tools"
+    "outlet outlet";
+  align-items: center;
+  column-gap: 12px;
+  padding: 14px 20px 0;
+  color: var(--b6-ink);
+}
+
+.logo {
+  grid-area: logo;
+}
+
+.tools {
+  grid-area: tools;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.outlet {
+  grid-area: outlet;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-height: 24px;
+  margin: 0;
+  font-size: var(--b6-fs-small);
+  color: var(--b6-muted);
+}
+
+.ends {
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-small);
+  white-space: nowrap;
+}
+
+.chips,
+.bar .signOut {
+  display: none;
+}
+
+.upper {
+  text-transform: uppercase;
+}
+
+@media (min-width: 900px) {
+  .bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 14px;
+    padding: 14px 28px;
+    border-bottom: 1px solid var(--b6-line-soft);
+    background: rgba(255, 255, 255, 0.55);
+  }
+
+  .outlet {
+    gap: 8px;
+    font-size: var(--b6-fs-ui);
+  }
+
+  .ends::before {
+    content: "·";
+    margin-right: 8px;
+  }
+
+  .chips {
+    display: inline-flex;
+    gap: 8px;
+  }
+
+  .tools {
+    margin-left: auto;
+    gap: 12px;
+  }
+
+  .bar .signOut {
+    display: inline-flex;
+    min-height: 40px;
+  }
+}

@@ -64,6 +64,33 @@ export const journeyID = {
   "C-journey-fill-code": "Isi {code}", // PROVISIONAL
   "C-journey-filled": "Sudah terisi. Ketuk Pasang.", // PROVISIONAL
   "C-journey-err-generic": "Tidak bisa diproses. Coba lagi.", // PROVISIONAL
+
+  // R-25 T3 (page-2 boards P2-01 / D2-01): the entry page's role cards. The step kicker, the h1, the kicker line, the
+  // strip chip and the footer keep their existing `C-web-entry-*` keys.
+  "C-journey-outlet-demo": "Demo Bakery · Outlet 1", // PROVISIONAL (a fictional shop name; not translated)
+  "C-journey-entry-title-staff": "Coba sebagai Staf", // PROVISIONAL
+  "C-journey-entry-title-supervisor": "Coba sebagai Supervisor", // PROVISIONAL
+  "C-journey-entry-title-owner": "Coba sebagai Pemilik", // PROVISIONAL
+  "C-journey-entry-line-staff": "Mulai mendengarkan di perangkat yang terhubung, jalankan harinya, lalu jawab pertanyaan penutup.", // PROVISIONAL
+  "C-journey-entry-line-supervisor": "Lihat harinya beserta buktinya, lalu tandai usulan sebagai layak atau tolak dengan alasan.", // PROVISIONAL
+  "C-journey-entry-line-owner": "Setujui atau tolak perubahan itu, lalu lihat versi SOP yang baru.", // PROVISIONAL
+  "C-journey-entry-open-staff": "Buka layar staf", // PROVISIONAL
+  "C-journey-entry-open-supervisor": "Buka tampilan supervisor", // PROVISIONAL
+  "C-journey-entry-open-owner": "Buka tampilan pemilik", // PROVISIONAL
+
+  // R-25 T6 (G2-A): the guide's page-2 chrome. Append-only; ID is PROVISIONAL.
+  "C-journey-guide-kicker": "PANDUAN JURI", // PROVISIONAL
+  "C-journey-guide-stage-chip": "TAHAP {n} DARI {total}", // PROVISIONAL
+  "C-journey-guide-demo-chip": "DEMO", // PROVISIONAL
+  "C-journey-welcome": "Selamat datang", // PROVISIONAL
+  "C-journey-do-now": "Lakukan sekarang", // PROVISIONAL
+  "C-journey-spoken-next": "Saya sudah mengucapkan ini · kartu berikutnya", // PROVISIONAL
+  "C-journey-spoken-finish": "Saya sudah mengucapkan ini · selesai", // PROVISIONAL
+  "C-journey-jump-closing-at": "Lompat ke jam tutup · {time}", // PROVISIONAL
+  "C-journey-jump-tomorrow-on": "Lompat ke besok · {date}", // PROVISIONAL
+  "C-journey-filled-short": "Sudah terisi", // PROVISIONAL
+  "C-journey-script-text": "Teks kartu naskah", // PROVISIONAL
+  "C-journey-reread-hide": "Sembunyikan kartu", // PROVISIONAL
 } as const satisfies Record<string, string>;
 
 export const journeyEN: Record<keyof typeof journeyID, string> = {
@@ -113,4 +140,28 @@ export const journeyEN: Record<keyof typeof journeyID, string> = {
   "C-journey-fill-code": "Fill in {code}",
   "C-journey-filled": "Filled in. Tap Set up.",
   "C-journey-err-generic": "Could not process that. Try again.",
+
+  "C-journey-outlet-demo": "Demo Bakery · Outlet 1",
+  "C-journey-entry-title-staff": "Try as Staff",
+  "C-journey-entry-title-supervisor": "Try as Supervisor",
+  "C-journey-entry-title-owner": "Try as Owner",
+  "C-journey-entry-line-staff": "Start listening on the connected device, run the day, answer the closing questions.",
+  "C-journey-entry-line-supervisor": "See the day with evidence, then mark a proposal feasible or reject it with a reason.",
+  "C-journey-entry-line-owner": "Approve or reject the change and see the new SOP version.",
+  "C-journey-entry-open-staff": "Open staff screen",
+  "C-journey-entry-open-supervisor": "Open supervisor view",
+  "C-journey-entry-open-owner": "Open owner view",
+
+  "C-journey-guide-kicker": "JUDGE GUIDE",
+  "C-journey-guide-stage-chip": "STAGE {n} OF {total}",
+  "C-journey-guide-demo-chip": "DEMO",
+  "C-journey-welcome": "Welcome",
+  "C-journey-do-now": "Do this now",
+  "C-journey-spoken-next": "I have spoken this · next card",
+  "C-journey-spoken-finish": "I have spoken this · finish",
+  "C-journey-jump-closing-at": "Jump to closing time · {time}",
+  "C-journey-jump-tomorrow-on": "Jump to tomorrow · {date}",
+  "C-journey-filled-short": "Filled in",
+  "C-journey-script-text": "Script card text",
+  "C-journey-reread-hide": "Hide the card",
 };

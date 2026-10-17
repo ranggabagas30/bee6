@@ -16,6 +16,9 @@
  * PR-9b keys (plan §9.1): the Book/Table view toggle, the five chapter names (`C-sop-book-ch-<ChapterId>` from
  * `lib/sop/chapters.ts`), the contents page and its legend, page navigation, and the table's column headers and
  * "where it came from" cells. Column headers are upper-case on the board, so the strings are upper-case.
+ *
+ * R-25 T12 keys (board D2-04, append-only): the page title and sub, the VERSION kicker, the cover block, the running
+ * head and the chapter's "Who" line. EN is from the board; ID is PROVISIONAL.
  */
 
 export const sopID = {
@@ -57,6 +60,17 @@ export const sopID = {
   "C-sop-book-from-sop": "SOP Anda", // PROVISIONAL
   "C-sop-book-from-bee6": "Usulan Bee6, disetujui {date}", // PROVISIONAL
   "C-sop-book-when-unknown": "Tanpa tanggal", // PROVISIONAL
+  // R-25 T12
+  "C-sop-book-title": "Buku SOP", // PROVISIONAL
+  "C-sop-book-sub": "Setiap langkah yang dipakai toko Anda. Pilih tanggal untuk melihat versi yang lebih lama.", // PROVISIONAL
+  "C-sop-book-version-kick": "VERSI", // PROVISIONAL
+  "C-sop-book-cover-title": "Prosedur Operasi Standar", // PROVISIONAL
+  "C-sop-book-edition": "Versi {version} · berlaku sejak {date}", // PROVISIONAL
+  "C-sop-book-edition-undated": "Versi {version}", // PROVISIONAL
+  "C-sop-book-run-ver": "SOP {date}", // PROVISIONAL
+  "C-sop-book-run-ver-n": "SOP v{version}", // PROVISIONAL
+  "C-sop-book-run-head": "BAB {n} · {name}", // PROVISIONAL
+  "C-sop-book-who": "Siapa: {who} · {steps}", // PROVISIONAL
 } as const satisfies Record<string, string>;
 
 export const sopEN: Record<keyof typeof sopID, string> = {
@@ -97,4 +111,14 @@ export const sopEN: Record<keyof typeof sopID, string> = {
   "C-sop-book-from-sop": "Your SOP",
   "C-sop-book-from-bee6": "Bee6 proposal, approved {date}",
   "C-sop-book-when-unknown": "Not dated",
+  "C-sop-book-title": "SOP book",
+  "C-sop-book-sub": "Every step your shop uses. Pick a date to see an older version.",
+  "C-sop-book-version-kick": "VERSION",
+  "C-sop-book-cover-title": "Standard Operating Procedures",
+  "C-sop-book-edition": "Version {version} · in use from {date}",
+  "C-sop-book-edition-undated": "Version {version}",
+  "C-sop-book-run-ver": "SOP {date}",
+  "C-sop-book-run-ver-n": "SOP v{version}",
+  "C-sop-book-run-head": "CHAPTER {n} · {name}",
+  "C-sop-book-who": "Who: {who} · {steps}",
 };

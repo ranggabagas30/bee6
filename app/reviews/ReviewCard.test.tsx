@@ -13,9 +13,53 @@ function texts(container: HTMLElement): string[] {
 }
 
 describe("ReviewCard", () => {
-  it("shows the head with version and the written-out review date", () => {
+  it("shows the kicker with version and the written-out review date, and the change title as the card heading", () => {
     render(<ReviewCard review={reviewView()} lang="en" />);
-    expect(screen.getByRole("heading", { level: 3, name: "SOP version 2: review on Fri 23 Oct" })).not.toBeNull();
+    const kick = screen.getByText("SOP version 2 · review on Fri 23 Oct");
+    expect(kick.className).toContain("b6-kick");
+    const heading = screen.getByRole("heading", { level: 3, name: "Check the display more often" });
+    expect(heading.className).toContain("b6-h2-card");
+  });
+
+  it("is a page-2 card: white card surface, two glass tiles BEFORE and AFTER with the rate as the value", () => {
+    const { container } = render(<ReviewCard review={reviewView()} lang="en" />);
+    expect(container.querySelector("article")!.className).toContain("b6-card");
+    const group = screen.getByRole("group", { name: "Before and after the change" });
+    const tiles = group.querySelectorAll(".b6-tile.b6-glass");
+    expect(tiles).toHaveLength(2);
+    expect(tiles[0]!.textContent).toContain("BEFORE");
+    expect(tiles[0]!.textContent).toContain("2.0 per day");
+    expect(tiles[1]!.textContent).toContain("AFTER");
+    expect(tiles[1]!.textContent).toContain("1.0 per day");
+    expect(screen.getByText("This is a short window, so read the numbers with care.").className).toContain("b6-note");
+  });
+
+  it("puts the suggestion in an amber alert box and the status line in the mono face", () => {
+    render(<ReviewCard review={reviewView()} lang="en" />);
+    const box = screen.getByText("Bee6 suggests: Worked").parentElement!;
+    expect(box.className).toContain("b6-alert--amber");
+    expect(screen.getByText("Bee6 suggests: Worked").className).toContain("b6-alert__lead");
+    expect(screen.getByText("Waiting for the supervisor's verdict by Fri 30 Oct").className).toContain("b6-mono");
+  });
+
+  it("shows the no-rate value, not '0.0 per day', for a window with no captured day", () => {
+    const { container } = render(
+      <ReviewCard
+        review={reviewView({
+          after: { from_date: "2026-10-16", to_date: "2026-10-22", days_captured: 0, count: 0 },
+          suggestion: { verdict: null, reason: "not_enough_days", change_ratio: null },
+        })}
+        lang="en"
+      />,
+    );
+    const tiles = container.querySelectorAll(".b6-tile");
+    expect(tiles[1]!.textContent).toContain("No rate yet");
+    expect(tiles[1]!.textContent).not.toContain("per day");
+  });
+
+  it("marks a simulated review with an amber chip beside the kicker", () => {
+    render(<ReviewCard review={reviewView({ simulated: true })} lang="en" />);
+    expect(screen.getByText("Simulated time (demo)").className).toContain("b6-chip--amber");
   });
 
   it("renders the title, metric line and description in order", () => {
@@ -101,7 +145,7 @@ describe("ReviewCard", () => {
 
   it("shows the suggested verdict with the percentage and the reason", () => {
     render(<ReviewCard review={reviewView()} lang="en" />);
-    const line = screen.getByText("bee6 suggests: Worked");
+    const line = screen.getByText("Bee6 suggests: Worked");
     expect(line.id).toBe(suggestionDomId(2));
     screen.getByText("the count per day moved the right way by 50%");
   });
@@ -113,7 +157,7 @@ describe("ReviewCard", () => {
         lang="en"
       />,
     );
-    screen.getByText("bee6 suggests: Revert");
+    screen.getByText("Bee6 suggests: Revert");
     screen.getByText("the count per day moved the wrong way by 33%");
   });
 
@@ -124,7 +168,7 @@ describe("ReviewCard", () => {
         lang="en"
       />,
     );
-    screen.getByText("bee6 suggests: Revise");
+    screen.getByText("Bee6 suggests: Revise");
     screen.getByText("the count per day changed by less than 20%");
   });
 
@@ -135,15 +179,15 @@ describe("ReviewCard", () => {
         lang="en"
       />,
     );
-    screen.getByText("bee6 has no suggestion: fewer than 2 captured days in one of the windows");
-    expect(screen.queryByText(/^bee6 suggests/)).toBeNull();
+    screen.getByText("Bee6 has no suggestion: fewer than 2 captured days in one of the windows");
+    expect(screen.queryByText(/^Bee6 suggests/)).toBeNull();
     rerender(
       <ReviewCard
         review={reviewView({ suggestion: { verdict: null, reason: "no_baseline", change_ratio: null } })}
         lang="en"
       />,
     );
-    screen.getByText("bee6 has no suggestion: there were none before the change");
+    screen.getByText("Bee6 has no suggestion: there were none before the change");
   });
 
   it("shows the failure condition", () => {
@@ -287,8 +331,8 @@ describe("ReviewCard", () => {
 
   it("renders in Bahasa Indonesia", () => {
     render(<ReviewCard review={reviewView()} lang="id" />);
-    screen.getByText("SOP versi 2: ditinjau pada Jum 23 Okt");
-    screen.getByText("Saran bee6: Berhasil");
+    screen.getByText("SOP versi 2 · ditinjau pada Jum 23 Okt");
+    screen.getByText("Saran Bee6: Berhasil");
   });
 
   it("maps every verdict to a copy key", () => {
