@@ -7,7 +7,7 @@ import { createMemoryStorage } from "@/lib/demo/testing/memory-storage";
 /**
  * R-19 PR-5 / R-25 R6: the inline script the root layout emits (DEMO_MODE only) before anything below it paints. It
  * marks <html> so CSS can hold the room of the one piece of demo chrome that mounts only after hydration:
- * - `b6-panel-reserved` (round-3 D1: the judge guide's collapsed pill at >= 900 px, 70 px of body padding) on the
+ * - `b6-panel-reserved` (round-3 D1: the judge guide's collapsed pill at >= 900 px, held as right-hand room in the .b6-pill-room headers) on the
  *   entry routes (/, /sign-in, /pair: the guide is always there) and wherever a LIVE demo state exists (an ended
  *   one signs the judge out: no guide on a web route).
  * `b6-topbar-reserved` (the old demo bar's slot) is gone with the bar (R6): it is never set, live or ended.

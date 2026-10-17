@@ -35,7 +35,7 @@ export function ShellBar({ auth, claim, showSignOut }: { auth: Auth | null; clai
   const ends = useDemoExpiryHHMM();
 
   return (
-    <header className={cx("b6-dtop", styles.dtop)}>
+    <header className={cx("b6-dtop", "b6-pill-room", styles.dtop)}>
       <div className={styles.dtopLeft}>
         <Link href="/" className={styles.brand}>
           <BrandMark />

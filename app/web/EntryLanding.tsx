@@ -113,7 +113,7 @@ export function EntryLanding() {
     <div className={styles.page}>
       <Mist />
       <div className={styles.shell}>
-        <header className={cx("b6-dtop", styles.bar)}>
+        <header className={cx("b6-dtop", "b6-pill-room", styles.bar)}>
           <div className={styles.brand}>
             <Logo />
             <Chip variant="line" className={styles.deskOnly}>

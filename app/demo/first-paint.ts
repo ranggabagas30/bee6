@@ -6,7 +6,7 @@ import { DEMO_STATE_KEY } from "@/app/demo/demo-state-key";
  * only after hydration, instead of letting it push the page when it arrives (R-19 PR-5, CLS):
  *
  * - `b6-panel-reserved`: the judge guide's collapsed pill at laptop widths (>= 900 px, see SidePanel and the
- *   `.b6-panel-reserved` rule), on the entry routes (`/`, `/sign-in`, `/pair`: the guide is always there), on
+ *   `.b6-panel-reserved` rule: it reserves the right-hand room of the `.b6-pill-room` headers, not body padding), on the entry routes (`/`, `/sign-in`, `/pair`: the guide is always there), on
  *   `/capture` (an unpaired browser is sent to `/pair`, a paired sandbox phone gets the card once the bridge is
  *   up: either way the pill follows) and wherever a LIVE demo state exists (the guide shows for the signed-in
  *   role; an ended one signs the judge out, so no guide on a web route).

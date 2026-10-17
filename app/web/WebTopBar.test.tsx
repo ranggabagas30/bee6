@@ -94,6 +94,7 @@ describe("WebTopBar (R-19 PR-6 §8.2)", () => {
     expect(outlet.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(chip.compareDocumentPosition(demoChip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole("banner").className).toContain("b6-dtop");
+    expect(screen.getByRole("banner").classList.contains("b6-pill-room")).toBe(true); // R-25 fixes-2 §2
   });
 
   it("the outlet line ends with the demo's end time while the hook has one, and drops it when it has none (R6)", async () => {
