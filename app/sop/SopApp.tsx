@@ -41,11 +41,11 @@ type Outcome =
 /**
  * "dd/mm/yy" or with a state suffix (R-21 O-5). The seed is dated by first_version_date.
  * "First version" is the fallback only when the seed's date is not known.
- * State: the version's `version === in_force_version ? "current" : version > in_force_version ? "upcoming" : "past"`.
+ * State: the version's `version === in_force_version ? "current" : "past"` (item 16: "upcoming" removed, pending sentence re-enabled).
  */
 function versionLabel(v: SopVersionView, inForceVersion: number | null | undefined, newestVersion: number, lang: Lang): string {
   const inForce = inForceVersion ?? newestVersion; // Fallback when no version is in force yet: the newest reads as current
-  const state = v.version === inForce ? "current" : v.version > inForce ? "upcoming" : "past";
+  const state = v.version === inForce ? "current" : "past";
 
   if (v.effective_from_date === null) {
     return state === "current" ? t(lang, "C-sop-book-first-current") : t(lang, "C-sop-book-first");
@@ -53,23 +53,20 @@ function versionLabel(v: SopVersionView, inForceVersion: number | null | undefin
 
   const date = shortDate(v.effective_from_date);
   if (state === "current") return t(lang, "C-sop-book-current", { date });
-  if (state === "upcoming") return t(lang, "C-sop-book-upcoming", { date });
   return date;
 }
 
 /**
- * The R-10 header line. The pending sentence ("Version 2 starts on ... Until then, version 1 applies.") is shown only
- * when there is no version switch: the switch already carries the date, and the board marks the newest "· current"
- * (board-literal, option (a)).
+ * The R-10 header line. The pending sentence ("Version 2 starts on ... Until then, version 1 applies.") shows
+ * when the latest version is not in force (item 16, option B: re-enabled after removing "upcoming" label).
  */
-function headerLine(data: SopOverview, hasSwitch: boolean, lang: Lang): string | null {
+function headerLine(data: SopOverview, _hasSwitch: boolean, lang: Lang): string | null {
   const { latest, in_force_version } = data;
   if (latest === null) return null;
   if (latest.effective_from_date === null) return t(lang, "C-sop-version-seed", { version: latest.version });
   if (in_force_version === latest.version) {
     return t(lang, "C-sop-version-in-force", { version: latest.version, date: dayLabel(latest.effective_from_date, lang) });
   }
-  if (hasSwitch) return null;
   return t(lang, "C-sop-version-pending", {
     version: latest.version,
     date: dayLabel(latest.effective_from_date, lang),

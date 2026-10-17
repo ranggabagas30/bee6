@@ -24,7 +24,6 @@
 export const sopID = {
   "C-sop-book-switch": "Versi SOP", // PROVISIONAL
   "C-sop-book-current": "{date} · saat ini", // PROVISIONAL
-  "C-sop-book-upcoming": "{date} · akan berlaku", // PROVISIONAL
   "C-sop-book-first": "Versi pertama", // PROVISIONAL
   "C-sop-book-first-current": "Versi pertama · saat ini", // PROVISIONAL
   "C-sop-book-improved": "DIPERBAIKI · BARU PADA {date}", // PROVISIONAL
@@ -76,7 +75,6 @@ export const sopID = {
 export const sopEN: Record<keyof typeof sopID, string> = {
   "C-sop-book-switch": "SOP version",
   "C-sop-book-current": "{date} · current",
-  "C-sop-book-upcoming": "{date} · upcoming",
   "C-sop-book-first": "First version",
   "C-sop-book-first-current": "First version · current",
   "C-sop-book-improved": "IMPROVED · NEW ON {date}",
