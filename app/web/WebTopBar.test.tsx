@@ -10,6 +10,9 @@ import { WebTopBar } from "@/app/web/WebTopBar";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn() }) }));
 vi.mock("@/lib/auth/client/firebase-client", () => ({ signOut: vi.fn() }));
 
+let expiry: string | null = null;
+vi.mock("@/app/demo/demo-expiry", () => ({ useDemoExpiryHHMM: () => expiry }));
+
 let authUserState: AuthUserState = { status: "loading" };
 vi.mock("@/lib/auth/client/use-auth-user", () => ({ useAuthUser: () => authUserState }));
 
@@ -37,6 +40,7 @@ const nav = () => screen.queryByRole("navigation", { name: /Main|Menu utama/ });
 
 beforeEach(() => {
   authUserState = { status: "loading" };
+  expiry = null;
 });
 afterEach(cleanup);
 
@@ -92,11 +96,32 @@ describe("WebTopBar (R-19 PR-6 §8.2)", () => {
     expect(screen.getByRole("banner").className).toContain("b6-dtop");
   });
 
+  it("the outlet line ends with the demo's end time while the hook has one, and drops it when it has none (R6)", async () => {
+    expiry = "11:20";
+    signedIn({ role: "supervisor", outlet_id: "o1", demo_exp_ms: Date.now() + 60_000 });
+    renderBar();
+    expect((await screen.findByText(/Demo Bakery/)).textContent).toBe("Demo Bakery · Outlet 1 · ends 11:20");
+    cleanup();
+    expiry = null;
+    signedIn({ role: "supervisor", outlet_id: "o1", demo_exp_ms: Date.now() + 60_000 });
+    renderBar();
+    expect((await screen.findByText(/Demo Bakery/)).textContent).toBe("Demo Bakery · Outlet 1");
+  });
+
+  it("the end time is in Bahasa when the language says so", async () => {
+    expiry = "09:05";
+    signedIn({ role: "owner", outlet_id: "o1", demo_exp_ms: Date.now() + 60_000 });
+    renderBar({}, "id");
+    expect((await screen.findByText(/Demo Bakery/)).textContent).toBe("Demo Bakery · Outlet 1 · berakhir 09:05");
+  });
+
   it("a real principal has no outlet line (no client route returns the outlet name) and no end time", async () => {
+    expiry = "11:20"; // even a stale demo record in this browser must not label a real outlet
     signedIn({ role: "owner", outlet_id: "o1" });
     renderBar();
     await waitFor(() => expect(screen.getByText("Owner")).toBeTruthy());
     expect(screen.queryByText(/Demo Bakery/)).toBeNull();
+    expect(screen.queryByText(/ends 11:20/)).toBeNull();
   });
 
   it("Sign out is a real button and the language switch stays in the bar", () => {

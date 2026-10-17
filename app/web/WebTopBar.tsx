@@ -6,6 +6,7 @@ import { useLang } from "@/lib/i18n/context";
 import { t } from "@/lib/i18n/dict";
 import { Chip } from "@/app/ui";
 import { cx } from "@/app/ui/cx";
+import { useDemoExpiryHHMM } from "@/app/demo/demo-expiry";
 import { LangSwitch } from "@/app/shop/LangSwitch";
 import { BrandMark } from "@/app/web/BrandMark";
 import { SignOutButton } from "@/app/web/SignOutButton";
@@ -15,7 +16,7 @@ import styles from "@/app/web/shell.module.css";
 
 /**
  * Owner/supervisor top bar (R-06 Task 4.6; nav shell in R-19 PR-6 §8.2; page-2 `.dtop` bar in R-25 T8). Left: the Bee6
- * mark, on a demo sandbox "Demo Bakery · Outlet 1", the role chip and the DEMO DATA chip. Right: the
+ * mark, on a demo sandbox "Demo Bakery · Outlet 1 · ends 11:20" (the end time from `useDemoExpiryHHMM`, shown only while it has one), the role chip and the DEMO DATA chip. Right: the
  * ID | EN switch and Sign out. The role and the demo flag come from the ID token's own claims (`useRoleClaim`): labels
  * and links only, never the security boundary. No nav is drawn until the claim is read, and none for a non-web role.
  *
@@ -31,6 +32,7 @@ export function webRoleOf(claim: RoleClaim): NavRoleId | null {
 export function ShellBar({ auth, claim, showSignOut }: { auth: Auth | null; claim: RoleClaim; showSignOut: boolean }) {
   const { lang } = useLang();
   const webRole = webRoleOf(claim);
+  const ends = useDemoExpiryHHMM();
 
   return (
     <header className={cx("b6-dtop", styles.dtop)}>
@@ -42,6 +44,7 @@ export function ShellBar({ auth, claim, showSignOut }: { auth: Auth | null; clai
           {claim.demo && (
             <span className={styles.outlet}>
               {t(lang, "C-web-outlet-demo")}
+              {ends !== null && <span className={styles.ends}> · {t(lang, "C-web-ends-at", { time: ends })}</span>}
             </span>
           )}
           {webRole && <Chip className={styles.upper}>{t(lang, webRole === "owner" ? "C-signin-role-owner" : "C-signin-role-supervisor")}</Chip>}
