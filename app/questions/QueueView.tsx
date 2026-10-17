@@ -5,14 +5,14 @@ import { useLang } from "@/lib/i18n/context";
 import { t } from "@/lib/i18n/dict";
 import { dayLabel } from "@/lib/i18n/format";
 import type { QueueItem, ReviewQueueResponse } from "@/lib/day/contract";
-import { ThreadCard } from "@/app/day/ThreadCard";
+import { LegacyThreadCard } from "@/app/day/LegacyThreadCard";
 
 /**
  * The supervisor review-queue body (R-06 Task 13.6, web spec §4.3/§6.2):
  * every answered gate question still waiting for a supervisor, across the
  * last 14 days, grouped by the business date it belongs to — in the order
  * the server already sorted it (date descending, then start time
- * ascending), never re-sorted here. Each row is the same `ThreadCard` +
+ * ascending), never re-sorted here. Each row is the pre-restyle `LegacyThreadCard` +
  * `ThreadActions` the day record uses, so confirm/override/reject behave
  * identically in both places.
  */
@@ -75,7 +75,7 @@ export function QueueView({
             <ol style={LIST_STYLE}>
               {group.items.map((item) => (
                 <li key={`${group.date}-${item.row}`}>
-                  <ThreadCard view="supervisor" thread={item} auth={auth} onReload={onReload} />
+                  <LegacyThreadCard view="supervisor" thread={item} auth={auth} onReload={onReload} />
                 </li>
               ))}
             </ol>
