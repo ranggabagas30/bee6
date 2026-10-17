@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type CSSProperties, type FormEvent, type MutableRefObject } from "react";
+import { useRef, useState, type FormEvent, type MutableRefObject } from "react";
 import { useRouter } from "next/navigation";
 import { signInWithEmailAndPassword, signOut, type Auth } from "@/lib/auth/client/firebase-client";
 import { postAuthSession } from "@/lib/auth/client/api";
@@ -8,6 +8,8 @@ import { signInErrorKey } from "@/lib/auth/client/sign-in-errors";
 import { useLang } from "@/lib/i18n/context";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import { redirectTarget } from "@/app/sign-in/redirect-target";
+import { Button } from "@/app/ui";
+import styles from "@/app/sign-in/sign-in.module.css";
 
 /**
  * The owner/supervisor email + password form (R-06 Task 4.6), shared by the Supervisor and Owner panels of the role sign-in.
@@ -26,24 +28,6 @@ import { redirectTarget } from "@/app/sign-in/redirect-target";
  * denied/network/error handling here. `signingInRef` (a ref, not `busy` state) lets this form own exactly when that
  * effect may act on a "signed_in" status it did not itself just confirm.
  */
-
-const INPUT_STYLE: CSSProperties = {
-  display: "block",
-  boxSizing: "border-box",
-  width: "100%",
-  minHeight: 48,
-  fontSize: 16,
-  padding: 8,
-  marginTop: 4,
-  marginBottom: 16,
-};
-const BUTTON_STYLE: CSSProperties = {
-  boxSizing: "border-box",
-  width: "100%",
-  minHeight: 48,
-  fontSize: 16,
-  padding: 12,
-};
 
 export interface EmailFields {
   email: string;
@@ -164,34 +148,42 @@ export function EmailSignInForm({
   }
 
   return (
-    <form noValidate onSubmit={handleSubmit}>
-      <label htmlFor="signin-email">{t(lang, "C-signin-email")}</label>
-      <input
-        id="signin-email"
-        type="email"
-        autoComplete="username"
-        inputMode="email"
-        autoCapitalize="none"
-        spellCheck={false}
-        value={email}
-        onChange={(event) => setEmail(event.target.value)}
-        disabled={disabled}
-        style={INPUT_STYLE}
-      />
-      <label htmlFor="signin-password">{t(lang, "C-signin-password")}</label>
-      <input
-        id="signin-password"
-        type="password"
-        autoComplete="current-password"
-        value={password}
-        onChange={(event) => setPassword(event.target.value)}
-        disabled={disabled}
-        style={INPUT_STYLE}
-      />
-      <button type="submit" disabled={disabled} style={BUTTON_STYLE}>
+    <form noValidate onSubmit={handleSubmit} className={styles.form}>
+      <div className={styles.field}>
+        <label htmlFor="signin-email" className={styles.label}>
+          {t(lang, "C-signin-email")}
+        </label>
+        <input
+          id="signin-email"
+          className={styles.input}
+          type="email"
+          autoComplete="username"
+          inputMode="email"
+          autoCapitalize="none"
+          spellCheck={false}
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          disabled={disabled}
+        />
+      </div>
+      <div className={styles.field}>
+        <label htmlFor="signin-password" className={styles.label}>
+          {t(lang, "C-signin-password")}
+        </label>
+        <input
+          id="signin-password"
+          className={styles.input}
+          type="password"
+          autoComplete="current-password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          disabled={disabled}
+        />
+      </div>
+      <Button type="submit" size="lg" block disabled={disabled}>
         {busy ? t(lang, "C-signin-busy") : t(lang, "C-signin-submit")}
-      </button>
-      <p role="status" aria-live="polite">
+      </Button>
+      <p role="status" aria-live="polite" className={styles.message}>
         {messageKey ? t(lang, messageKey) : ""}
       </p>
     </form>

@@ -12,6 +12,9 @@
  * PR-4a keys (plan sections 4.4, 5.4, 5.5, 5.6; Q6). EN is final per the plan; every ID line is PROVISIONAL
  * until Tiffany reviews it. All of them are sandbox-only on screen (the pilot never renders them).
  *
+ * Emphasis: a value may wrap a phrase in `**double asterisks**` (the sign-out sheets, boards P2-07a/b); the dialog renders
+ * it as <strong>. Plain `t()` consumers must not show these keys.
+ *
  * PR-4b keys (plan sections 5.7, 5.7a): the demo staff sign-out button and its two dialogs (P2-07a/b), and the
  * "session still open" view (P2-07c). Same rules; sandbox-only on screen.
  */
@@ -44,20 +47,29 @@ export const sessionID = {
   "C-sess-signout-finishing": "Menyelesaikan unggahan…", // PROVISIONAL
   "C-sess-signout-running-h": "Keluar dan batalkan hari ini?", // PROVISIONAL
   "C-sess-signout-running-b":
-    "Sesi hari ini masih berjalan. Jika Anda keluar sekarang, sesi dibatalkan: catatan hari ini dihapus dan hari ini tidak dihitung.", // PROVISIONAL
+    "Sesi hari ini masih berjalan. Jika Anda keluar sekarang, sesi dibatalkan: catatan hari ini dihapus dan hari ini tidak dihitung. **Ini juga memutuskan ponsel ini, jadi Anda perlu kode 6 digit baru untuk memakainya lagi.**", // PROVISIONAL
   "C-sess-signout-keep": "Tetap mendengarkan", // PROVISIONAL
   "C-sess-signout-cancel": "Keluar dan batalkan", // PROVISIONAL
   "C-sess-signout-closed-h": "Keluar?", // PROVISIONAL
   "C-sess-signout-closed-b":
-    "Jam tutup sudah lewat, jadi sesi hari ini tidak bisa dibatalkan lagi. Sesi tetap terbuka sampai Anda mengetuk Selesai, lalu debrief berjalan selama 60 menit. Pertanyaan yang tidak dijawab dicatat sebagai belum terverifikasi.", // PROVISIONAL
+    "Jam tutup sudah lewat, jadi sesi hari ini tidak bisa dibatalkan lagi. Sesi tetap terbuka sampai Anda kembali dan mengetuk Selesai, lalu debrief berjalan selama 60 menit. Pertanyaan yang tidak dijawab dicatat sebagai **belum terverifikasi**. Keluar akan memutuskan ponsel ini.", // PROVISIONAL
   "C-sess-signout-stay": "Tetap di sini", // PROVISIONAL
   "C-sess-signout-anyway": "Tetap keluar", // PROVISIONAL
   // 5.7a: the still-open session found again on return (the phone never resumes listening into it).
-  "C-sess-open-reached-h": "Sesi hari ini masih terbuka.", // PROVISIONAL
-  "C-sess-open-reached-b": "Jam tutup sudah lewat. Ketuk Selesai untuk memulai debrief.", // PROVISIONAL
-  "C-sess-open-interrupted-h": "Sesi hari ini terputus.", // PROVISIONAL
+  "C-sess-open-reached-h": "Sesi hari ini masih terbuka", // PROVISIONAL
+  "C-sess-open-reached-b": "Jam tutup sudah lewat. Ketuk Selesai untuk memulai debrief. Berjalan selama 60 menit.", // PROVISIONAL
+  "C-sess-open-interrupted-h": "Sesi hari ini terputus", // PROVISIONAL
   "C-sess-open-interrupted-b": "Batalkan sesi ini dan mulai hari ini lagi.", // PROVISIONAL
   "C-sess-open-cancel": "Batalkan hari ini", // PROVISIONAL
+
+  // R-25 T5 (boards P2-04..P2-06 / L2-02..L2-04): the page-2 staff screen on a sandbox. EN is final from the boards.
+  "C-sess-ready-h": "Siap buka", // PROVISIONAL
+  "C-sess-ready-sub": "Ketuk Mulai untuk mulai mendengarkan. Staf tetap melayani pelanggan seperti biasa.", // PROVISIONAL
+  "C-sess-listening-sub-1": "Fokus pada pelanggan Anda.", // PROVISIONAL
+  "C-sess-listening-sub-2": "Kami yang mencatat.", // PROVISIONAL
+  "C-sess-closing-sub": "Jam tutup sudah lewat. Ketuk Akhiri saat operasional selesai.", // PROVISIONAL
+  "C-sess-signout-running-link": "Keluar (membatalkan sesi hari ini)", // PROVISIONAL
+  "C-sess-open-note": "Anda keluar sebelum mengakhiri. Tidak ada yang hilang.", // PROVISIONAL
 } as const satisfies Record<string, string>;
 
 export const sessionEN: Record<keyof typeof sessionID, string> = {
@@ -81,17 +93,25 @@ export const sessionEN: Record<keyof typeof sessionID, string> = {
   "C-sess-signout-finishing": "Finishing uploads…",
   "C-sess-signout-running-h": "Sign out and cancel today?",
   "C-sess-signout-running-b":
-    "Today's session is still running. If you sign out now it is cancelled: the notes from today are deleted and today does not count.",
+    "Today's session is still running. If you sign out now it is cancelled: the notes from today are deleted and today does not count. **This also unpairs the phone, so you need a new 6-digit code to use it again.**",
   "C-sess-signout-keep": "Keep listening",
   "C-sess-signout-cancel": "Sign out and cancel",
   "C-sess-signout-closed-h": "Sign out?",
   "C-sess-signout-closed-b":
-    "Closing time has passed, so today's session can no longer be cancelled. It stays open until you tap End, then the debrief runs for 60 minutes. Questions left unanswered are recorded as unverified.",
+    "Closing time has passed, so today's session can no longer be cancelled. It stays open until you come back and tap End, then the debrief runs for 60 minutes. Questions left unanswered are recorded as **unverified**. Signing out unpairs the phone.",
   "C-sess-signout-stay": "Stay",
   "C-sess-signout-anyway": "Sign out anyway",
-  "C-sess-open-reached-h": "Today's session is still open.",
-  "C-sess-open-reached-b": "Closing time has passed. Tap End to start the debrief.",
-  "C-sess-open-interrupted-h": "Today's session was interrupted.",
+  "C-sess-open-reached-h": "Today's session is still open",
+  "C-sess-open-reached-b": "Closing time has passed. Tap End to start the debrief. It runs for 60 minutes.",
+  "C-sess-open-interrupted-h": "Today's session was interrupted",
   "C-sess-open-interrupted-b": "Cancel it and start today again.",
   "C-sess-open-cancel": "Cancel today",
+
+  "C-sess-ready-h": "Ready to open",
+  "C-sess-ready-sub": "Tap Start to begin listening. Staff keep serving customers as normal.",
+  "C-sess-listening-sub-1": "Focus on your customers.",
+  "C-sess-listening-sub-2": "We'll keep the notes.",
+  "C-sess-closing-sub": "Closing time has passed. Tap End when operations are done.",
+  "C-sess-signout-running-link": "Sign out (cancels today's session)",
+  "C-sess-open-note": "You signed out before ending. Nothing was lost.",
 };

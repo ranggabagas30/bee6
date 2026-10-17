@@ -24,7 +24,7 @@ vi.mock("@/lib/auth/client/firebase-client", () => ({
   signInWithCustomToken: vi.fn(),
 }));
 
-import { DemoBar, hhmm as barHhmm } from "@/app/demo/DemoBar";
+import { DemoBar, hhmm as barHhmm, useDemoExpiryHHMM } from "@/app/demo/DemoBar";
 import { DEMO_STATE_KEY } from "@/app/demo/demo-client";
 
 // A judge's custom-token uid is demo-<role>-<sandbox>; Rangga's own email/password accounts are not.
@@ -43,6 +43,19 @@ function hhmm(ms: number): string {
   const d = new Date(ms);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
+/** The top bars read the expiry through this hook; the probe stands in for them. */
+function ExpiryProbe() {
+  return <p data-testid="expiry">{useDemoExpiryHHMM() ?? "none"}</p>;
+}
+function renderProbe() {
+  return render(
+    <LangProvider initial="en">
+      <ExpiryProbe />
+      <DemoBar config={CONFIG} />
+    </LangProvider>,
+  );
+}
+const expiryText = () => screen.getByTestId("expiry").textContent;
 function renderBar(lang: "en" | "id" = "en") {
   return render(
     <LangProvider initial={lang}>
@@ -93,21 +106,27 @@ describe("DemoBar visibility", () => {
     expect(barHhmm(Date.UTC(2030, 5, 1, 12, 34))).toMatch(/^\d\d:\d\d$/);
   });
 
-  it("a second tab of the same browser shows the bar for the same sandbox, and follows a change made in the other tab", () => {
-    const { container } = renderBar();
-    expect(container.innerHTML).toBe("");
+  it("a second tab of the same browser mounts the live region for the same sandbox, and follows a change made in the other tab", () => {
+    const first = Date.now() + 3_600_000;
+    const { container } = renderProbe();
+    expect(expiryText()).toBe("none");
+    expect(screen.queryByRole("status")).toBeNull();
     // Another tab started a visit: localStorage changes and a storage event arrives here.
-    seed("owner", Date.now() + 3_600_000);
+    seed("owner", first);
     act(() => void window.dispatchEvent(new StorageEvent("storage", { key: DEMO_STATE_KEY })));
-    expect(screen.getByText(/Demo · Signed in as Owner/)).toBeTruthy();
-    // ...then switched role there.
-    seed("staff", Date.now() + 3_600_000);
+    expect(expiryText()).toBe(hhmm(first));
+    expect(screen.getByRole("status").textContent).toBe("");
+    // ...then switched role there (a new 2 h session).
+    const second = Date.now() + 7_200_000;
+    seed("staff", second);
     act(() => void window.dispatchEvent(new StorageEvent("storage", { key: DEMO_STATE_KEY })));
-    expect(screen.getByText(/Demo · Signed in as Staff/)).toBeTruthy();
+    expect(expiryText()).toBe(hhmm(second));
     // ...then ended the visit there.
     window.localStorage.removeItem(DEMO_STATE_KEY);
     act(() => void window.dispatchEvent(new StorageEvent("storage", { key: DEMO_STATE_KEY })));
-    expect(screen.queryByText(/Demo · Signed in as/)).toBeNull();
+    expect(expiryText()).toBe("none");
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(container.querySelector("[data-testid=demo-bar-status]")).toBeNull();
   });
 
   it("is hidden on the landing page, which has its own controls", () => {
@@ -118,115 +137,47 @@ describe("DemoBar visibility", () => {
   });
 });
 
-// Round-4 D1: the first-paint script guesses whether the bar will show from the stored record; once the bar has
-// mounted its own verdict wins, so the slot's reserve (`b6-topbar-reserved` on <html>) never outlives the bar.
-describe("DemoBar keeps the slot's reserve class on <html> in step with whether it shows", () => {
-  const reserved = () => document.documentElement.classList.contains("b6-topbar-reserved");
-  beforeEach(() => {
-    document.documentElement.className = "b6-topbar-reserved"; // as the first-paint script left it
-  });
+// R-25 R6: the slot's room (`b6-topbar-reserved` on <html>) is gone with the visible bar; DemoBar never sets it and
+// leaves the other classes on <html> alone.
+describe("DemoBar holds no room on <html>", () => {
   afterEach(() => {
     document.documentElement.className = "";
   });
 
-  it("keeps the class while a live bar shows on a web route", () => {
-    seed("owner", Date.now() + 3_600_000);
-    renderBar();
-    expect(screen.getByText(/Demo · Signed in as Owner/)).toBeTruthy();
-    expect(reserved()).toBe(true);
-  });
-
-  it("adds the class when the bar shows and the script had not set it (a state written after first paint)", () => {
-    document.documentElement.className = "";
-    seed("owner", Date.now() + 3_600_000);
-    renderBar();
-    expect(reserved()).toBe(true);
-  });
-
-  it("drops the class on /sign-in once the demo has ended, where the bar hides its ended line (no blank band)", async () => {
-    seed("owner", Date.now() - 1000);
-    pathname = "/sign-in";
-    const { container } = renderBar();
-    await act(async () => {});
-    expect(container.innerHTML).toBe("");
-    expect(reserved()).toBe(false);
-  });
-
-  it("keeps the class on /pair once the demo has ended, where the ended line shows", async () => {
-    seed("owner", Date.now() - 1000);
-    pathname = "/pair";
+  it.each<[string, string, number]>([
+    ["live", "/day", 3_600_000],
+    ["live on /pair", "/pair", 3_600_000],
+    ["ended on /pair", "/pair", -1000],
+    ["ended on /sign-in", "/sign-in", -1000],
+  ])("%s: no b6-topbar-reserved is added and the other classes stay", async (_n, route, delta) => {
+    document.documentElement.className = "font-a b6-panel-reserved";
+    seed("owner", Date.now() + delta);
+    pathname = route;
     renderBar();
     await act(async () => {});
-    expect(screen.getByText("Your demo session has ended.")).toBeTruthy();
-    expect(reserved()).toBe(true);
-  });
-
-  it("drops the class on /, where the bar hides itself", () => {
-    seed("owner", Date.now() + 3_600_000);
-    pathname = "/";
-    renderBar();
-    expect(reserved()).toBe(false);
-  });
-
-  it("drops the class for a malformed record and with no record at all", () => {
-    window.localStorage.setItem(DEMO_STATE_KEY, "{oops");
-    renderBar();
-    expect(reserved()).toBe(false);
-    cleanup();
-    document.documentElement.className = "b6-topbar-reserved";
-    window.localStorage.removeItem(DEMO_STATE_KEY);
-    renderBar();
-    expect(reserved()).toBe(false);
-  });
-
-  it("R-21 D5: a LIVE state on /sign-in renders nothing and reserves nothing", () => {
-    seed("owner", Date.now() + 3_600_000); // Not ended, still live
-    pathname = "/sign-in";
-    renderBar();
-    expect(screen.queryByText(/Demo · Signed in as/)).toBeNull();
-    expect(reserved()).toBe(false);
-  });
-
-  it("R-21 D5: moving from /pair (bar shown, class reserved) to /sign-in (remount) hides the bar and drops the class", async () => {
-    vi.useFakeTimers({ now: new Date("2026-10-19T08:00:00Z") });
-    seed("owner", Date.now() + 5_000);
-    pathname = "/pair"; // Start on /pair where the bar is shown
-    renderBar();
-    expect(reserved()).toBe(true);
-    pathname = "/sign-in"; // Then move to /sign-in
-    cleanup();
-    renderBar();
-    expect(screen.queryByText(/Demo · Signed in as/)).toBeNull();
-    expect(reserved()).toBe(false);
-  });
-
-  it("leaves other classes on <html> alone", () => {
-    document.documentElement.className = "font-a b6-topbar-reserved b6-panel-reserved";
-    seed("owner", Date.now() - 1000);
-    pathname = "/sign-in";
-    renderBar();
     expect(Array.from(document.documentElement.classList).sort()).toEqual(["b6-panel-reserved", "font-a"]);
   });
 });
 
-describe("DemoBar live session (R-19 PR-5: the role line and the expiry notice only; no Switch row)", () => {
-  it("shows the role and the local end time, and offers no role switch (the judge signs out and picks again)", () => {
-    const expires = Date.now() + 3_600_000;
-    seed("staff", expires);
-    renderBar();
-    expect(screen.getByText(`Demo · Signed in as Staff · Ends at ${hhmm(expires)}`)).toBeTruthy();
+describe("DemoBar live session (R-25 R6: headless, the expiry moves to the top bars)", () => {
+  it("draws nothing while the demo is live: no text, no controls, no landmark, no yellow styling; only the empty live region is mounted", () => {
+    seed("staff", Date.now() + 3_600_000);
+    const { container } = renderBar();
+    expect(container.textContent).toBe("");
     expect(screen.queryByRole("button")).toBeNull();
     expect(screen.queryByRole("link")).toBeNull();
-    expect(document.body.textContent).not.toMatch(/Switch to/);
+    expect(screen.queryByRole("complementary")).toBeNull();
+    expect(container.querySelector("aside")).toBeNull();
+    expect(container.innerHTML).not.toMatch(/fff7d6|8a6d00|b6-topbar/i);
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    expect(screen.getByRole("status").textContent).toBe("");
+    expect(document.body.textContent).not.toMatch(/Demo · Signed in as|Ends at|Switch to/);
   });
 
-  it("is a labelled region and speaks Bahasa", () => {
-    const expires = Date.now() + 3_600_000;
-    seed("owner", expires);
-    renderBar("id");
-    expect(screen.getByText(`Demo · Masuk sebagai Pemilik · Berakhir pukul ${hhmm(expires)}`)).toBeTruthy();
-    expect(screen.getByRole("complementary", { name: /Demo · Masuk sebagai Pemilik/ })).toBeTruthy();
-    expect(document.body.textContent).not.toMatch(/Ganti ke/);
+  it("speaks no Bahasa line either while live", () => {
+    seed("owner", Date.now() + 3_600_000);
+    const { container } = renderBar("id");
+    expect(container.textContent).toBe("");
   });
 
   it("never calls the demo session route by itself (no switch, no restart)", () => {
@@ -234,6 +185,56 @@ describe("DemoBar live session (R-19 PR-5: the role line and the expiry notice o
     vi.stubGlobal("fetch", vi.fn());
     renderBar();
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("useDemoExpiryHHMM (R-25 R6: the 2 h expiry for the outlet line of the top bars)", () => {
+  it("returns the device-local HH:MM of the live session's expiry", () => {
+    const expires = Date.now() + 3_600_000;
+    seed("staff", expires);
+    renderProbe();
+    expect(expiryText()).toBe(hhmm(expires));
+    expect(expiryText()).toMatch(/^\d\d:\d\d$/);
+  });
+
+  it("works for every role, on every route (the bar hides its box on / and /sign-in, the hook does not)", () => {
+    const expires = Date.now() + 3_600_000;
+    for (const role of ["staff", "supervisor", "owner"] as const) {
+      for (const route of ["/", "/sign-in", "/pair", "/day"]) {
+        cleanup();
+        seed(role, expires);
+        pathname = route;
+        renderProbe();
+        expect(expiryText(), `${role} ${route}`).toBe(hhmm(expires));
+      }
+    }
+  });
+
+  it("is null with no state (every pilot browser), for a malformed record and for an expiry beyond the Date range", () => {
+    renderProbe();
+    expect(expiryText()).toBe("none");
+    cleanup();
+    window.localStorage.setItem(DEMO_STATE_KEY, "{oops");
+    renderProbe();
+    expect(expiryText()).toBe("none");
+    cleanup();
+    seed("owner", 8.64e15 + 1);
+    renderProbe();
+    expect(expiryText()).toBe("none");
+    expect(document.body.textContent).not.toContain("NaN");
+  });
+
+  it("is null once the session has ended, and flips by itself at the expiry instant while the bar is mounted", () => {
+    vi.useFakeTimers({ now: new Date("2026-10-19T08:00:00Z") });
+    seed("owner", Date.now() - 1000);
+    renderProbe();
+    expect(expiryText()).toBe("none");
+    cleanup();
+    seed("owner", Date.now() + 5_000);
+    renderProbe();
+    expect(expiryText()).toMatch(/^\d\d:\d\d$/);
+    act(() => void vi.advanceTimersByTime(5_001));
+    expect(expiryText()).toBe("none");
   });
 });
 
@@ -367,12 +368,12 @@ describe("DemoBar expiry", () => {
     vi.useFakeTimers({ now: new Date("2026-10-19T08:00:00Z") });
     seed("owner", Date.now() + 5_000);
     renderBar();
-    expect(screen.getByText(/Demo · Signed in as Owner/)).toBeTruthy();
+    expect(screen.queryByText("Your demo session has ended.")).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe("");
     act(() => {
       vi.advanceTimersByTime(5_001);
     });
     expect(screen.getByText("Your demo session has ended.")).toBeTruthy();
-    expect(screen.queryByText(/Demo · Signed in as Owner/)).toBeNull();
   });
 
   it("announces the ended state to a screen reader: the ended line is a status", () => {
@@ -402,16 +403,19 @@ describe("DemoBar expiry", () => {
     expect(document.activeElement).toBe(before);
   });
 
-  // Round-3 D2: the bar sizes itself through the design system's .b6-topbar rule (same height as the slot at every
-  // width), live and ended alike, so the slot never shows an empty strip under a one-line bar.
-  it("the bar carries the b6-topbar class, live and ended, so its height is the slot's at every width", () => {
+  // R-25 R6: the ended line is the one visible piece left; it is an amber alert box (rare state, no board). The
+  // wrapper is the same element before and after, so the live region inside it keeps its identity.
+  it("the ended line is an amber alert box; while live the same wrapper carries no box class", () => {
     seed("owner", Date.now() + 3_600_000);
     const live = renderBar();
-    expect(live.container.querySelector("aside")!.classList.contains("b6-topbar")).toBe(true);
+    expect(live.container.firstElementChild!.className).toBe("");
     cleanup();
     seed("owner", Date.now() - 1000);
     const ended = renderBar();
-    expect(ended.container.querySelector("aside")!.classList.contains("b6-topbar")).toBe(true);
+    const box = ended.container.firstElementChild!;
+    expect(box.classList.contains("b6-alert")).toBe(true);
+    expect(box.classList.contains("b6-alert--amber")).toBe(true);
+    expect(box.contains(screen.getByRole("status"))).toBe(true);
   });
 
   it("on /sign-in the ended state is left to the sign-in page's own link (no double message)", () => {
@@ -421,10 +425,10 @@ describe("DemoBar expiry", () => {
     expect(container.innerHTML).toBe("");
   });
 
-  it("R-21 D5: on /sign-in a live sandbox does not show the bar (page's own line carries the ending time)", () => {
+  it("R-21 D5: on /sign-in a live sandbox mounts nothing (the page's own line carries the ending time)", () => {
     seed("owner", Date.now() + 3_600_000);
     pathname = "/sign-in";
-    renderBar();
-    expect(screen.queryByText(/Demo · Signed in as Owner/)).toBeNull();
+    const { container } = renderBar();
+    expect(container.innerHTML).toBe("");
   });
 });

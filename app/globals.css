@@ -54,6 +54,12 @@
   /* focus ring */
   --b6-focus: #2F6A5D;
 
+  /* R-25 G0: the stage orb (idle and amber orbs are warmer than the teal one), the guide card box, the dialog scrim */
+  --b6-orb-idle: #FAF9F6;
+  --b6-orb-amber: #FAF4E6;
+  --b6-cardbox: #F7F6F3;
+  --b6-scrim: rgba(43, 42, 38, 0.42);
+
   /* soft mint mist (decoration only) */
   --b6-mist-core: #D3EAE3;
   --b6-mist-1: rgba(190, 224, 214, 0.55);
@@ -143,6 +149,12 @@
   letter-spacing: -0.4px;
 }
 
+.b6-tile__n {
+  font-size: var(--b6-fs-stat);
+  font-weight: 300;
+  letter-spacing: -0.4px;
+}
+
 .b6-tile__detail {
   font-size: var(--b6-fs-small);
   color: var(--b6-muted);
@@ -172,7 +184,11 @@
 .b6-seg__item:focus-visible,
 .b6-handle:focus-visible,
 .b6-panel__close:focus-visible,
-.b6-panel-pill:focus-visible {
+.b6-panel-pill:focus-visible,
+.b6-ctl:focus-visible,
+.b6-nav__item:focus-visible,
+.b6-codefield:focus-visible,
+.b6-field:focus-visible {
   outline: 2px solid var(--b6-focus);
   outline-offset: 2px;
 }
@@ -243,10 +259,42 @@
 .b6-btn--destructive:disabled,
 .b6-btn--primary[aria-disabled="true"],
 .b6-btn--secondary[aria-disabled="true"],
-.b6-btn--destructive[aria-disabled="true"] {
+.b6-btn--destructive[aria-disabled="true"],
+.b6-btn--dis {
   background: var(--b6-disabled-bg);
   color: var(--b6-muted);
+  box-shadow: inset 0 0 0 1px rgba(43, 42, 38, 0.06);
+  cursor: not-allowed;
+}
+
+/* Text buttons: no fill, no ring. A quiet action under a primary one ("Sign out", "Skip"). Still a 44px tap target. */
+.b6-btn--text,
+.b6-btn--text-danger {
+  min-height: var(--b6-tap);
+  padding: 0 12px;
+  border-radius: var(--b6-r-control);
+  background: transparent;
   box-shadow: none;
+  font-size: var(--b6-fs-ui);
+  font-weight: 500;
+}
+
+.b6-btn--text { color: var(--b6-muted); }
+.b6-btn--text-danger { color: var(--b6-red-ink); }
+
+.b6-btn--text:hover,
+.b6-btn--text-danger:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.b6-btn--text:disabled,
+.b6-btn--text-danger:disabled,
+.b6-btn--text[aria-disabled="true"],
+.b6-btn--text-danger[aria-disabled="true"] {
+  background: transparent;
+  color: var(--b6-faint);
+  text-decoration: none;
   cursor: not-allowed;
 }
 
@@ -536,42 +584,6 @@
   }
 }
 
-/* Top bar room (R-19 PR-5): a notice bar that mounts after hydration gets its space held by this slot from the first
-   paint, so the page below it does not jump. The class on <html> is set by a first-paint script when the bar will
-   show. The bar (.b6-topbar) and its slot share ONE deterministic height per width: two text lines tall (54 px)
-   below 500 px, one line (36 px) from 500 px up, the bar's text centred in it. A bar whose text happens to fit
-   one line on a phone is still 54 px, so the slot never shows an empty strip under it and nothing shifts. The
-   one-line band starts where the longest line (392 px in the inherited serif) fits beside the page's 8 px body
-   margin, the bar's padding and a classic scrollbar with room to spare, and the line is kept on one line there
-   (ellipsis, never a wrap) so an unusually wide fallback font cannot make the bar taller than its slot. */
-.b6-topbar-reserved .b6-topbar-slot--reserve {
-  min-height: 54px;
-}
-
-.b6-topbar {
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  min-height: 54px;
-}
-
-@media (min-width: 500px) {
-  .b6-topbar-reserved .b6-topbar-slot--reserve {
-    min-height: 36px;
-  }
-
-  .b6-topbar {
-    min-height: 36px;
-  }
-
-  .b6-topbar > p {
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-  }
-}
-
 .b6-panel-pill {
   position: fixed;
   top: 14px;
@@ -615,11 +627,699 @@
 .b6-mist__leaf--3 { top: -40px; right: 360px; width: 360px; height: 200px; background: var(--b6-mist-3); }
 .b6-mist__leaf--4 { top: 150px; right: 40px; width: 240px; height: 150px; background: var(--b6-mist-4); }
 
+/* ---- R-25 G0: display type. Page-2 boards: h1 34/300 on a phone, 38/300 on web, 32 -> 48 on the entry page. ---- */
+.b6-h1-display {
+  margin: 0;
+  font-size: var(--b6-fs-h1);
+  line-height: 1.15;
+  font-weight: 300;
+  letter-spacing: -0.4px;
+  text-wrap: balance;
+}
+
+.b6-h1-web {
+  margin: 0;
+  font-size: 38px;
+  line-height: 1.1;
+  font-weight: 300;
+  letter-spacing: -0.6px;
+  text-wrap: balance;
+}
+
+.b6-h1-entry {
+  margin: 0;
+  font-size: 32px;
+  line-height: 1.12;
+  font-weight: 300;
+  letter-spacing: -0.6px;
+  text-wrap: balance;
+}
+
+@media (min-width: 900px) {
+  .b6-h1-entry {
+    font-size: 48px;
+    line-height: 1.08;
+    letter-spacing: -1px;
+  }
+}
+
+.b6-h2-card {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.25;
+  font-weight: 500;
+}
+
+.b6-sub {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--b6-muted);
+}
+
+.b6-mono {
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-small);
+  color: var(--b6-muted);
+}
+
+.b6-note {
+  margin: 0;
+  font-size: var(--b6-fs-small);
+  line-height: 1.5;
+  color: var(--b6-muted);
+  text-align: center;
+}
+
+/* The board "kick": mono 12px, muted, upper case, no border. Same face as .b6-kicker, which stays for Kicker/Tile. */
+.b6-kick {
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-kicker);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--b6-muted);
+}
+
+.b6-quote {
+  padding: 10px 14px;
+  border-radius: var(--b6-r-control);
+  background: var(--b6-surface-soft);
+  color: var(--b6-ink-soft);
+  font-size: var(--b6-fs-ui);
+  font-style: italic;
+  line-height: 1.5;
+}
+
+/* ---- R-25 G0: phone screen frame (board .scr / .top / .head / .foot) ---- */
+.b6-screen {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 0 20px 24px;
+  background: var(--b6-ground);
+  color: var(--b6-ink);
+  font-family: var(--b6-font-sans);
+}
+
+.b6-top {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+}
+
+/* Inside .b6-screen (which already pads 20px) the bar bleeds back out, so its own 20px lands on the screen edge once. */
+.b6-screen > .b6-top {
+  margin: 0 -20px;
+}
+
+.b6-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 0;
+  text-align: center;
+}
+
+.b6-head .b6-sub {
+  max-width: 310px;
+}
+
+.b6-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 0 0;
+}
+
+/* Web page main column (board .main): the right-hand cell of .b6-dwrap. */
+.b6-main {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  gap: 22px;
+  min-width: 0;
+  padding: 20px 20px 40px;
+}
+
+@media (min-width: 900px) {
+  .b6-main {
+    padding: 22px 32px 56px;
+  }
+}
+
+/* ---- R-25 G0: logo ---- */
+.b6-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--b6-font-sans);
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  color: var(--b6-ink);
+}
+
+.b6-logo__mark {
+  flex: none;
+  display: block;
+  color: var(--b6-teal);
+  width: 26px;
+  height: 26px;
+}
+
+.b6-logo__word {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.b6-logo--sm .b6-logo__mark {
+  width: 22px;
+  height: 22px;
+}
+
+.b6-logo--sm .b6-logo__word {
+  font-size: 16px;
+}
+
+/* ---- R-25 G0: stage and orb. Decorative; the h1 under it carries the state. ---- */
+.b6-stage {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 290px;
+}
+
+.b6-stage__glow {
+  position: absolute;
+  width: 340px;
+  height: 340px;
+  border-radius: 50%;
+}
+
+.b6-stage__glow-in {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0) 68%);
+}
+
+.b6-stage--listening .b6-stage__glow-in,
+.b6-stage--done .b6-stage__glow-in {
+  background: radial-gradient(circle, rgba(138, 199, 186, 0.5) 0%, rgba(138, 199, 186, 0.18) 42%, rgba(138, 199, 186, 0) 70%);
+}
+
+.b6-stage--amber .b6-stage__glow-in {
+  background: radial-gradient(circle, rgba(222, 184, 110, 0.42) 0%, rgba(222, 184, 110, 0.14) 42%, rgba(222, 184, 110, 0) 70%);
+}
+
+.b6-orb-ring {
+  position: absolute;
+  width: 206px;
+  height: 206px;
+}
+
+.b6-orb-ping {
+  width: 206px;
+  height: 206px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(43, 42, 38, 0.14);
+  pointer-events: none;
+}
+
+.b6-orb-shell {
+  position: absolute;
+  z-index: 1;
+  width: 206px;
+  height: 206px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(226, 223, 216, 0.95), 0 1px 1px rgba(43, 42, 38, 0.03), 0 26px 50px -30px rgba(43, 42, 38, 0.3);
+}
+
+.b6-orb {
+  position: relative;
+  z-index: 2;
+  box-sizing: border-box;
+  width: 176px;
+  height: 176px;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--b6-orb-idle);
+  background-image: linear-gradient(160deg, rgba(255, 255, 255, 0.75) 0%, rgba(255, 255, 255, 0) 58%);
+  box-shadow: inset 0 0 0 1px rgba(226, 223, 216, 0.95);
+  color: var(--b6-ink);
+  font-family: var(--b6-font-sans);
+}
+
+.b6-orb--listening,
+.b6-orb--done {
+  background-color: var(--b6-teal-bg);
+  color: var(--b6-teal-ink);
+}
+
+.b6-orb--amber {
+  background-color: var(--b6-orb-amber);
+  color: var(--b6-amber-ink);
+}
+
+.b6-orb__label {
+  margin-top: 4px;
+  font-size: 19px;
+  font-weight: 500;
+}
+
+.b6-orb__mark {
+  display: block;
+  width: 58px;
+  height: 58px;
+}
+
+.b6-orb__wave {
+  display: block;
+  width: 92px;
+  height: 66px;
+}
+
+.b6-orb__bar {
+  fill: var(--b6-teal);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.b6-orb__bar--hi {
+  fill: var(--b6-teal-ink);
+}
+
+.b6-orb__spin-track { stroke: var(--b6-line); }
+.b6-orb__spin-arc { stroke: var(--b6-teal-ink); }
+
+/* Motion only for people who have not asked for less. Without .b6-stage--animated (or with reduce) the stage is still. */
+@media (prefers-reduced-motion: no-preference) {
+  .b6-stage--animated .b6-stage__glow-in {
+    animation: b6-breathe 6s ease-in-out infinite;
+  }
+
+  .b6-stage--animated .b6-orb-ping {
+    animation: b6-ping 3.6s ease-out infinite;
+  }
+
+  .b6-stage--animated .b6-orb__bar {
+    animation: b6-wave 1.4s ease-in-out infinite;
+  }
+
+  .b6-stage--animated .b6-orb__bar:nth-child(1) { animation-delay: -0.9s; }
+  .b6-stage--animated .b6-orb__bar:nth-child(2) { animation-delay: -0.3s; }
+  .b6-stage--animated .b6-orb__bar:nth-child(3) { animation-delay: -1.1s; }
+  .b6-stage--animated .b6-orb__bar:nth-child(4) { animation-delay: -0.5s; }
+  .b6-stage--animated .b6-orb__bar:nth-child(5) { animation-delay: -0.1s; }
+  .b6-stage--animated .b6-orb__bar:nth-child(6) { animation-delay: -0.7s; }
+  .b6-stage--animated .b6-orb__bar:nth-child(7) { animation-delay: -1.3s; }
+
+  .b6-stage--animated .b6-orb__spin {
+    animation: b6-spin 1.6s linear infinite;
+  }
+}
+
+@keyframes b6-breathe {
+  0%, 100% { transform: scale(0.94); opacity: 0.85; }
+  50% { transform: scale(1.05); opacity: 1; }
+}
+
+@keyframes b6-ping {
+  0% { transform: scale(1); opacity: 0.5; }
+  100% { transform: scale(1.38); opacity: 0; }
+}
+
+@keyframes b6-wave {
+  0%, 100% { transform: scaleY(1); }
+  50% { transform: scaleY(0.5); }
+}
+
+@keyframes b6-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ---- R-25 G0: alerts. role comes from the caller (alert for a refusal, status for a heads-up). ---- */
+.b6-alert {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border-radius: var(--b6-r-control);
+  font-family: var(--b6-font-sans);
+  font-size: var(--b6-fs-ui);
+  line-height: 1.45;
+}
+
+.b6-alert--red { background: var(--b6-red-bg); color: var(--b6-red-ink); }
+.b6-alert--amber { background: var(--b6-amber-bg); color: var(--b6-amber-ink); }
+
+.b6-alert__lead {
+  font-weight: 600;
+}
+
+/* With a leading mark ("!"): the mark and the text sit side by side. */
+.b6-alert--row {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 12px;
+  border-radius: 14px;
+}
+
+.b6-alert__icon {
+  flex: none;
+  font-size: var(--b6-fs-title);
+  line-height: 1.3;
+}
+
+/* ---- R-25 G0: dialog sheet. Bottom sheet on a phone, centred 460px card from 900px. ---- */
+.b6-dsheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--b6-z-dialog);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: var(--b6-scrim);
+}
+
+.b6-dsheet {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  max-height: 92vh;
+  max-height: 92dvh;
+  padding: 14px 24px 28px;
+  padding-bottom: max(28px, env(safe-area-inset-bottom));
+  overflow-y: auto;
+  border-radius: var(--b6-r-sheet) var(--b6-r-sheet) 0 0;
+  background: var(--b6-surface);
+  box-shadow: var(--b6-shadow-sheet);
+  color: var(--b6-ink);
+  font-family: var(--b6-font-sans);
+}
+
+.b6-dsheet__grip {
+  flex: none;
+  width: 40px;
+  height: 4px;
+  margin: 0 auto;
+  border-radius: 2px;
+  background: #D9D5CC;
+}
+
+.b6-dsheet__title {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.25;
+  font-weight: 500;
+}
+
+.b6-dsheet__body {
+  margin: 0;
+  font-size: var(--b6-fs-body);
+  line-height: 1.5;
+  color: var(--b6-muted);
+}
+
+/* The same centred card at any width: a caller that wants it on a phone too passes `centred`. */
+.b6-dsheet--centred {
+  width: 100%;
+  max-width: 460px;
+  padding: 28px;
+  border-radius: 22px;
+  box-shadow: 0 30px 60px -24px rgba(43, 42, 38, 0.5);
+}
+
+.b6-dsheet-backdrop:has(.b6-dsheet--centred) {
+  align-items: center;
+  padding: 16px;
+}
+
+.b6-dsheet--centred .b6-dsheet__grip {
+  display: none;
+}
+
+@media (min-width: 900px) {
+  .b6-dsheet-backdrop {
+    align-items: center;
+    padding: 16px;
+  }
+
+  .b6-dsheet {
+    max-width: 460px;
+    padding: 28px;
+    border-radius: 22px;
+    box-shadow: 0 30px 60px -24px rgba(43, 42, 38, 0.5);
+  }
+
+  .b6-dsheet__grip {
+    display: none;
+  }
+}
+
+/* ---- R-25 G0: forms ---- */
+.b6-codefield {
+  box-sizing: border-box;
+  width: 100%;
+  height: 64px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--b6-surface);
+  box-shadow: inset 0 0 0 1px var(--b6-line-strong);
+  color: var(--b6-ink);
+  font-family: var(--b6-font-mono);
+  font-size: 28px;
+  letter-spacing: 10px;
+  text-indent: 10px;
+  text-align: center;
+}
+
+/* The board's #A9A59C dots are 2.4:1; --b6-faint is the lightest placeholder that still reads as a hint. */
+.b6-codefield::placeholder {
+  color: var(--b6-faint);
+  opacity: 1;
+}
+
+.b6-field {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: var(--b6-r-control);
+  background: var(--b6-surface);
+  box-shadow: inset 0 0 0 1px var(--b6-line-field);
+  color: var(--b6-ink);
+  font-family: var(--b6-font-sans);
+  font-size: var(--b6-fs-body);
+  line-height: 1.4;
+}
+
+.b6-field::placeholder {
+  color: var(--b6-faint);
+  opacity: 1;
+}
+
+/* ---- R-25 G0: guide chrome ---- */
+/* Content row of the collapsed web guide. SidePanel's pill already draws the white box; this lays out kicker, chip and chevron. */
+.b6-fab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.b6-clock {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--b6-r-pill);
+  background: var(--b6-teal-bg);
+  box-shadow: inset 0 0 0 1px var(--b6-teal-line);
+  color: var(--b6-teal-ink);
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-kicker);
+  white-space: nowrap;
+}
+
+.b6-cardbox {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 15px;
+  border-radius: 16px;
+  background: var(--b6-cardbox);
+  box-shadow: inset 0 0 0 1px var(--b6-line-strong);
+  color: var(--b6-ink);
+  font-size: var(--b6-fs-body);
+  line-height: 1.5;
+}
+
+.b6-dsec {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--b6-ink);
+}
+
+/* Guide control: the full-width dark action inside a card box ("Fill in 000000 >", "Jump to tomorrow >>"). */
+.b6-ctl {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--b6-tap);
+  padding: 0 14px;
+  border: 0;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--b6-ink);
+  color: var(--b6-surface);
+  font-family: var(--b6-font-sans);
+  font-size: var(--b6-fs-ui);
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.b6-ctl:disabled,
+.b6-ctl[aria-disabled="true"] {
+  background: var(--b6-disabled-bg);
+  color: var(--b6-muted);
+  cursor: not-allowed;
+}
+
+/* The collapsed phone handle is the board's 84px drawer row: grip on top, the row centred in what is left. */
+.b6-sheet .b6-handle {
+  display: flex;
+  flex-direction: column;
+}
+
+.b6-sheet .b6-handle[aria-expanded="false"] {
+  min-height: 84px;
+}
+
+.b6-sheet .b6-handle .b6-sheet__row {
+  flex: 1 1 auto;
+}
+
+/* ---- R-25 G0: web shell. Bar on top; below it a 210px nav column and the main column. ---- */
+.b6-dtop {
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--b6-line-soft);
+  background: rgba(255, 255, 255, 0.55);
+  font-family: var(--b6-font-sans);
+  color: var(--b6-ink);
+}
+
+.b6-dwrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.b6-nav {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: row;
+  gap: 2px;
+  padding: 8px 12px;
+  overflow-x: auto;
+  font-family: var(--b6-font-sans);
+}
+
+.b6-nav__item {
+  box-sizing: border-box;
+  flex: none;
+  min-height: var(--b6-tap);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 14px;
+  border-radius: var(--b6-r-control);
+  color: var(--b6-muted);
+  font-size: var(--b6-fs-body);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 120ms ease;
+}
+
+.b6-nav__item:hover {
+  color: var(--b6-ink);
+}
+
+.b6-nav__item[aria-current="page"],
+.b6-nav__item--on {
+  background: var(--b6-surface);
+  color: var(--b6-ink);
+  font-weight: 500;
+  box-shadow: 0 1px 2px rgba(43, 42, 38, 0.06);
+}
+
+.b6-badge,
+.b6-nav__badge {
+  min-width: 22px;
+  height: 22px;
+  box-sizing: border-box;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: var(--b6-ink);
+  color: var(--b6-surface);
+  font-size: var(--b6-fs-kicker);
+  line-height: 1;
+}
+
+@media (min-width: 900px) {
+  .b6-dtop {
+    padding: 14px 28px;
+  }
+
+  .b6-dwrap {
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .b6-nav {
+    flex-direction: column;
+    padding: 16px 14px;
+    overflow-x: visible;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .b6-btn,
   .b6-seg__item,
   .b6-sheet,
-  .b6-panel {
+  .b6-panel,
+  .b6-ctl,
+  .b6-nav__item {
     transition: none;
   }
 }

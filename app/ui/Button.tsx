@@ -3,10 +3,11 @@
 import type { ComponentPropsWithRef, MouseEvent } from "react";
 import { cx } from "@/app/ui/cx";
 
-export type ButtonVariant = "primary" | "secondary" | "destructive";
+export type ButtonVariant = "primary" | "secondary" | "destructive" | "text" | "text-danger";
 export type ButtonSize = "md" | "lg";
 
 interface LookProps {
+  /** `text` and `text-danger` are the quiet, unfilled actions ("Sign out", "Skip"); `text-danger` is red ink. */
   variant?: ButtonVariant;
   /** `md` is the 44px control; `lg` is the 56px hero pill. */
   size?: ButtonSize;

@@ -4,7 +4,11 @@ import { DEBRIEF_DONE_FLAG_KEY as DEBRIEF_CONSTANT } from "@/lib/debrief/constan
 import {
   DEBRIEF_DONE_FLAG_KEY,
   capturePhaseFor,
+  clearPairDone,
   publishCaptureBridge,
+  publishPairDone,
+  readPairDone,
+  subscribePairBridge,
   readCaptureBridge,
   subscribeCaptureBridge,
   type CaptureBridge,
@@ -109,5 +113,36 @@ describe("the capture bridge store", () => {
   it("re-exports the PR-3 done flag key (one definition, lib/debrief/constants), so the phase and DebriefFlow read the same flag", () => {
     expect(DEBRIEF_DONE_FLAG_KEY).toBe("bee6.debrief.done");
     expect(DEBRIEF_DONE_FLAG_KEY).toBe(DEBRIEF_CONSTANT);
+  });
+});
+
+// R-25 R12: the pair bridge (/pair -> guide), same store pattern as the capture bridge.
+describe("pair bridge", () => {
+  afterEach(() => clearPairDone());
+
+  it("starts unpaired; publishPairDone marks it and notifies subscribers once per change", () => {
+    const seen = vi.fn();
+    const off = subscribePairBridge(seen);
+    expect(readPairDone()).toBe(false);
+    publishPairDone();
+    expect(readPairDone()).toBe(true);
+    publishPairDone(); // already true: no second notification
+    expect(seen).toHaveBeenCalledTimes(1);
+    off();
+  });
+
+  it("the returned cleanup (and clearPairDone) take the signal back; an unsubscribed listener hears nothing", () => {
+    const seen = vi.fn();
+    const off = subscribePairBridge(seen);
+    const cleanup = publishPairDone();
+    cleanup();
+    expect(readPairDone()).toBe(false);
+    publishPairDone();
+    clearPairDone();
+    expect(readPairDone()).toBe(false);
+    expect(seen).toHaveBeenCalledTimes(4);
+    off();
+    publishPairDone();
+    expect(seen).toHaveBeenCalledTimes(4);
   });
 });

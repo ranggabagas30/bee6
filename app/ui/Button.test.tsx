@@ -113,6 +113,57 @@ describe("Button", () => {
   });
 });
 
+describe("text variants (R-25 G0)", () => {
+  it.each([
+    ["text", "b6-btn--text"],
+    ["text-danger", "b6-btn--text-danger"],
+  ] as const)("renders the %s variant", (variant, cls) => {
+    render(<Button variant={variant}>Sign out</Button>);
+    const b = screen.getByRole("button", { name: "Sign out" });
+    expect(b.className).toContain("b6-btn");
+    expect(b.className).toContain(cls);
+    expect(buttonClassName({ variant })).toBe(`b6-btn ${cls}`);
+  });
+
+  it("is unfilled, keeps the 44px tap target, and text-danger is red ink", () => {
+    for (const sel of [".b6-btn--text", ".b6-btn--text-danger"]) {
+      const d = ruleDeclarations(css, sel);
+      expect(d["background"], sel).toBe("transparent");
+      expect(d["box-shadow"], sel).toBe("none");
+      expect(minHeightPx(d, tokens), sel).toBeGreaterThanOrEqual(44);
+    }
+    expect(ruleDeclarations(css, ".b6-btn--text")["color"]).toBe("var(--b6-muted)");
+    expect(ruleDeclarations(css, ".b6-btn--text-danger")["color"]).toBe("var(--b6-red-ink)");
+  });
+
+  it("a really disabled text button stays transparent with faint text and no pointer", () => {
+    const d = ruleDeclarations(css, ".b6-btn--text:disabled");
+    expect(d["background"]).toBe("transparent");
+    expect(d["cursor"]).toBe("not-allowed");
+    render(<Button variant="text" disabled>Skip</Button>);
+    expect((screen.getByRole("button", { name: "Skip" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it(".b6-btn--dis is the readable grey look for a lookalike that is not a button", () => {
+    const d = ruleDeclarations(css, ".b6-btn--dis");
+    expect(d["background"]).toBe("var(--b6-disabled-bg)");
+    expect(d["color"]).toBe("var(--b6-muted)");
+  });
+
+  it("has no axe violations", async () => {
+    const { container } = render(
+      <div>
+        <Button variant="text">One</Button>
+        <Button variant="text-danger">Two</Button>
+        <Button variant="text" disabled>
+          Three
+        </Button>
+      </div>,
+    );
+    expect(await axeViolations(container)).toEqual([]);
+  });
+});
+
 describe("ButtonLink", () => {
   it("is a real link with the button look", () => {
     render(<ButtonLink href="/pair">Open</ButtonLink>);
