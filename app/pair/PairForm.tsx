@@ -75,7 +75,7 @@ export function PairForm({ onPaired, demoIntercept, initialCode = "" }: PairForm
     if (errorKey) errorRef.current?.focus();
   }, [errorKey]);
 
-  // The form is server-rendered inside a lazily hydrated subtree (/pair's DemoAccess). React 19 keeps the DOM value it
+  // The form is server-rendered inside a lazily hydrated subtree (/pair). React 19 keeps the DOM value it
   // finds at hydration but not in state: digits typed before the chunk arrived would show and never enable Set up.
   // A no-op everywhere else (the DOM value equals the state); an initialCode already in state wins.
   useEffect(() => {
