@@ -55,10 +55,16 @@ export const webID = {
   "C-web-empty-sop-h": "Belum ada SOP.", // PROVISIONAL
   "C-web-empty-sop-owner": "Unggah SOP akan segera hadir. Demo memakai SOP yang sudah disiapkan.", // PROVISIONAL
   "C-web-empty-rev-h": "Belum ada yang perlu ditinjau", // PROVISIONAL
-  "C-web-empty-rev-p": "Saat perubahan yang disetujui mencapai tanggal tinjauannya, perubahan itu muncul di sini.", // PROVISIONAL
+  "C-web-empty-rev-p":
+    "Saat perubahan yang disetujui mencapai tanggal tinjauannya, perubahan itu muncul di sini. Tanggal tinjauan ditetapkan saat pemilik menyetujui usulan.", // PROVISIONAL
   "C-web-empty-devices": "Belum ada HP yang terhubung.", // PROVISIONAL
   "C-web-empty-tile-value": "—",
   "C-web-empty-tile": "Belum ada data", // PROVISIONAL
+  // R-25 T8: web shell (D2 `.dtop` bar, left nav) and the Reviews sub line.
+  "C-web-outlet-demo": "Demo Bakery · Outlet 1", // PROVISIONAL
+  "C-web-ends-at": "berakhir {time}", // PROVISIONAL
+  "C-web-nav-badge": "{n} menunggu", // PROVISIONAL
+  "C-web-reviews-sub": "Apakah perubahan yang disetujui berhasil?", // PROVISIONAL
 } as const satisfies Record<string, string>;
 
 export const webEN: Record<keyof typeof webID, string> = {
@@ -98,8 +104,13 @@ export const webEN: Record<keyof typeof webID, string> = {
   "C-web-empty-sop-h": "No SOP yet.",
   "C-web-empty-sop-owner": "Uploading an SOP is coming soon. The demo uses a ready-made SOP.",
   "C-web-empty-rev-h": "Nothing to review yet",
-  "C-web-empty-rev-p": "When an approved change reaches its review date, it appears here.",
+  "C-web-empty-rev-p":
+    "When an approved change reaches its review date, it appears here. Review dates are set when the owner approves a proposal.",
   "C-web-empty-devices": "No phone connected yet.",
   "C-web-empty-tile-value": "—",
   "C-web-empty-tile": "No data yet",
+  "C-web-outlet-demo": "Demo Bakery · Outlet 1",
+  "C-web-ends-at": "ends {time}",
+  "C-web-nav-badge": "{n} waiting",
+  "C-web-reviews-sub": "Did an approved change work?",
 };
