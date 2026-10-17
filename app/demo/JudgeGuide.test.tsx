@@ -562,9 +562,9 @@ describe("web routes: progress and the supervisor-visited flag", () => {
     openGuide();
     expect(await screen.findAllByRole("button", { name: "Reset the demo" })).toHaveLength(1);
     expect(document.body.textContent).not.toContain("Demo reset to day 1");
-    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Reset the demo" }));
-    expect(screen.getAllByRole("alertdialog")).toHaveLength(1);
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     fireEvent.click(screen.getByRole("button", { name: /Close the judge guide/ }));
     expect(screen.queryByRole("button", { name: "Reset the demo", hidden: true })).toBeNull();
@@ -598,7 +598,7 @@ describe("web routes: progress and the supervisor-visited flag", () => {
       await screen.findByRole("heading", { name: "Owner home" }); // the pill names only the stage, so wait on the open card
       const trigger = await screen.findByRole("button", { name: "Reset the demo" });
       fireEvent.click(trigger);
-      expect(screen.getByRole("alertdialog")).toBeTruthy();
+      expect(screen.getByRole("dialog")).toBeTruthy();
       return trigger;
     }
 
@@ -607,7 +607,7 @@ describe("web routes: progress and the supervisor-visited flag", () => {
       const cancel = screen.getByRole("button", { name: "Cancel" });
       expect(document.activeElement).toBe(cancel);
       fireEvent.keyDown(cancel, { key: "Escape" });
-      expect(screen.queryByRole("alertdialog")).toBeNull();
+      expect(screen.queryByRole("dialog")).toBeNull();
       guideStaysOpen();
       expect(document.activeElement).toBe(trigger);
     });
@@ -619,11 +619,11 @@ describe("web routes: progress and the supervisor-visited flag", () => {
           : new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 2, feasible: 2, owner_decided: 2 } }), { status: 200 }),
       );
       await openResetDialog();
-      fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Reset the demo" }));
       const busy = await screen.findByRole("button", { name: "Resetting…" });
       expect((busy as HTMLButtonElement).disabled).toBe(true);
-      fireEvent.keyDown(screen.getByRole("alertdialog"), { key: "Escape" });
-      expect(screen.getByRole("alertdialog")).toBeTruthy();
+      fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+      expect(screen.getByRole("dialog")).toBeTruthy();
       expect(screen.getByRole("button", { name: "Resetting…" })).toBeTruthy();
       guideStaysOpen();
     });

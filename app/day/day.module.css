@@ -1,0 +1,375 @@
+/*
+ * Supervisor / owner day record (R-25 T9, board D2-02). Layout only: type (.b6-h1-web, .b6-sub, .b6-mono, .b6-h2-card),
+ * surfaces (.b6-card), chips, pills, tiles and buttons come from app/ui and app/globals.css. Colours are --b6-* tokens.
+ * Mobile-first: one column at 360 px; the note rows go to a three-column grid from 720 px. Every control is >= 44 px.
+ */
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+/* ---- header: title block + date control ---- */
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.headText {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.headText h1,
+.headText p {
+  margin: 0;
+}
+
+.dateNav {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  border-radius: 14px;
+  background: var(--b6-chip);
+}
+
+.dateArrow {
+  box-sizing: border-box;
+  width: var(--b6-tap);
+  height: var(--b6-tap);
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--b6-muted);
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.dateArrow:focus-visible {
+  outline: 2px solid var(--b6-focus);
+  outline-offset: 2px;
+}
+
+.dateArrow:disabled {
+  color: var(--b6-faint);
+  cursor: not-allowed;
+}
+
+.dateTab {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--b6-tap);
+  padding: 0 14px;
+  border-radius: 11px;
+  background: var(--b6-surface);
+  box-shadow: var(--b6-shadow-seg-on);
+  font-size: var(--b6-fs-ui);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* The day lines that stay (closed / pending / cancelled / truncated): facts, not decoration. */
+.headBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.line {
+  margin: 0;
+  font-size: var(--b6-fs-ui);
+  line-height: 1.5;
+  color: var(--b6-muted);
+}
+
+/* ---- tiles ---- */
+.tiles {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tiles > li {
+  display: flex;
+  min-width: 0;
+}
+
+.tiles > li > * {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+@media (min-width: 600px) {
+  .tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+  }
+
+  .tilesOne {
+    grid-template-columns: minmax(0, 320px);
+  }
+}
+
+/* ---- category filter (Segmented plain, wrapped) ---- */
+.filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-self: flex-start;
+  max-width: 100%;
+  gap: 2px;
+}
+
+/* ---- note rows ---- */
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
+}
+
+.item {
+  border-bottom: 1px solid var(--b6-line-soft);
+  content-visibility: auto;
+  contain-intrinsic-size: auto 160px;
+}
+
+.item:last-child {
+  border-bottom: 0;
+}
+
+.row {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "time pill"
+    "body body"
+    "actions actions";
+  align-items: start;
+  gap: 8px 12px;
+  padding: 16px 18px;
+  overflow-wrap: anywhere;
+}
+
+.time {
+  grid-area: time;
+  padding-top: 2px;
+}
+
+.pill {
+  grid-area: pill;
+  justify-self: end;
+}
+
+.body {
+  grid-area: body;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.actions {
+  grid-area: actions;
+  min-width: 0;
+}
+
+@media (min-width: 720px) {
+  .row {
+    grid-template-columns: 52px minmax(0, 1fr) minmax(0, 220px);
+    grid-template-areas:
+      "time body pill"
+      "time body actions";
+    gap: 10px 18px;
+    padding: 18px 24px;
+  }
+
+  .actions {
+    justify-self: end;
+  }
+}
+
+.titleLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+.titleLine > :first-child {
+  flex: none;
+}
+
+.summary {
+  min-width: 0;
+  font-size: var(--b6-fs-lead);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.quote {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: var(--b6-r-control);
+  background: var(--b6-surface-soft);
+  color: var(--b6-ink-soft);
+  font-size: var(--b6-fs-ui);
+  font-style: italic;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.quoteHm {
+  margin-right: 8px;
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-small);
+  font-style: normal;
+  color: var(--b6-muted);
+}
+
+.meta {
+  margin: 0;
+  font-size: var(--b6-fs-small);
+  color: var(--b6-muted);
+}
+
+.runner summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--b6-tap);
+  font-size: var(--b6-fs-small);
+  color: var(--b6-muted);
+  cursor: pointer;
+}
+
+.runner summary:focus-visible {
+  outline: 2px solid var(--b6-focus);
+  outline-offset: 2px;
+}
+
+.runner p {
+  margin: 0 0 4px;
+  font-size: var(--b6-fs-small);
+  color: var(--b6-muted);
+  overflow-wrap: anywhere;
+}
+
+/* ---- row actions (Change label / Confirm / Reject) ---- */
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+@media (min-width: 720px) {
+  .buttons {
+    justify-content: flex-end;
+  }
+}
+
+.reject {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.reject p {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--b6-fs-ui);
+  line-height: 1.45;
+}
+
+.status {
+  margin: 8px 0 0;
+  font-size: var(--b6-fs-ui);
+  color: var(--b6-muted);
+}
+
+/* ---- staff debrief ---- */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.section h2,
+.section p {
+  margin: 0;
+}
+
+.sectionSub {
+  font-size: var(--b6-fs-ui);
+  line-height: 1.5;
+  color: var(--b6-muted);
+}
+
+.qa {
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 14px 18px;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 720px) {
+  .qa {
+    padding: 14px 24px;
+  }
+}
+
+.qaText {
+  display: flex;
+  flex: 1 1 240px;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.qaQuestion {
+  font-size: var(--b6-fs-body);
+  line-height: 1.45;
+}
+
+.qaReason {
+  font-size: var(--b6-fs-small);
+  line-height: 1.45;
+  color: var(--b6-muted);
+}
+
+.qaEmpty {
+  margin: 0;
+  padding: 14px 18px;
+  font-size: var(--b6-fs-ui);
+  color: var(--b6-muted);
+}
+
+/* ---- load states ---- */
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.state p {
+  margin: 0;
+}

@@ -1,0 +1,97 @@
+/*
+ * /capture on a demo sandbox (R-25 T5, boards P2-04..P2-07c / L2-02..L2-06c): the page-2 staff screen. Only what this page
+ * needs on top of the shared `.b6-*` primitives lives here: the page ground and column, the footer width, the focus box
+ * inside the dialog sheets and the upload block. One column, 360 px first; tokens only.
+ */
+
+/* cancels the browser's default 8px body margin on this page only, so the ground colour reaches the screen edge */
+:global(body):has(.page) {
+  margin: 0;
+}
+
+.page {
+  position: relative;
+  box-sizing: border-box;
+  min-height: 100dvh;
+  background: var(--b6-ground);
+  color: var(--b6-ink);
+  font-family: var(--b6-font-sans);
+}
+
+.column {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 0 20px 24px;
+  padding-left: max(20px, env(safe-area-inset-left));
+  padding-right: max(20px, env(safe-area-inset-right));
+}
+
+/* the primary action and the quiet ones: the board's 420 px button on a laptop, full width on a phone */
+.foot {
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto;
+  padding-left: 4px;
+  padding-right: 4px;
+  box-sizing: border-box;
+}
+
+/* short phones (360 x 640 .. 740): the 290 px stage gives up height so the footer stays above the guide handle */
+@media (max-height: 740px) {
+  .column :global(.b6-stage) {
+    height: 220px;
+    margin-top: -8px;
+  }
+
+  .column :global(.b6-stage) > * {
+    scale: 0.78;
+  }
+}
+
+/* ---- inside the dialog sheets ---- */
+.dfocus {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  outline: none;
+}
+
+.dbody strong {
+  font-weight: 600;
+  color: var(--b6-ink);
+}
+
+.dsecond {
+  min-height: 48px;
+}
+
+/* ---- upload block, page-2 look (sandbox) ---- */
+.upload {
+  width: 100%;
+  max-width: 420px;
+  margin: 12px auto 0;
+  box-sizing: border-box;
+  padding: 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lost {
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.uploadRow {
+  margin: 0;
+  text-align: center;
+}
+
+.uploadRowWarn {
+  color: var(--b6-amber-ink);
+}
