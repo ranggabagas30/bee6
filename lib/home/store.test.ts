@@ -87,6 +87,7 @@ function proposalDoc(overrides: Record<string, unknown>): Record<string, unknown
     supervisor_review: { decision: "feasible", reason: null, constraint_id: null, acknowledged_constraint_ids: [], decided_at_ms: 10 },
     owner_decision: { decision: "approved", reason: null, constraint_id: null, acknowledged_constraint_ids: [], decided_at_ms: 20 },
     content: { change_title: "Read the order back", change_text: "EVIDENCE-TEXT-SENTINEL", evidence: [{ thread_id: "t1" }] },
+    created_at_ms: 5,
     updated_at_ms: 20,
     ...overrides,
   };
@@ -110,7 +111,7 @@ describe("firestoreHomeStore.listDecidedProposals", () => {
     expect(HOME_DECIDED_MAX).toBe(500);
     const select = calls[0]!.select ?? [];
     expect(select).toEqual(
-      expect.arrayContaining(["outlet_id", "proposal_id", "status", "supervisor_review.decision", "owner_decision.decision", "owner_decision.decided_at_ms", "content.change_title", "updated_at_ms"]),
+      expect.arrayContaining(["outlet_id", "proposal_id", "status", "supervisor_review.decision", "owner_decision.decision", "owner_decision.decided_at_ms", "content.change_title", "created_at_ms", "updated_at_ms"]),
     );
     for (const forbidden of ["supervisor_review", "owner_decision", "content", "supervisor_review.reason", "owner_decision.reason", "content.evidence", "content.change_text"]) {
       expect(select, forbidden).not.toContain(forbidden);
@@ -138,9 +139,10 @@ describe("firestoreHomeStore.listDecidedProposals", () => {
         supervisor_decision: "feasible",
         owner_decision: { decision: "approved", decided_at_ms: 20 },
         change_title: "Read the order back",
+        created_at_ms: 5,
         updated_at_ms: 20,
       },
-      { proposal_id: UUID_B, status: "rejected", supervisor_decision: "rejected", owner_decision: null, change_title: "Read the order back", updated_at_ms: 30 },
+      { proposal_id: UUID_B, status: "rejected", supervisor_decision: "rejected", owner_decision: null, change_title: "Read the order back", created_at_ms: 5, updated_at_ms: 30 },
     ]);
     expect(JSON.stringify(rows)).not.toContain(SENTINEL);
     expect(JSON.stringify(rows)).not.toContain("EVIDENCE-TEXT-SENTINEL");
@@ -188,7 +190,7 @@ describe("firestoreHomeStore.listAwaitingOwnerProposals", () => {
     expect(calls[0]!.select).toContain("content.change_title");
     expect(calls[0]!.select).not.toContain("content");
     expect(rows).toEqual([
-      { proposal_id: UUID_A, status: "awaiting_owner", supervisor_decision: "feasible", owner_decision: null, change_title: "Read the order back", updated_at_ms: 20 },
+      { proposal_id: UUID_A, status: "awaiting_owner", supervisor_decision: "feasible", owner_decision: null, change_title: "Read the order back", created_at_ms: 5, updated_at_ms: 20 },
     ]);
   });
 

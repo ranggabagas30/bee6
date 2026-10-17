@@ -114,10 +114,10 @@ describe("GET /api/v1/home", () => {
     vi.spyOn(homeStoreModule, "firestoreHomeStore").mockReturnValueOnce(
       fakeStore({
         listDecidedProposals: async () => [
-          { proposal_id: "11111111-1111-4111-8111-111111111111", status: "approved", supervisor_decision: "feasible", owner_decision: { decision: "approved", decided_at_ms: now }, change_title: "A", updated_at_ms: now },
+          { proposal_id: "11111111-1111-4111-8111-111111111111", status: "approved", supervisor_decision: "feasible", owner_decision: { decision: "approved", decided_at_ms: now }, change_title: "A", created_at_ms: now, updated_at_ms: now },
         ],
         listAwaitingOwnerProposals: async () => [
-          { proposal_id: "22222222-2222-4222-8222-222222222222", status: "awaiting_owner", supervisor_decision: "feasible", owner_decision: null, change_title: "Read the order back", updated_at_ms: now },
+          { proposal_id: "22222222-2222-4222-8222-222222222222", status: "awaiting_owner", supervisor_decision: "feasible", owner_decision: null, change_title: "Read the order back", created_at_ms: now, updated_at_ms: now },
         ],
         listSopVersions: async () => [{ review_date: "2999-01-01", change_title: "A" }],
       }),
