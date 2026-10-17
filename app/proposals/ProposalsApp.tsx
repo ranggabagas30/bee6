@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState, type CSSProperties } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import { getClientAuth, type Auth } from "@/lib/auth/client/firebase-client";
@@ -11,9 +11,11 @@ import type { Lang } from "@/lib/i18n/lang";
 import { publishProposalsProgress, publishProposalsScreen } from "@/lib/demo/proposals-signal";
 import { ProposalIdSchema } from "@/lib/proposals/review-contract";
 import type { AskEstimate } from "@/lib/proposals/v4/flag";
-import { WebTopBar } from "@/app/web/WebTopBar";
+import { WebShell } from "@/app/web/WebShell";
+import { PageHead } from "@/app/web/PageHead";
 import { ApprovalsReview, type ApprovalsBridgeEvent } from "@/app/proposals/ApprovalsReview";
 import { SupervisorProposals, type ProposalsBridgeEvent } from "@/app/proposals/SupervisorProposals";
+import styles from "@/app/proposals/supervisor.module.css";
 
 /**
  * /proposals (R-08 Task 7.3; R-19 PR-12a/PR-12b split the roles). One route, two screens by the ID token's role
@@ -30,8 +32,6 @@ import { SupervisorProposals, type ProposalsBridgeEvent } from "@/app/proposals/
  */
 
 type Role = "owner" | "supervisor" | "other";
-
-const PAGE_STYLE: CSSProperties = { maxWidth: 720, margin: "0 auto", padding: 16, boxSizing: "border-box" };
 
 /** The page's bridge events, mapped onto the signal; the same function for both screens (their shapes coincide). */
 function publishBridgeEvent(event: ProposalsBridgeEvent | ApprovalsBridgeEvent): void {
@@ -102,65 +102,52 @@ export function ProposalsApp({
 
   if (!config || !auth) {
     return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={null} showSignOut={false} />
-        <p role="status" aria-live="polite">
+      <WebShell auth={null}>
+        <p role="status" aria-live="polite" className="b6-sub">
           {t(lang, "C-signin-config")}
         </p>
-      </main>
+      </WebShell>
     );
   }
 
-  if (authUser.status === "loading" || authUser.status === "signed_out") {
+  if (authUser.status === "loading" || authUser.status === "signed_out" || role === null) {
     return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut current="proposals" />
-        <p role="status" aria-live="polite">
+      <WebShell auth={auth} current="proposals">
+        <p role="status" aria-live="polite" className="b6-sub">
           {t(lang, "C-day-loading")}
         </p>
-      </main>
-    );
-  }
-
-  if (role === null) {
-    return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut current="proposals" />
-        <p role="status" aria-live="polite">
-          {t(lang, "C-day-loading")}
-        </p>
-      </main>
+      </WebShell>
     );
   }
 
   if (role === "other") {
     return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut current="proposals" />
-        <h1>{t(lang, "C-prop-title")}</h1>
-        <p role="status" aria-live="polite">
+      <WebShell auth={auth} current="proposals">
+        <PageHead title={t(lang, "C-prop-title")} />
+        <p role="status" aria-live="polite" className="b6-sub">
           {t(lang, "C-prop-err-forbidden")}
         </p>
-      </main>
+      </WebShell>
     );
   }
 
   if (role === "supervisor") {
     return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut current="proposals" />
-        <SupervisorProposals auth={auth} lang={lang} onBridge={onBridge} askEstimate={askEstimate} />
-      </main>
+      <WebShell auth={auth} current="proposals">
+        <SupervisorProposals auth={auth} lang={lang} onBridge={onBridge} askEstimate={askEstimate} demo={claim?.demo === true} />
+      </WebShell>
     );
   }
 
-  // Owner: page-1 W8 "Review in order" (PR-12b).
+  // Owner: page-1 W8 "Review in order" (PR-12b). The page-2 owner layout is R-25 T11's: until it lands the screen keeps
+  // its old 720px column inside the new shell.
   return (
-    <main style={PAGE_STYLE}>
-      <WebTopBar auth={auth} showSignOut current="proposals" />
-      <Suspense fallback={null}>
-        <OwnerApprovals auth={auth} lang={lang} onBridge={onBridge} />
-      </Suspense>
-    </main>
+    <WebShell auth={auth} current="proposals">
+      <div className={styles.ownerColumn}>
+        <Suspense fallback={null}>
+          <OwnerApprovals auth={auth} lang={lang} onBridge={onBridge} />
+        </Suspense>
+      </div>
+    </WebShell>
   );
 }

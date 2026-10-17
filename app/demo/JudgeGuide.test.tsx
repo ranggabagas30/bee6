@@ -108,16 +108,23 @@ describe("shell: collapsed by default, phone sheet vs laptop pill, one language"
     const region = screen.getByRole("region", { name: "Judge guide" });
     const handle = within(region).getByRole("button", { name: /Open the judge guide/ });
     expect(handle.getAttribute("aria-expanded")).toBe("false");
-    expect(handle.textContent).toContain("JUDGE GUIDE · STAGE 1 OF 5");
-    expect(handle.textContent).toContain("Welcome, judge");
+    expect(handle.textContent).toContain("JUDGE GUIDE");
+    expect(handle.textContent).toContain("DEMO");
+    expect(handle.textContent).toContain("Welcome · pick Staff to start");
+    expect(handle.textContent).not.toContain("Day 1 of 3"); // the clock chip is for the capture pages (the bridge knows the day)
     expect((screen.getByText(/About 20 minutes/).closest(".b6-sheet__body") as HTMLElement).hidden).toBe(true);
     openGuide();
     expect((screen.getByText(/About 20 minutes/).closest(".b6-sheet__body") as HTMLElement).hidden).toBe(false);
     expect(screen.getByRole("heading", { name: "Welcome, judge" })).toBeTruthy();
     expect(screen.getByText(/About 20 minutes/)).toBeTruthy();
-    expect(screen.getByText("To change role later: sign out, then pick again.")).toBeTruthy();
-    expect(screen.getByText("Staff · day 1")).toBeTruthy();
-    expect(screen.getByText("Owner · approve")).toBeTruthy();
+    expect(screen.getByText("WELCOME, JUDGE")).toBeTruthy();
+    expect(screen.getByText("To change role later: sign out, then pick a role again.")).toBeTruthy();
+    expect(screen.getByText("Welcome")).toBeTruthy();
+    // R-25 R19: the phone sheet has no 5-row journey list; the stage lives in the chip and the label line
+    expect(screen.queryByText("Your journey")).toBeNull();
+    expect(screen.queryByText("Owner · approve")).toBeNull();
+    expect(document.querySelectorAll(".b6-sheet__body li").length).toBe(0);
+    expect(document.querySelector(".b6-sheet__body .b6-cardbox")).not.toBeNull();
   });
 
   it("from 900 px it is a pill top-right that opens a side panel", () => {
@@ -125,10 +132,15 @@ describe("shell: collapsed by default, phone sheet vs laptop pill, one language"
     renderGuide();
     const pill = screen.getByRole("button", { name: /Open the judge guide/ });
     expect(pill.className).toContain("b6-panel-pill");
-    expect(pill.textContent).toContain("Judge guide · Stage 1 of 5");
+    expect(pill.querySelector(".b6-fab")).not.toBeNull(); // UI-108: kicker + chip + chevron, not a sentence
+    expect(pill.textContent).toContain("JUDGE GUIDE");
+    expect(pill.textContent).toContain("DEMO");
     fireEvent.click(pill);
-    expect(screen.getByRole("complementary", { name: "Judge guide" })).toBeTruthy();
+    const panel = screen.getByRole("complementary", { name: "Judge guide" });
+    expect(panel).toBeTruthy();
+    expect(within(panel).getByText("JUDGE GUIDE")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Welcome, judge" })).toBeTruthy();
+    expect(within(panel).queryByRole("list")).toBeNull(); // no journey list on the entry card
   });
 
   it("the phone sheet reserves bottom space so Start / End / Cancel stay reachable under the collapsed handle; the laptop pill reserves nothing", () => {
@@ -152,15 +164,19 @@ describe("shell: collapsed by default, phone sheet vs laptop pill, one language"
       </LangProvider>,
     );
     expect(screen.getByRole("button", { name: /Open the judge guide/ }).getAttribute("aria-expanded")).toBe("false");
-    expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("Set up the staff phone");
+    expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("Fill in the demo code");
   });
 
-  it("ID mode shows the (provisional) Bahasa chrome and the 'Bahasa coming soon' note, never both languages at once", () => {
+  it("ID mode shows the (provisional) Bahasa chrome AND Bahasa card copy (UI-009), never both languages at once; the 'Bahasa coming soon' note is for the script cards only", () => {
     renderGuide("id");
-    fireEvent.click(screen.getByRole("button", { name: /Buka panduan juri/ }));
-    expect(screen.getByText("Bahasa segera hadir; kartu ditampilkan dalam bahasa Inggris.")).toBeTruthy();
-    expect(screen.queryByRole("region", { name: "Your journey" })).toBeNull();
-    expect(screen.getByRole("region", { name: "Perjalanan Anda" })).toBeTruthy();
+    const handle = screen.getByRole("button", { name: /Buka panduan juri/ });
+    expect(handle.textContent).toContain("PANDUAN JURI");
+    expect(handle.textContent).toContain("Selamat datang · pilih Staf untuk mulai");
+    expect(handle.textContent).not.toContain("Welcome");
+    fireEvent.click(handle);
+    expect(screen.getByText("SELAMAT DATANG, JURI")).toBeTruthy();
+    expect(screen.queryByText("Bahasa segera hadir; kartu ditampilkan dalam bahasa Inggris.")).toBeNull();
+    expect(screen.queryByText("Perjalanan Anda")).toBeNull();
   });
 
   it("renders nothing on a web route without a live demo state in this browser, and nothing on /capture without the page's bridge", () => {
@@ -185,9 +201,13 @@ describe("pair card: Fill in the demo code", () => {
       </LangProvider>,
     );
     openGuide();
-    expect(screen.getByText(/Tap Fill in 000000, then Set up/)).toBeTruthy();
+    expect(screen.getByText("STEP: PAIR THE DEVICE")).toBeTruthy();
+    expect(screen.getByText("000000", { selector: "b" })).toBeTruthy(); // the code is bold in the card text
     fireEvent.click(screen.getByRole("button", { name: "Fill in 000000" }));
     expect((screen.getByLabelText("6-digit code") as HTMLInputElement).value).toBe("000000");
+    // after the fill the control itself reads "Filled in" and is disabled (UI-015); a screen reader hears the next step
+    // (the sheet collapsed after the fill: the control is still there, just hidden with the body)
+    expect((screen.getByRole("button", { name: "Filled in", hidden: true }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("Filled in. Tap Set up.")).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalled();
     expect((screen.getByRole("button", { name: "Set up" }) as HTMLButtonElement).disabled).toBe(false);
@@ -226,31 +246,63 @@ describe("/capture: the script card (plan 5.3-5.4)", () => {
     pathname = "/capture";
     act(() => publishCaptureBridge(listening(0)));
     renderGuide();
+    // the handle says which card is on screen (UI-006): "Read card 1 of 5 aloud", with the day clock chip beside it
+    const handle = screen.getByRole("button", { name: /Open the judge guide/ });
+    expect(handle.textContent).toContain("Read card 1 of 5 aloud");
+    expect(handle.querySelector(".b6-clock")?.textContent).toBe("Day 1 of 3");
     openGuide();
     expect(screen.getByText("Card 1 of 5")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Opening" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /Opening/ })).toBeTruthy();
     expect(screen.getByText(/Good morning. I am opening the shop now/)).toBeTruthy();
     expect(screen.queryByText(/The first tray of egg tarts/)).toBeNull();
-    const spoken = screen.getByRole("button", { name: "I have spoken this" }) as HTMLButtonElement;
+    // the board's why-line, and the stage label on top of the card box
+    expect(screen.getByText("Read it word for word. You play every voice; the speaker name is not spoken. Pause about 2 seconds between speakers.")).toBeTruthy();
+    expect(screen.getByText("Staff · day 1")).toBeTruthy();
+    const spoken = screen.getByRole("button", { name: "I have spoken this · next card" }) as HTMLButtonElement;
     expect(spoken.disabled).toBe(true);
     expect(screen.getByText("Waiting for Bee6 to hear this card…")).toBeTruthy();
-    expect(screen.getByText("Locked until all 5 cards are spoken (0 of 5 done).")).toBeTruthy();
+    expect(screen.queryByText(/Locked until all 5 cards are spoken/)).toBeNull(); // UI-034: not on the card
+    expect(screen.queryByRole("button", { name: /Previous card/ })).toBeNull(); // card 1 has no previous card
     act(() => publishCaptureBridge(listening(1)));
-    expect((screen.getByRole("button", { name: "I have spoken this" }) as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "I have spoken this" }));
+    expect((screen.getByRole("button", { name: "I have spoken this · next card" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "I have spoken this · next card" }));
     expect(screen.getByText("Card 2 of 5")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "First bake" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /First bake/ })).toBeTruthy();
     expect(document.activeElement?.textContent).toContain("First bake");
-    expect(screen.getByText("Locked until all 5 cards are spoken (1 of 5 done).")).toBeTruthy();
+    fireEvent.click(handle); // collapsed again: the handle's one-line title follows the card on screen
+    expect(handle.textContent).toContain("Read card 2 of 5 aloud");
+    fireEvent.click(handle);
     // the lines heard on card 1 do not count for card 2
-    expect((screen.getByRole("button", { name: "I have spoken this" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "I have spoken this · next card" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByRole("status").textContent).toBe("Card 2 of 5");
-    // the live region announces the new card; the "Previous card" link shows card 1 read-only and returns
+    // the "Previous card" link shows card 1 read-only and returns
     fireEvent.click(screen.getByRole("button", { name: "‹ Previous card (re-read only)" }));
     expect(screen.getByText(/Good morning. I am opening the shop now/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "I have spoken this" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /I have spoken this/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Back to card 2" }));
-    expect(screen.getByRole("heading", { name: "First bake" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /First bake/ })).toBeTruthy();
+  });
+
+  it("the script text region is keyboard-reachable and the 5 progress bars follow the spoken cards (UI-034)", () => {
+    pathname = "/capture";
+    window.sessionStorage.setItem(scriptStorageKey("s1"), JSON.stringify({ spoken: ["d1-c1", "d1-c2"] }));
+    act(() => publishCaptureBridge(listening(0)));
+    renderGuide();
+    openGuide();
+    const region = screen.getByRole("region", { name: "Script card text" });
+    expect(region.getAttribute("tabindex")).toBe("0");
+    const bars = document.querySelectorAll(".b6-sheet__body [class*='_bars_'] > span");
+    expect(bars.length).toBe(5);
+    expect(Array.from(bars).filter((b) => /_barOn_/.test(b.className)).length).toBe(2);
+  });
+
+  it("ID mode: the 'Bahasa coming soon' note sits on the script card only, the other lines stay in English", () => {
+    pathname = "/capture";
+    act(() => publishCaptureBridge(listening(0)));
+    renderGuide("id");
+    fireEvent.click(screen.getByRole("button", { name: /Buka panduan juri/ }));
+    expect(screen.getByText("Bahasa segera hadir; kartu ditampilkan dalam bahasa Inggris.")).toBeTruthy();
+    expect(screen.getByText("Hari 1 dari 3")).toBeTruthy();
   });
 
   it("the phone-call card needs 1 heard line like every other card; the speaker tags are shown, never spoken", () => {
@@ -260,11 +312,11 @@ describe("/capture: the script card (plan 5.3-5.4)", () => {
     renderGuide();
     openGuide();
     expect(screen.getByText("Card 3 of 5")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "A phone order" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /A phone order/ })).toBeTruthy();
     expect(screen.getAllByText("Staff").length).toBe(2);
-    expect((screen.getByRole("button", { name: "I have spoken this" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: /I have spoken this/ }) as HTMLButtonElement).disabled).toBe(true);
     act(() => publishCaptureBridge(bridge({ phase: "listening", sessionId: "s2", linesThisSession: 8, profile: profile({ day: 2 }) })));
-    expect((screen.getByRole("button", { name: "I have spoken this" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: /I have spoken this/ }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("progress survives a reload (sessionStorage per session) and a new session starts at card 1", () => {
@@ -272,7 +324,7 @@ describe("/capture: the script card (plan 5.3-5.4)", () => {
     act(() => publishCaptureBridge(listening(1)));
     const { unmount } = renderGuide();
     openGuide();
-    fireEvent.click(screen.getByRole("button", { name: "I have spoken this" }));
+    fireEvent.click(screen.getByRole("button", { name: /I have spoken this/ }));
     expect(JSON.parse(window.sessionStorage.getItem(scriptStorageKey("s1"))!)).toEqual({ spoken: ["d1-c1"] });
     unmount();
     renderGuide();
@@ -293,9 +345,18 @@ describe("/capture: the script card (plan 5.3-5.4)", () => {
     openGuide();
     expect(screen.getByText("Card 5 of 5")).toBeTruthy();
     act(() => publishCaptureBridge(listening(5)));
-    fireEvent.click(screen.getByRole("button", { name: "I have spoken this" }));
+    // card 5 ends with "finish", not "next card"
+    expect(screen.queryByRole("button", { name: "I have spoken this · next card" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "I have spoken this · finish" }));
     expect(screen.getByRole("heading", { name: "All 5 cards are spoken" })).toBeTruthy();
+    expect(screen.getByText("ALL 5 CARDS SPOKEN")).toBeTruthy();
+    expect(screen.getByText("Well done. Day 1's speech is captured. Jump to closing time, then tap End.")).toBeTruthy();
     expect(screen.queryByText(/Locked until/)).toBeNull();
+    // "‹ Previous card (re-read only)" re-reads card 5 without marking anything
+    fireEvent.click(screen.getByRole("button", { name: "‹ Previous card (re-read only)" }));
+    expect(screen.getByRole("region", { name: "Script card text" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Hide the card" }));
+    expect(screen.queryByRole("region", { name: "Script card text" })).toBeNull();
     // the guide stays open across listening -> all spoken (same flow)
     fireEvent.click(screen.getByRole("button", { name: "Jump to closing time" }));
     expect(jumpToClosing).toHaveBeenCalledTimes(1);
@@ -311,10 +372,10 @@ describe("/capture: the script card (plan 5.3-5.4)", () => {
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByText("Bee6 has not heard enough yet (3 of 5). Wait a few seconds for the last card to upload, then try again.")).toBeTruthy();
     act(() => publishCaptureBridge(bridge({ phase: "closing", sessionId: "s1", linesThisSession: 5 })));
-    expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("Tap End today");
+    expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("All cards spoken · jump to closing");
     // a later session (day 2) starts at card 1: the all-spoken state belongs to the session that spoke the cards
     act(() => publishCaptureBridge(listening(0, "s-day2")));
-    expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("Read this card aloud");
+    expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("Read card 1 of 5 aloud");
   });
 
   // R-21 F-2: the End confirm is page content under the open sheet; a tap outside the sheet collapses it.
@@ -378,7 +439,7 @@ describe("/capture: the script card (plan 5.3-5.4)", () => {
 });
 
 describe("/capture: the debrief cards and Jump to tomorrow (plan 4.4, 7.2)", () => {
-  const debrief = (next_day: DemoSessionProfile["next_day"], phase: CaptureBridgeState["phase"] = "debrief_question", day: 1 | 2 | 3 = 1) =>
+  const debrief = (next_day: DemoSessionProfile["next_day"], phase: CaptureBridgeState["phase"] = "debrief_done", day: 1 | 2 | 3 = 1) =>
     bridge({ phase, profile: profile({ day, next_day }) });
 
   it("refetches the config when the phone enters the debrief (after End), and re-polls every 10 s while the server says busy or preparing", async () => {
@@ -394,13 +455,13 @@ describe("/capture: the debrief cards and Jump to tomorrow (plan 4.4, 7.2)", () 
     });
     expect(refetchConfig).toHaveBeenCalledTimes(2);
     // preparing -> questions is a debrief phase change: one more refetch at once, then the 10 s poll goes on (busy)
-    act(() => publishCaptureBridge(debrief({ allowed: false, reason: "busy" })));
+    act(() => publishCaptureBridge(debrief({ allowed: false, reason: "busy" }, "debrief_question")));
     expect(refetchConfig).toHaveBeenCalledTimes(3);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10_000);
     });
     expect(refetchConfig).toHaveBeenCalledTimes(4);
-    act(() => publishCaptureBridge(debrief({ allowed: true, reason: null })));
+    act(() => publishCaptureBridge(debrief({ allowed: true, reason: null }, "debrief_question")));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(30_000);
     });
@@ -408,6 +469,27 @@ describe("/capture: the debrief cards and Jump to tomorrow (plan 4.4, 7.2)", () 
     // the debrief's end (timed out or PR-3's done flag) refetches once more, so Start / the lock line are current
     act(() => publishCaptureBridge(debrief({ allowed: true, reason: null }, "debrief_done")));
     expect(refetchConfig).toHaveBeenCalledTimes(5);
+  });
+
+  // R-25 UI-112: the question card has no Jump control, even though the server would allow the jump; the 409 confirm
+  // path stays for the complete card.
+  it("UI-112: while questions are open (debrief_question) there is no Jump to tomorrow button, whatever the server allows; the card says when it appears", () => {
+    pathname = "/capture";
+    act(() => publishCaptureBridge(debrief({ allowed: true, reason: null }, "debrief_question")));
+    renderGuide();
+    openGuide();
+    expect(screen.getByRole("heading", { name: "Answer what really happened" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Jump to tomorrow/ })).toBeNull();
+    expect(screen.getByText("When every question is answered or skipped, this guide shows Jump to tomorrow.")).toBeTruthy();
+    expect(screen.queryByText(/Leave \d+ questions unanswered/)).toBeNull();
+  });
+
+  it("UI-112: the Jump button is there on the complete card (debrief_done)", () => {
+    pathname = "/capture";
+    act(() => publishCaptureBridge(debrief({ allowed: true, reason: null }, "debrief_done", 2)));
+    renderGuide();
+    openGuide();
+    expect(screen.getByRole("button", { name: "Jump to tomorrow" })).toBeTruthy();
   });
 
   it("busy and preparing show their line with NO retry tap; max_days shows its line and never offers the button", () => {
@@ -440,7 +522,7 @@ describe("/capture: the debrief cards and Jump to tomorrow (plan 4.4, 7.2)", () 
     pathname = "/capture";
     postDemoNextDay.mockResolvedValueOnce({ ok: false, status: 409, code: "unanswered_questions", details: { unanswered: 2 } });
     postDemoNextDay.mockResolvedValueOnce({ ok: true, data: { day: 3 } });
-    act(() => publishCaptureBridge(debrief({ allowed: true, reason: null }, "debrief_question", 2)));
+    act(() => publishCaptureBridge(debrief({ allowed: true, reason: null }, "debrief_done", 2)));
     renderGuide();
     openGuide();
     fireEvent.click(screen.getByRole("button", { name: "Jump to tomorrow" }));
@@ -457,24 +539,45 @@ describe("/capture: the debrief cards and Jump to tomorrow (plan 4.4, 7.2)", () 
     await waitFor(() => expect(postDemoNextDay).toHaveBeenLastCalledWith(expect.anything(), { expected_day: 2, confirm_unanswered: true }));
   });
 
-  it("the debrief cards are day-aware: day 1 says look around as Supervisor first and never mentions the phone order; day 2 keeps the phone-order and after-day-3 wording", () => {
+  it("the debrief cards are day-aware: day 1 says look around as Supervisor first and never mentions the phone order; day 2 says jump to run day 3; day 3 says sign out", () => {
     pathname = "/capture";
-    act(() => publishCaptureBridge(debrief({ allowed: true, reason: null }, "debrief_done", 1)));
+    act(() => publishCaptureBridge(bridge({ phase: "debrief_done", profile: profile({ day: 1, days_done: 1, next_day: { allowed: true, reason: null } }) })));
     renderGuide();
+    const handle = screen.getByRole("button", { name: /Open the judge guide/ });
+    expect(handle.textContent).toContain("Jump to tomorrow for day 2");
+    expect(handle.textContent).toContain("STAGE 2 OF 5"); // days_done 1 on the phone, supervisor not visited: stage 2
     openGuide();
     expect(screen.getByRole("heading", { name: "Today is done" })).toBeTruthy();
-    expect(screen.getByText(/After day 1, you can sign out and look around as Supervisor first/)).toBeTruthy();
+    expect(screen.getByText("Supervisor · look around")).toBeTruthy(); // the stage label (UI-040)
+    expect(screen.getByText("NEXT")).toBeTruthy();
+    expect(screen.getByText(/Day 1 of 3 is done\. First sign out and look around as Supervisor/)).toBeTruthy();
     expect(screen.queryByText(/After day 3, sign out and continue as Supervisor/)).toBeNull();
     expect(screen.getByRole("button", { name: "Jump to tomorrow" })).toBeTruthy();
     act(() => publishCaptureBridge(debrief({ allowed: true, reason: null }, "debrief_done", 2)));
-    expect(screen.queryByText(/After day 1/)).toBeNull();
-    expect(screen.getByText(/After day 3, sign out and continue as Supervisor/)).toBeTruthy();
+    expect(screen.queryByText(/Day 1 of 3 is done/)).toBeNull();
+    expect(screen.getByText(/Jump to tomorrow to run day 3/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Close the judge guide/ })); // the open handle has no title line
+    expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("Jump to tomorrow for day 3");
+    act(() => publishCaptureBridge(debrief({ allowed: false, reason: "max_days" }, "debrief_done", 3)));
+    expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("Sign out and continue as Supervisor");
     act(() => publishCaptureBridge(debrief({ allowed: true, reason: null }, "debrief_question", 1)));
     openGuide(); // a card change collapses the phone sheet
     expect(screen.getByRole("heading", { name: "Answer what really happened" })).toBeTruthy();
+    expect(screen.getByText("DEBRIEF TIP")).toBeTruthy();
     expect(screen.queryByText(/phone order/i)).toBeNull();
     act(() => publishCaptureBridge(debrief({ allowed: true, reason: null }, "debrief_question", 2)));
     expect(screen.getByText(/The phone order did happen, so answer Yes/)).toBeTruthy();
+  });
+
+  it("Jump to tomorrow carries the date the page publishes (UI-040); without it the label stays plain", () => {
+    pathname = "/capture";
+    const done = debrief({ allowed: true, reason: null }, "debrief_done", 1);
+    act(() => publishCaptureBridge({ ...done, state: { ...done.state, nextDate: "2026-10-18" } }));
+    renderGuide();
+    openGuide();
+    expect(screen.getByRole("button", { name: "Jump to tomorrow · Sun 18 Oct" })).toBeTruthy();
+    act(() => publishCaptureBridge(done));
+    expect(screen.getByRole("button", { name: "Jump to tomorrow" })).toBeTruthy();
   });
 
   it("a refusal from the route shows its own line (never server text); a double tap makes one request", async () => {
@@ -511,7 +614,15 @@ describe("web routes: progress and the supervisor-visited flag", () => {
     expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("STAGE 2 OF 5");
     openGuide();
     expect(screen.getByRole("heading", { name: "The day record" })).toBeTruthy();
-    expect(screen.getByText(/fresh egg tarts question under Customer service/)).toBeTruthy();
+    // R-25 T6 (D2-02-open): the stage label and a "Do this now" list, first row current, no 5-row journey list
+    expect(screen.getByText("Supervisor · look around")).toBeTruthy();
+    expect(screen.getByText("Do this now")).toBeTruthy();
+    const rows = within(screen.getByRole("list", { name: "Do this now" })).getAllByRole("listitem");
+    expect(rows.map((r) => r.textContent)).toEqual(
+      expect.arrayContaining([expect.stringContaining("Confirm the note that needs your check"), expect.stringContaining("Open Proposals")]),
+    );
+    expect(rows[0]!.getAttribute("aria-current")).toBe("step");
+    expect(screen.queryByText("Your journey")).toBeNull();
   });
 
   // R-21 D4: on a hard load Firebase has not restored the user yet; authedGetJson would answer signed_out without a
@@ -780,7 +891,7 @@ describe("R-19 PR-5 QA fixes: scroll body, 48 px controls, open-session card, bu
     openGuide();
     const body = document.querySelector(".b6-sheet__body") as HTMLElement;
     const controls = Array.from(body.querySelectorAll<HTMLElement>("button"));
-    expect(controls.map((c) => c.textContent)).toEqual(expect.arrayContaining(["I have spoken this", "‹ Previous card (re-read only)"]));
+    expect(controls.map((c) => c.textContent)).toEqual(expect.arrayContaining([expect.stringContaining("I have spoken this"), "‹ Previous card (re-read only)"]));
     for (const c of controls) expect(parseFloat(c.style.minHeight), c.textContent ?? "").toBeGreaterThanOrEqual(48);
     cleanup();
     pathname = "/pair";
@@ -793,7 +904,7 @@ describe("R-19 PR-5 QA fixes: scroll body, 48 px controls, open-session card, bu
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
     pathname = "/capture";
     postDemoNextDay.mockResolvedValueOnce({ ok: false, status: 409, code: "busy", details: null });
-    act(() => publishCaptureBridge(bridge({ phase: "debrief_question", profile: profile({ day: 1, next_day: { allowed: true, reason: null } }) })));
+    act(() => publishCaptureBridge(bridge({ phase: "debrief_done", profile: profile({ day: 1, next_day: { allowed: true, reason: null } }) })));
     renderGuide();
     openGuide();
     const refetchesBefore = refetchConfig.mock.calls.length;
@@ -824,7 +935,8 @@ describe("R-19 PR-5 QA fixes: scroll body, 48 px controls, open-session card, bu
       renderGuide();
       openGuide();
       expect(screen.getByRole("heading", { name: "Tap End today" })).toBeTruthy();
-      expect(document.body.textContent).toMatch(/Tap End today on the screen/);
+      expect(document.body.textContent).toMatch(/Closing time has passed\. Tap End today to start the 60-minute debrief/);
+      expect(document.body.textContent).toMatch(/NEXT/);
       expect(document.body.textContent).not.toMatch(/Cancel today/);
     });
     it("not reached: Cancel today, no End", () => {
@@ -869,12 +981,15 @@ describe("R-25 contracts: supervisor stage 2 and the paired card", () => {
   it("the pair card says Fill in the code until the paired checklist reports, then points at the listening page (and not for another route)", () => {
     pathname = "/pair";
     renderGuide();
-    expect(stageText()).toContain("Set up the staff phone");
+    expect(stageText()).toContain("Fill in the demo code");
     act(() => void publishPairDone());
     expect(stageText()).toContain("Open the listening page");
     openGuide();
     expect(screen.getByRole("heading", { name: "Open the listening page" })).toBeTruthy();
-    expect(screen.getByText(/Tap Open the listening page\. Then tap Start and read the script cards/)).toBeTruthy();
+    // the NEXT kicker and the bold button name are drawn by the card chrome, not by the card strings
+    expect(screen.getByText("NEXT")).toBeTruthy();
+    expect(screen.getByText("Open the listening page", { selector: "b" })).toBeTruthy();
+    expect(screen.getByText((_, el) => el?.tagName === "P" && /^Tap Open the listening page\. Then tap Start and read the script cards that appear in this guide\.$/.test(el.textContent ?? ""))).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Fill in/ })).toBeNull();
   });
 
@@ -895,6 +1010,56 @@ describe("R-25 contracts: supervisor stage 2 and the paired card", () => {
         <JudgeGuide config={CONFIG} />
       </LangProvider>,
     );
-    expect(stageText()).toContain("Set up the staff phone");
+    expect(stageText()).toContain("Fill in the demo code");
+  });
+});
+
+describe("R-25 T6: the board chrome (handle, web panel, Do this now)", () => {
+  it("the web panel on the owner home: stage label, kicker + STAGE chip in the header, the first Do this now row done once both proposals are feasible", async () => {
+    wide = true;
+    pathname = "/home";
+    seedWeb("owner");
+    claims = { role: "owner", outlet_id: "sbx-1", demo_exp_ms: Date.now() + 3_600_000 };
+    vi.mocked(fetch).mockImplementation(
+      async () => new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 2, feasible: 2, owner_decided: 0 } }), { status: 200 }),
+    );
+    renderGuide();
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    await act(async () => {});
+    const pill = screen.getByRole("button", { name: /Open the judge guide/ });
+    expect(pill.textContent).toContain("STAGE 5 OF 5");
+    fireEvent.click(pill);
+    const panel = screen.getByRole("complementary", { name: "Judge guide" });
+    expect(within(panel).getByText("STAGE 5 OF 5")).toBeTruthy();
+    expect(within(panel).getByText("Owner · approve")).toBeTruthy();
+    const rows = within(within(panel).getByRole("list", { name: "Do this now" })).getAllByRole("listitem");
+    expect(rows).toHaveLength(3);
+    expect(rows[0]!.textContent).toContain("done");
+    expect(rows[1]!.getAttribute("aria-current")).toBe("step");
+    expect(rows[2]!.textContent).toContain("not yet");
+  });
+
+  it("the handle's day clock is a .b6-clock chip beside the chevron on the capture pages, never part of the title", () => {
+    pathname = "/capture";
+    act(() => publishCaptureBridge(bridge({ phase: "ready", profile: profile({ day: 3, days_done: 2 }) })));
+    renderGuide();
+    const handle = screen.getByRole("button", { name: /Open the judge guide/ });
+    expect(handle.querySelector(".b6-clock")?.textContent).toBe("Day 3 of 3");
+    expect(handle.querySelector(".b6-chip--teal")?.textContent).toBe("STAGE 3 OF 5");
+    expect(handle.textContent).not.toMatch(/Tap Start, then read the cards · Day/);
+    // open: the title line goes away, the clock stays (board: the open handle row is kicker + chip, clock, chevron)
+    fireEvent.click(handle);
+    expect(handle.textContent).not.toContain("Tap Start, then read the cards");
+    expect(handle.querySelector(".b6-clock")).not.toBeNull();
+  });
+
+  it("all spoken: Jump to closing time shows the real closing time when the page publishes it", () => {
+    pathname = "/capture";
+    window.sessionStorage.setItem(scriptStorageKey("s1"), JSON.stringify({ spoken: ["d1-c1", "d1-c2", "d1-c3", "d1-c4", "d1-c5"] }));
+    const b = bridge({ phase: "listening", sessionId: "s1", linesThisSession: 5, closeHm: "21:00" });
+    act(() => publishCaptureBridge(b));
+    renderGuide();
+    openGuide();
+    expect(screen.getByRole("button", { name: "Jump to closing time · 21:00" })).toBeTruthy();
   });
 });

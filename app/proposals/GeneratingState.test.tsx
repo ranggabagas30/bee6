@@ -13,13 +13,22 @@ describe("GeneratingState (D2-03d)", () => {
   it("is a polite status with the asking title and the keep-this-page-open line", () => {
     render(<GeneratingState lang="en" />);
     const status = screen.getByRole("status");
-    expect(status.textContent).toContain("Asking Bee6…");
-    expect(status.textContent).toContain("This can take up to a minute. Keep this page open.");
+    expect(status.textContent).toContain("Bee6 is writing a proposal");
+    expect(status.textContent).toContain("This can take up to a minute. Please keep this page open.");
+  });
+
+  it("keeps exactly one live region; the amber orb beside the text is decoration (aria-hidden)", () => {
+    const { container } = render(<GeneratingState lang="en" estimate={{ min_s: 10, max_s: 30 }} />);
+    expect(container.querySelectorAll("[aria-live], [role='status'], [role='alert']")).toHaveLength(1);
+    const stage = container.querySelector(".b6-stage--amber");
+    expect(stage).not.toBeNull();
+    expect(stage!.getAttribute("aria-hidden")).toBe("true");
+    expect(stage!.closest("[role='status']")).not.toBeNull();
   });
 
   it("ID copy", () => {
     render(<GeneratingState lang="id" />);
-    expect(screen.getByText("Menanyakan Bee6…")).not.toBeNull();
+    expect(screen.getByText("Bee6 sedang menulis usulan")).not.toBeNull();
   });
 
   // Integration QA D2: the block stands in for the proposal list; it keeps at least that list's height so nothing
@@ -40,7 +49,7 @@ describe("GeneratingState — estimated wait (R-24 D11)", () => {
   it("flag off: no estimate and null render the same markup as today, with the unchanged body line", () => {
     const { container, unmount } = render(<GeneratingState lang="en" minHeight={420} />);
     const today = container.innerHTML;
-    expect(today).toContain("This can take up to a minute. Keep this page open.");
+    expect(today).toContain("This can take up to a minute. Please keep this page open.");
     unmount();
     const withNull = render(<GeneratingState lang="en" minHeight={420} estimate={null} />);
     expect(withNull.container.innerHTML).toBe(today);
@@ -60,7 +69,7 @@ describe("GeneratingState — estimated wait (R-24 D11)", () => {
     render(<GeneratingState lang="en" estimate={ESTIMATE} />);
     const status = screen.getByRole("status");
     expect(status.getAttribute("aria-live")).toBe("polite");
-    expect(status.textContent).toContain("Asking Bee6…");
+    expect(status.textContent).toContain("Bee6 is writing a proposal");
     expect(status.textContent).toContain("Usually 10–30 seconds");
     expect(status.textContent).toContain("Bee6 reads the SOP and the evidence before it writes. Keep this page open.");
     expect(status.textContent).not.toContain("up to a minute");

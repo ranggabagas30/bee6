@@ -110,6 +110,10 @@ export interface CaptureBridgeState {
   micTrouble: boolean;
   /** R-23: the queue head is being retried after a server refusal or a network failure (drives "Bee6 is catching up"). */
   uploadBusy: boolean;
+  /** R-25 T6, optional: today's closing time as "HH:MM" on the shop clock; the guide's "Jump to closing time · 21:00". Absent: no time on the button. */
+  closeHm?: string | null;
+  /** R-25 T6, optional: the business date ("YYYY-MM-DD") the shop shows after "Jump to tomorrow"; absent: no date on the button. */
+  nextDate?: string | null;
 }
 
 export interface CaptureBridgeActions {
