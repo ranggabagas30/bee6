@@ -1099,7 +1099,8 @@ describe("CapturePage judge-guide bridge (R-19 PR-5, sandbox only)", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: "Listening" })).toBeTruthy());
     const handle = await screen.findByRole("button", { name: /Open the judge guide/ });
     expect(handle.getAttribute("aria-expanded")).toBe("false");
-    expect(handle.textContent).toContain("Read this card aloud");
+    // R-25 T6: the handle title names the card on screen ("Read card n of 5 aloud"), not the card heading.
+    expect(handle.textContent).toContain("Read card 1 of 5 aloud");
     expect(handle.textContent).toContain("Day 1 of 3");
     const reserve = container.querySelector("[data-testid='guide-sheet-reserve']") as HTMLElement;
     expect(reserve.style.height).toBe(`calc(${SHEET_RESERVE_PX}px + env(safe-area-inset-bottom))`);
@@ -1116,13 +1117,13 @@ describe("CapturePage judge-guide bridge (R-19 PR-5, sandbox only)", () => {
     for (let i = 1; i <= 5; i += 1) {
       expect(screen.getByText(`Card ${i} of 5`)).toBeTruthy();
       act(() => lastCallbacks?.onEvent?.({ type: "segment_accepted", lines: 1 }));
-      await waitFor(() => expect((screen.getByRole("button", { name: "I have spoken this" }) as HTMLButtonElement).disabled).toBe(false));
-      fireEvent.click(screen.getByRole("button", { name: "I have spoken this" }));
+      await waitFor(() => expect((screen.getByRole("button", { name: /I have spoken this/ }) as HTMLButtonElement).disabled).toBe(false));
+      fireEvent.click(screen.getByRole("button", { name: /I have spoken this/ }));
     }
     fireEvent.click(screen.getByRole("button", { name: "Jump to closing time" }));
     await waitFor(() => expect(postDemoClosing).toHaveBeenCalledTimes(1));
     expect((await screen.findByRole("button", { name: "End today" }) as HTMLButtonElement).disabled).toBe(false);
-    await waitFor(() => expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("Tap End today"));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("All cards spoken · jump to closing"));
   });
 
   it("pilot: no script drawer, no guide bridge, and the page container style is the unchanged pilot style", async () => {

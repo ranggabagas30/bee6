@@ -133,7 +133,9 @@ describe("the guide phase follows the debrief's own screen (de-phased polls)", (
       vi.advanceTimersByTime(REFRESH_POLL_MS_DEMO);
     });
     await flush();
-    expect(screen.getByText(/phone call/i)).toBeTruthy(); // the page shows the question...
+    // The page shows the question (its heading; the card now also carries a category chip name and an explanation
+    // line that mention a phone call, so the bare text is no longer unique)...
+    expect(screen.getByRole("heading", { level: 2, name: /phone call/i })).toBeTruthy();
     expect(phase()).toBe("debrief_question"); // ...and the bridge's phase is already the question's, no 10 s lag
   });
 

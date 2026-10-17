@@ -5,6 +5,7 @@ import { STATUS_KEY, type TimelineItem } from "@/lib/day/view-model";
 import type { DictKey } from "@/lib/i18n/dict";
 import type { PillTone } from "@/app/ui";
 import type { WorkCategory } from "@/lib/pipeline/categories";
+import { CATEGORY_CODE as CODES } from "@/lib/i18n/category-labels";
 
 /**
  * Pure derivations for the day record screen (R-25 T9, ruling R16). Everything here reads fields the day record
@@ -12,19 +13,9 @@ import type { WorkCategory } from "@/lib/pipeline/categories";
  */
 
 /** Three-letter chip code per work category. The visible name always sits next to it (the chip is a scan aid). */
-export const CATEGORY_CODE: Record<WorkCategory, string> = {
-  ROUTINE_OPS: "RTN",
-  CUSTOMER_SERVICE: "CST",
-  TRAINING: "TRN",
-  STAFF_CONSULT: "SCQ",
-  CORRECTION: "COR",
-  PHONE_CALL: "PHN",
-  EVENT: "EVT",
-  COMPLAINT: "CMP",
-  SAFETY_INCIDENT: "SAF",
-  SECURITY_INCIDENT: "SEC",
-  DISRUPTION: "DIS",
-};
+export const CATEGORY_CODE: Record<WorkCategory, string> = Object.fromEntries(
+  Object.entries(CODES).map(([k, v]) => [k, v.code]),
+) as Record<WorkCategory, string>;
 
 /** A row that is already a fact (so Confirm has nothing to do). Same rule `ThreadActions` uses for its buttons. */
 export function isFactStatus(status: DisplayStatus): boolean {
