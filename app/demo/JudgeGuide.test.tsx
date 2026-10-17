@@ -7,7 +7,7 @@ import { publishProposalsProgress, publishProposalsScreen } from "@/lib/demo/pro
 import { createMemoryStorage } from "@/lib/demo/testing/memory-storage";
 import { DEMO_STATE_KEY } from "@/app/demo/demo-client";
 import { publishCaptureBridge, publishPairDone, clearPairDone, type CaptureBridge, type CaptureBridgeState } from "@/app/demo/guide-bridge";
-import { SHEET_RESERVE_PX, SUPERVISOR_SEEN_KEY, scriptStorageKey } from "@/app/demo/JudgeGuide";
+import { SHEET_RESERVE_PX, SUPERVISOR_SEEN_KEY, WELCOME_SEEN_KEY, scriptStorageKey } from "@/app/demo/JudgeGuide";
 import { PairForm } from "@/app/pair/PairForm";
 
 /**
@@ -89,6 +89,7 @@ beforeEach(() => {
   authStatus = "signed_in";
   stubMatchMedia();
   vi.stubGlobal("localStorage", createMemoryStorage());
+  window.localStorage.setItem(WELCOME_SEEN_KEY, "1"); // R-25 fixes-2 §3: every test starts past the first visit (collapsed default)
   vi.stubGlobal("sessionStorage", createMemoryStorage());
   vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: { day: 2, days_done: 2, proposals_with_content: 0, feasible: 0, owner_decided: 0 } }), { status: 200 })));
 });
@@ -100,6 +101,93 @@ afterEach(() => {
   vi.clearAllMocks();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+describe("entry auto-open (R-25 fixes-2 §3)", () => {
+  beforeEach(() => window.localStorage.removeItem(WELCOME_SEEN_KEY));
+
+  it("wide, on /, first visit: the panel is open by itself, no focus is stolen, the flag is not written yet", () => {
+    wide = true;
+    renderGuide();
+    expect(screen.getByRole("complementary", { name: "Judge guide" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Open the judge guide/ })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Welcome, judge" })).toBeTruthy();
+    expect(document.activeElement).toBe(document.body);
+    expect(window.localStorage.getItem(WELCOME_SEEN_KEY)).toBeNull();
+  });
+
+  it("the close button collapses it to the pill, focuses the pill and remembers it; a later render stays collapsed", () => {
+    wide = true;
+    renderGuide();
+    fireEvent.click(screen.getByRole("button", { name: /Close the judge guide/ }));
+    const pill = screen.getByRole("button", { name: /Open the judge guide/ });
+    expect(document.activeElement).toBe(pill);
+    expect(window.localStorage.getItem(WELCOME_SEEN_KEY)).toBe("1");
+    cleanup();
+    renderGuide();
+    expect(screen.getByRole("button", { name: /Open the judge guide/ })).toBeTruthy();
+    expect(screen.queryByRole("complementary", { name: "Judge guide" })).toBeNull();
+  });
+
+  it("flag already set: collapsed (the pill)", () => {
+    wide = true;
+    window.localStorage.setItem(WELCOME_SEEN_KEY, "1");
+    renderGuide();
+    expect(screen.getByRole("button", { name: /Open the judge guide/ })).toBeTruthy();
+    expect(screen.queryByRole("complementary", { name: "Judge guide" })).toBeNull();
+  });
+
+  it("phone (< 900 px): never auto-opens; the flag stays unset", () => {
+    wide = false;
+    renderGuide();
+    expect((screen.getByText(/About 20 minutes/).closest(".b6-sheet__body") as HTMLElement).hidden).toBe(true);
+    expect(window.localStorage.getItem(WELCOME_SEEN_KEY)).toBeNull();
+  });
+
+  it.each(["/pair", "/sign-in"])("wide, on %s, first visit: collapsed (entry page only)", (path) => {
+    wide = true;
+    pathname = path;
+    renderGuide();
+    expect(screen.getByRole("button", { name: /Open the judge guide/ })).toBeTruthy();
+    expect(screen.queryByRole("complementary", { name: "Judge guide" })).toBeNull();
+  });
+
+  it("Escape anywhere in the document closes the auto-opened panel and remembers it", () => {
+    wide = true;
+    renderGuide();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(screen.getByRole("button", { name: /Open the judge guide/ })).toBeTruthy();
+    expect(window.localStorage.getItem(WELCOME_SEEN_KEY)).toBe("1");
+  });
+
+  it("a route change collapses it and remembers it", () => {
+    wide = true;
+    const { rerender } = renderGuide();
+    pathname = "/pair";
+    rerender(
+      <LangProvider initial="en">
+        <JudgeGuide config={CONFIG} />
+      </LangProvider>,
+    );
+    expect(screen.getByRole("button", { name: /Open the judge guide/ })).toBeTruthy();
+    expect(window.localStorage.getItem(WELCOME_SEEN_KEY)).toBe("1");
+  });
+
+  it("storage blocked: still opens on wide / and closing does not throw", () => {
+    wide = true;
+    vi.stubGlobal("localStorage", {
+      getItem() {
+        throw new Error("blocked");
+      },
+      setItem() {
+        throw new Error("blocked");
+      },
+    });
+    renderGuide();
+    expect(screen.getByRole("complementary", { name: "Judge guide" })).toBeTruthy();
+    expect(() => fireEvent.click(screen.getByRole("button", { name: /Close the judge guide/ }))).not.toThrow();
+    expect(screen.getByRole("button", { name: /Open the judge guide/ })).toBeTruthy();
+  });
 });
 
 describe("shell: collapsed by default, phone sheet vs laptop pill, one language", () => {
