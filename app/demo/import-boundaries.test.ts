@@ -212,6 +212,19 @@ describe("pilot /capture bundle boundary (R-18, R-19 PR-5)", () => {
     expect(app).not.toMatch(/@\/app\/demo\/(JudgeGuide|JudgeGuideLoader|guide-bridge)/);
   });
 
+  // R-25: the expiry hook is read by the staff top bar, which renders on the pilot's /pair and /capture. Its whole
+  // import graph must stay free of Firebase (demo-client and useDemoStart both reach firebase-client).
+  it("demo-state.ts and demo-expiry.ts (the light expiry hook) import no Firebase, no demo client and no useDemoStart", () => {
+    const heavy = /from ["'](firebase\/|@\/lib\/auth\/client\/firebase-client|@\/app\/demo\/demo-client|@\/app\/demo\/useDemoStart)/;
+    for (const file of ["app/demo/demo-state.ts", "app/demo/demo-expiry.ts"]) {
+      const src = readFileSync(join(ROOT, file), "utf8");
+      expect(heavy.test(src), file).toBe(false);
+      expect(/import\s*\(/.test(src), `${file} dynamic import`).toBe(false);
+    }
+    expect(heavy.test('import { signOut } from "@/lib/auth/client/firebase-client";')).toBe(true); // positive control
+    expect(heavy.test('import { x } from "@/app/demo/demo-client";')).toBe(true);
+  });
+
   it("positive control: the static-import matcher catches a plain and a type-and-value import", () => {
     const re = staticImport("@/lib/demo/script".replace(/[/.]/g, "\\$&"));
     expect(re.test('import { scriptFor } from "@/lib/demo/script";')).toBe(true);

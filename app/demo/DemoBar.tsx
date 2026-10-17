@@ -7,6 +7,7 @@ import { useLang } from "@/lib/i18n/context";
 import { t } from "@/lib/i18n/dict";
 import { closeEndedDemo, demoSnapshot, notifyDemoChange, subscribeDemoState, viewFromSnapshot } from "@/app/demo/demo-client";
 import { authOrNull } from "@/app/demo/useDemoStart";
+import { hhmm, useDemoExpiryHHMM } from "@/app/demo/demo-expiry";
 
 /**
  * The demo bar, headless since R-25 (ruling R6 / UI-022: the yellow bar is on no page-2 board). Mounted by the
@@ -35,27 +36,9 @@ const STATUS_STYLE: CSSProperties = { margin: 0, overflowWrap: "anywhere" };
 
 const MAX_TIMEOUT_MS = 2_147_483_647;
 
-/** Device-local HH:MM; an em-dash, never the text "NaN", when the instant is not a valid date. */
-export function hhmm(ms: number): string {
-  const d = new Date(ms);
-  if (Number.isNaN(d.getTime())) return "—";
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
-/**
- * When this browser's demo session ends, as device-local "HH:MM" (e.g. "11:20"), for the outlet line of the staff
- * and web top bars. `null` when there is nothing to show: no demo state (every pilot browser), a malformed record, an
- * instant that is not a valid date, or a session that has already ended. Re-renders when the stored state changes
- * (another tab, a new visit) and, while the headless bar is mounted, at the expiry instant. Pure client state: the
- * server snapshot is `null`, so it cannot disagree with the server render.
- */
-export function useDemoExpiryHHMM(): string | null {
-  const snapshot = useSyncExternalStore(subscribeDemoState, () => demoSnapshot(), () => "");
-  const view = viewFromSnapshot(snapshot);
-  if (view === null || view.expired) return null;
-  const text = hhmm(view.state.expires_at_ms);
-  return text === "—" ? null : text;
-}
+// The hook and the formatter live in demo-expiry.ts (no Firebase in their import graph); the contract keeps them
+// exported from here.
+export { hhmm, useDemoExpiryHHMM };
 
 export function DemoBar({ config }: { config: FirebaseWebConfig | null }) {
   const { lang } = useLang();
