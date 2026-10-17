@@ -289,25 +289,6 @@ describe("QuestionScreen: R-18 Earlier day chip", () => {
   });
 });
 
-describe("QuestionScreen: R-18 Check for new questions", () => {
-  const props = { lang: "en" as const, uploadNote: null, onChoose: () => {}, onTypeReason: () => {}, onLanjut: () => {}, onLewati: () => {} };
-  it("absent unless the caller passes onCheck (the pilot never does)", () => {
-    render(<QuestionScreen view={baseView()} {...props} />);
-    expect(screen.queryByRole("button", { name: /Check for new questions/ })).toBeNull();
-  });
-  it("a full-width button that calls onCheck; disabled and relabelled while checking", () => {
-    const onCheck = vi.fn();
-    const { rerender } = render(<QuestionScreen view={baseView()} {...props} onCheck={onCheck} checking={false} />);
-    const btn = screen.getByRole("button", { name: "Check for new questions" }) as HTMLButtonElement;
-    expect(btn.className).toContain("b6-btn--block");
-    fireEvent.click(btn);
-    expect(onCheck).toHaveBeenCalledTimes(1);
-    rerender(<QuestionScreen view={baseView()} {...props} onCheck={onCheck} checking />);
-    expect((screen.getByRole("button", { name: "Checking…" }) as HTMLButtonElement).disabled).toBe(true);
-  });
-});
-
-
 describe("QuestionScreen: R-25 T7 page-2 layout (boards P2-09 / L2-08)", () => {
   const props = { lang: "en" as const, uploadNote: null, onChoose: () => {}, onTypeReason: () => {}, onLanjut: () => {}, onLewati: () => {} };
 

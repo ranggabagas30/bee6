@@ -329,6 +329,76 @@ describe("pair card: Fill in the demo code", () => {
   });
 });
 
+describe("item 9: auto-open on capture_ready → capture_listening", () => {
+  const listening = (lines: number, sessionId = "s1") => bridge({ phase: "listening", sessionId, linesThisSession: lines });
+
+  it("(a) phone, bridge phase ready → listening: sheet opens automatically", () => {
+    pathname = "/capture";
+    wide = false;
+    const { rerender } = renderGuide();
+    act(() => publishCaptureBridge(bridge({ phase: "ready" })));
+    rerender(
+      <LangProvider initial="en">
+        <JudgeGuide config={CONFIG} />
+      </LangProvider>,
+    );
+    // starts closed
+    expect(screen.getByRole("button", { name: /Open the judge guide/ }).getAttribute("aria-expanded")).toBe("false");
+    // ready → listening triggers auto-open
+    act(() => publishCaptureBridge(listening(0)));
+    rerender(
+      <LangProvider initial="en">
+        <JudgeGuide config={CONFIG} />
+      </LangProvider>,
+    );
+    expect(screen.getByRole("button", { name: /Close the judge guide/ }).getAttribute("aria-expanded")).toBe("true");
+    const body = document.querySelector(".b6-sheet__body") as HTMLElement;
+    expect(body.hidden).toBe(false);
+  });
+
+  it("(b) wide, bridge phase ready → listening: panel opens automatically", () => {
+    pathname = "/capture";
+    wide = true;
+    const { rerender } = renderGuide();
+    act(() => publishCaptureBridge(bridge({ phase: "ready" })));
+    rerender(
+      <LangProvider initial="en">
+        <JudgeGuide config={CONFIG} />
+      </LangProvider>,
+    );
+    expect(screen.queryByRole("complementary", { name: "Judge guide" })).toBeNull();
+    act(() => publishCaptureBridge(listening(0)));
+    rerender(
+      <LangProvider initial="en">
+        <JudgeGuide config={CONFIG} />
+      </LangProvider>,
+    );
+    expect(screen.getByRole("complementary", { name: "Judge guide" })).toBeTruthy();
+  });
+
+  it("(c) listening → closing still collapses", () => {
+    pathname = "/capture";
+    act(() => publishCaptureBridge(listening(0)));
+    const { rerender } = renderGuide();
+    openGuide();
+    expect(screen.getByRole("button", { name: /Close the judge guide/ }).getAttribute("aria-expanded")).toBe("true");
+    act(() => publishCaptureBridge(bridge({ phase: "closing", sessionId: "s1", linesThisSession: 0 })));
+    rerender(
+      <LangProvider initial="en">
+        <JudgeGuide config={CONFIG} />
+      </LangProvider>,
+    );
+    expect(screen.getByRole("button", { name: /Open the judge guide/ }).getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("(d) first render already listening → stays collapsed", () => {
+    pathname = "/capture";
+    act(() => publishCaptureBridge(listening(0)));
+    renderGuide();
+    expect(screen.getByRole("button", { name: /Open the judge guide/ }).getAttribute("aria-expanded")).toBe("false");
+  });
+});
+
 describe("/capture: the script card (plan 5.3-5.4)", () => {
   const listening = (lines: number, sessionId = "s1") => bridge({ phase: "listening", sessionId, linesThisSession: lines });
 

@@ -497,8 +497,6 @@ export const ID_BASE = {
   "C-script-end-b": "Debrief 1 jam dimulai sekarang. Tidak bisa dikembalikan.", // PROVISIONAL
   "C-script-day-ended": "Hari demo selesai. Ganti ke Supervisor untuk melihatnya.", // PROVISIONAL
   "C-script-earlier-day": "Hari sebelumnya · {date}", // PROVISIONAL
-  "C-script-check-new": "Cek pertanyaan baru", // PROVISIONAL
-  "C-script-checking": "Memeriksa…", // PROVISIONAL
   // R-12 PR-B: demo landing, demo bar, sign-in link. All PROVISIONAL (plan copy; UX-03 did not design these screens).
   "C-demo-title": "bee6: Agen Perbaikan SOP", // PROVISIONAL
   "C-demo-intro": "bee6 mendengarkan hari kerja toko kecil lewat ponsel yang dipasangkan, mengubah ucapan menjadi catatan kerja singkat (audio tidak pernah disimpan), menanyakan momen yang kurang jelas kepada staf, dan mengusulkan perubahan SOP yang dicek supervisor dan disetujui pemilik. Toko demo ini fiktif. Kunjungan Anda mendapat salinan sendiri selama 2 jam.", // PROVISIONAL
@@ -997,8 +995,6 @@ export const EN_BASE: Record<keyof typeof ID_BASE, string> = {
   "C-script-end-b": "The 1-hour debrief starts now. This cannot be undone.", // PROVISIONAL
   "C-script-day-ended": "Demo day finished. Switch to Supervisor to see it.", // PROVISIONAL
   "C-script-earlier-day": "Earlier day · {date}", // PROVISIONAL
-  "C-script-check-new": "Check for new questions", // PROVISIONAL
-  "C-script-checking": "Checking…", // PROVISIONAL
   // R-12 PR-B: demo landing, demo bar, sign-in link. All PROVISIONAL (plan copy; UX-03 did not design these screens).
   "C-demo-title": "bee6: the SOP Improvement Agent", // PROVISIONAL
   "C-demo-intro": "bee6 listens to a small shop's working day through a paired phone, turns speech into short work notes (audio is never stored), asks staff about unclear moments, and proposes SOP changes that a supervisor checks and the owner approves. This demo shop is fictional. Your visit gets its own copy for 2 hours.", // PROVISIONAL

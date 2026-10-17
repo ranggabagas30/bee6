@@ -10,7 +10,6 @@ import { publishDebriefView } from "@/lib/debrief/view-signal";
 import {
   ANSWER_PURGE_INTERVAL_MS,
   ANSWER_RETRY_MS,
-  REFRESH_MIN_INTERVAL_MS,
   REFRESH_POLL_MS_DEMO,
 } from "@/lib/debrief/constants";
 import { deviceAuthHeaders, type DeviceAuth } from "@/lib/capture/browser/client";
@@ -217,20 +216,12 @@ export function DebriefFlow({
   }, [state.view.kind]);
 
   const refreshInFlightRef = useRef(false);
-  const [checking, setChecking] = useState(false);
-
-  // The questions route is shared by every sandbox device, so a manual tap closer than REFRESH_MIN_INTERVAL_MS
-  // to the last check does nothing (the answer on screen is at most 5 s old). A failed check (429, 503, any
-  // non-2xx, a network error) just leaves the screen as it is: nothing here retries, the next poll tick or tap
+  // Auto-poll while preparing or waiting, never manual tap. A failed check (429, 503, any
+  // non-2xx, a network error) just leaves the screen as it is: nothing here retries, the next poll tick
   // is the only retry.
-  const lastCheckAtRef = useRef(0);
-  async function refreshQuestions(manual: boolean) {
+  async function refreshQuestions() {
     if (refreshInFlightRef.current) return;
-    const started = Date.now();
-    if (manual && started - lastCheckAtRef.current < REFRESH_MIN_INTERVAL_MS) return;
-    lastCheckAtRef.current = started;
     refreshInFlightRef.current = true;
-    if (manual) setChecking(true);
     try {
       const res = await effectiveFetch("/api/v1/questions", { headers: deviceAuthHeaders(auth) });
       if (!res.ok) return; // a failed check never replaces the screen the judge is on
@@ -243,7 +234,6 @@ export function DebriefFlow({
       // network failure: keep the screen as it is
     } finally {
       refreshInFlightRef.current = false;
-      if (manual) setChecking(false);
     }
   }
 
@@ -267,7 +257,7 @@ export function DebriefFlow({
         clearInterval(id);
         return;
       }
-      void refreshRef.current(false);
+      void refreshRef.current();
     }, REFRESH_POLL_MS_DEMO);
     return () => clearInterval(id);
   }, [demo, polling, endsAtMs]);
@@ -516,8 +506,6 @@ export function DebriefFlow({
               onTypeReason={(reason) => dispatch({ type: "TYPE", reason })}
               onLanjut={handleLanjut}
               onLewati={handleLewati}
-              onCheck={demo ? () => void refreshQuestions(true) : undefined}
-              checking={checking}
               debriefDate={state.business_date}
               minutesLeft={minutesLeft}
             />

@@ -293,6 +293,11 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
     prevRef.current = { pathname, key, pageSig };
     if (prev.pathname === pathname && prev.key === key) return;
     if (prev.pageSig === pageSig) return; // only the progress data moved: the open card updates in place
+    const startedListening = prev.pathname === pathname && prev.key === "capture_ready" && key === "capture_listening";
+    if (startedListening) {
+      setOpen(true);
+      return;
+    }
     const sameFlow = prev.pathname === pathname && prev.key === "capture_listening" && key === "capture_all_spoken";
     if (!sameFlow) setOpen(false);
   }, [pathname, key, pageSig]);
