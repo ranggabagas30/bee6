@@ -1132,11 +1132,16 @@ describe("CapturePage judge-guide bridge (R-19 PR-5, sandbox only)", () => {
     );
     fireEvent.click(await screen.findByRole("button", { name: "Start" }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Listening" })).toBeTruthy());
-    const handle = await screen.findByRole("button", { name: /Open the judge guide/ });
-    expect(handle.getAttribute("aria-expanded")).toBe("false");
+    // Item 9: the guide auto-opens on Mulai (ready → listening transition)
+    const handle = await screen.findByRole("button", { name: /Close the judge guide/ });
+    expect(handle.getAttribute("aria-expanded")).toBe("true");
+    // The open guide shows the script card; collapse it to check the handle title
+    fireEvent.click(handle);
+    const closedHandle = screen.getByRole("button", { name: /Open the judge guide/ });
+    expect(closedHandle.getAttribute("aria-expanded")).toBe("false");
     // R-25 T6: the handle title names the card on screen ("Read card n of 5 aloud"), not the card heading.
-    expect(handle.textContent).toContain("Read card 1 of 5 aloud");
-    expect(handle.textContent).toContain("Day 1 of 3");
+    expect(closedHandle.textContent).toContain("Read card 1 of 5 aloud");
+    expect(closedHandle.textContent).toContain("Day 1 of 3");
     const reserve = container.querySelector("[data-testid='guide-sheet-reserve']") as HTMLElement;
     expect(reserve.style.height).toBe(`calc(${SHEET_RESERVE_PX}px + env(safe-area-inset-bottom))`);
     const precedes = (el: Element) => Boolean(el.compareDocumentPosition(reserve) & Node.DOCUMENT_POSITION_FOLLOWING);
@@ -1148,7 +1153,7 @@ describe("CapturePage judge-guide bridge (R-19 PR-5, sandbox only)", () => {
     }
     expect(document.querySelector("[inert], [aria-hidden='true'] button")).toBeNull();
     // the card: 5 cards, 1 heard line each, then Jump to closing time calls the page and End unlocks
-    fireEvent.click(handle);
+    fireEvent.click(closedHandle);
     for (let i = 1; i <= 5; i += 1) {
       expect(screen.getByText(`Card ${i} of 5`)).toBeTruthy();
       act(() => lastCallbacks?.onEvent?.({ type: "segment_accepted", lines: 1 }));
@@ -1896,16 +1901,9 @@ describe("CapturePage debrief wiring (R-18 Check button; R-19 §6.3: a sandbox o
   }
   afterEach(() => vi.unstubAllGlobals());
 
-  it("a sandbox device's debrief opens itself and offers 'Check for new questions'", async () => {
+  it("R-25 idle fix: the privacy notice moved into DebriefFlow's `note` prop; it must sit under the question", async () => {
     await openDebrief(true);
-    expect(screen.getByRole("button", { name: "Check for new questions" })).toBeTruthy();
-    // R-25 idle fix: the privacy notice moved into DebriefFlow's `note` prop; it must still sit under the question.
     expect(screen.getAllByTestId("capture-notice")).toHaveLength(1);
-  });
-
-  it("pilot: the entry card must be tapped and the same debrief has no such button", async () => {
-    await openDebrief(false);
-    expect(screen.queryByRole("button", { name: "Check for new questions" })).toBeNull();
   });
 });
 

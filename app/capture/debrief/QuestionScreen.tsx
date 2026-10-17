@@ -10,7 +10,6 @@ import { dayLabel } from "@/lib/i18n/format";
 import type { Lang } from "@/lib/i18n/lang";
 import { Button, Card, Chip } from "@/app/ui";
 import { cx } from "@/app/ui/cx";
-import { CheckNewButton } from "@/app/capture/debrief/CheckNewButton";
 import css from "@/app/capture/debrief/debrief.module.css";
 
 /**
@@ -33,9 +32,6 @@ export interface QuestionScreenProps {
   onTypeReason: (reason: string) => void;
   onLanjut: () => void;
   onLewati: () => void;
-  /** R-18, sandbox only: omitted on the pilot, so no "Check for new questions" button renders there. */
-  onCheck?: () => void;
-  checking?: boolean;
   /** The debrief's own business date: the chip shows only for a question from a day strictly before it. */
   debriefDate?: string | null;
   /**
@@ -53,8 +49,6 @@ export function QuestionScreen({
   onTypeReason,
   onLanjut,
   onLewati,
-  onCheck,
-  checking = false,
   debriefDate = null,
   minutesLeft = null,
 }: QuestionScreenProps) {
@@ -235,7 +229,6 @@ export function QuestionScreen({
       <Button variant="text" block onClick={onLewati}>
         {t(lang, "C-b-lewati")}
       </Button>
-      {onCheck ? <CheckNewButton lang={lang} onCheck={onCheck} checking={checking} /> : null}
 
       <div className={css.notes}>
         <p className="b6-note">{t(lang, "C-d2-wait-1")}</p>
