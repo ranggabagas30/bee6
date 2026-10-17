@@ -129,14 +129,14 @@ describe("RootLayout demo bar space (R-19 PR-5, CLS)", () => {
     return scripts(el.props.children, out);
   }
 
-  it("with DEMO_MODE on, the tiny first-paint script (app/demo/first-paint.ts, tested for real there) is inlined: it puts b6-topbar-reserved and b6-panel-reserved on <html>, and <html> tolerates that at hydration", async () => {
+  it("with DEMO_MODE on, the tiny first-paint script (app/demo/first-paint.ts, tested for real there) is inlined: it puts b6-panel-reserved on <html> (b6-topbar-reserved is gone with the demo bar, R-25 R6), and <html> tolerates that at hydration", async () => {
     vi.stubEnv("DEMO_MODE", "true");
     const tree = await RootLayout({ children: <main id="page" /> });
     const found = scripts(tree);
     expect(found).toHaveLength(1);
     expect(found[0]!.html).toBe(FIRST_PAINT_SCRIPT);
     expect(found[0]!.html).toContain(DEMO_STATE_KEY);
-    expect(found[0]!.html).toContain("b6-topbar-reserved");
+    expect(found[0]!.html).not.toContain("b6-topbar-reserved");
     expect(found[0]!.html).toContain("b6-panel-reserved");
     expect(found[0]!.html).toContain("catch");
     expect(found[0]!.html.length).toBeLessThan(600); // round-4 D1: it now reads the record's expiry too
