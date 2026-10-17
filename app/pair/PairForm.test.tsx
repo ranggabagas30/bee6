@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { LangProvider } from "@/lib/i18n/context";
 import { createMemoryStorage } from "@/lib/demo/testing/memory-storage";
 import { axeViolations } from "@/lib/testing/axe";
+import { renderToString } from "react-dom/server";
+import { hydrateRoot } from "react-dom/client";
 import { PairForm } from "@/app/pair/PairForm";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
@@ -292,6 +294,33 @@ describe("PairForm", () => {
       beforeInput("insertText", "4");
       expect(input().selectionStart).toBe(3);
       expect(input().selectionEnd).toBe(3);
+    });
+
+    it("adopts digits the browser already held when the component took the field over (hydration, §1.2b)", async () => {
+      const tree = (
+        <LangProvider initial="en">
+          <PairForm />
+        </LangProvider>
+      );
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      onTestFinished(() => container.remove()); // even when an assertion below fails
+      container.innerHTML = renderToString(tree);
+      const dom = container.querySelector<HTMLInputElement>("#pairing-code")!;
+      dom.value = "123456"; // typed into the server-rendered field before its chunk hydrated
+      let root!: ReturnType<typeof hydrateRoot>;
+      await act(async () => {
+        root = hydrateRoot(container, tree);
+      });
+      const hydrated = container.querySelector<HTMLInputElement>("#pairing-code")!;
+      expect(hydrated.value).toBe("123456");
+      expect((container.querySelector("button[type=submit]") as HTMLButtonElement).disabled).toBe(false);
+      await act(async () => root.unmount());
+    });
+
+    it("does not override an initialCode with a stale DOM value (§1.2b)", () => {
+      renderForm({ initialCode: "000000" });
+      expect(input().value).toBe("000000");
     });
 
     it("a full field: paste still replaces (own handler)", () => {
