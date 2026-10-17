@@ -6,7 +6,16 @@ import { FRESH_DEMO_SESSION, type DemoSessionProfile } from "@/lib/capture/contr
 import { publishProposalsProgress, publishProposalsScreen } from "@/lib/demo/proposals-signal";
 import { createMemoryStorage } from "@/lib/demo/testing/memory-storage";
 import { DEMO_STATE_KEY } from "@/app/demo/demo-client";
-import { publishCaptureBridge, publishPairDone, clearPairDone, type CaptureBridge, type CaptureBridgeState } from "@/app/demo/guide-bridge";
+import {
+  publishCaptureBridge,
+  publishPairDone,
+  clearPairDone,
+  clearSignInRole,
+  publishSignInRole,
+  type CaptureBridge,
+  type CaptureBridgeState,
+} from "@/app/demo/guide-bridge";
+import { axeViolations } from "@/lib/testing/axe";
 import { SHEET_RESERVE_PX, SUPERVISOR_SEEN_KEY, WELCOME_SEEN_KEY, scriptStorageKey } from "@/app/demo/JudgeGuide";
 import { PairForm } from "@/app/pair/PairForm";
 
@@ -97,6 +106,7 @@ afterEach(() => {
   cleanup();
   publishCaptureBridge(null);
   clearPairDone();
+  clearSignInRole();
   publishProposalsScreen(null);
   vi.clearAllMocks();
   vi.useRealTimers();
@@ -1099,6 +1109,107 @@ describe("R-25 contracts: supervisor stage 2 and the paired card", () => {
       </LangProvider>,
     );
     expect(stageText()).toContain("Fill in the demo code");
+  });
+});
+
+describe("sign-in card: the demo email and password (demo feedback 2, finding 4)", () => {
+  beforeEach(() => {
+    pathname = "/sign-in";
+  });
+
+  it("with no role published (bare /sign-in, or DemoAccess not loaded yet) it is the entry card, and it says where the credentials are", () => {
+    renderGuide();
+    openGuide();
+    expect(screen.getByText("WELCOME, JUDGE")).toBeTruthy();
+    expect(screen.getByText(/this guide shows on the sign-in page/)).toBeTruthy();
+    expect(screen.queryByText(/judge@example\.com/)).toBeNull();
+  });
+
+  it("supervisor: the collapsed handle names the card; open, the email and password are bold copyable values, the chip says DEMO and the label Welcome", () => {
+    renderGuide();
+    act(() => void publishSignInRole("supervisor"));
+    expect(screen.getByText("Supervisor email and password")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("DEMO");
+    openGuide();
+    expect(screen.getByText("SIGN IN AS SUPERVISOR")).toBeTruthy();
+    expect(screen.getByText("Welcome")).toBeTruthy();
+    expect(screen.queryByText(/STAGE \d/)).toBeNull();
+    const email = screen.getByText("supervisor.judge@example.com", { selector: "b" });
+    const password = screen.getByText("bee6-demo", { selector: "b" });
+    expect(email.className).toMatch(/cred/);
+    expect(password.className).toMatch(/cred/);
+    expect(screen.getByText("Type these into the form, then tap Sign in.")).toBeTruthy();
+    expect(screen.getByText(/own private copy of a fictional shop for 2 hours/)).toBeTruthy();
+    expect(screen.getByText("To change role later: sign out, then pick a role again.")).toBeTruthy();
+  });
+
+  it("a role change while the sheet is open swaps the card in place and does not collapse it", () => {
+    renderGuide();
+    act(() => void publishSignInRole("supervisor"));
+    openGuide();
+    expect(screen.getByText("supervisor.judge@example.com", { selector: "b" })).toBeTruthy();
+    act(() => void publishSignInRole("owner"));
+    expect(screen.getByText("owner.judge@example.com", { selector: "b" })).toBeTruthy();
+    expect(screen.queryByText("supervisor.judge@example.com")).toBeNull();
+    expect(screen.getByText("SIGN IN AS OWNER")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Close the judge guide/ }).getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("staff, or the panel's cleanup, goes back to the entry card", () => {
+    renderGuide();
+    act(() => void publishSignInRole("owner"));
+    expect(screen.getByText("Owner email and password")).toBeTruthy();
+    act(() => void publishSignInRole("staff"));
+    expect(screen.getByText("Welcome · pick Staff to start")).toBeTruthy();
+    let cleanupRole = () => {};
+    act(() => void (cleanupRole = publishSignInRole("supervisor")));
+    expect(screen.getByText("Supervisor email and password")).toBeTruthy();
+    act(() => cleanupRole());
+    expect(screen.getByText("Welcome · pick Staff to start")).toBeTruthy();
+  });
+
+  it("a stale role never outlives the /sign-in route: back on /sign-in without a panel it reads as the entry card", () => {
+    const { rerender } = renderGuide();
+    act(() => void publishSignInRole("owner"));
+    pathname = "/pair";
+    rerender(
+      <LangProvider initial="en">
+        <JudgeGuide config={CONFIG} />
+      </LangProvider>,
+    );
+    pathname = "/sign-in";
+    rerender(
+      <LangProvider initial="en">
+        <JudgeGuide config={CONFIG} />
+      </LangProvider>,
+    );
+    expect(screen.getByText("Welcome · pick Staff to start")).toBeTruthy();
+  });
+
+  it("wide: stays collapsed on /sign-in even when a role is published (the guide never opens itself here)", () => {
+    wide = true;
+    renderGuide();
+    act(() => void publishSignInRole("supervisor"));
+    expect(screen.getByRole("button", { name: /Open the judge guide/ })).toBeTruthy();
+    expect(screen.queryByRole("complementary", { name: "Judge guide" })).toBeNull();
+    openGuide();
+    expect(screen.getByText("supervisor.judge@example.com", { selector: "b" })).toBeTruthy();
+  });
+
+  it("is in Bahasa when the language says so, with the same credentials", () => {
+    renderGuide("id");
+    act(() => void publishSignInRole("owner"));
+    fireEvent.click(screen.getByRole("button", { name: /Buka panduan juri/ }));
+    expect(screen.getByText("MASUK SEBAGAI PEMILIK")).toBeTruthy();
+    expect(screen.getByText("owner.judge@example.com", { selector: "b" })).toBeTruthy();
+    expect(screen.getByText("bee6-demo", { selector: "b" })).toBeTruthy();
+  });
+
+  it("axe finds no violation in the open card", async () => {
+    const { container } = renderGuide();
+    act(() => void publishSignInRole("supervisor"));
+    openGuide();
+    expect(await axeViolations(container)).toEqual([]);
   });
 });
 
