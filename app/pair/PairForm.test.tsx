@@ -104,6 +104,14 @@ describe("PairForm", () => {
       expect(submitButton().disabled).toBe(true);
     });
 
+    it("paste while submitting is ignored (the field is read-only in flight)", () => {
+      vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
+      renderForm();
+      submit("123456");
+      fireEvent.paste(input(), { clipboardData: { getData: () => "654321" } });
+      expect(input().value).toBe("123456");
+    });
+
     it("the label is tied to the field and the field is described by the hint until all six digits are in", () => {
       renderForm();
       expect(input().getAttribute("id")).toBe("pairing-code");

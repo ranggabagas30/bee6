@@ -146,6 +146,7 @@ export function PairForm({ onPaired, demoIntercept, initialCode = "" }: PairForm
         aria-invalid={errorKey ? true : undefined}
         onChange={(event) => setCode(digitsOnly(event.target.value))}
         onPaste={(event) => {
+          if (submitting) return; // the field is read-only while a request is in flight
           // maxLength would cut a pasted "123 456" at six characters, spaces included; strip first, then fill.
           event.preventDefault();
           setCode(digitsOnly(event.clipboardData.getData("text")));

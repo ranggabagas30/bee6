@@ -81,11 +81,6 @@
   margin-top: -8px;
 }
 
-.input:focus-visible {
-  outline: 2px solid var(--b6-focus);
-  outline-offset: 2px;
-}
-
 .submit {
   margin-top: 0;
 }
