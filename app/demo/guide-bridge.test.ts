@@ -70,10 +70,16 @@ describe("capturePhaseFor", () => {
     expect(capturePhaseFor({ ...cleared, debriefView: "waiting_more" })).toBe("debrief_preparing");
   });
 
-  it.each(["closed", "loading", "load_error", "empty", "timed_out"] as const)("a %s screen says nothing about the questions: the config rule applies", (kind) => {
+  it.each(["closed", "loading", "load_error", "empty"] as const)("a %s screen says nothing about the questions: the config rule applies", (kind) => {
     const debrief = { ...base, lastEnded: ended(), startOffered: false, debriefView: kind };
     expect(capturePhaseFor(debrief)).toBe("debrief_question");
     expect(capturePhaseFor({ ...debrief, profile: profile({ next_day: { allowed: false, reason: "preparing" } }) })).toBe("debrief_preparing");
+  });
+
+  it("a timed_out screen is debrief_done before the page's clock tick, whatever the config says", () => {
+    const d = { ...base, lastEnded: ended(), startOffered: false, debriefView: "timed_out" as const };
+    expect(capturePhaseFor(d)).toBe("debrief_done");
+    expect(capturePhaseFor({ ...d, profile: profile({ next_day: { allowed: false, reason: "preparing" } }) })).toBe("debrief_done");
   });
 
   it("the screen never overrides a session, the done flag, the window's end or a discarded day", () => {

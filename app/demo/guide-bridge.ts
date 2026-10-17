@@ -145,6 +145,7 @@ export interface CapturePhaseInput {
  * The plan 7.1 phase of the staff phone, from what the page knows. Pure. Inside the debrief window the debrief's
  * own screen decides between preparing and question (round-4 D2: the config's `next_day.reason` can be one
  * re-poll stale); a screen that says nothing about the questions (closed, loading, ...) falls back to the config.
+ * A `timed_out` screen is `debrief_done` at once (its 1 s clock runs ahead of the page's 30 s one).
  */
 export function capturePhaseFor(input: CapturePhaseInput): CapturePhase {
   if (input.session) return input.session.closingReached ? "closing" : "listening";
@@ -156,6 +157,9 @@ export function capturePhaseFor(input: CapturePhaseInput): CapturePhase {
   if (input.nowMs >= debriefEndsAt) return input.startOffered ? "ready" : "debrief_done";
   switch (input.debriefView) {
     case "done":
+      return "debrief_done";
+    case "timed_out":
+      // The flow's own 1 s clock passed ends_at before the page's 30 s tick did: the debrief is over now.
       return "debrief_done";
     case "question":
       return "debrief_question";
