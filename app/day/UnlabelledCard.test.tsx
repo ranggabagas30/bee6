@@ -53,32 +53,18 @@ describe("UnlabelledCard", () => {
     expect(container.textContent).toContain(label);
   });
 
-  it("renders a Yes answer without a <q> when reason is null", () => {
-    const { container } = renderCard({
-      ...BASE,
-      display_status: "question_answered",
-      staff_answer: { answer: "yes", reason: null },
-    });
-    expect(container.textContent).toContain("A staff member answered Yes:");
-    expect(container.querySelector("q")).toBeNull();
-  });
-
-  it("renders a No answer with the reason in a <q>", () => {
+  it("does not render the staff answer on the card (it is listed in the Staff debrief section, R-25 T9)", () => {
     const { container } = renderCard({
       ...BASE,
       display_status: "question_answered",
       staff_answer: { answer: "no", reason: "UNL-REASON-SENTINEL" },
     });
-    expect(container.textContent).toContain("A staff member answered No:");
-    expect(container.querySelector("q")?.textContent).toBe("UNL-REASON-SENTINEL");
-  });
-
-  it("renders nothing staff-answer-shaped when staff_answer is null", () => {
-    const { container } = renderCard({ ...BASE, staff_answer: null });
     expect(container.textContent).not.toContain("A staff member answered");
+    expect(container.textContent).not.toContain("UNL-REASON-SENTINEL");
+    expect(container.querySelector("q")).toBeNull();
   });
 
-  it("switching language keeps the staff reason byte-identical and re-labels the chrome", () => {
+  it("switching language re-labels the chrome", () => {
     function LangToggle() {
       const { setLang } = useLang();
       return (
@@ -87,28 +73,24 @@ describe("UnlabelledCard", () => {
         </button>
       );
     }
-    const item: SupervisorUnlabelled = {
-      ...BASE,
-      display_status: "question_answered",
-      staff_answer: { answer: "no", reason: "REASON-CONTENT-STRING" },
-    };
     const { container } = render(
       <LangProvider initial="en">
         <LangToggle />
-        <UnlabelledCard item={item} />
+        <UnlabelledCard item={BASE} />
       </LangProvider>,
     );
-    expect(container.querySelector("q")?.textContent).toBe("REASON-CONTENT-STRING");
+    expect(container.textContent).toContain("Not labelled");
 
     fireEvent.click(screen.getByRole("button", { name: "toggle-lang" }));
 
-    expect(container.querySelector("q")?.textContent).toBe("REASON-CONTENT-STRING");
     expect(container.textContent).toContain("Belum berlabel");
   });
 
-  it("360px safety: overflowWrap anywhere on the card", () => {
+  it("is one row of the notes list: a time, a body and a status pill (board D2-02)", () => {
     const { container } = renderCard();
     const article = container.querySelector("article") as HTMLElement;
-    expect(article.style.overflowWrap).toBe("anywhere");
+    expect(article.className).toMatch(/row/);
+    expect(article.querySelector(".b6-mono")?.textContent).toContain("09:00");
+    expect(article.querySelector(".b6-pill")).not.toBeNull();
   });
 });

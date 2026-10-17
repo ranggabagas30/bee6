@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { LangProvider, useLang } from "@/lib/i18n/context";
 import { dayLabel } from "@/lib/i18n/format";
 import type { Auth } from "@/lib/auth/client/firebase-client";
@@ -106,8 +106,13 @@ describe("DayRecordView — owner shape", () => {
     expect(container.innerHTML).not.toContain("REASON-SENTINEL");
 
     const text = container.textContent ?? "";
-    expect(text).toContain("Facts: 4");
+    expect(text).not.toContain("Facts:");
     expect(text).not.toContain("Questions");
+    // The owner's one tile is the count of notes; no debrief answers, no check tile, no Staff debrief section.
+    expect(text).toContain("WORK NOTES");
+    expect(screen.queryByText("DEBRIEF ANSWERS")).toBeNull();
+    expect(screen.queryByText("NEED YOUR CHECK")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Staff debrief" })).toBeNull();
   });
 
   it("zero threads on an 'on' day shows the empty state with both lines (R-19 PR-6 §8.3)", () => {
@@ -122,21 +127,21 @@ describe("DayRecordView — owner shape", () => {
     expect(container.textContent).not.toContain("No confirmed facts for this date yet.");
   });
 
-  it("shows a Home link to /home (R-06 Task 14a)", () => {
-    const data: DayRecordResponse = { view: "owner", day: OWNER_HEADER_BASE, threads: [] };
+  it("renders no in-page links: the nav row carries Home and the other routes (R-25 T9)", () => {
+    const data: DayRecordResponse = { view: "owner", day: OWNER_HEADER_BASE, threads: [ownerThread()] };
     renderView(data);
-    const link = screen.getByRole("link", { name: "Home" });
-    expect(link.getAttribute("href")).toBe("/home");
+    expect(screen.queryAllByRole("link")).toHaveLength(0);
   });
 
-  it("the Home link meets the 48px touch-target minimum (CLAUDE.md §2 global constraint)", () => {
-    const data: DayRecordResponse = { view: "owner", day: OWNER_HEADER_BASE, threads: [] };
+  it("shows the owner's single tile with the note count", () => {
+    const data: DayRecordResponse = {
+      view: "owner",
+      day: OWNER_HEADER_BASE,
+      threads: [ownerThread({ row: 0 }), ownerThread({ row: 1 }), ownerThread({ row: 2 })],
+    };
     renderView(data);
-    const link = screen.getByRole("link", { name: "Home" }) as HTMLAnchorElement;
-    expect(link.style.minHeight).toBe("48px");
-    // jsdom has no layout engine, so getBoundingClientRect() cannot confirm
-    // the real rendered height; the inline style is the load-bearing check
-    // here (real-browser measurement should be re-confirmed by QA).
+    const tile = screen.getByText("WORK NOTES").closest(".b6-tile") as HTMLElement;
+    expect(tile.querySelector(".b6-tile__value")?.textContent).toBe("3");
   });
 });
 
@@ -168,43 +173,7 @@ describe("DayRecordView — supervisor shape", () => {
     const { container } = renderView(data);
     expect(container.textContent).toContain("+5 more lines");
     const blockquotes = Array.from(container.querySelectorAll("blockquote")).map((b) => b.textContent);
-    expect(blockquotes).toEqual(["10:01 «EVID-1»", "10:02 «EVID-2»"]);
-  });
-
-  it("shows 'A staff member answered No:' with the reason for a rejected row", () => {
-    const data: DayRecordResponse = {
-      view: "supervisor",
-      day: SUPERVISOR_HEADER,
-      threads: [
-        supervisorThread({
-          row: 0,
-          display_status: "rejected_by_staff",
-          staff_answer: { answer: "no", reason: "REASON-SENTINEL-1" },
-        }),
-      ],
-      unlabelled: [],
-    };
-    const { container } = renderView(data);
-    expect(container.textContent).toContain("A staff member answered No:");
-    expect(container.querySelector("q")?.textContent).toBe("REASON-SENTINEL-1");
-  });
-
-  it("shows the Yes line without a <q> when reason is null", () => {
-    const data: DayRecordResponse = {
-      view: "supervisor",
-      day: SUPERVISOR_HEADER,
-      threads: [
-        supervisorThread({
-          row: 0,
-          display_status: "awaiting_supervisor",
-          staff_answer: { answer: "yes", reason: null },
-        }),
-      ],
-      unlabelled: [],
-    };
-    const { container } = renderView(data);
-    expect(container.textContent).toContain("A staff member answered Yes:");
-    expect(container.querySelector("q")).toBeNull();
+    expect(blockquotes).toEqual(["10:01\u201CEVID-1\u201D", "10:02\u201CEVID-2\u201D"]);
   });
 
   it("supervisor empty 'on' day shows both empty lines", () => {
@@ -232,7 +201,7 @@ describe("DayRecordView — supervisor shape", () => {
     expect(container.textContent).not.toContain("Notes appear after the shop phone listens and Bee6 reads the day.");
   });
 
-  it("supervisor, only questions (no facts) -> 'Facts: 0 · Questions: 3' and three cards", () => {
+  it("supervisor, only questions (no facts) -> three rows and no 'Facts / Questions' line", () => {
     const data: DayRecordResponse = {
       view: "supervisor",
       day: { ...SUPERVISOR_HEADER, fact_count: 0, question_count: 3 },
@@ -244,8 +213,8 @@ describe("DayRecordView — supervisor shape", () => {
       unlabelled: [],
     };
     const { container } = renderView(data);
-    expect(container.textContent).toContain("Facts: 0");
-    expect(container.textContent).toContain("Questions: 3");
+    expect(container.textContent).not.toContain("Facts:");
+    expect(container.textContent).not.toContain("Questions: 3");
     expect(container.querySelectorAll("article")).toHaveLength(3);
   });
 });
@@ -270,7 +239,7 @@ describe("DayRecordView — unlabelled moments (Task 12)", () => {
     expect(container.textContent).toContain("Could not label this. Staff were asked about it.");
   });
 
-  it("renders the staff answer the same way ThreadCard does, including a null-reason Yes line", () => {
+  it("lists the staff answer to an unlabelled moment in the Staff debrief section, not on its card", () => {
     const data: DayRecordResponse = {
       view: "supervisor",
       day: SUPERVISOR_HEADER,
@@ -284,8 +253,10 @@ describe("DayRecordView — unlabelled moments (Task 12)", () => {
       ],
     };
     const { container } = renderView(data);
-    expect(container.textContent).toContain("A staff member answered Yes:");
-    expect(container.querySelector("q")?.textContent).toBe("UNL-REASON-SENTINEL");
+    expect(container.querySelector("article")?.textContent).not.toContain("UNL-REASON-SENTINEL");
+    const section = screen.getByRole("region", { name: "Staff debrief" });
+    expect(section.querySelector("q")?.textContent).toBe("UNL-REASON-SENTINEL");
+    expect(section.textContent).toContain("Between 09:00 and 09:02 there was work. Is that right?");
   });
 
   it("owner shape never renders an unlabelled card (the owner response has no unlabelled field)", () => {
@@ -442,8 +413,9 @@ describe("DayRecordView — category filter", () => {
     // chrome text is gone, not merely duplicated alongside the new one.
     expect(screen.getByText("C1")).not.toBeNull();
     expect(screen.getByText("C2")).not.toBeNull();
-    expect(screen.getAllByText("Fakta").length).toBeGreaterThan(0);
-    expect(container.querySelector("h1")?.textContent).toBe(dayLabel("2026-10-08", "id"));
+    expect(screen.getAllByText("Dilabeli otomatis").length).toBeGreaterThan(0);
+    expect(container.querySelector("h1")?.textContent).toBe("Catatan hari");
+    expect(container.querySelector("time")?.textContent).toBe(dayLabel("2026-10-08", "id"));
     expect(container.textContent).not.toContain("Customer complaint");
   });
 });
@@ -485,7 +457,7 @@ describe("DayRecordView — language toggle preserves stored content", () => {
     const whyNotBefore = container.querySelector("details p")?.textContent;
     // Sanity: the fixture content is actually present before toggling, not
     // an accidental pass from two `undefined`s.
-    expect(evidenceBefore).toBe("10:01 «EVID-CONTENT-STRING»");
+    expect(evidenceBefore).toBe("10:01\u201CEVID-CONTENT-STRING\u201D");
     expect(reasonBefore).toBe("REASON-CONTENT-STRING");
     expect(whyNotBefore).toBe("WHY-NOT-CONTENT-STRING");
 
@@ -539,14 +511,14 @@ describe("DayRecordView — header", () => {
     expect(twoContainer.textContent).toContain("Sessions cancelled: 2");
   });
 
-  it("capture_mode wearable shows 'Mode: wearable'", () => {
+  it("capture_mode no longer renders a 'Mode' line (R-25 T9)", () => {
     const data: DayRecordResponse = {
       view: "owner",
       day: { ...OWNER_HEADER_BASE, capture_mode: "wearable" },
       threads: [],
     };
     const { container } = renderView(data);
-    expect(container.textContent).toContain("Mode: wearable");
+    expect(container.textContent).not.toContain("Mode:");
   });
 
   it("truncated shows the truncation notice with the thread count", () => {
@@ -573,18 +545,133 @@ describe("DayRecordView — header", () => {
 });
 
 describe("DayRecordView — 360px safety", () => {
-  it("DayRecordView's container and card styles use no fixed width over 360 and overflowWrap: anywhere", () => {
+  it("the notes list is a card whose rows wrap long words, with no fixed pixel width in inline styles", () => {
     const data: DayRecordResponse = {
       view: "owner",
       day: OWNER_HEADER_BASE,
       threads: [ownerThread({ row: 0 })],
     };
     const { container } = renderView(data);
-    const article = container.querySelector("article") as HTMLElement;
-    expect(article.style.overflowWrap).toBe("anywhere");
-    // The outer container is width-constrained by max-width only (percentage-
-    // based at narrow viewports), never a fixed width in px below 360.
-    const root = container.firstElementChild as HTMLElement;
-    expect(root.style.width).toBe("");
+    const list = screen.getByRole("list", { name: "Work notes" });
+    expect(list.className).toContain("b6-card");
+    // Layout lives in day.module.css (min-width: 0 grid, overflow-wrap: anywhere); nothing inline can pin a width.
+    expect(container.querySelectorAll("[style]")).toHaveLength(0);
+  });
+});
+
+describe("DayRecordView — filled supervisor day (board D2-02)", () => {
+  const SUPERVISOR_HEADER = { ...OWNER_HEADER_BASE, question_count: 5 };
+  const FILLED: DayRecordResponse = {
+    view: "supervisor",
+    day: SUPERVISOR_HEADER,
+    threads: [
+      supervisorThread({ row: 0, category: "ROUTINE_OPS", start_hm: "07:30", summary: "Opening done", display_status: "fact", confidence_pct: 95 }),
+      supervisorThread({
+        row: 1,
+        category: "CUSTOMER_SERVICE",
+        start_hm: "10:40",
+        summary: "A customer asked about the egg tarts",
+        display_status: "awaiting_supervisor",
+        staff_answer: { answer: "yes", reason: "a customer asked at the display" },
+        evidence: [{ hm: "10:41", text: "Are these egg tarts fresh today?" }],
+        can_review: true,
+        handle: "H-1",
+      }),
+      supervisorThread({
+        row: 2,
+        category: "ROUTINE_OPS",
+        start_hm: "13:05",
+        summary: "Cinnamon rolls refilled",
+        display_status: "rejected_by_staff",
+        staff_answer: { answer: "no", reason: "no time was written on the tray" },
+      }),
+      supervisorThread({ row: 3, category: "ROUTINE_OPS", start_hm: "21:00", summary: "Closing done", display_status: "unverified" }),
+    ],
+    unlabelled: [unlabelledItem({ key: 0, after_row: 3, display_status: "question_open" })],
+  };
+
+  function tile(label: string): HTMLElement {
+    return screen.getByText(label).closest(".b6-tile") as HTMLElement;
+  }
+
+  it("shows exactly three tiles (no listening-coverage tile): WORK NOTES, DEBRIEF ANSWERS, NEED YOUR CHECK", () => {
+    renderView(FILLED);
+    const tiles = within(screen.getByRole("list", { name: "Day summary" })).getAllByRole("listitem");
+    expect(tiles).toHaveLength(3);
+    expect(screen.queryByText(/LISTENING COVERAGE/)).toBeNull();
+    expect(tiles.map((li) => li.querySelector(".b6-kicker")?.textContent)).toEqual(["WORK NOTES", "DEBRIEF ANSWERS", "NEED YOUR CHECK"]);
+  });
+
+  it("computes the tile values from the response: notes, 'answered of asked' + unverified, need-your-check + first item", () => {
+    renderView(FILLED);
+    expect(tile("WORK NOTES").querySelector(".b6-tile__value")?.textContent).toBe("4");
+    expect(tile("WORK NOTES").textContent).toContain("1 not labelled");
+    // asked: threads 1, 2, 3 + the unlabelled moment = 4; answered: yes + no = 2; unverified: 1.
+    expect(tile("DEBRIEF ANSWERS").querySelector(".b6-tile__value")?.textContent).toBe("2 of 4");
+    expect(tile("DEBRIEF ANSWERS").textContent).toContain("1 unverified");
+    // need your check: 1 reviewable thread + 1 open unlabelled.
+    const check = tile("NEED YOUR CHECK");
+    expect(check.querySelector(".b6-tile__value")?.textContent).toBe("2");
+    expect(check.className).toContain("b6-tile--amber");
+    expect(check.textContent).toContain("10:40 \u00B7 Customer service +1 more");
+  });
+
+  it("the check tile is not amber and says so when nothing needs a decision", () => {
+    renderView({ ...FILLED, threads: [supervisorThread({ row: 0, display_status: "fact" })], unlabelled: [] });
+    const check = tile("NEED YOUR CHECK");
+    expect(check.className).not.toContain("b6-tile--amber");
+    expect(check.querySelector(".b6-tile__value")?.textContent).toBe("0");
+    expect(check.textContent).toContain("Nothing to check");
+    expect(tile("DEBRIEF ANSWERS").textContent).toContain("No questions asked");
+  });
+
+  it("renders the sections in board order: header, tiles, filter, notes card, Staff debrief", () => {
+    renderView(FILLED);
+    const h1 = screen.getByRole("heading", { level: 1 });
+    const tiles = screen.getByRole("list", { name: "Day summary" });
+    const filter = screen.getByRole("group", { name: "Filter by category" });
+    const notes = screen.getByRole("list", { name: "Work notes" });
+    const debrief = screen.getByRole("region", { name: "Staff debrief" });
+    const follows = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(h1, tiles)).toBe(true);
+    expect(follows(tiles, filter)).toBe(true);
+    expect(follows(filter, notes)).toBe(true);
+    expect(follows(notes, debrief)).toBe(true);
+  });
+
+  it("the Staff debrief section lists the answers and reasons that no longer sit on the cards", () => {
+    renderView(FILLED);
+    const debrief = screen.getByRole("region", { name: "Staff debrief" });
+    const pills = Array.from(debrief.querySelectorAll(".b6-pill")).map((p) => p.textContent);
+    expect(pills).toEqual(["Yes", "No", "Unverified", "Open"]);
+    expect(Array.from(debrief.querySelectorAll("q")).map((q) => q.textContent)).toEqual([
+      "a customer asked at the display",
+      "no time was written on the tray",
+    ]);
+    expect(screen.getByRole("list", { name: "Work notes" }).textContent).not.toContain("a customer asked at the display");
+  });
+
+  it("the Staff debrief section does not follow the category filter", () => {
+    renderView(FILLED);
+    fireEvent.click(screen.getByRole("button", { name: /Customer service/ }));
+    expect(screen.getAllByRole("article")).toHaveLength(1);
+    expect(within(screen.getByRole("region", { name: "Staff debrief" })).getAllByRole("listitem")).toHaveLength(4);
+  });
+
+  it("only the reviewable row offers actions; the pill on it reads 'Needs your check'", () => {
+    renderView(FILLED);
+    expect(screen.getAllByRole("button", { name: "Confirm" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Change label" })).toHaveLength(1);
+    const notes = screen.getByRole("list", { name: "Work notes" });
+    expect(within(notes).getByText("Needs your check")).not.toBeNull();
+    expect(within(notes).getByText("Auto-labelled")).not.toBeNull();
+  });
+
+  it("an empty supervisor day shows the empty state and no tiles, filter or Staff debrief", () => {
+    renderView({ view: "supervisor", day: SUPERVISOR_HEADER, threads: [], unlabelled: [] });
+    expect(screen.queryByRole("list", { name: "Day summary" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Filter by category" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Staff debrief" })).toBeNull();
+    expect(screen.getByText("No notes for this day yet.")).not.toBeNull();
   });
 });
