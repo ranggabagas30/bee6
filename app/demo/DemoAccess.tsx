@@ -11,7 +11,7 @@ import { refusalLines } from "@/app/demo/demo-errors";
 import { useDemoStart } from "@/app/demo/useDemoStart";
 import type { DemoAccessProps, DemoFill, DemoPanelHooks } from "@/app/sign-in/panel-hooks";
 import { DemoHooksProvider } from "@/app/sign-in/demo-hooks";
-import { Glass } from "@/app/ui";
+import { Card } from "@/app/ui";
 
 /**
  * The demo access box (R-18 P1; trimmed in R-19 PR-6 §8.1), on demo deployments only. It is reached through a
@@ -27,8 +27,8 @@ import { Glass } from "@/app/ui";
  * (POST /api/v1/demo/session); DEMO_MODE, the caps and the 2 h expiry are the boundary.
  */
 
-const BOX_STYLE: CSSProperties = { boxSizing: "border-box", padding: "14px 16px", margin: "0 0 16px 0" };
-const TITLE_STYLE: CSSProperties = { margin: "0 0 8px 0", fontWeight: 600 };
+const BOX_STYLE: CSSProperties = { boxSizing: "border-box", padding: "16px 18px", margin: "0 0 16px 0" };
+const TITLE_STYLE: CSSProperties = { margin: "0 0 8px 0" };
 const ROW_STYLE: CSSProperties = { margin: "0 0 8px 0", overflowWrap: "anywhere" };
 const VALUE_STYLE: CSSProperties = { userSelect: "all", fontFamily: "var(--b6-font-mono, monospace)", fontWeight: 600 };
 const PARAGRAPH_STYLE: CSSProperties = { margin: "8px 0 0 0", overflowWrap: "anywhere", lineHeight: 1.5, fontSize: 14 };
@@ -43,7 +43,11 @@ function fillFor(role: "supervisor" | "owner"): DemoFill {
 
 const noNavigation = () => {};
 
-export function DemoAccess({ config, role, onFill, onStarted, barShowsEnded, children }: DemoAccessProps) {
+/**
+ * `bare` (R-25 T4, ruling R5): /pair shows no "Demo access" box (board P2-02 has none). The hooks and the start logic are
+ * unchanged; only the box chrome is dropped, leaving the one live status line (busy, refusal, ended) below the form.
+ */
+export function DemoAccess({ config, role, onFill, onStarted, barShowsEnded, bare = false, children }: DemoAccessProps & { bare?: boolean }) {
   const { lang } = useLang();
   const { busy, refusal, start, clearRefusal } = useDemoStart(config, "restart", onStarted ? noNavigation : undefined);
   // The role the box last filled in for; the "Filled in" line shows only while the panel is still on that role.
@@ -101,10 +105,30 @@ export function DemoAccess({ config, role, onFill, onStarted, barShowsEnded, chi
 
   const liveDemo = earlier && !earlier.expired ? earlier.state : null;
 
+  if (bare) {
+    const attention = statusText !== "" && !busy;
+    return (
+      <DemoHooksProvider value={hooks}>
+        {children}
+        <p
+          ref={statusRef}
+          tabIndex={-1}
+          role="status"
+          aria-live="polite"
+          data-testid="demo-status"
+          className={attention ? "b6-alert b6-alert--amber" : "b6-sr-only"}
+          style={attention ? { margin: "16px 0 0 0", overflowWrap: "anywhere" } : undefined}
+        >
+          {statusText}
+        </p>
+      </DemoHooksProvider>
+    );
+  }
+
   return (
     <DemoHooksProvider value={hooks}>
-      <Glass as="section" aria-labelledby="demo-access-title" style={BOX_STYLE}>
-        <p id="demo-access-title" style={TITLE_STYLE}>
+      <Card as="section" aria-labelledby="demo-access-title" style={BOX_STYLE}>
+        <p id="demo-access-title" className="b6-kick" style={TITLE_STYLE}>
           {t(lang, "C-demo-cred-title")}
         </p>
         {role !== "staff" && (
@@ -125,7 +149,7 @@ export function DemoAccess({ config, role, onFill, onStarted, barShowsEnded, chi
         <p ref={statusRef} tabIndex={-1} role="status" aria-live="polite" data-testid="demo-status" style={STATUS_STYLE}>
           {statusText}
         </p>
-      </Glass>
+      </Card>
       {children}
     </DemoHooksProvider>
   );

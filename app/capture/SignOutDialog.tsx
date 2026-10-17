@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { Button, Card } from "@/app/ui";
+import css from "@/app/capture/capture.module.css";
+import { cx } from "@/app/ui/cx";
+import { Emphasis } from "@/app/capture/emphasis";
+import { Button, DialogSheet } from "@/app/ui";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import type { Lang } from "@/lib/i18n/lang";
 
@@ -13,8 +16,8 @@ import type { Lang } from "@/lib/i18n/lang";
  * The safe choice has focus; Escape dismisses unless a request is in flight. Sandbox only (the pilot never mounts it).
  *
  * Modal for real (WCAG 2.4.3 / 2.1.2): Tab and Shift+Tab cycle inside the dialog and never reach the page behind,
- * Escape works wherever focus is while the dialog is open, and focus goes back to whatever opened it (the top-bar
- * Sign out button) when it unmounts.
+ * Escape works wherever focus is while the dialog is open, and focus goes back to whatever opened it (the footer
+ * Sign out link) when it unmounts.
  */
 export type SignOutKind = "running" | "closed";
 
@@ -57,6 +60,7 @@ export interface SignOutDialogProps {
 
 export function SignOutDialog({ kind, lang, busy, finishing, errorKey, onConfirm, onDismiss }: SignOutDialogProps) {
   const titleId = useId();
+  const bodyId = useId();
   const copy = COPY[kind];
   // The kind this dialog opened with: a later change (a 409 closing_reached turns running into closed) is announced.
   const [openedKind] = useState(kind);
@@ -103,9 +107,9 @@ export function SignOutDialog({ kind, lang, busy, finishing, errorKey, onConfirm
       const focusables = Array.from(root.querySelectorAll<HTMLElement>("button:not([disabled])"));
       const active = document.activeElement;
       if (focusables.length === 0) {
-        // Both buttons disabled (busy): park focus on the dialog itself (tabIndex -1) so Tab cannot leave it.
+        // Both buttons disabled (busy): park focus on the dialog's content box (tabIndex -1) so Tab cannot leave it.
         e.preventDefault();
-        root.querySelector<HTMLElement>('[role="dialog"]')?.focus();
+        root.focus();
         return;
       }
       const first = focusables[0]!;
@@ -127,55 +131,42 @@ export function SignOutDialog({ kind, lang, busy, finishing, errorKey, onConfirm
   }, []);
 
   return (
-    <div
-      ref={rootRef}
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: "var(--b6-z-dialog)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 16,
-        background: "rgba(17, 24, 39, 0.45)",
-      }}
-    >
-      <Card
-        as="section"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-        style={{ width: "100%", maxWidth: 328, maxHeight: "calc(100dvh - 32px)", overflowY: "auto", padding: 20 }}
-      >
-        <h2 id={titleId} style={{ fontSize: 20, margin: "0 0 8px" }}>
+    <DialogSheet labelledBy={titleId} describedBy={bodyId}>
+      <div ref={rootRef} tabIndex={-1} className={css.dfocus}>
+        <h2 id={titleId} className="b6-dsheet__title">
           {t(lang, copy.title)}
         </h2>
-        <p style={{ margin: "0 0 16px", fontSize: 16, lineHeight: 1.45 }}>{t(lang, copy.body)}</p>
+        <p id={bodyId} className={cx("b6-dsheet__body", css.dbody)}>
+          <Emphasis text={t(lang, copy.body)} />
+        </p>
         {/* Polite live region: always mounted, filled only when the kind switched after open (running -> closed),
             so the new title and body are read out. */}
         <div aria-live="polite" aria-atomic="true" style={VISUALLY_HIDDEN}>
-          {kind !== openedKind ? `${t(lang, copy.title)}. ${t(lang, copy.body)}` : ""}
+          {kind !== openedKind ? `${t(lang, copy.title)}. ${t(lang, copy.body).replaceAll("**", "")}` : ""}
         </div>
         {finishing ? (
-          <p role="status" style={{ margin: "0 0 12px", fontSize: 14 }}>
+          <p role="status" className="b6-note">
             {t(lang, "C-sess-signout-finishing")}
           </p>
         ) : null}
         {errorKey ? (
-          <p role="alert" style={{ margin: "0 0 12px", fontSize: 14, color: "#b00020" }}>
+          <p role="alert" className="b6-alert b6-alert--red">
             {t(lang, errorKey)}
           </p>
         ) : null}
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <Button ref={dismissRef} variant="primary" size="lg" block onClick={onDismiss} disabled={busy}>
-            {t(lang, copy.dismiss)}
-          </Button>
-          <Button variant={kind === "running" ? "destructive" : "secondary"} block onClick={onConfirm} disabled={busy}>
-            {t(lang, copy.confirm)}
-          </Button>
-        </div>
-      </Card>
-    </div>
+        <Button ref={dismissRef} variant="primary" size="lg" block onClick={onDismiss} disabled={busy}>
+          {t(lang, copy.dismiss)}
+        </Button>
+        <Button
+          variant={kind === "running" ? "destructive" : "secondary"}
+          block
+          className={css.dsecond}
+          onClick={onConfirm}
+          disabled={busy}
+        >
+          {t(lang, copy.confirm)}
+        </Button>
+      </div>
+    </DialogSheet>
   );
 }

@@ -90,6 +90,21 @@ function LangToggle() {
 }
 
 describe("SignInScreen", () => {
+  it("sits in the page-2 web shell: the .dtop bar with the language switch, no nav, no Sign out, one main with the one h1 (R-25 T8)", () => {
+    renderScreen();
+    const bar = screen.getByRole("banner");
+    expect(bar.className).toContain("b6-dtop");
+    expect(screen.getByRole("link", { name: "Bee6" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Choose language" })).toBeTruthy();
+    expect(screen.queryByRole("navigation")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    // flow unchanged: the native role radios and the email form are still there
+    expect(screen.getAllByRole("radio")).toHaveLength(3);
+    expect(screen.getByLabelText("Email")).toBeTruthy();
+  });
+
   it("authUser.status === 'loading' shows no form (avoids the sign-in flash on reload)", () => {
     authUserState = { status: "loading" };
     renderScreen();

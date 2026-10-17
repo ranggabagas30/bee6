@@ -143,7 +143,14 @@ describe("ReviewsApp: lists", () => {
     authedGetJson.mockResolvedValue(ok(list()));
     renderApp();
     await screen.findByText("Nothing to review yet");
-    expect(screen.getByText("When an approved change reaches its review date, it appears here.")).not.toBeNull();
+    // D2-06: both sentences, the second says where the date comes from
+    expect(
+      screen.getByText(
+        "When an approved change reaches its review date, it appears here. Review dates are set when the owner approves a proposal.",
+      ),
+    ).not.toBeNull();
+    expect(screen.getByRole("heading", { level: 1, name: "Reviews" })).not.toBeNull();
+    expect(screen.getByText("Did an approved change work?")).not.toBeNull();
     expect(screen.queryByRole("heading", { name: "Decided" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Waiting for a verdict" })).toBeNull();
   });

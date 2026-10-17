@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { createRef } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { DialogSheet } from "@/app/ui/DialogSheet";
@@ -64,6 +65,22 @@ describe("DialogSheet", () => {
     const d = screen.getByRole("dialog");
     expect(d.className).toContain("b6-dsheet--centred");
     expect(d.className).toContain("mine");
+  });
+
+  it("passes a ref and div props to the dialog element so the caller can focus the container", () => {
+    const ref = createRef<HTMLDivElement>();
+    render(
+      <DialogSheet labelledBy="t" ref={ref} tabIndex={-1} data-testid="dlg">
+        <h2 id="t">Title</h2>
+      </DialogSheet>,
+    );
+    const d = screen.getByRole("dialog");
+    expect(ref.current).toBe(d);
+    expect(d.getAttribute("tabindex")).toBe("-1");
+    expect(d.getAttribute("data-testid")).toBe("dlg");
+    expect(d.getAttribute("aria-modal")).toBe("true");
+    ref.current?.focus();
+    expect(document.activeElement).toBe(d);
   });
 
   it("holds no focus logic: it does not move focus by itself (the caller owns the trap)", () => {

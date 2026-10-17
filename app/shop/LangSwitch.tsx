@@ -4,46 +4,38 @@ import { useState } from "react";
 import { useLang } from "@/lib/i18n/context";
 import { t } from "@/lib/i18n/dict";
 import { buildLangCookie, type Lang } from "@/lib/i18n/lang";
+import { Segmented, type SegmentedOption } from "@/app/ui";
 
 /**
- * The ID | EN switch (UX-03 section 5.12). Two native buttons in one group, 48 px
- * targets. The visible text is the code, which does not change with language.
- * The accessible name starts with that same code and ends with the endonym
- * (WCAG 2.5.3, label in name), so a voice user saying "click EN" matches. The
- * endonym is spoken in its own language. The group name is in the current
- * language. A tap on the pressed option does nothing.
- * A separate polite live region speaks one line in the new language.
+ * The ID | EN switch (UX-03 section 5.12; page-2 `.seg`, R-25 T4). One `Segmented variant="mono"` group of native
+ * toggle buttons. The visible text is the code, which does not change with language. The accessible name starts with
+ * that same code and ends with the endonym (WCAG 2.5.3, label in name), so a voice user saying "click EN" matches. The
+ * endonym is spoken in its own language. The group name is in the current language. A tap on the pressed option does
+ * nothing. A separate polite live region speaks one line in the new language.
  */
-
-const OPTIONS: readonly Lang[] = ["id", "en"];
 
 const OPTION_TEXT: Record<Lang, { code: string; endonym: string }> = {
   id: { code: "ID", endonym: "Bahasa Indonesia" },
   en: { code: "EN", endonym: "English" },
 };
 
-const BUTTON_BASE: React.CSSProperties = {
-  minWidth: 48,
-  minHeight: 48,
-  padding: "0 12px",
-  fontSize: 16,
-  borderRadius: 8,
-  cursor: "pointer",
-};
+const OPTIONS: readonly SegmentedOption<Lang>[] = (["id", "en"] as const).map((value) => ({
+  value,
+  label: (
+    <>
+      {OPTION_TEXT[value].code}
+      {" "}
+      <span className="b6-sr-only" lang={value}>
+        {OPTION_TEXT[value].endonym}
+      </span>
+    </>
+  ),
+}));
 
 /** Device-only preference: a cookie, no server write, no name, no id. */
 function writeLangCookie(lang: Lang) {
   document.cookie = buildLangCookie(lang);
 }
-
-const VISUALLY_HIDDEN: React.CSSProperties = {
-  position: "absolute",
-  width: 1,
-  height: 1,
-  overflow: "hidden",
-  clip: "rect(0 0 0 0)",
-  whiteSpace: "nowrap",
-};
 
 export function LangSwitch() {
   const { lang, setLang } = useLang();
@@ -58,37 +50,8 @@ export function LangSwitch() {
 
   return (
     <>
-      <div
-        role="group"
-        aria-label={t(lang, "C-lang-group")}
-        style={{ display: "inline-flex", gap: 8 }}
-      >
-        {OPTIONS.map((option) => {
-          const pressed = option === lang;
-          return (
-            <button
-              key={option}
-              type="button"
-              aria-pressed={pressed}
-              onClick={() => choose(option)}
-              style={{
-                ...BUTTON_BASE,
-                fontWeight: pressed ? 700 : 400,
-                background: pressed ? "#14532d" : "#ffffff",
-                color: pressed ? "#ffffff" : "#111111",
-                border: pressed ? "2px solid #14532d" : "2px solid #6b7280",
-              }}
-            >
-              {OPTION_TEXT[option].code}
-              {" "}
-              <span style={VISUALLY_HIDDEN} lang={option}>
-                {OPTION_TEXT[option].endonym}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-      <p role="status" aria-live="polite" style={VISUALLY_HIDDEN}>
+      <Segmented label={t(lang, "C-lang-group")} options={OPTIONS} value={lang} onChange={choose} variant="mono" />
+      <p role="status" aria-live="polite" className="b6-sr-only">
         {said}
       </p>
     </>
