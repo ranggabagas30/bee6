@@ -38,6 +38,7 @@ export const STAGES: readonly { id: StageId; title: Bilingual }[] = z
 export const GUIDE_KEYS = [
   "entry",
   "pair",
+  "pair_done",
   "capture_ready",
   "capture_listening",
   "capture_all_spoken",
@@ -111,6 +112,11 @@ export const GUIDE: Readonly<Record<GuideKey, GuideCard>> = z
       ["This demo phone pairs with the demo code. Tap Fill in {code}, then Set up.", "Keep this page open and allow the microphone when asked."],
       { kind: "fill_demo_code" },
     ),
+    // R-25 R12 (UI-021): the device is paired; the stale "Fill in the code" card must not stay. The "NEXT" kicker and
+    // the emphasis on the button name are chrome the guide component draws (T6); the copy here is plain text.
+    pair_done: card("Open the listening page", [
+      "Tap Open the listening page. Then tap Start and read the script cards that appear in this guide.",
+    ]),
     capture_ready: card("Tap Start, then read the cards", [
       "Tap Start. The guide then shows one script card at a time.",
       "Read each card aloud and play every voice. The speaker tag is not spoken.",
@@ -237,10 +243,20 @@ export interface JourneyProgress {
   supervisor_visited: boolean;
 }
 
-/** Exact rule of plan 7.1. */
-export function currentStage(p: JourneyProgress): StageId {
+/** Where the guide is drawn (R-25 R7): only the supervisor web pages (role supervisor) set `onSupervisorWeb`. */
+export interface StageContext {
+  onSupervisorWeb: boolean;
+}
+
+/**
+ * Exact rule of plan 7.1, plus R-25 R7: right after day 1 the judge is a supervisor looking around, so stage 2 holds
+ * for as long as the guide is drawn on a supervisor web page, whether or not the "supervisor visited" flag is set
+ * (the flag is set the moment such a page mounts, which used to flip the guide to stage 3 on arrival). On the phone
+ * the flag still moves the judge on to stage 3.
+ */
+export function currentStage(p: JourneyProgress, ctx: StageContext = { onSupervisorWeb: false }): StageId {
   if (p.days_done < 1) return "staff_day1";
-  if (p.days_done === 1 && !p.supervisor_visited) return "supervisor_look";
+  if (p.days_done === 1 && (ctx.onSupervisorWeb || !p.supervisor_visited)) return "supervisor_look";
   if (p.days_done < 3 && p.proposals_with_content === 0) return "staff_days23";
   if (p.proposals_with_content === 0 || p.feasible < p.proposals_with_content) return "supervisor_decide";
   return "owner_approve";
@@ -281,7 +297,13 @@ export interface WebGuideState {
   screen?: ProposalsGuideScreen | null;
 }
 
-export type GuideState = CaptureGuideState | WebGuideState;
+/** R-25 R12: /pair reports that the device is paired (app/demo/guide-bridge.ts `publishPairDone`). */
+export interface PairGuideState {
+  kind: "pair";
+  paired: boolean;
+}
+
+export type GuideState = CaptureGuideState | WebGuideState | PairGuideState;
 
 const CAPTURE_KEY: Record<CapturePhase, GuideKey> = {
   ready: "capture_ready",
@@ -315,7 +337,7 @@ export function guideKeyFor(route: string, state: GuideState | null): GuideKey {
   const seg = path.split("/").filter(Boolean)[0] ?? "";
   if (seg === "") return "entry";
   if (seg === "sign-in") return "entry";
-  if (seg === "pair") return "pair";
+  if (seg === "pair") return state?.kind === "pair" && state.paired ? "pair_done" : "pair";
   if (seg === "capture") return state?.kind === "capture" ? CAPTURE_KEY[state.phase] : "capture_ready";
   const web = state?.kind === "web" ? state : null;
   switch (seg) {
