@@ -14,10 +14,9 @@ import styles from "@/app/pair/pair.module.css";
  * Staff panel of the role sign-in (R-18 P1). Type the 6-digit code, POST it to /api/v1/devices/pair, store the returned
  * long-lived device token in this browser, and hand the outlet and device auth to `onPaired`.
  *
- * One real input (numeric, one-time-code autofill) sits transparently over six visual boxes that mirror its digits; the
- * boxes are decoration for sighted users, the input is the only control. States: empty (button disabled, "Enter all 6
- * digits" under it), filled (enabled), submitting (`aria-busy`, "Setting up…"), refused and network (an alert the input
- * is described by; digits kept).
+ * One real input (numeric, one-time-code autofill) styled as the page-2 code field (R-25 T4: the six-box overlay is
+ * gone). States: empty (button disabled, "Enter all 6 digits" under it), filled (enabled), submitting (`aria-busy`,
+ * "Setting up…"), refused (red alert) and network (amber alert), each an alert the input is described by; digits kept.
  */
 
 // ACCEPTED DESIGN (Tech Lead R-02 finding #2): the long-lived device token is
@@ -51,15 +50,22 @@ export interface PairFormProps {
 
 const digitsOnly = (value: string) => value.replace(/\D/g, "").slice(0, CODE_LENGTH);
 
+/** The board's empty-field hint (P2-02): six dots, not language copy. */
+const CODE_PLACEHOLDER = "· · · · · ·";
+
+/** Refused and no-connection get a bold lead line and a quiet rest (board P2-02); network is amber, the others red. */
+const ERROR_LOOK = {
+  "C-pair-refused": { tone: "red", lead: "C-pair-refused-lead", rest: "C-pair-refused-rest" },
+  "C-pair-net": { tone: "amber", lead: "C-pair-net-lead", rest: "C-pair-net-rest" },
+} as const satisfies Partial<Record<DictKey, { tone: "red" | "amber"; lead: DictKey; rest: DictKey }>>;
+
 export function PairForm({ onPaired, demoIntercept, initialCode = "" }: PairFormProps) {
   const { lang } = useLang();
   const [code, setCode] = useState(() => digitsOnly(initialCode));
   const [submitting, setSubmitting] = useState(false);
-  const [focused, setFocused] = useState(false);
   const [errorKey, setErrorKey] = useState<DictKey | null>(null);
   const inFlight = useRef(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const errorRef = useRef<HTMLParagraphElement>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
   const errorId = useId();
   const hintId = useId();
 
@@ -116,45 +122,35 @@ export function PairForm({ onPaired, demoIntercept, initialCode = "" }: PairForm
   }
 
   const complete = code.length === CODE_LENGTH;
-  const activeIndex = Math.min(code.length, CODE_LENGTH - 1);
   const describedBy = [errorKey ? errorId : null, !complete ? hintId : null].filter(Boolean).join(" ") || undefined;
+  const alert = errorKey === "C-pair-refused" || errorKey === "C-pair-net" ? ERROR_LOOK[errorKey] : undefined;
 
   return (
     <form onSubmit={handleSubmit} aria-busy={submitting} className={styles.form} noValidate>
       <label htmlFor="pairing-code" className={styles.label}>
         {t(lang, "C-pair-label")}
       </label>
-      <div className={styles.boxes} onClick={() => inputRef.current?.focus()}>
-        <input
-          ref={inputRef}
-          id="pairing-code"
-          name="pairing-code"
-          className={styles.input}
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          pattern="\d{6}"
-          maxLength={CODE_LENGTH}
-          required
-          readOnly={submitting}
-          value={code}
-          aria-describedby={describedBy}
-          aria-invalid={errorKey ? true : undefined}
-          onChange={(event) => setCode(digitsOnly(event.target.value))}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-        />
-        <div className={styles.cells} aria-hidden="true">
-          {Array.from({ length: CODE_LENGTH }, (_, index) => (
-            <span
-              key={index}
-              data-testid="pair-box"
-              className={cx(styles.cell, code[index] !== undefined && styles.cellFilled, focused && index === activeIndex && styles.cellActive)}
-            >
-              {code[index] ?? ""}
-            </span>
-          ))}
-        </div>
-      </div>
+      <input
+        id="pairing-code"
+        name="pairing-code"
+        className={cx("b6-codefield", styles.input)}
+        inputMode="numeric"
+        autoComplete="one-time-code"
+        pattern="[0-9]*"
+        maxLength={CODE_LENGTH}
+        placeholder={CODE_PLACEHOLDER}
+        required
+        readOnly={submitting}
+        value={code}
+        aria-describedby={describedBy}
+        aria-invalid={errorKey ? true : undefined}
+        onChange={(event) => setCode(digitsOnly(event.target.value))}
+        onPaste={(event) => {
+          // maxLength would cut a pasted "123 456" at six characters, spaces included; strip first, then fill.
+          event.preventDefault();
+          setCode(digitsOnly(event.clipboardData.getData("text")));
+        }}
+      />
       <Button type="submit" variant="primary" size="lg" block disabled={submitting || !complete} className={styles.submit}>
         {submitting ? t(lang, "C-pair-busy") : t(lang, "C-b-pasang")}
       </Button>
@@ -164,9 +160,22 @@ export function PairForm({ onPaired, demoIntercept, initialCode = "" }: PairForm
         </p>
       )}
       {errorKey ? (
-        <p id={errorId} ref={errorRef} tabIndex={-1} role="alert" className={styles.error}>
-          {t(lang, errorKey)}
-        </p>
+        <div
+          id={errorId}
+          ref={errorRef}
+          tabIndex={-1}
+          role="alert"
+          className={cx("b6-alert", `b6-alert--${alert?.tone ?? "red"}`, styles.alert)}
+        >
+          {alert?.lead ? (
+            <>
+              <b className="b6-alert__lead">{t(lang, alert.lead)}</b>
+              <span>{t(lang, alert.rest)}</span>
+            </>
+          ) : (
+            <span>{t(lang, errorKey)}</span>
+          )}
+        </div>
       ) : null}
     </form>
   );

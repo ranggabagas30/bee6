@@ -7,7 +7,9 @@ import { t } from "@/lib/i18n/dict";
 import { fetchCaptureConfig, type DeviceAuth } from "@/lib/capture/browser/client";
 import { businessDateOf, mulaiWindowFor } from "@/lib/capture/calendar";
 import type { CaptureConfigResponse } from "@/lib/capture/contract";
+import { publishPairDone } from "@/app/demo/guide-bridge";
 import { buttonClassName } from "@/app/ui";
+import { cx } from "@/app/ui/cx";
 import styles from "@/app/pair/pair.module.css";
 
 /**
@@ -16,8 +18,9 @@ import styles from "@/app/pair/pair.module.css";
  *
  * Pilot (`demo` off): heading "Phone set up", the outlet line and the pilot steps `C-pair-step-1..4` (step 3 needs the
  * outlet config: hidden until it loads, on a closed day, or if it never loads). Demo (`demo` on, after a sandbox
- * pairing): heading "Device set up" and the four demo steps; no outlet line (the sandbox never tells the phone an
- * outlet name) and no config fetch. The demo code is never shown here (W8).
+ * pairing): heading "Device set up", the sub "For Demo Bakery · Outlet 1" and the four demo steps of board P2-03; no
+ * config fetch. The demo code is never shown here (W8). On mount it tells the judge guide the device is set up
+ * (R-25 R12: the guide then shows "Open the listening page" instead of the stale pair card).
  */
 
 /**
@@ -53,6 +56,10 @@ export function PairedChecklist({ outletId, auth, headingLevel = 1, demo = false
   const [untilHm, setUntilHm] = useState<string | undefined>(undefined);
 
   useEffect(() => {
+    publishPairDone();
+  }, []);
+
+  useEffect(() => {
     if (demo || !auth) return;
     let cancelled = false;
     fetchCaptureConfig(auth).then(
@@ -70,13 +77,23 @@ export function PairedChecklist({ outletId, auth, headingLevel = 1, demo = false
 
   const Heading = headingLevel === 1 ? "h1" : "h2";
   const steps = demo
-    ? [t(lang, "C-web-pair-demo-step-1"), t(lang, "C-web-pair-demo-step-2"), t(lang, "C-web-pair-demo-step-3"), t(lang, "C-web-pair-demo-step-4")]
+    ? [t(lang, "C-pair-demo-step-1"), t(lang, "C-pair-demo-step-2"), t(lang, "C-pair-demo-step-3"), t(lang, "C-pair-demo-step-4")]
     : [t(lang, "C-pair-step-1"), t(lang, "C-pair-step-2"), ...(untilHm ? [t(lang, "C-pair-step-3", { until: untilHm })] : []), t(lang, "C-pair-step-4")];
 
   return (
-    <>
-      <Heading id={headingId} className={styles.h1}>{t(lang, demo ? "C-web-pair-done-h" : "C-pair-ok-h")}</Heading>
-      {!demo && outletId !== undefined && <p className={styles.outlet}>{t(lang, "C-pair-ok-line", { outlet_id: outletId })}</p>}
+    <div className={cx(styles.content, styles.contentDone)}>
+      <div className={cx(styles.head, styles.headDone)}>
+        <span className={styles.check} aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12.5l4.5 4.5L19 7.5" />
+          </svg>
+        </span>
+        <Heading id={headingId} className={cx("b6-h1-display", styles.h1)}>
+          {t(lang, demo ? "C-web-pair-done-h" : "C-pair-ok-h")}
+        </Heading>
+        {demo && <p className={styles.outlet}>{t(lang, "C-pair-demo-for")}</p>}
+        {!demo && outletId !== undefined && <p className={styles.outlet}>{t(lang, "C-pair-ok-line", { outlet_id: outletId })}</p>}
+      </div>
       <ol className={styles.steps}>
         {steps.map((step) => (
           <li key={step} className={styles.step}>
@@ -84,9 +101,9 @@ export function PairedChecklist({ outletId, auth, headingLevel = 1, demo = false
           </li>
         ))}
       </ol>
-      <Link href="/capture" className={buttonClassName({ variant: "primary", size: "lg", block: true })}>
+      <Link href="/capture" className={buttonClassName({ variant: "primary", size: "lg", block: true, className: styles.open })}>
         {t(lang, "C-b-buka-mendengarkan")}
       </Link>
-    </>
+    </div>
   );
 }

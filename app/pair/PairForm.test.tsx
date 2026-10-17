@@ -52,6 +52,9 @@ describe("PairForm", () => {
     renderForm({ onPaired });
     submit("123456");
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Code not recognized"));
+    // board P2-02: bold lead, then the way out; the lead names "expired" and the rest names the supervisor
+    expect(screen.getByRole("alert").textContent).toBe("Code not recognized, expired or already used.Ask your supervisor for a new code.");
+    expect(screen.getByRole("alert").classList.contains("b6-alert--red")).toBe(true);
     expect(onPaired).not.toHaveBeenCalled();
     expect(input().getAttribute("aria-describedby")).toContain(screen.getByRole("alert").id);
     expect(input().value).toBe("123456"); // digits kept
@@ -63,27 +66,51 @@ describe("PairForm", () => {
   });
 
   describe("Set up this device states (R-19 PR-6 §8.1)", () => {
-    it("empty: one numeric one-time-code input, six visual boxes, the button disabled with the 'all 6 digits' hint", () => {
+    it("empty: ONE numeric one-time-code input (the page-2 code field), the button really disabled with the 'all 6 digits' hint", () => {
       renderForm();
       const field = input();
+      expect(screen.getAllByRole("textbox")).toHaveLength(1); // the six-box overlay is gone: one field only
       expect(field.getAttribute("inputmode")).toBe("numeric");
       expect(field.getAttribute("autocomplete")).toBe("one-time-code");
+      expect(field.getAttribute("pattern")).toBe("[0-9]*");
       expect(field.maxLength).toBe(6);
-      expect(screen.getAllByTestId("pair-box")).toHaveLength(6);
+      expect(field.getAttribute("placeholder")).toBe("· · · · · ·");
+      expect(field.classList.contains("b6-codefield")).toBe(true);
+      expect(screen.queryAllByTestId("pair-box")).toHaveLength(0);
       expect(submitButton().disabled).toBe(true);
       expect(screen.getByText("Enter all 6 digits to set up.")).toBeTruthy();
     });
 
-    it("filled: the boxes mirror the digits, the hint goes away and the button enables", () => {
+    it("filled: typed digits show in the field, non-digits are dropped, the hint goes away and the button enables", () => {
       renderForm();
       fireEvent.change(input(), { target: { value: "12a3" } });
       expect(input().value).toBe("123"); // non-digits dropped
-      expect(screen.getAllByTestId("pair-box").map((b) => b.textContent)).toEqual(["1", "2", "3", "", "", ""]);
       expect(submitButton().disabled).toBe(true);
       fireEvent.change(input(), { target: { value: "123456" } });
-      expect(screen.getAllByTestId("pair-box").map((b) => b.textContent)).toEqual(["1", "2", "3", "4", "5", "6"]);
+      expect(input().value).toBe("123456");
       expect(submitButton().disabled).toBe(false);
       expect(screen.queryByText("Enter all 6 digits to set up.")).toBeNull();
+    });
+
+    it("paste: six digits fill the field, spaces and dashes are stripped, extra digits are cut", () => {
+      renderForm();
+      fireEvent.paste(input(), { clipboardData: { getData: () => "123 456" } });
+      expect(input().value).toBe("123456");
+      expect(submitButton().disabled).toBe(false);
+      fireEvent.paste(input(), { clipboardData: { getData: () => "98-76-54-32" } });
+      expect(input().value).toBe("987654");
+      fireEvent.paste(input(), { clipboardData: { getData: () => "ab" } });
+      expect(input().value).toBe("");
+      expect(submitButton().disabled).toBe(true);
+    });
+
+    it("the label is tied to the field and the field is described by the hint until all six digits are in", () => {
+      renderForm();
+      expect(input().getAttribute("id")).toBe("pairing-code");
+      const hint = screen.getByText("Enter all 6 digits to set up.");
+      expect(input().getAttribute("aria-describedby")).toContain(hint.id);
+      fireEvent.change(input(), { target: { value: "123456" } });
+      expect(input().getAttribute("aria-describedby")).toBeNull();
     });
 
     it("submitting: the form is aria-busy and the button says Setting up…", async () => {
@@ -102,6 +129,8 @@ describe("PairForm", () => {
       renderForm();
       submit("123456");
       await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("No connection."));
+      expect(screen.getByRole("alert").textContent).toBe("No connection.Try again when the signal is steady.");
+      expect(screen.getByRole("alert").classList.contains("b6-alert--amber")).toBe(true); // board: amber, not red
       expect(input().value).toBe("123456");
       expect(submitButton().disabled).toBe(false);
     });
@@ -109,8 +138,8 @@ describe("PairForm", () => {
     it("is in Bahasa when the language says so", () => {
       renderForm({}, "id");
       expect(screen.getByLabelText("Kode 6 digit")).toBeTruthy();
-      expect(screen.getByText("Isi 6 digit untuk bisa memasang.")).toBeTruthy();
-      expect(screen.getByRole("button", { name: "Pasang" })).toBeTruthy();
+      expect(screen.getByText("Masukkan 6 digit untuk menyiapkan.")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Siapkan" })).toBeTruthy();
     });
 
     it("axe finds no violation, empty and refused", async () => {
