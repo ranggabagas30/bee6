@@ -452,8 +452,8 @@ export const ID_BASE = {
   "C-rev-window-before-none": "Sebelum ({from} s.d. {to}): tidak ada hari terekam", // PROVISIONAL
   "C-rev-window-after-none": "Sesudah ({from} s.d. {to}): tidak ada hari terekam", // PROVISIONAL
   "C-rev-short-window": "Ini jangka waktu pendek, jadi baca angkanya dengan hati-hati.", // PROVISIONAL
-  "C-rev-suggest": "Saran bee6: {verdict}", // PROVISIONAL
-  "C-rev-suggest-none": "bee6 tidak punya saran: {why}", // PROVISIONAL
+  "C-rev-suggest": "Saran Bee6: {verdict}", // PROVISIONAL
+  "C-rev-suggest-none": "Bee6 tidak punya saran: {why}", // PROVISIONAL
   "C-rev-why-not_enough_days": "kurang dari 2 hari terekam di salah satu jangka waktu", // PROVISIONAL
   "C-rev-why-no_baseline": "tidak ada sebelum perubahan", // PROVISIONAL
   "C-rev-why-improved": "jumlah per hari bergerak ke arah yang benar sebesar {pct}%", // PROVISIONAL
@@ -949,8 +949,8 @@ export const EN_BASE: Record<keyof typeof ID_BASE, string> = {
   "C-rev-window-before-none": "Before ({from} to {to}): no captured days", // PROVISIONAL
   "C-rev-window-after-none": "After ({from} to {to}): no captured days", // PROVISIONAL
   "C-rev-short-window": "This is a short window, so read the numbers with care.", // PROVISIONAL
-  "C-rev-suggest": "bee6 suggests: {verdict}", // PROVISIONAL
-  "C-rev-suggest-none": "bee6 has no suggestion: {why}", // PROVISIONAL
+  "C-rev-suggest": "Bee6 suggests: {verdict}", // PROVISIONAL
+  "C-rev-suggest-none": "Bee6 has no suggestion: {why}", // PROVISIONAL
   "C-rev-why-not_enough_days": "fewer than 2 captured days in one of the windows", // PROVISIONAL
   "C-rev-why-no_baseline": "there were none before the change", // PROVISIONAL
   "C-rev-why-improved": "the count per day moved the right way by {pct}%", // PROVISIONAL
