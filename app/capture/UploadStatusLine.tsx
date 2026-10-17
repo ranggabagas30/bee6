@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CaptureStatus } from "@/lib/capture/browser/engine";
 import css from "@/app/capture/capture.module.css";
+import { cx } from "@/app/ui/cx";
 import { Button } from "@/app/ui";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import { useLang } from "@/lib/i18n/context";
@@ -213,12 +214,12 @@ export function UploadStatusLine({
           style={{ outline: "none" }}
         >
           {lost ? (
-            <div className={css.alertAmber}>
-              <p className={css.alertLead}>
+            <div className={cx("b6-alert", "b6-alert--amber", css.lost)}>
+              <p className="b6-alert__lead" style={{ margin: 0 }}>
                 <span aria-hidden="true">▲ </span>
                 {t(lang, "C-u-lost")}
               </p>
-              <p className={css.alertText}>{t(lang, "C-u-lost-help")}</p>
+              <p style={{ margin: 0 }}>{t(lang, "C-u-lost-help")}</p>
               {onDismissLost ? (
                 <Button variant="secondary" onClick={dismiss}>
                   {t(lang, "C-u-lost-dismiss")}
@@ -227,15 +228,15 @@ export function UploadStatusLine({
             </div>
           ) : null}
           {showView ? (
-            <p className={[css.uploadRow, view.phase === "retrying" ? css.uploadRowWarn : undefined].filter(Boolean).join(" ")}>
+            <p className={cx("b6-mono", css.uploadRow, view.phase === "retrying" && css.uploadRowWarn)}>
               {t(lang, PHASE_KEY[view.phase])}
               {retryCount !== null ? <span aria-hidden="true"> {retryCount}</span> : null}
             </p>
           ) : null}
-          {detailKey ? <p className={css.uploadRow}>{t(lang, detailKey)}</p> : null}
+          {detailKey ? <p className={cx("b6-mono", css.uploadRow)}>{t(lang, detailKey)}</p> : null}
         </div>
         {toastVisible ? (
-          <div data-testid="upload-toast" role="status" aria-live="polite" className={css.uploadRow}>
+          <div data-testid="upload-toast" role="status" aria-live="polite" className={cx("b6-mono", css.uploadRow)}>
             <p style={{ margin: 0 }}>{t(lang, "C-u-toast")}</p>
           </div>
         ) : null}

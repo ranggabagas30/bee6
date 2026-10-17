@@ -69,6 +69,10 @@ async function renderPage() {
   return render(<CapturePage />);
 }
 
+/** The screen's own polite headline status (not the language switch's, not the upload block's). */
+const headlineStatus = (container: HTMLElement) =>
+  Array.from(container.querySelectorAll<HTMLElement>("[role='status'].b6-sr-only")).find((el) => el.closest("header") === null)!;
+
 /** True when `a` comes before `b` in the document. */
 const before = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 const inOrder = (...els: Element[]) => els.slice(1).every((el, i) => before(els[i]!, el));
@@ -79,9 +83,9 @@ describe("sandbox capture screen (R-25 T5): document order and landmarks", () =>
     const { container } = await renderPage();
     const start = await screen.findByRole("button", { name: "Start" });
     const header = container.querySelector("header")!;
-    const stage = container.querySelector("[data-tone]")!;
+    const stage = container.querySelector(".b6-stage")!;
     expect(stage.getAttribute("aria-hidden")).toBe("true");
-    expect(stage.getAttribute("data-tone")).toBe("idle");
+    expect(stage.classList.contains("b6-stage--idle")).toBe(true);
     const h1 = screen.getByRole("heading", { level: 1, name: "Ready to open" });
     const sub = screen.getByText("Tap Start to begin listening. Staff keep serving customers as normal.");
     const day = screen.getByText("Day 1 of 3 · Mon 12 Oct");
@@ -103,8 +107,8 @@ describe("sandbox capture screen (R-25 T5): document order and landmarks", () =>
     const { container } = await renderPage();
     fireEvent.click(await screen.findByRole("button", { name: "Start" }));
     const h1 = await screen.findByRole("heading", { level: 1, name: "Listening" });
-    const stage = container.querySelector("[data-tone]")!;
-    expect(stage.getAttribute("data-tone")).toBe("listening");
+    const stage = container.querySelector(".b6-stage")!;
+    expect(stage.classList.contains("b6-stage--listening")).toBe(true);
     const sub1 = screen.getByText(/Focus on your customers\./);
     expect(sub1.textContent).toBe("Focus on your customers.We'll keep the notes.");
     const day = screen.getByText("Day 1 of 3 · Mon 12 Oct");
@@ -168,7 +172,7 @@ describe("sandbox capture screen (R-25 T5): document order and landmarks", () =>
     fireEvent.click(screen.getByRole("button", { name: "Start" }));
     await screen.findByRole("heading", { level: 1, name: "Listening" });
     expect(headline.textContent).toBe("Listening");
-    expect(container.querySelector("[data-tone]")!.closest("[role='status']")).toBeNull();
+    expect(container.querySelector(".b6-stage")!.closest("[role='status']")).toBeNull();
   });
 
   it("the privacy notice is on the page in every sandbox state, exactly once: idle, running, and the debrief after End", async () => {
@@ -210,7 +214,7 @@ describe("sandbox capture screen (R-25 T5): document order and landmarks", () =>
     });
     const { container } = await renderPage();
     const h1 = await screen.findByRole("heading", { level: 1, name: "Session cancelled" });
-    const headline = container.querySelector("p[role='status'].b6-sr-only")!;
+    const headline = headlineStatus(container);
     expect(headline.textContent).toBe("Session cancelled");
     expect(h1).toBeTruthy();
     const regions = Array.from(container.querySelectorAll("[aria-live='polite']")).filter((el) => el.closest("header") === null);
@@ -243,8 +247,8 @@ describe("sandbox capture screen (R-25 T5): document order and landmarks", () =>
     );
     await screen.findByRole("heading", { level: 1, name: "Microphone problem · not listening" });
     expect(screen.getAllByText("Check the microphone permission in the browser, then try again.").length).toBeGreaterThan(0);
-    expect(container.querySelector("[data-tone]")!.getAttribute("data-tone")).toBe("idle");
-    const headline = Array.from(container.querySelectorAll("[role='status']")).find((el) => el.getAttribute("aria-live") === "polite" && el.classList.contains("b6-sr-only"))!;
+    expect(container.querySelector(".b6-stage")!.classList.contains("b6-stage--idle")).toBe(true);
+    const headline = headlineStatus(container);
     expect(headline.textContent).toContain("Microphone problem · not listening");
   });
 });

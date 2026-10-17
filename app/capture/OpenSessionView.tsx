@@ -2,7 +2,6 @@
 
 import type { ReactNode } from "react";
 import { StageScreen } from "@/app/capture/StageScreen";
-import css from "@/app/capture/capture.module.css";
 import { Button } from "@/app/ui";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import type { Lang } from "@/lib/i18n/lang";
@@ -34,18 +33,18 @@ export function OpenSessionView({ lang, closingReached, busy, errorKey, onEnd, o
     <StageScreen
       tone={closingReached ? "listening" : "idle"}
       title={t(lang, closingReached ? "C-sess-open-reached-h" : "C-sess-open-interrupted-h")}
-      sub={<p className={css.sub}>{t(lang, closingReached ? "C-sess-open-reached-b" : "C-sess-open-interrupted-b")}</p>}
+      sub={<p className="b6-sub">{t(lang, closingReached ? "C-sess-open-reached-b" : "C-sess-open-interrupted-b")}</p>}
       mono={dayLine}
     >
       {errorKey ? (
-        <p role="alert" className={css.alert}>
+        <p role="alert" className="b6-alert b6-alert--red">
           {t(lang, errorKey)}
         </p>
       ) : null}
       <Button variant="primary" size="lg" block onClick={closingReached ? onEnd : onCancel} disabled={busy}>
         {t(lang, closingReached ? "C-sess-end-today" : "C-sess-open-cancel")}
       </Button>
-      {closingReached ? <p className={css.note}>{t(lang, "C-sess-open-note")}</p> : null}
+      {closingReached ? <p className="b6-note">{t(lang, "C-sess-open-note")}</p> : null}
       {footer}
     </StageScreen>
   );

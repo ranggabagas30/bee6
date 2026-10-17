@@ -29,7 +29,9 @@ import { capturePhaseFor, publishCaptureBridge, useDebriefDoneFlag, useDebriefVi
 import { StageScreen } from "@/app/capture/StageScreen";
 import css from "@/app/capture/capture.module.css";
 import { ShopTopBar } from "@/app/shop/ShopTopBar";
+import { StaffTopBar } from "@/app/shop/StaffTopBar";
 import { Button, Mist } from "@/app/ui";
+import { cx } from "@/app/ui/cx";
 import { useLang } from "@/lib/i18n/context";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import { clockLabel, dayLabel } from "@/lib/i18n/format";
@@ -971,20 +973,19 @@ export default function CapturePage() {
    */
   function renderSignOutLink(tone: "muted" | "danger") {
     return (
-      <button
-        type="button"
-        className={[css.link, tone === "danger" ? css.linkDanger : undefined].filter(Boolean).join(" ")}
+      <Button
+        variant={tone === "danger" ? "text-danger" : "text"}
         onClick={handleSignOutTap}
         disabled={signOutBusy || selesaiBusy || autoStopBusy || closingBusy || mulaiBusy || openBusy}
       >
         {t(lang, tone === "danger" ? "C-sess-signout-running-link" : "C-sess-signout")}
-      </button>
+      </Button>
     );
   }
   /** Capture privacy notice (UX-03 §5.10): a muted notice, not a consent gate (CLAUDE.md §7b). */
   function renderNote() {
     return (
-      <p data-testid="capture-notice" className={css.note}>
+      <p data-testid="capture-notice" className="b6-note">
         {t(lang, "C-notice-pilot")}
       </p>
     );
@@ -1060,7 +1061,7 @@ export default function CapturePage() {
             <Button size="lg" block disabled>
               {t(lang, "C-sess-start-locked")}
             </Button>
-            {lockedHintKey ? <p className={css.lock}>{t(lang, lockedHintKey)}</p> : null}
+            {lockedHintKey ? <p className="b6-note">{t(lang, lockedHintKey)}</p> : null}
           </>
         ) : (
           <Button
@@ -1074,7 +1075,7 @@ export default function CapturePage() {
           </Button>
         )}
         {mulaiErrorKey ? (
-          <p role="alert" className={css.alert}>
+          <p role="alert" className="b6-alert b6-alert--red">
             {t(lang, mulaiErrorKey)}
           </p>
         ) : null}
@@ -1127,7 +1128,7 @@ export default function CapturePage() {
             tone={ended ? "done" : "idle"}
             orbLabel={ended ? undefined : t(lang, "C-b-mulai")}
             title={title}
-            sub={subText ? <p className={css.sub}>{subText}</p> : null}
+            sub={subText ? <p className="b6-sub">{subText}</p> : null}
             mono={dayLine}
           >
             {sandboxPrimary}
@@ -1147,7 +1148,7 @@ export default function CapturePage() {
       <>
         {/* R-25 T5: the debrief screens carry their own h2 until R-25 T7 gives each its stage and h1; the page keeps one h1. */}
         {sandbox ? <h1 className="b6-sr-only">{t(lang, "C-cap-title")}</h1> : null}
-        {dayLine ? <p className={css.mono} style={{ textAlign: "center", margin: "0 0 12px" }}>{dayLine}</p> : null}
+        {dayLine ? <p className="b6-mono" style={{ textAlign: "center", margin: "0 0 12px" }}>{dayLine}</p> : null}
         <DebriefFlow
           key={debriefEndsAtMs}
           auth={auth}
@@ -1160,7 +1161,7 @@ export default function CapturePage() {
           demo={config?.demo_session !== undefined}
         />
         {/* UX-03 section 5.10: the privacy notice is on every screen of the page, the debrief included. */}
-        {sandbox ? <div className={css.foot}>{renderNote()}</div> : null}
+        {sandbox ? <div className={cx("b6-foot", css.foot)}>{renderNote()}</div> : null}
       </>
     );
   }
@@ -1309,9 +1310,9 @@ export default function CapturePage() {
         title={t(lang, micError ? "C-h-mic" : "C-h-listening")}
         sub={
           micError ? (
-            <p className={css.alert}>{t(lang, "C-h-mic-help")}</p>
+            <p className="b6-alert b6-alert--red">{t(lang, "C-h-mic-help")}</p>
           ) : (
-            <p className={css.sub}>
+            <p className="b6-sub">
               {closingReached ? (
                 t(lang, "C-sess-closing-sub")
               ) : (
@@ -1327,7 +1328,7 @@ export default function CapturePage() {
         mono={dayLine}
       >
         {sampleRateMsg ? (
-          <p role="alert" className={css.alert}>
+          <p role="alert" className="b6-alert b6-alert--red">
             {t(lang, "C-cap-rate")}
           </p>
         ) : null}
@@ -1335,7 +1336,7 @@ export default function CapturePage() {
           <>
             {renderSelesaiArea()}
             {closingError ? (
-              <p role="alert" className={css.alert}>
+              <p role="alert" className="b6-alert b6-alert--red">
                 {t(lang, closingError.key, closingError.vars)}
               </p>
             ) : null}
@@ -1413,10 +1414,10 @@ export default function CapturePage() {
   return (
     <div className={modern ? css.page : undefined}>
       {modern ? <Mist /> : null}
+      {/* The staff bar (logo, the demo outlet line with its expiry, ID | EN). No Sign out in the header: the footer link is the only one. */}
+      {modern ? <StaffTopBar demo outletLine /> : null}
       <main className={modern ? css.column : undefined} style={modern ? inset : mainStyle}>
-        <ShopTopBar compact={modern || compactChrome} />
-        {/* The outlet line of the board (the demo outlet is the only one a sandbox can pair). */}
-        {modern ? <p className={css.outlet}>{t(lang, "C-sess-outlet-demo")}</p> : null}
+        {modern ? null : <ShopTopBar compact={compactChrome} />}
         {modern ? null : (
           <h1 style={compactChrome ? { fontSize: 22, margin: "0 0 8px" } : { fontSize: 22 }}>{t(lang, "C-cap-title")}</h1>
         )}

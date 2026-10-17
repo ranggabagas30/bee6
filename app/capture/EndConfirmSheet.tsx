@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useId, useRef } from "react";
-import { CaptureDialogSheet } from "@/app/capture/CaptureDialogSheet";
 import css from "@/app/capture/capture.module.css";
-import { Button } from "@/app/ui";
+import { cx } from "@/app/ui/cx";
+import { Button, DialogSheet } from "@/app/ui";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import type { Lang } from "@/lib/i18n/lang";
 
@@ -78,12 +78,12 @@ export function EndConfirmSheet({ lang, body, busy, errorKey, onKeep, onEnd }: E
   }, []);
 
   return (
-    <CaptureDialogSheet labelledBy={titleId} describedBy={bodyId}>
+    <DialogSheet labelledBy={titleId} describedBy={bodyId}>
       <div ref={rootRef} tabIndex={-1} className={css.dfocus}>
-        <h2 id={titleId} className={css.dtitle}>
+        <h2 id={titleId} className="b6-dsheet__title">
           {t(lang, "C-c-selesai-h")}
         </h2>
-        <p id={bodyId} className={css.dbody}>
+        <p id={bodyId} className={cx("b6-dsheet__body", css.dbody)}>
           {body}
         </p>
         <Button ref={keepRef} variant="secondary" block className={css.dsecond} onClick={onKeep}>
@@ -93,11 +93,11 @@ export function EndConfirmSheet({ lang, body, busy, errorKey, onKeep, onEnd }: E
           {t(lang, "C-b-ya-selesai")}
         </Button>
         {errorKey ? (
-          <p role="alert" className={css.alert}>
+          <p role="alert" className="b6-alert b6-alert--red">
             {t(lang, errorKey)}
           </p>
         ) : null}
       </div>
-    </CaptureDialogSheet>
+    </DialogSheet>
   );
 }

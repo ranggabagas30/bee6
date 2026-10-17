@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { CaptureDialogSheet } from "@/app/capture/CaptureDialogSheet";
 import css from "@/app/capture/capture.module.css";
+import { cx } from "@/app/ui/cx";
 import { Emphasis } from "@/app/capture/emphasis";
-import { Button } from "@/app/ui";
+import { Button, DialogSheet } from "@/app/ui";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import type { Lang } from "@/lib/i18n/lang";
 
@@ -131,12 +131,12 @@ export function SignOutDialog({ kind, lang, busy, finishing, errorKey, onConfirm
   }, []);
 
   return (
-    <CaptureDialogSheet labelledBy={titleId} describedBy={bodyId}>
+    <DialogSheet labelledBy={titleId} describedBy={bodyId}>
       <div ref={rootRef} tabIndex={-1} className={css.dfocus}>
-        <h2 id={titleId} className={css.dtitle}>
+        <h2 id={titleId} className="b6-dsheet__title">
           {t(lang, copy.title)}
         </h2>
-        <p id={bodyId} className={css.dbody}>
+        <p id={bodyId} className={cx("b6-dsheet__body", css.dbody)}>
           <Emphasis text={t(lang, copy.body)} />
         </p>
         {/* Polite live region: always mounted, filled only when the kind switched after open (running -> closed),
@@ -145,12 +145,12 @@ export function SignOutDialog({ kind, lang, busy, finishing, errorKey, onConfirm
           {kind !== openedKind ? `${t(lang, copy.title)}. ${t(lang, copy.body).replaceAll("**", "")}` : ""}
         </div>
         {finishing ? (
-          <p role="status" className={css.dnote}>
+          <p role="status" className="b6-note">
             {t(lang, "C-sess-signout-finishing")}
           </p>
         ) : null}
         {errorKey ? (
-          <p role="alert" className={css.alert}>
+          <p role="alert" className="b6-alert b6-alert--red">
             {t(lang, errorKey)}
           </p>
         ) : null}
@@ -167,6 +167,6 @@ export function SignOutDialog({ kind, lang, busy, finishing, errorKey, onConfirm
           {t(lang, copy.confirm)}
         </Button>
       </div>
-    </CaptureDialogSheet>
+    </DialogSheet>
   );
 }

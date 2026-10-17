@@ -39,7 +39,7 @@ describe("OpenSessionView (P2-07c): the session found again on return", () => {
 
   it("renders the stage (decorative), the day line and the footer the page hands in, in that order", () => {
     const { container } = setup({ dayLine: "Day 1 of 3 · Mon 12 Oct", footer: <button type="button">Sign out</button> });
-    const stage = container.querySelector("[data-tone]")!;
+    const stage = container.querySelector(".b6-stage")!;
     expect(stage.getAttribute("aria-hidden")).toBe("true");
     const day = screen.getByText("Day 1 of 3 · Mon 12 Oct");
     const end = screen.getByRole("button", { name: "End today" });

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
-import { CaptureStage, type StageTone } from "@/app/capture/CaptureStage";
 import css from "@/app/capture/capture.module.css";
+import { cx } from "@/app/ui/cx";
+import { Stage, type StageTone } from "@/app/ui";
 
 /**
  * The page-2 staff screen body (boards P2-04 / P2-05 / P2-06 and their laptop twins): stage, h1, one sub line,
@@ -18,20 +19,20 @@ export function StageScreen({
   tone: StageTone;
   orbLabel?: string;
   title: string;
-  /** Already a block element (`<p className=...>`) so a caller can swap it for an alert box. */
+  /** Already a block element (`<p className="b6-sub">`) so a caller can swap it for an alert box. */
   sub?: ReactNode;
   mono?: string | null;
   children: ReactNode;
 }) {
   return (
     <>
-      <CaptureStage tone={tone} label={orbLabel} />
-      <div className={css.head}>
-        <h1 className={css.h1}>{title}</h1>
+      <Stage tone={tone} label={orbLabel} />
+      <div className="b6-head">
+        <h1 className="b6-h1-display">{title}</h1>
         {sub}
-        {mono ? <p className={css.mono}>{mono}</p> : null}
+        {mono ? <p className="b6-mono">{mono}</p> : null}
       </div>
-      <div className={css.foot}>{children}</div>
+      <div className={cx("b6-foot", css.foot)}>{children}</div>
     </>
   );
 }
