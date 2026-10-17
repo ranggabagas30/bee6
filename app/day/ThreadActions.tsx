@@ -40,10 +40,13 @@ export function ThreadActions({
   thread,
   auth,
   onDone,
+  changeLabelKey = "C-lbl-title",
 }: {
   thread: SupervisorThread;
   auth: Auth;
   onDone: () => void;
+  /** Copy key of the Change button: "Change label" on the day record (board), "Change category" on the legacy queue. */
+  changeLabelKey?: DictKey;
 }) {
   const { lang } = useLang();
   const [panel, setPanel] = useState<Panel>("none");
@@ -162,7 +165,7 @@ export function ThreadActions({
           </Button>
         )}
         <Button variant="secondary" disabled={busy} onClick={handleChangeTap}>
-          {t(lang, "C-lbl-title")}
+          {t(lang, changeLabelKey)}
         </Button>
         {showReject && (
           <Button ref={rejectButtonRef} variant="secondary" disabled={busy} onClick={handleRejectTap}>
