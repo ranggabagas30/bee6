@@ -100,6 +100,11 @@ describe("debrief rows", () => {
     expect(debriefOutcome({ staff_answer: { answer: "yes", reason: null }, display_status: "question_answered" })).toBe("yes");
     expect(debriefOutcome({ staff_answer: { answer: "no", reason: "r" }, display_status: "rejected_by_staff" })).toBe("no");
     expect(debriefOutcome({ staff_answer: null, display_status: "unverified" })).toBe("unverified");
+    // Answer doc missing: the status still tells what staff decided.
+    expect(debriefOutcome({ staff_answer: null, display_status: "rejected_by_staff" })).toBe("no");
+    for (const display_status of ["fact_staff_confirmed", "awaiting_supervisor", "question_answered"] as const) {
+      expect(debriefOutcome({ staff_answer: null, display_status })).toBe("yes");
+    }
     expect(debriefOutcome({ staff_answer: null, display_status: "question_open" })).toBe("open");
   });
 

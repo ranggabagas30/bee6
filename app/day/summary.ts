@@ -83,12 +83,21 @@ export function hasQuestion(thread: SupervisorThread): boolean {
 
 export type DebriefOutcome = "yes" | "no" | "unverified" | "open";
 
-/** What the staff debrief row says. An answer wins; otherwise the status tells unverified from still open. */
+/** What the staff debrief row says. An answer wins; otherwise the status tells yes / no / unverified / still open. */
 export function debriefOutcome(row: {
   staff_answer: SupervisorThread["staff_answer"];
   display_status: DisplayStatus;
 }): DebriefOutcome {
   if (row.staff_answer !== null) return row.staff_answer.answer;
+  // The correction doc can be missing (staff_answer null) on a row staff already decided: the status still says how.
+  if (row.display_status === "rejected_by_staff") return "no";
+  if (
+    row.display_status === "fact_staff_confirmed" ||
+    row.display_status === "awaiting_supervisor" ||
+    row.display_status === "question_answered"
+  ) {
+    return "yes";
+  }
   return row.display_status === "unverified" ? "unverified" : "open";
 }
 
