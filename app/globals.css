@@ -584,42 +584,6 @@
   }
 }
 
-/* Top bar room (R-19 PR-5): a notice bar that mounts after hydration gets its space held by this slot from the first
-   paint, so the page below it does not jump. The class on <html> is set by a first-paint script when the bar will
-   show. The bar (.b6-topbar) and its slot share ONE deterministic height per width: two text lines tall (54 px)
-   below 500 px, one line (36 px) from 500 px up, the bar's text centred in it. A bar whose text happens to fit
-   one line on a phone is still 54 px, so the slot never shows an empty strip under it and nothing shifts. The
-   one-line band starts where the longest line (392 px in the inherited serif) fits beside the page's 8 px body
-   margin, the bar's padding and a classic scrollbar with room to spare, and the line is kept on one line there
-   (ellipsis, never a wrap) so an unusually wide fallback font cannot make the bar taller than its slot. */
-.b6-topbar-reserved .b6-topbar-slot--reserve {
-  min-height: 54px;
-}
-
-.b6-topbar {
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  min-height: 54px;
-}
-
-@media (min-width: 500px) {
-  .b6-topbar-reserved .b6-topbar-slot--reserve {
-    min-height: 36px;
-  }
-
-  .b6-topbar {
-    min-height: 36px;
-  }
-
-  .b6-topbar > p {
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-  }
-}
-
 .b6-panel-pill {
   position: fixed;
   top: 14px;
