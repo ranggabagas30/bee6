@@ -63,6 +63,8 @@ export const debriefID = {
   "C-d2-timeout-sub-one": "Waktu 60 menit habis. Pertanyaan tidak dijawab dan dicatat sebagai belum terverifikasi.", // PROVISIONAL
   "C-d2-timeout-sub-plain": "Waktu 60 menit habis. Pertanyaan yang tidak dijawab dicatat sebagai belum terverifikasi.", // PROVISIONAL
   "C-d2-unverified-word": "belum terverifikasi", // PROVISIONAL
+  // demo-feedback-2 item 10 (sandbox only): lead-in above the quoted line(s) of the device's own thread; replaces the generic why sentence
+  "C-d2-heard": "Bee6 mendengar:", // PROVISIONAL
 } as const satisfies Record<string, string>;
 
 export const debriefEN: Record<keyof typeof debriefID, string> = {
@@ -107,4 +109,5 @@ export const debriefEN: Record<keyof typeof debriefID, string> = {
   "C-d2-timeout-sub-one": "The 60 minutes are over. The question was not answered and is recorded as unverified.",
   "C-d2-timeout-sub-plain": "The 60 minutes are over. Questions left unanswered are recorded as unverified.",
   "C-d2-unverified-word": "unverified",
+  "C-d2-heard": "Bee6 heard:",
 };

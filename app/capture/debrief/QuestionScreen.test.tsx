@@ -392,3 +392,67 @@ describe("QuestionScreen: R-25 T7 page-2 layout (boards P2-09 / L2-08)", () => {
     expect(screen.getByText("Bee6 mendengar yang terdengar seperti telepon. Bee6 butuh jawabanmu untuk memastikan.")).toBeTruthy();
   });
 });
+
+describe("QuestionScreen: quoted lines (demo-feedback-2 item 10, sandbox only)", () => {
+  const noop = () => {};
+  function renderScreen(question: DebriefQuestionView, lang: "en" | "id" = "en") {
+    return render(
+      <QuestionScreen
+        view={baseView({ list: [question] })}
+        lang={lang}
+        uploadNote={null}
+        onChoose={noop}
+        onTypeReason={noop}
+        onLanjut={noop}
+        onLewati={noop}
+      />,
+    );
+  }
+  const WHY = "Bee6 heard routine work in the shop. It needs your answer to be sure.";
+
+  it("shows the lead-in and each line as a quoted text node, replacing the generic why sentence", () => {
+    renderScreen(q({ lines: ["Pelanggan tanya roti tawar habis.", "Kami bilang besok pagi ada lagi."] }));
+    expect(screen.getByText("Bee6 heard:")).toBeTruthy();
+    expect(screen.getByText("“Pelanggan tanya roti tawar habis.”")).toBeTruthy();
+    expect(screen.getByText("“Kami bilang besok pagi ada lagi.”")).toBeTruthy();
+    expect(screen.queryByText(WHY)).toBeNull();
+  });
+
+  it("without lines the generic why sentence stays and no lead-in shows (the pilot screen)", () => {
+    renderScreen(q());
+    expect(screen.getByText(WHY)).toBeTruthy();
+    expect(screen.queryByText("Bee6 heard:")).toBeNull();
+  });
+
+  it("Bahasa lead-in", () => {
+    renderScreen(q({ lines: ["Pelanggan tanya roti."] }), "id");
+    expect(screen.getByText("Bee6 mendengar:")).toBeTruthy();
+    expect(screen.getByText("“Pelanggan tanya roti.”")).toBeTruthy();
+  });
+
+  it("renders markup and braces inertly: no element is created and no placeholder is interpolated", () => {
+    const { container } = renderScreen(q({ lines: ["<b>x</b> <img src=x onerror=alert(1)>", "{hm} {step} {code}"] }));
+    expect(container.querySelector("b")).toBeNull();
+    expect(container.querySelector("img")).toBeNull();
+    expect(screen.getByText("“<b>x</b> <img src=x onerror=alert(1)>”")).toBeTruthy();
+    expect(screen.getByText("“{hm} {step} {code}”")).toBeTruthy();
+  });
+
+  it("keeps the chip, the time and the template heading", () => {
+    renderScreen(q({ lines: ["Pelanggan tanya roti."] }));
+    expect(screen.getByText("Today · 15:00")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("Around 15:00 there was routine work. Is that right?");
+  });
+
+  it("the radiogroup aria-label stays the template only: the quote is read once, in the card", () => {
+    renderScreen(q({ lines: ["Pelanggan tanya roti."] }));
+    const group = screen.getByRole("radiogroup");
+    expect(group.getAttribute("aria-label")).toBe("Around 15:00 there was routine work. Is that right?");
+    expect(group.getAttribute("aria-label")).not.toContain("Pelanggan");
+  });
+
+  it("an unlabelled_unit without lines keeps its own why sentence", () => {
+    renderScreen(q({ kind: "unlabelled_unit", category: null }));
+    expect(screen.getByText("Bee6 heard work here but could not tell what. It needs your answer to be sure.")).toBeTruthy();
+  });
+});

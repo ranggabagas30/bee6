@@ -238,3 +238,20 @@ describe("DebriefQuestionViewSchema: demo-feedback-2 item 10 optional `lines` (s
     expect(parse({ lines: ["a"], thread_id: "t1" }).success).toBe(false);
   });
 });
+
+describe("AnswerCacheEntrySchema: demo-feedback-2 item 10 keeps the phone cache text-free of the quoted lines", () => {
+  const entry = {
+    question_id: "q1",
+    debrief_business_date: "2026-10-07",
+    answer: "yes" as const,
+    reason: "sudah",
+    answered_at_ms: 1_700_000_000_000,
+  };
+  it("rejects a `lines` key (the question's quoted text can never be cached)", () => {
+    expect(AnswerCacheEntrySchema.safeParse(entry).success).toBe(true);
+    expect(AnswerCacheEntrySchema.safeParse({ ...entry, lines: ["Pelanggan tanya roti."] }).success).toBe(false);
+  });
+  it("AnswerBodySchema (the upload body) rejects it as well", () => {
+    expect(AnswerBodySchema.safeParse({ ...entry, lines: ["x"] }).success).toBe(false);
+  });
+});
