@@ -1,37 +1,29 @@
 /*
- * SOP book (R-19 PR-9a §9.1) on the PR-0b tokens (app/globals.css). Mobile-first: one column at 360 px; the version
- * switch wraps when the dates do not fit on one line. Every control is at least 44 px tall.
+ * SOP book (R-19 PR-9a §9.1; page-2 look R-25 T12, boards D2-04/04a/04b/04c) on the PR-0b tokens (app/globals.css).
+ * The page itself (bar, nav, h1) is `WebShell` + `PageHead`; this file is the version row, the book and the table.
+ * Mobile-first: one column at 360 px, the two leaves stack with the cover and contents first; every control is at
+ * least 44 px tall. The two leaves sit side by side from 720 px.
  */
 
-.page {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 16px;
-  box-sizing: border-box;
-  font-family: var(--b6-font-sans);
-  color: var(--b6-ink);
-}
-
-.title {
-  margin: 0 0 8px;
-  font-size: var(--b6-fs-h1);
-  font-weight: 600;
-  letter-spacing: -0.4px;
-  line-height: 1.15;
-}
-
-.line {
-  margin: 0 0 8px;
-  overflow-wrap: anywhere;
-}
-
-/* The version switch and the Book/Table toggle (PR-9b) share one row; both wrap rather than overflow at 360 px. */
-.switchRow {
+/* The version switch and the Book/Table toggle share a row; both wrap rather than overflow at 360 px. */
+.controls {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 16px;
-  margin: 8px 0 16px;
+  justify-content: space-between;
+  gap: 12px 16px;
+}
+
+.versionGroup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.versionKick {
+  flex: none;
 }
 
 .switch {
@@ -39,50 +31,72 @@
   max-width: 100%;
 }
 
-.sectionTitle {
-  margin: 20px 0 8px;
-  font-size: var(--b6-fs-title);
-  font-weight: 600;
+.versionNote {
+  font-size: var(--b6-fs-small);
+  line-height: 1.45;
+  color: var(--b6-muted);
   overflow-wrap: anywhere;
 }
 
+/* The steps as the board's chapter page: a mono number column, then the step. The improved one is tinted and barred. */
 .steps {
-  margin: 0;
-  padding-left: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
   overflow-wrap: anywhere;
 }
 
-.step,
-.stepChanged {
+.step {
   box-sizing: border-box;
-  margin: 0 0 12px;
-  padding: 12px 14px;
-  border-radius: var(--b6-r-card);
-  background: var(--b6-surface);
-  box-shadow: var(--b6-shadow-card);
+  display: flex;
+  gap: 8px;
+  padding: 14px 12px;
+  border-radius: var(--b6-r-control);
 }
 
 .stepChanged {
-  box-shadow: var(--b6-shadow-card), inset 0 0 0 1px var(--b6-teal-line);
+  background: var(--b6-teal-bg);
+  box-shadow: inset 3px 0 0 var(--b6-teal-ink);
+}
+
+.stepNum {
+  flex: 0 0 32px;
+  padding-top: 2px;
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-ui);
+  color: var(--b6-muted);
+}
+
+.stepBody {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
 }
 
 .stepTitle {
-  margin: 6px 0 4px;
-  font-weight: 600;
+  margin: 0;
+  font-weight: 500;
   font-size: var(--b6-fs-lead);
-  line-height: 1.35;
+  line-height: 1.4;
 }
 
 .stepText {
-  margin: 0 0 6px;
+  margin: 0;
   font-size: var(--b6-fs-body);
   line-height: 1.5;
+  color: var(--b6-ink);
 }
 
 /* The old wording: struck, muted, still above 4.5:1. Colour is never the only cue (the <del> and "Before:" carry it). */
 .stepBefore {
-  margin: 0 0 6px;
-  font-size: var(--b6-fs-body);
+  margin: 0;
+  font-size: var(--b6-fs-ui);
   line-height: 1.5;
   color: var(--b6-muted);
 }
@@ -93,16 +107,23 @@
   color: var(--b6-muted);
 }
 
+/* The "why" disclosure: a text link in the board's teal, a 44 px tap box. */
 .why {
   display: inline-flex;
   align-items: center;
   min-height: var(--b6-tap);
-  margin-top: 4px;
+  margin: 0 0 0 -4px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
   color: var(--b6-teal-ink);
-  font-size: var(--b6-fs-ui);
+  font: inherit;
+  font-size: var(--b6-fs-small);
   font-weight: 500;
+  text-align: left;
   text-decoration: underline;
   text-underline-offset: 3px;
+  cursor: pointer;
 }
 
 .why:focus-visible {
@@ -111,9 +132,48 @@
   border-radius: 4px;
 }
 
+/* The approved change, opened under its step. */
+.change {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--b6-r-control);
+  background: var(--b6-surface);
+  box-shadow: inset 0 0 0 1px var(--b6-teal-line);
+  font-size: var(--b6-fs-ui);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.changeInline {
+  margin-bottom: 4px;
+}
+
+.changeHead {
+  margin: 0 0 6px;
+  font-size: var(--b6-fs-body);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.changeSub {
+  margin: 10px 0 4px;
+  font-size: var(--b6-fs-ui);
+  font-weight: 600;
+}
+
+.changeLine {
+  margin: 0 0 6px;
+}
+
+.changeStrong {
+  font-weight: 700;
+}
+
 /*
- * Book view (PR-9b, D2-04): a two-page spread from 720 px; below that the two pages stack into one column, the
- * contents first. The gutter between the pages is a hairline, like a book's fold.
+ * Book view (PR-9b, D2-04): a paper spread. Below 720 px the two leaves stack, cover and contents first; from 720 px
+ * they sit side by side with the fold as a hairline. The stacked-paper edge under the book is the board's.
  */
 .spread {
   display: grid;
@@ -124,7 +184,10 @@
 .bookPage {
   box-sizing: border-box;
   min-width: 0;
-  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px 16px;
   border-radius: var(--b6-r-card);
   background: var(--b6-surface);
   box-shadow: var(--b6-shadow-card);
@@ -132,24 +195,52 @@
 
 .pageKicker {
   display: block;
-  margin: 0 0 8px;
+}
+
+.cover {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.coverTitle {
+  margin: 0;
+  font-size: 26px;
+  line-height: 1.2;
+  font-weight: 300;
+  letter-spacing: -0.4px;
+  text-wrap: balance;
+}
+
+.coverEdition {
+  margin: 0;
+  font-size: var(--b6-fs-ui);
+  line-height: 1.45;
+  color: var(--b6-muted);
 }
 
 .contents {
   list-style: none;
-  margin: 0 0 16px;
+  margin: 6px 0 16px;
   padding: 0;
+  border-top: 1px solid var(--b6-line-soft);
+  counter-reset: chapter;
+}
+
+.contents li {
+  border-bottom: 1px solid var(--b6-line-soft);
 }
 
 .contentsItem {
   box-sizing: border-box;
-  display: flex;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  column-gap: 10px;
   width: 100%;
-  min-height: var(--b6-tap);
-  padding: 8px 10px;
+  min-height: 48px;
+  padding: 0 10px;
   border: 0;
   border-radius: var(--b6-r-control);
   background: transparent;
@@ -169,7 +260,6 @@
   background: var(--b6-teal-bg);
   color: var(--b6-teal-ink);
   font-weight: 600;
-  box-shadow: inset 0 0 0 1px var(--b6-teal-line);
 }
 
 .contentsItem:focus-visible {
@@ -177,13 +267,28 @@
   outline-offset: 2px;
 }
 
+/* The chapter number is a CSS counter, so the button's text stays "Opening & closing 2 steps" (WCAG 2.5.3). */
+.contentsItem::before {
+  counter-increment: chapter;
+  content: counter(chapter);
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-small);
+  font-weight: 400;
+  color: var(--b6-muted);
+}
+
+.contentsItem[aria-current="page"]::before {
+  color: inherit;
+}
+
 .contentsName {
-  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .contentsCount {
-  flex: 0 0 auto;
-  font-size: var(--b6-fs-small);
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-kicker);
+  font-weight: 400;
   color: var(--b6-muted);
 }
 
@@ -193,36 +298,37 @@
 
 .legend {
   list-style: none;
-  margin: 0;
-  padding: 12px 0 0;
-  border-top: 1px solid var(--b6-line);
+  margin: auto 0 0;
+  padding: 16px 0 0;
+  border-top: 1px solid var(--b6-line-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .legendItem {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 28px;
-  font-size: var(--b6-fs-ui);
+  font-size: var(--b6-fs-small);
+  color: var(--b6-ink-soft);
 }
 
-/* The swatches only echo the card styles (plain vs teal-lined); the words and counts carry the meaning. */
+/* The swatches are the board's dots; the words and counts carry the meaning. */
 .swatch {
   flex: 0 0 auto;
-  width: 14px;
-  height: 14px;
-  border-radius: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
   box-sizing: border-box;
 }
 
 .swatchSop {
-  background: var(--b6-surface);
-  box-shadow: inset 0 0 0 1px var(--b6-line-strong);
+  background: var(--b6-line-strong);
 }
 
 .swatchImproved {
-  background: var(--b6-teal-bg);
-  box-shadow: inset 0 0 0 1px var(--b6-teal-ink);
+  background: var(--b6-teal-ink);
 }
 
 .legendLabel {
@@ -230,15 +336,31 @@
 }
 
 .legendCount {
-  font-weight: 600;
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-kicker);
+  color: var(--b6-muted);
   font-variant-numeric: tabular-nums;
 }
 
+.runHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--b6-line-soft);
+}
+
+.chapterKick {
+  margin-top: 4px;
+  color: var(--b6-teal-ink);
+}
+
 .chapterTitle {
-  margin: 0 0 12px;
-  font-size: var(--b6-fs-title);
-  font-weight: 600;
-  line-height: 1.3;
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.15;
+  font-weight: 300;
+  letter-spacing: -0.5px;
   overflow-wrap: anywhere;
 }
 
@@ -248,8 +370,10 @@
   border-radius: 4px;
 }
 
-.pageRight .steps {
-  padding-left: 20px;
+.chapterWho {
+  margin: 0;
+  font-size: var(--b6-fs-ui);
+  color: var(--b6-muted);
 }
 
 .pageNav {
@@ -258,37 +382,55 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px 12px;
-  margin-top: 8px;
-  padding-top: 12px;
-  border-top: 1px solid var(--b6-line);
+  margin-top: auto;
+  padding-top: 14px;
+  border-top: 1px solid var(--b6-line-soft);
 }
 
 .pageOf {
   order: -1;
   flex: 1 0 100%;
   text-align: center;
-  font-size: var(--b6-fs-small);
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-kicker);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
   color: var(--b6-muted);
 }
 
 @media (min-width: 720px) {
   .spread {
-    grid-template-columns: minmax(200px, 2fr) 3fr;
+    grid-template-columns: minmax(220px, 2fr) 3fr;
     gap: 0;
-    border-radius: var(--b6-r-card);
+    border-radius: 6px 6px 10px 10px;
     background: var(--b6-surface);
-    box-shadow: var(--b6-shadow-card);
+    box-shadow:
+      0 1px 0 var(--b6-line-soft),
+      0 3px 0 var(--b6-ground),
+      0 4px 0 var(--b6-line),
+      0 6px 0 var(--b6-ground),
+      0 7px 0 var(--b6-line-strong),
+      var(--b6-shadow-card);
   }
 
   .bookPage {
-    padding: 20px;
+    min-height: 560px;
+    padding: 32px 32px 28px;
     border-radius: 0;
+    background: transparent;
     box-shadow: none;
   }
 
   .pageLeft {
-    border-right: 1px solid var(--b6-line-strong);
-    background: var(--b6-surface-soft);
+    border-right: 1px solid var(--b6-line);
+  }
+
+  .coverTitle {
+    font-size: 28px;
+  }
+
+  .chapterTitle {
+    font-size: 36px;
   }
 
   .pageOf {
@@ -472,10 +614,9 @@
 }
 
 .footer {
-  margin: 20px 0 0;
-  padding-top: 12px;
-  border-top: 1px solid var(--b6-line);
+  margin: 0;
   font-size: var(--b6-fs-small);
+  line-height: 1.45;
   color: var(--b6-muted);
   overflow-wrap: anywhere;
 }
