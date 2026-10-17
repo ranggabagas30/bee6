@@ -20,9 +20,11 @@ describe("SignOutDialog: before closing (P2-07a)", () => {
   it("says it cancels today, with the exact copy, and offers Keep listening / Sign out and cancel", () => {
     setup();
     expect(screen.getByRole("dialog", { name: "Sign out and cancel today?" })).toBeTruthy();
-    expect(
-      screen.getByText("Today's session is still running. If you sign out now it is cancelled: the notes from today are deleted and today does not count."),
-    ).toBeTruthy();
+    const body = screen.getByRole("dialog").querySelector("p")!;
+    expect(body.textContent).toBe(
+      "Today's session is still running. If you sign out now it is cancelled: the notes from today are deleted and today does not count. This also unpairs the phone, so you need a new 6-digit code to use it again.",
+    );
+    expect(body.querySelector("strong")!.textContent).toBe("This also unpairs the phone, so you need a new 6-digit code to use it again.");
     expect(screen.getByRole("button", { name: "Keep listening" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Sign out and cancel" })).toBeTruthy();
   });
@@ -125,11 +127,12 @@ describe("SignOutDialog: after closing (P2-07b)", () => {
   it("says the session stays open, with the exact copy, and offers Stay / Sign out anyway", () => {
     setup({ kind: "closed" });
     expect(screen.getByRole("dialog", { name: "Sign out?" })).toBeTruthy();
-    expect(
-      screen.getByText(
-        "Closing time has passed, so today's session can no longer be cancelled. It stays open until you tap End, then the debrief runs for 60 minutes. Questions left unanswered are recorded as unverified.",
-      ),
-    ).toBeTruthy();
+    // R-25 (board P2-07b): "come back and tap End" and the unpair sentence; "unverified" is emphasised.
+    const body = screen.getByRole("dialog").querySelector("p")!;
+    expect(body.textContent).toBe(
+      "Closing time has passed, so today's session can no longer be cancelled. It stays open until you come back and tap End, then the debrief runs for 60 minutes. Questions left unanswered are recorded as unverified. Signing out unpairs the phone.",
+    );
+    expect(body.querySelector("strong")!.textContent).toBe("unverified");
     expect(screen.getByRole("button", { name: "Stay" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Sign out anyway" })).toBeTruthy();
     expect(screen.queryByText(/cancel/i, { selector: "button" })).toBeNull();
