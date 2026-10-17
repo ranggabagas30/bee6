@@ -203,11 +203,16 @@ describe("ProposalDetail — mark feasible", () => {
 });
 
 describe("ProposalDetail — inline reject (D2-03f)", () => {
-  it("Reject… opens the reason field with focus; the send button is disabled until a reason is written; no confirm step", async () => {
+  it("Reject… opens the titled inline panel with the reason field focused; send is disabled until a reason is written; no confirm step", async () => {
     authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "rejected", status: "rejected" } });
     const { onSettled } = renderDetail();
     fireEvent.click(screen.getByRole("button", { name: "Reject… (reason required)" }));
-    const box = screen.getByLabelText("Why is this not workable? (required)") as HTMLTextAreaElement;
+    // The panel stays inline (R-19 plan 9.5; tech-lead ruling on UI-078): a form, not a modal dialog.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    const panel = screen.getByRole("form", { name: "Reject this proposal?" });
+    expect(within(panel).getByRole("heading", { level: 3, name: "Reject this proposal?" })).not.toBeNull();
+    expect(within(panel).getByText("Give a short reason. Bee6 remembers it and will not suggest the same thing again.")).not.toBeNull();
+    const box = within(panel).getByLabelText("Why is this not workable? (required)") as HTMLTextAreaElement;
     expect(document.activeElement).toBe(box);
     const send = screen.getByRole("button", { name: "Reject proposal" }) as HTMLButtonElement;
     expect(send.disabled).toBe(true);
@@ -215,13 +220,24 @@ describe("ProposalDetail — inline reject (D2-03f)", () => {
     expect(send.disabled).toBe(true);
     fireEvent.change(box, { target: { value: "  The oven only holds two trays.  " } });
     expect(send.disabled).toBe(false);
+    expect(within(panel).getByText("34/300")).not.toBeNull();
     fireEvent.click(send);
     expect(authedPostJson).toHaveBeenCalledWith(AUTH, REVIEW_PATH, { decision: "reject", reason: "The oven only holds two trays." }, expect.anything());
     await waitFor(() => expect(onSettled).toHaveBeenCalledWith({ messageKey: "C-propd-rejected" }));
     expect(screen.queryByRole("button", { name: "Yes" })).toBeNull();
   });
 
-  it("Cancel closes the reason field and returns focus to Reject…", () => {
+  it("the buttons are Reject proposal (destructive) then Cancel (secondary)", () => {
+    renderDetail();
+    fireEvent.click(screen.getByRole("button", { name: "Reject… (reason required)" }));
+    const panel = screen.getByRole("form", { name: "Reject this proposal?" });
+    const buttons = within(panel).getAllByRole("button");
+    expect(buttons.map((b) => b.textContent)).toEqual(["Reject proposal", "Cancel"]);
+    expect(buttons[0]!.className).toContain("b6-btn--destructive");
+    expect(buttons[1]!.className).toContain("b6-btn--secondary");
+  });
+
+  it("Cancel closes the panel and returns focus to Reject…", () => {
     renderDetail();
     const reject = screen.getByRole("button", { name: "Reject… (reason required)" });
     fireEvent.click(reject);
@@ -239,6 +255,7 @@ describe("ProposalDetail — inline reject (D2-03f)", () => {
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "abc" } });
     fireEvent.click(screen.getByRole("button", { name: "Reject proposal" }));
     expect(await screen.findByText("Write between 3 and 300 characters.")).not.toBeNull();
+    expect(screen.getByRole("alert")).not.toBeNull();
     expect(screen.getByRole("textbox")).not.toBeNull();
   });
 });
@@ -257,12 +274,24 @@ describe("ProposalDetail — read-only and hand-over", () => {
     expect(screen.queryByRole("button", { name: "Mark feasible" })).toBeNull();
   });
 
-  it("feasible: the hand-over replaces the actions (D2-03g)", () => {
-    const { onBack } = renderDetail(item("awaiting_owner"), { feasible: true });
-    expect(screen.getByRole("status").textContent).toContain("Marked feasible.");
+  it("feasible: the banner sits under the title, the buttons close the page, and Sign out · pick Owner signs out to the Owner tab (D2-03g)", async () => {
+    signOut.mockResolvedValue(undefined);
+    renderDetail(item("awaiting_owner"), { feasible: true });
+    const banner = screen.getByRole("status");
+    expect(banner.textContent).toBe("Marked feasible. The owner decides next. Sign out and pick Owner to approve or reject.");
+    const title = screen.getByRole("heading", { level: 1 });
+    expect(title.compareDocumentPosition(banner) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Mark feasible" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Back to proposals" }));
-    expect(onBack).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Reject… (reason required)" })).toBeNull();
+    // The note stays, and the two buttons are the last thing on the page: done look first, then the sign-out.
+    expect(screen.getByText("Feasible means staff can do this in the shop. The owner approves or rejects after you.")).not.toBeNull();
+    const done = screen.getByRole("button", { name: "Marked feasible ✓" }) as HTMLButtonElement;
+    expect(done.disabled).toBe(true);
+    const out = screen.getByRole("button", { name: "Sign out · pick Owner" });
+    expect(done.compareDocumentPosition(out) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(out);
+    await waitFor(() => expect(signOut).toHaveBeenCalledWith(AUTH));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/sign-in?as=owner"));
   });
 
   it("no device id, name or thread key appears anywhere on the screen", () => {

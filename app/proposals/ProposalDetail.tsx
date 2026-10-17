@@ -14,8 +14,8 @@ import {
   type ProposalListItem,
 } from "@/lib/proposals/review-contract";
 import type { ProposalView } from "@/lib/proposals/contract";
-import { Button, Card, Chip, Glass, Kicker, Pill } from "@/app/ui";
-import { FeasibleHandover } from "@/app/proposals/FeasibleHandover";
+import { Button, Card, Chip, Glass, Pill } from "@/app/ui";
+import { FeasibleActions, FeasibleHandover } from "@/app/proposals/FeasibleHandover";
 import styles from "@/app/proposals/supervisor.module.css";
 
 /**
@@ -24,7 +24,8 @@ import styles from "@/app/proposals/supervisor.module.css";
  * proposal's generator SOP version in `<del>` with a visually hidden "Before:", as PR-9a's SOP book, the new wording
  * under it), the evidence (date · time — the dated summary from the view, never a quoted line), the metric to
  * watch, the review date and the feasible note. Actions on an `awaiting_supervisor` proposal: **Mark feasible**
- * and an inline **Reject… (reason required)** field — no confirm dialog for either (plan 9.5). Both go to the
+ * (no confirm) and an inline **Reject… (reason required)** panel — no confirm dialog for either (plan 9.5; R-25 tech-lead
+ * ruling on UI-078: the inline panel stays, restyled with the board's "Reject this proposal?" title and lead). Both go to the
  * existing review route; the server re-derives every rule (role, stage, freshness, late constraints), so this
  * screen only mirrors the notices: stale evidence / a changed SOP disable Mark feasible, late constraints need
  * the acknowledgement tick, a superseded proposal has no actions.
@@ -94,7 +95,9 @@ export function ProposalDetail({ auth, lang, item, feasible, onBack, onFeasible,
   const returnToReject = useRef(false);
   const ids = useId();
   const reasonId = `${ids}-reason`;
-  const hintId = `${ids}-hint`;
+  const leadId = `${ids}-lead`;
+  const countId = `${ids}-count`;
+  const titleId = `${ids}-reject-h`;
 
   useEffect(() => {
     if (rejecting) textareaRef.current?.focus();
@@ -163,21 +166,25 @@ export function ProposalDetail({ auth, lang, item, feasible, onBack, onFeasible,
         {t(lang, "C-propd-back")}
       </button>
 
-      <div className={styles.chips}>
-        <Chip>{content.target_step ? content.target_step.title : t(lang, "C-propd-step-new")}</Chip>
-        <Pill tone={STATUS_TONE[proposal.status]}>{t(lang, STATUS_KEY[proposal.status])}</Pill>
+      <div className={styles.detailHead}>
+        <div className={styles.chips}>
+          <Chip>{content.target_step ? content.target_step.title : t(lang, "C-propd-step-new")}</Chip>
+          <Pill tone={STATUS_TONE[proposal.status]}>{t(lang, STATUS_KEY[proposal.status])}</Pill>
+        </div>
+        <h1 className={`b6-h1-web ${styles.detailTitle}`}>{content.change_title}</h1>
+        <p className={`b6-sub ${styles.detailWhy}`}>{content.rationale}</p>
       </div>
-      <h1 className={styles.detailTitle}>{content.change_title}</h1>
-      <p className={styles.detailWhy}>{content.rationale}</p>
 
-      {feasible && <FeasibleHandover lang={lang} onBack={onBack} />}
+      {feasible && <FeasibleHandover lang={lang} />}
 
       <Card as="section" aria-labelledby={`${ids}-changes`} className={styles.block}>
-        <Kicker id={`${ids}-changes`}>{t(lang, "C-propd-changes")}</Kicker>
+        <span id={`${ids}-changes`} className="b6-kick">
+          {t(lang, "C-propd-changes")}
+        </span>
         {content.target_step?.text && (
-          <p className={styles.after} style={{ margin: 0 }}>
+          <p className={styles.before}>
             <span className="b6-sr-only">{t(lang, "C-propd-before")} </span>
-            <del className={styles.before}>{content.target_step.text}</del>
+            <del>{content.target_step.text}</del>
           </p>
         )}
         <p className={styles.after}>
@@ -187,7 +194,9 @@ export function ProposalDetail({ auth, lang, item, feasible, onBack, onFeasible,
       </Card>
 
       <Card as="section" aria-labelledby={`${ids}-evidence`} className={styles.block}>
-        <Kicker id={`${ids}-evidence`}>{t(lang, "C-propd-evidence", { n: content.evidence.length, days })}</Kicker>
+        <span id={`${ids}-evidence`} className="b6-kick">
+          {t(lang, "C-propd-evidence", { n: content.evidence.length, days })}
+        </span>
         <ul className={styles.evidence}>
           {content.evidence.map((ref, index) => (
             <li key={index}>
@@ -203,11 +212,11 @@ export function ProposalDetail({ auth, lang, item, feasible, onBack, onFeasible,
 
       <div className={styles.tiles}>
         <Glass className="b6-tile">
-          <Kicker>{t(lang, "C-propd-metric")}</Kicker>
+          <span className="b6-kick">{t(lang, "C-propd-metric")}</span>
           <span className={styles.tileText}>{content.metric.description}</span>
         </Glass>
         <Glass className="b6-tile">
-          <Kicker>{t(lang, "C-propd-review")}</Kicker>
+          <span className="b6-kick">{t(lang, "C-propd-review")}</span>
           <span className={styles.tileText}>{dayLabel(content.review_date, lang)}</span>
         </Glass>
       </div>
@@ -236,7 +245,9 @@ export function ProposalDetail({ auth, lang, item, feasible, onBack, onFeasible,
         </div>
       )}
 
-      {!feasible && <p className={styles.note}>{t(lang, "C-propd-note")}</p>}
+      <p className={styles.note}>{t(lang, "C-propd-note")}</p>
+
+      {feasible && <FeasibleActions lang={lang} auth={auth} />}
 
       {canAct && !rejecting && (
         <div className={styles.actions}>
@@ -263,31 +274,41 @@ export function ProposalDetail({ auth, lang, item, feasible, onBack, onFeasible,
 
       {canAct && rejecting && (
         <form
-          className={styles.rejectForm}
+          className={`b6-card ${styles.rejectForm}`}
+          aria-labelledby={titleId}
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
             if (canSend && !busy) void submit({ decision: "reject", reason: trimmed });
           }}
         >
+          <h3 id={titleId} className="b6-h2-card">
+            {t(lang, "C-propd-reject-h")}
+          </h3>
+          <p id={leadId} className="b6-sub">
+            {t(lang, "C-propd-reject-hint")}
+          </p>
           <label className={styles.rejectLabel} htmlFor={reasonId}>
             {t(lang, "C-propd-reject-label")}
           </label>
           <textarea
             id={reasonId}
             ref={textareaRef}
-            className={styles.textarea}
+            className={`b6-field ${styles.textarea}`}
             value={reason}
             maxLength={CONSTRAINT_INPUT_MAX}
-            rows={3}
+            rows={4}
             disabled={busy}
-            aria-describedby={hintId}
+            aria-describedby={`${leadId} ${countId}`}
             onChange={(event) => setReason(event.target.value)}
           />
-          <p id={hintId} className={styles.hint}>
-            {t(lang, "C-propd-reject-hint")} {t(lang, "C-con-count", { n: reason.length })}
-          </p>
-          <div className={styles.actions}>
+          <span id={countId} className={styles.counter}>
+            {t(lang, "C-con-count", { n: reason.length })}
+          </span>
+          <div className={styles.rejectActions}>
+            <Button type="submit" variant="destructive" disabled={!canSend || busy}>
+              {t(lang, "C-propd-reject-send")}
+            </Button>
             <Button
               variant="secondary"
               disabled={busy}
@@ -298,9 +319,6 @@ export function ProposalDetail({ auth, lang, item, feasible, onBack, onFeasible,
               }}
             >
               {t(lang, "C-act-cancel")}
-            </Button>
-            <Button type="submit" variant="destructive" disabled={!canSend || busy}>
-              {t(lang, "C-propd-reject-send")}
             </Button>
           </div>
         </form>
