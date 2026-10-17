@@ -9,6 +9,7 @@ import {
   guideCard,
   guideKeyFor,
   jumpLockText,
+  todoDoneCount,
   type CaptureGuideState,
   type JourneyProgress,
   type WebGuideState,
@@ -51,8 +52,9 @@ describe("STAGES and GUIDE data", () => {
 
   it("the schema allows up to 4 body lines but refuses 5 or more, and refuses an unknown action kind", () => {
     const ok = GUIDE.entry;
-    expect(GuideCardSchema.safeParse({ ...ok, body: [...ok.body, ok.body[0]] }).success).toBe(true); // 4 lines: allowed
-    expect(GuideCardSchema.safeParse({ ...ok, body: [...ok.body, ok.body[0], ok.body[0]] }).success).toBe(false); // 5 lines: refused
+    const four = [ok.body[0]!, ok.body[0]!, ok.body[0]!, ok.body[0]!];
+    expect(GuideCardSchema.safeParse({ ...ok, body: four }).success).toBe(true); // 4 lines: allowed
+    expect(GuideCardSchema.safeParse({ ...ok, body: [...four, ok.body[0]] }).success).toBe(false); // 5 lines: refused
     expect(GuideCardSchema.safeParse({ ...ok, action: { kind: "nope" } }).success).toBe(false);
     expect(GuideCardSchema.safeParse({ ...ok, extra: 1 }).success).toBe(false);
   });
@@ -72,7 +74,7 @@ describe("STAGES and GUIDE data", () => {
   it("the demo facts live only in the guide: the entry card says about 20 minutes and how to change role; the pair card fills the code through a placeholder, never the literal", () => {
     const entry = GUIDE.entry;
     expect(entry.body.map((b) => b.en).join(" ")).toMatch(/20 minutes/);
-    expect(entry.footnote?.en).toBe("To change role later: sign out, then pick again.");
+    expect(entry.footnote?.en).toBe("To change role later: sign out, then pick a role again.");
     expect(JSON.stringify(GUIDE)).not.toMatch(/\b0{6}\b/);
     expect(JSON.stringify(GUIDE.pair)).toContain("{code}");
   });
@@ -110,7 +112,7 @@ describe("STAGES and GUIDE data", () => {
       expect(body.en, `day ${day}`).toBe(
         "Answer what really happened in today's script. The phone order did happen, so answer Yes and type a few words why, for example: I did not read the order back to the caller.",
       );
-      expect(body.id, `day ${day}`).toBe(body.en);
+      expect(body.id, `day ${day}`).toMatch(/Saya tidak membacakan ulang pesanan/);
       expect(body.en.length, `day ${day}`).toBeLessThanOrEqual(240);
       expect(body.en, `day ${day}`).not.toMatch(/big order/);
     }
@@ -126,12 +128,13 @@ describe("STAGES and GUIDE data", () => {
 
   it("the day-1 Complete card offers the Supervisor look-around before tomorrow (stage 2); days 2-3 keep the jump-to-tomorrow / after-day-3 wording", () => {
     const day1 = guideCard("debrief_done", 1).body.map((b) => b.en).join(" ");
-    expect(day1).toMatch(/After day 1, you can sign out and look around as Supervisor first \(Proposals says Waiting for evidence\), then pair again and jump to tomorrow\./);
-    expect(day1).toMatch(/Jump to tomorrow/);
+    expect(day1).toBe(
+      "Day 1 of 3 is done. First sign out and look around as Supervisor (stage 2). Then come back for days 2 and 3. Asking Bee6 for proposals locks Jump to tomorrow, so finish day 3 first.",
+    );
     expect(guideCard("debrief_done", 1).action).toEqual({ kind: "jump_tomorrow" });
     const day2 = guideCard("debrief_done", 2).body.map((b) => b.en).join(" ");
     expect(day2).not.toMatch(/After day 1/);
-    expect(day2).toMatch(/Jump to tomorrow to run the next day\./);
+    expect(day2).toMatch(/Jump to tomorrow to run day 3\./);
   });
 
   it("day 3 is the last day: neither debrief card tells the judge to jump to tomorrow (the max_days line sits next to it); both say sign out and continue as Supervisor", () => {
@@ -168,27 +171,102 @@ describe("STAGES and GUIDE data", () => {
     }
   });
 
-  it("capture_ready has 4 body lines guiding the judge to read one line at a time with pauses", () => {
+  it("capture_ready (R-25 T6): the board sentence first, then the one-line-at-a-time pacing rule and the R-23 stagger rule", () => {
     const card = GUIDE.capture_ready;
-    expect(card.body).toHaveLength(4);
+    expect(card.kicker?.en).toBe("NEXT");
+    expect(card.body).toHaveLength(3);
     const lines = card.body.map((b) => b.en);
-    expect(lines[0]).toMatch(/Tap Start.*one script card at a time/);
-    expect(lines[1]).toMatch(/Read each card aloud and play every voice.*speaker tag is not spoken/);
-    expect(lines[2]).toMatch(/Read one line at a time.*count slowly to three/);
-    expect(lines[3]).toMatch(/After the 5 cards.*Jump to closing time unlocks End/);
+    expect(lines[0]).toBe("Tap **Start**. The first script card appears here. Read it word for word, then tap “I have spoken this”.");
+    expect(lines[1]).toMatch(/Read one line at a time.*count slowly to three/);
+    expect(lines[2]).toMatch(/After the 5 cards.*Jump to closing time unlocks End/);
   });
 
-  it("capture_ready line 4 includes the R-23 stagger rule: No more than 4 people, wait for 5 cards", () => {
-    const line4 = GUIDE.capture_ready.body[3]!.en;
-    expect(line4).toMatch(/No more than 4 people should read cards at the same time/);
-    expect(line4).toMatch(/wait until someone has finished their 5 cards/);
-    expect(line4).toMatch(/about 2 minutes/);
-    expect(line4.length).toBeLessThanOrEqual(240);
+  it("capture_ready's last line keeps the R-23 stagger rule: No more than 4 people, wait for 5 cards", () => {
+    const line = GUIDE.capture_ready.body[2]!.en;
+    expect(line).toMatch(/No more than 4 people should read cards at the same time/);
+    expect(line).toMatch(/wait until someone has finished their 5 cards/);
+    expect(line).toMatch(/about 2 minutes/);
   });
 
-  it("capture_listening has a footnote instructing to pause for a slow count of three between lines", () => {
+  it("capture_listening carries the board's why-line (UI-107) and a handle with the card position", () => {
     const card = GUIDE.capture_listening;
-    expect(card.footnote?.en).toBe("Pause for a slow count of three between lines.");
+    expect(card.footnote?.en).toBe(
+      "Read it word for word. You play every voice; the speaker name is not spoken. Pause about 2 seconds between speakers.",
+    );
+    expect(card.handle?.en).toBe("Read card {n} of {total} aloud");
+  });
+
+  it("every handle line is the board's (UI-006); a card without its own handle uses its title", () => {
+    const handles: Record<string, string> = {
+      entry: "Welcome · pick Staff to start",
+      pair: "Fill in the demo code",
+      capture_listening: "Read card {n} of {total} aloud",
+      capture_all_spoken: "All cards spoken · jump to closing",
+      capture_closing: "All cards spoken · jump to closing",
+      debrief_preparing: "Wait for your questions",
+      debrief_question: "Answer the questions",
+      debrief_done: "Jump to tomorrow for day {next}",
+    };
+    for (const [key, text] of Object.entries(handles)) expect(GUIDE[key as keyof typeof GUIDE].handle?.en, key).toBe(text);
+    expect(GUIDE.pair_done.handle).toBeUndefined();
+    expect(GUIDE.pair_done.title.en).toBe("Open the listening page");
+    expect(GUIDE.capture_ready.title.en).toBe("Tap Start, then read the cards");
+    expect(guideCard("debrief_done", 3).handle?.en).toBe("Sign out and continue as Supervisor");
+  });
+
+  it("the card kickers are the board's", () => {
+    const kickers: Record<string, string> = {
+      entry: "WELCOME, JUDGE",
+      pair: "STEP: PAIR THE DEVICE",
+      pair_done: "NEXT",
+      capture_ready: "NEXT",
+      capture_all_spoken: "ALL 5 CARDS SPOKEN",
+      capture_closing: "CLOSING TIME REACHED",
+      debrief_preparing: "PLEASE WAIT",
+      debrief_question: "DEBRIEF TIP",
+      debrief_done: "NEXT",
+    };
+    for (const [key, text] of Object.entries(kickers)) expect(GUIDE[key as keyof typeof GUIDE].kicker?.en, key).toBe(text);
+  });
+
+  it("every card has a Bahasa column of its own (UI-009), never the English text", () => {
+    for (const key of GUIDE_KEYS) {
+      const c = GUIDE[key];
+      expect(c.title.id, key).not.toBe(c.title.en);
+      for (const line of c.body) expect(line.id, key).not.toBe(line.en);
+      for (const row of c.todo ?? []) expect(row.id, key).not.toBe(row.en);
+    }
+  });
+
+  it("the web cards carry the board's \"Do this now\" rows (D2-02, D2-07, D2-08)", () => {
+    expect(GUIDE.day.todo?.map((r) => r.en)).toEqual(["Confirm the note that needs your check", "Read the staff's debrief answers", "Open Proposals"]);
+    expect(GUIDE.home.todo?.map((r) => r.en)).toEqual([
+      "Supervisor marked both proposals feasible",
+      "Open Approvals and review in order",
+      "Approve one, reject the other",
+    ]);
+    expect(GUIDE.approvals.todo).toHaveLength(3);
+    expect(GUIDE.proposal_detail.todo).toHaveLength(5);
+    expect(GUIDE.proposals_waiting.todo).toHaveLength(4);
+  });
+});
+
+describe("todoDoneCount (R-25 T6: which Do this now rows are ticked)", () => {
+  it("home: the first row is done once both proposals are feasible; approvals: one row per decision", () => {
+    expect(todoDoneCount("home", null)).toBe(0);
+    expect(todoDoneCount("home", progress({ feasible: 1 }))).toBe(0);
+    expect(todoDoneCount("home", progress({ feasible: 2 }))).toBe(1);
+    expect(todoDoneCount("approvals", progress({ owner_decided: 0 }))).toBe(0);
+    expect(todoDoneCount("approvals", progress({ owner_decided: 1 }))).toBe(1);
+    expect(todoDoneCount("approvals", progress({ owner_decided: 5 }))).toBe(2);
+  });
+
+  it("waiting: day 1 recorded, then the look-around once the supervisor is here; detail: the days and the ask are done", () => {
+    expect(todoDoneCount("proposals_waiting", progress({ days_done: 1 }))).toBe(1);
+    expect(todoDoneCount("proposals_waiting", progress({ days_done: 1, supervisor_visited: true }))).toBe(2);
+    expect(todoDoneCount("proposal_detail", progress({ days_done: 3, proposals_with_content: 2 }))).toBe(2);
+    expect(todoDoneCount("proposal_detail", progress({ days_done: 3, proposals_with_content: 2, feasible: 1 }))).toBe(3);
+    expect(todoDoneCount("day", progress())).toBe(0);
   });
 });
 
