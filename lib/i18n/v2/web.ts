@@ -90,6 +90,13 @@ export const webID = {
   "C-web-ends-at": "berakhir {time}", // PROVISIONAL
   "C-web-nav-badge": "{n} menunggu", // PROVISIONAL
   "C-web-reviews-sub": "Apakah perubahan yang disetujui berhasil?", // PROVISIONAL
+  // R-25 T14: the due-review card (UI-120; no board, page-2 card idiom). Kicker, the two window tiles, their rate value.
+  "C-rev2-kick": "SOP versi {version} · ditinjau pada {date}", // PROVISIONAL
+  "C-rev2-windows": "Sebelum dan sesudah perubahan", // PROVISIONAL
+  "C-rev2-before": "SEBELUM", // PROVISIONAL
+  "C-rev2-after": "SESUDAH", // PROVISIONAL
+  "C-rev2-rate": "{rate} per hari", // PROVISIONAL
+  "C-rev2-rate-none": "Belum ada angka", // PROVISIONAL
 } as const satisfies Record<string, string>;
 
 export const webEN: Record<keyof typeof webID, string> = {
@@ -163,4 +170,10 @@ export const webEN: Record<keyof typeof webID, string> = {
   "C-web-ends-at": "ends {time}",
   "C-web-nav-badge": "{n} waiting",
   "C-web-reviews-sub": "Did an approved change work?",
+  "C-rev2-kick": "SOP version {version} · review on {date}",
+  "C-rev2-windows": "Before and after the change",
+  "C-rev2-before": "BEFORE",
+  "C-rev2-after": "AFTER",
+  "C-rev2-rate": "{rate} per day",
+  "C-rev2-rate-none": "No rate yet",
 };
