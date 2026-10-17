@@ -60,6 +60,8 @@ const PROFILE = {
   next_day: { allowed: false, reason: "day_not_ended" },
 };
 const base = { timezone: "Asia/Jakarta", weekly_hours: WEEK, last_ended: null, capture_mode: "room" };
+/** What a real template clone carries (R-18 P2): yesterday's ended day with an already-expired debrief. */
+const YESTERDAY_ENDED = { business_date: "2026-10-11", end_reason: "selesai", debrief_ends_at_ms: Date.parse("2026-10-11T15:00:00Z") };
 const MON_1000_WIB = "2026-10-12T03:00:00Z";
 
 async function renderPage() {
@@ -100,6 +102,44 @@ describe("sandbox capture screen (R-25 T5): document order and landmarks", () =>
     expect(screen.queryByText("Shop phone")).toBeNull(); // the old heading is gone from sight (sr-only only in the debrief)
     // the header has no Sign out: the footer link is the only one
     expect(within(header).queryByRole("button", { name: /Sign out/ })).toBeNull();
+  });
+
+  // QA R25-001: a real clone carries yesterday's expired `last_ended`, so the page mounts DebriefFlow, which used to
+  // render nothing for an expired, never-opened debrief on a sandbox.
+  it("idle on a FRESH clone (yesterday's expired last_ended, R25-001): the same stage, h1, day line and order", async () => {
+    fetchCaptureConfig.mockResolvedValue({ ...base, last_ended: YESTERDAY_ENDED, demo_session: PROFILE });
+    const { container } = await renderPage();
+    const start = await screen.findByRole("button", { name: "Start" });
+    const header = container.querySelector("header")!;
+    const stage = container.querySelector(".b6-stage")!;
+    expect(stage.getAttribute("aria-hidden")).toBe("true");
+    expect(stage.classList.contains("b6-stage--idle")).toBe(true);
+    const h1 = screen.getByRole("heading", { level: 1, name: "Ready to open" });
+    const sub = screen.getByText("Tap Start to begin listening. Staff keep serving customers as normal.");
+    const day = screen.getByText("Day 1 of 3 · Mon 12 Oct");
+    const note = screen.getByTestId("capture-notice");
+    const signOut = screen.getByRole("button", { name: "Sign out" });
+    const upload = screen.getByTestId("upload-status");
+    expect(inOrder(header, stage, h1, sub, day, start, note, signOut, upload)).toBe(true);
+    expect(screen.getByText("Demo Bakery · Outlet 1")).toBeTruthy();
+    expect((start as HTMLButtonElement).getAttribute("aria-disabled")).not.toBe("true");
+    expect(screen.getAllByText("Speech becomes short work notes. Audio is not kept.")).toHaveLength(1);
+    expect(screen.queryByText("Not started")).toBeNull();
+    expect(screen.queryByText("Shop phone")).toBeNull();
+    expect(within(header).queryByRole("button", { name: /Sign out/ })).toBeNull();
+  });
+
+  it("idle on day 2 after Jump to tomorrow (the shifted, expired last_ended): the same stage with 'Day 2 of 3'", async () => {
+    fetchCaptureConfig.mockResolvedValue({
+      ...base,
+      last_ended: YESTERDAY_ENDED,
+      demo_session: { ...PROFILE, day: 2, days_done: 1 },
+    });
+    await renderPage();
+    await screen.findByRole("button", { name: "Start" });
+    expect(screen.getByRole("heading", { level: 1, name: "Ready to open" })).toBeTruthy();
+    expect(screen.getByText("Day 2 of 3 · Mon 12 Oct")).toBeTruthy();
+    expect(screen.getAllByTestId("capture-notice")).toHaveLength(1);
   });
 
   it("running before closing: stage, h1 Listening, two-line sub, day line, End (really disabled), red sign-out link, note", async () => {
