@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { Auth, User } from "firebase/auth";
@@ -29,6 +31,9 @@ async function renderOwner(lang: "en" | "id" = "en", navigate = vi.fn()) {
   return { ...view, navigate };
 }
 
+/** The red confirm button inside the open dialog. Its label equals the trigger's ("Reset the demo"), so it is found within the dialog. */
+const confirmButton = (name = "Reset the demo") => within(screen.getByRole("dialog")).getByRole("button", { name });
+
 beforeEach(() => {
   authedPostJson.mockReset();
   getExistingClientAuth.mockReset();
@@ -55,7 +60,7 @@ describe("ResetDemoButton is owner-only by itself", () => {
 
   it("an owner of a demo sandbox sees the trigger and no dialog yet", async () => {
     await renderOwner();
-    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
 
@@ -64,11 +69,13 @@ describe("ResetDemoButton confirm dialog", () => {
     await renderOwner();
     const trigger = screen.getByRole("button", { name: "Reset the demo" });
     fireEvent.click(trigger);
-    const dialog = screen.getByRole("alertdialog", { name: "Reset this demo?" });
-    expect(dialog.textContent).toContain("This sets this demo copy back to day 1, with the original SOP and no proposals. Make sure no staff phone is listening.");
+    const dialog = screen.getByRole("dialog", { name: "Reset this demo?" });
+    expect(dialog.textContent).toContain(
+      "This sets this demo copy back to day 1: the original SOP, no proposals and none of the notes from your days. Fictional data only. This cannot be undone.",
+    );
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" }));
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(authedPostJson).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(trigger);
   });
@@ -77,20 +84,21 @@ describe("ResetDemoButton confirm dialog", () => {
     await renderOwner();
     fireEvent.click(screen.getByRole("button", { name: "Reset the demo" }));
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(authedPostJson).not.toHaveBeenCalled();
   });
 
-  it("Tab and Shift+Tab stay inside the dialog (it is modal)", async () => {
+  it("Tab and Shift+Tab stay inside the dialog (it is modal): the red confirm is first, Cancel last", async () => {
     await renderOwner();
     fireEvent.click(screen.getByRole("button", { name: "Reset the demo" }));
     const cancel = screen.getByRole("button", { name: "Cancel" });
-    const reset = screen.getByRole("button", { name: "Reset" });
-    reset.focus();
-    fireEvent.keyDown(reset, { key: "Tab" });
-    expect(document.activeElement).toBe(cancel);
-    fireEvent.keyDown(cancel, { key: "Tab", shiftKey: true });
+    const reset = confirmButton();
+    expect(reset.compareDocumentPosition(cancel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    cancel.focus();
+    fireEvent.keyDown(cancel, { key: "Tab" });
     expect(document.activeElement).toBe(reset);
+    fireEvent.keyDown(reset, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(cancel);
   });
 
   it("Reset sends exactly { confirm: 'reset' } once (a double tap is ignored), disables both buttons meanwhile, then navigates to the owner Home with the notice flag", async () => {
@@ -98,7 +106,7 @@ describe("ResetDemoButton confirm dialog", () => {
     authedPostJson.mockReturnValue(new Promise((r) => (finish = r)));
     const { navigate } = await renderOwner();
     fireEvent.click(screen.getByRole("button", { name: "Reset the demo" }));
-    const confirm = screen.getByRole("button", { name: "Reset" });
+    const confirm = confirmButton();
     fireEvent.click(confirm);
     fireEvent.click(confirm);
     expect(authedPostJson).toHaveBeenCalledTimes(1);
@@ -106,7 +114,7 @@ describe("ResetDemoButton confirm dialog", () => {
     expect((screen.getByRole("button", { name: "Resetting…" }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.getByRole("alertdialog")).toBeTruthy(); // not dismissible mid-flight
+    expect(screen.getByRole("dialog")).toBeTruthy(); // not dismissible mid-flight
     await act(async () => finish({ kind: "ok", data: { reset: true } }));
     expect(navigate).toHaveBeenCalledWith("/home?demo_reset=1");
   });
@@ -115,9 +123,9 @@ describe("ResetDemoButton confirm dialog", () => {
     authedPostJson.mockResolvedValue({ kind: "conflict", code: "busy" });
     const { navigate } = await renderOwner();
     fireEvent.click(screen.getByRole("button", { name: "Reset the demo" }));
-    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    fireEvent.click(confirmButton());
     expect((await screen.findByRole("alert")).textContent).toContain("Bee6 is busy right now. Try again in a few seconds.");
-    expect((screen.getByRole("button", { name: "Reset" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((confirmButton() as HTMLButtonElement).disabled).toBe(false);
     expect(navigate).not.toHaveBeenCalled();
   });
 
@@ -131,7 +139,7 @@ describe("ResetDemoButton confirm dialog", () => {
     authedPostJson.mockResolvedValue(result);
     const { navigate } = await renderOwner();
     fireEvent.click(screen.getByRole("button", { name: "Reset the demo" }));
-    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    fireEvent.click(confirmButton());
     expect((await screen.findByRole("alert")).textContent).toContain("The reset did not finish. Go to the entry page and start a new demo.");
     expect(navigate).not.toHaveBeenCalled();
   });
@@ -140,7 +148,7 @@ describe("ResetDemoButton confirm dialog", () => {
     authedPostJson.mockRejectedValue(new Error("boom"));
     await renderOwner();
     fireEvent.click(screen.getByRole("button", { name: "Reset the demo" }));
-    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    fireEvent.click(confirmButton());
     expect((await screen.findByRole("alert")).textContent).toContain("The reset did not finish.");
   });
 
@@ -153,7 +161,7 @@ describe("ResetDemoButton confirm dialog", () => {
     expect(screen.queryByRole("alert")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Reset the demo" }));
     expect(screen.queryByRole("alert")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    fireEvent.click(confirmButton());
     expect(screen.queryByRole("alert")).toBeNull();
     expect(document.querySelectorAll("[role='alert']")).toHaveLength(0);
     await act(async () => finish({ kind: "conflict", code: "busy" }));
@@ -165,18 +173,44 @@ describe("ResetDemoButton confirm dialog", () => {
   it("Bahasa copy (PROVISIONAL) follows the lang prop", async () => {
     await renderOwner("id");
     fireEvent.click(screen.getByRole("button", { name: "Atur ulang demo" }));
-    expect(screen.getByRole("alertdialog", { name: "Atur ulang demo ini?" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Atur ulang demo ini?" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Batal" })).toBeTruthy();
   });
 
-  it("the dialog is laid out for a 360 px screen: it never exceeds the viewport width and its buttons are at least 44 px tall", async () => {
+  // UI-119: the dialog used to be a bare portal with inline styles and no font, so it rendered in the browser serif.
+  // It is now G0's DialogSheet: the `.b6-dsheet*` classes set the page font, the sheet stacks two full-width 48 px buttons.
+  it("the dialog is G0's DialogSheet on <body>: the sheet classes (which set the page font), a titled heading, stacked full-width buttons of at least 44 px", async () => {
+    const { container } = await renderOwner();
+    fireEvent.click(screen.getByRole("button", { name: "Reset the demo" }));
+    const dialog = screen.getByRole("dialog", { name: "Reset this demo?" });
+    expect(container.contains(dialog)).toBe(false); // portaled to <body>
+    expect(dialog.className).toContain("b6-dsheet");
+    expect(dialog.parentElement!.className).toContain("b6-dsheet-backdrop");
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(dialog.getAttribute("aria-describedby")).not.toBeNull();
+    expect(within(dialog).getByRole("heading", { level: 2, name: "Reset this demo?" }).className).toContain("b6-dsheet__title");
+    for (const b of [confirmButton(), within(dialog).getByRole("button", { name: "Cancel" })]) {
+      expect(b.className).toContain("b6-btn--block");
+      expect(Number.parseInt(b.style.minHeight, 10)).toBeGreaterThanOrEqual(44);
+    }
+    expect(confirmButton().className).toContain("b6-btn--destructive");
+    // no inline font or overlay styling left on the dialog or its backdrop
+    expect(dialog.getAttribute("style")).toBeNull();
+    expect(dialog.parentElement!.getAttribute("style")).toBeNull();
+  });
+
+  it("the sheet class carries the page font (the regression behind UI-119)", () => {
+    const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
+    const rule = css.slice(css.indexOf("\n.b6-dsheet {"), css.indexOf("}", css.indexOf("\n.b6-dsheet {")));
+    expect(rule).toMatch(/font-family:\s*var\(--b6-font-sans\)/);
+  });
+
+  it("the failure line is a red b6-alert", async () => {
+    authedPostJson.mockResolvedValue({ kind: "error" });
     await renderOwner();
     fireEvent.click(screen.getByRole("button", { name: "Reset the demo" }));
-    const dialog = screen.getByRole("alertdialog");
-    expect(dialog.style.width).toBe("min(100%, 420px)");
-    expect(dialog.style.maxWidth).toBe("100%");
-    for (const name of ["Cancel", "Reset"]) expect(Number.parseInt(screen.getByRole("button", { name }).style.minHeight, 10)).toBeGreaterThanOrEqual(44);
-    expect(dialog.parentElement!.style.padding).not.toBe("");
+    fireEvent.click(confirmButton());
+    expect((await screen.findByRole("alert")).className).toContain("b6-alert--red");
   });
 });
 
@@ -203,15 +237,15 @@ describe("two mounted controls (the Home page's and the judge guide's) share ONE
   it("opening from the guide puts exactly one alertdialog in the DOM, and the page's trigger adds none while it is open", async () => {
     const { pageTrigger, guideTrigger } = await renderTwo();
     fireEvent.click(guideTrigger);
-    expect(screen.getAllByRole("alertdialog")).toHaveLength(1);
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
     fireEvent.click(pageTrigger);
-    expect(screen.getAllByRole("alertdialog")).toHaveLength(1);
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(document.activeElement).toBe(guideTrigger); // focus goes back to the trigger that opened it
     // closed: the other trigger can open it again, still only one
     fireEvent.click(pageTrigger);
-    expect(screen.getAllByRole("alertdialog")).toHaveLength(1);
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
   });
 
   it("unmounting the control that opened the dialog (the guide collapsing) closes it, so the other one is not locked out", async () => {
@@ -226,15 +260,15 @@ describe("two mounted controls (the Home page's and the judge guide's) share ONE
     );
     await screen.findAllByRole("button", { name: "Reset the demo" });
     fireEvent.click(within(screen.getByRole("region", { name: "guide" })).getByRole("button", { name: "Reset the demo" }));
-    expect(screen.getAllByRole("alertdialog")).toHaveLength(1);
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
     rerender(
       <>
         <ResetDemoButton lang="en" navigate={vi.fn()} />
       </>,
     );
-    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Reset the demo" }));
-    expect(screen.getAllByRole("alertdialog")).toHaveLength(1);
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
   });
 });
 
