@@ -181,7 +181,7 @@ describe("SidePanel", () => {
   // the same padding from the first frame. An open panel wins (right inset only, no top padding), exactly as
   // the collapsed class behaves.
   it("CSS contract: b6-panel-reserved on <html> reserves the pill's top padding from the first paint at >= 900 px, unless the panel is open", () => {
-    const media = parseCss(css).find((r) => r.prelude === "@media (min-width: 900px)");
+    const media = parseCss(css).find((r) => r.prelude === "@media (min-width: 900px)" && r.children.some((c) => c.prelude.includes(".b6-panel-reserved")));
     expect(media).toBeDefined();
     const rule = media!.children.find((c) => c.prelude === ".b6-panel-reserved:not(.b6-panel-open) body");
     expect(rule).toBeDefined();
