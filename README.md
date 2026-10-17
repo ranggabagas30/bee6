@@ -238,6 +238,7 @@ How each is run:
   has its own request-count caps instead: sandboxes per network and per day, and per-sandbox and per-day limits on
   recordings, proposals, simulated time-skips and typed-text redactions. Most of them are environment-configurable (see
   Environment) and none is a token ceiling.
+- The Proposal agent v4 (`PROPOSAL_AGENT_V4`) is built but off on every deployment; when on it has its own per-Ask tool-call and quote limits, not a token ceiling.
 - Constraints cannot be edited or deleted in the app. Proposals respect them through the prompt and an acknowledgement
   that plain code checks, not a semantic check.
 - The owner's approval screen has no cost or brand impact field.
@@ -256,7 +257,7 @@ How each is run:
   only partly redacts "Jalan ... No." addresses (the house number and district can survive). Phone numbers, emails and
   names were redacted correctly in the same check. Accepted as a gap for now.
 - The debrief answer route has no per-device rate limit yet.
-- Demo only: reloading the page in the middle of a demo capture session does not restore the session.
+- Demo only: the sandbox's resume state (key, expiry, role, the debrief done-flag and the spoken script cards) lives in that browser's localStorage/sessionStorage; another browser or a cleared profile starts over.
 - Demo only: on WebKit browsers (Safari), a tap within about one second of the sign-in page loading may not move the
   focus into the panel.
 - Demo only: the demo is English-first, and its Bahasa strings are provisional.
@@ -269,7 +270,7 @@ How each is run:
 - Upload a SOP in the app (R-17), with a version diff screen and a fixed sections format.
 - Long-step handling, so steps above the model's 400-character rewrite limit can be changed.
 - Pilot hardening: a rate limit on the pairing route and a Content-Security-Policy.
-- A CriticAgent that challenges a proposal before it reaches the supervisor (R-15).
+- A tool-using Proposal agent (v4, R-24, behind `PROPOSAL_AGENT_V4`) with a plain-code `check_proposal`; a separate CriticAgent was dropped (16 Oct).
 - Cross-device merge of one shop's notes from several phones (capture phase P5).
 - Voice debrief with the Gemini Live API (R-16).
 - Owner cost and brand impact on the approval screen, and outcome memory that feeds earlier results into new proposals.
