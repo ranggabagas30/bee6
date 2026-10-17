@@ -18,6 +18,7 @@ import {
 import { axeViolations } from "@/lib/testing/axe";
 import { SHEET_RESERVE_PX, SUPERVISOR_SEEN_KEY, WELCOME_SEEN_KEY, scriptStorageKey } from "@/app/demo/JudgeGuide";
 import { PairForm } from "@/app/pair/PairForm";
+import { useState } from "react";
 
 /**
  * R-19 PR-5 (plan 7.2-7.3, 5.3-5.4): the judge guide. One contextual card, collapsed by default, phone sheet under
@@ -1203,6 +1204,71 @@ describe("sign-in card: the demo email and password (demo feedback 2, finding 4)
     expect(screen.getByText("MASUK SEBAGAI PEMILIK")).toBeTruthy();
     expect(screen.getByText("owner.judge@example.com", { selector: "b" })).toBeTruthy();
     expect(screen.getByText("bee6-demo", { selector: "b" })).toBeTruthy();
+  });
+
+  describe("Fill in the form", () => {
+    /** The two controlled inputs the real email form renders (same ids), plus a submit spy that must stay untouched. */
+    const onSubmit = vi.fn();
+    function Form() {
+      const [email, setEmail] = useState("");
+      const [password, setPassword] = useState("");
+      return (
+        <form onSubmit={onSubmit}>
+          <input id="signin-email" aria-label="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input id="signin-password" aria-label="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          <button type="submit">Sign in</button>
+        </form>
+      );
+    }
+    function renderWithForm(withForm = true) {
+      return render(
+        <LangProvider initial="en">
+          {withForm ? <Form /> : null}
+          <JudgeGuide config={CONFIG} />
+        </LangProvider>,
+      );
+    }
+
+    it.each([
+      ["supervisor", "supervisor.judge@example.com"],
+      ["owner", "owner.judge@example.com"],
+    ] as const)("%s: puts the role's email and the password into the form's fields, does not submit, and collapses the sheet", (role, email) => {
+      renderWithForm();
+      act(() => void publishSignInRole(role));
+      openGuide();
+      fireEvent.click(screen.getByRole("button", { name: "Fill in the form" }));
+      expect((screen.getByLabelText("Email") as HTMLInputElement).value).toBe(email);
+      expect((screen.getByLabelText("Password") as HTMLInputElement).value).toBe("bee6-demo");
+      expect(onSubmit).not.toHaveBeenCalled();
+      expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+      // the control reads "Filled in" and is disabled; a screen reader hears the next step; the sheet handed the page back
+      expect((screen.getByRole("button", { name: "Filled in", hidden: true }) as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.getByText("Filled in. Tap Sign in.")).toBeTruthy();
+      expect(screen.getByRole("button", { name: /Open the judge guide/ }).getAttribute("aria-expanded")).toBe("false");
+    });
+
+    it("with no form fields in the page (auth still loading, or a redirect under way) the tap changes nothing", () => {
+      renderWithForm(false);
+      act(() => void publishSignInRole("supervisor"));
+      openGuide();
+      fireEvent.click(screen.getByRole("button", { name: "Fill in the form" }));
+      expect(screen.queryByRole("button", { name: "Filled in" })).toBeNull();
+      expect(screen.getByRole("button", { name: /Close the judge guide/ }).getAttribute("aria-expanded")).toBe("true");
+    });
+
+    it("is in Bahasa when the language says so", () => {
+      render(
+        <LangProvider initial="id">
+          <Form />
+          <JudgeGuide config={CONFIG} />
+        </LangProvider>,
+      );
+      act(() => void publishSignInRole("owner"));
+      fireEvent.click(screen.getByRole("button", { name: /Buka panduan juri/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Isi formulirnya" }));
+      expect((screen.getByLabelText("Email") as HTMLInputElement).value).toBe("owner.judge@example.com");
+      expect(screen.getByText("Sudah terisi. Ketuk Masuk.")).toBeTruthy();
+    });
   });
 
   it("axe finds no violation in the open card", async () => {

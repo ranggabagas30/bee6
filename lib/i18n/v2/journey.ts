@@ -63,6 +63,8 @@ export const journeyID = {
   "C-journey-jumped": "Sekarang hari {n} dari {total}. Ketuk Mulai.", // PROVISIONAL
   "C-journey-fill-code": "Isi {code}", // PROVISIONAL
   "C-journey-filled": "Sudah terisi. Ketuk Pasang.", // PROVISIONAL
+  "C-journey-fill-credentials": "Isi formulirnya", // PROVISIONAL
+  "C-journey-filled-signin": "Sudah terisi. Ketuk Masuk.", // PROVISIONAL
   "C-journey-err-generic": "Tidak bisa diproses. Coba lagi.", // PROVISIONAL
 
   // R-25 T3 (page-2 boards P2-01 / D2-01): the entry page's role cards. The step kicker, the h1, the kicker line, the
@@ -139,6 +141,8 @@ export const journeyEN: Record<keyof typeof journeyID, string> = {
   "C-journey-jumped": "It is now day {n} of {total}. Tap Start.",
   "C-journey-fill-code": "Fill in {code}",
   "C-journey-filled": "Filled in. Tap Set up.",
+  "C-journey-fill-credentials": "Fill in the form",
+  "C-journey-filled-signin": "Filled in. Tap Sign in.",
   "C-journey-err-generic": "Could not process that. Try again.",
 
   "C-journey-outlet-demo": "Demo Bakery · Outlet 1",
