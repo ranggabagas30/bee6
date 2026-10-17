@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { LangProvider } from "@/lib/i18n/context";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import type { AuthUserState } from "@/lib/auth/client/use-auth-user";
@@ -89,42 +89,30 @@ describe("HomeApp", () => {
   });
 
   it("ok fetches /api/v1/home and renders the home view", async () => {
-    authedGetJson.mockResolvedValue({ kind: "ok", data: makeData({ fact_count: 2 }) });
+    authedGetJson.mockResolvedValue({ kind: "ok", data: makeData({ fact_count: 1, lines: [{ start_hm: "09:00", category: "ROUTINE_OPS", summary: "Opened the shop" }] }) });
     renderApp();
     await waitFor(() => expect(authedGetJson).toHaveBeenCalledTimes(1));
     expect(authedGetJson).toHaveBeenCalledWith(FAKE_AUTH, "/api/v1/home", expect.anything());
     await waitFor(() => expect(screen.getByText("Today in five lines")).not.toBeNull());
-    expect(screen.getByText("Facts: 2")).not.toBeNull();
+    expect(screen.getByRole("heading", { level: 1 })).not.toBeNull();
   });
 
-  // ── R-19 PR-8 (plan 9.2): mist ground, the PR-7 reset area, the reset notice ──
+  // ── R-19 PR-8 (plan 9.2) / R-25 T13: the page has no reset control; the reset notice after a reset stays ──
 
-  it("renders on the mist ground: the decoration is the page's first child, aria-hidden", async () => {
-    authedGetJson.mockResolvedValue({ kind: "ok", data: makeData() });
-    const { container } = renderApp();
-    await waitFor(() => expect(screen.getByText("Today in five lines")).not.toBeNull());
-    const mist = container.querySelector(".b6-mist");
-    expect(mist).not.toBeNull();
-    expect(mist!.getAttribute("aria-hidden")).toBe("true");
-    expect(mist!.parentElement!.firstElementChild).toBe(mist);
-  });
-
-  it("a pilot owner (no demo claim) sees no 'Reset the demo' control", async () => {
+  // R15: the reset button is not on the page for anyone; the judge guide's owner-home card (`reset_demo`) hosts it.
+  it.each([
+    ["a pilot owner", PILOT_OWNER],
+    ["a demo owner", DEMO_OWNER],
+  ])("%s sees no 'Reset the demo' control on the page (the guide hosts it)", async (_who, claims) => {
+    authUserState = { status: "signed_in", user: userWith(claims) } as unknown as AuthUserState;
     authedGetJson.mockResolvedValue({ kind: "ok", data: makeData() });
     renderApp();
     await waitFor(() => expect(screen.getByText("Today in five lines")).not.toBeNull());
     await waitFor(() => expect(authedGetJson).toHaveBeenCalled());
+    await act(async () => {});
     expect(screen.queryByRole("button", { name: "Reset the demo" })).toBeNull();
-  });
-
-  it("a demo owner sees the PR-7 'Reset the demo' control in the reset area", async () => {
-    authUserState = { status: "signed_in", user: userWith(DEMO_OWNER) } as unknown as AuthUserState;
-    authedGetJson.mockResolvedValue({ kind: "ok", data: makeData() });
-    renderApp();
-    await waitFor(() => expect(screen.getByText("Today in five lines")).not.toBeNull());
-    const button = await screen.findByRole("button", { name: "Reset the demo" });
-    expect(button.closest("[data-testid='reset-area']")).not.toBeNull();
-    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.queryByTestId("reset-area")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("after a reset (?demo_reset=1) the 'Demo reset to day 1' notice shows once and the flag leaves the URL", async () => {
@@ -184,37 +172,11 @@ describe("HomeApp", () => {
     expect(screen.getByRole("navigation")).toBe(nav);
   });
 
-  // QA on PR-8: the reset area used to render under "Loading…" (top of the first viewport) and then jump to the page
-  // bottom when data landed — a destructive control flashing near the top plus layout shift. It is now part of the
-  // settled states only, so while loading it is not in the tree at all (CLS contribution 0).
-  it("does not render the reset area while loading; it appears at the bottom once data lands", async () => {
-    authUserState = { status: "signed_in", user: userWith(DEMO_OWNER) } as unknown as AuthUserState;
-    let resolveFetch: (v: unknown) => void = () => {};
-    authedGetJson.mockReturnValue(new Promise((r) => (resolveFetch = r)));
-    renderApp();
-    await screen.findByText("Loading…");
-    const banner = screen.getByRole("banner");
-    expect(screen.queryByTestId("reset-area")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Reset the demo" })).toBeNull();
-
-    resolveFetch({ kind: "ok", data: makeData() });
-    const button = await screen.findByRole("button", { name: "Reset the demo" });
-    const area = button.closest("[data-testid='reset-area']");
-    expect(area).not.toBeNull();
-    // Last child of <main>: below every settled card, never between the top bar and the body.
-    expect(area!.parentElement!.lastElementChild).toBe(area);
-    expect(screen.getByRole("banner")).toBe(banner);
-  });
-
-  // QA on PR-8 (second pass): on error -> 'Try again' -> ok the retry used to keep the error body (state stayed
-  // settled), so the reset area sat under the error text and jumped to the page bottom when the cards landed
-  // (CLS 0.06 at 360 px). The retry must go back through the loading state: "Loading…" feedback, no reset area,
-  // same top bar and nav nodes throughout.
-  it("'Try again' shows 'Loading…' with no reset area, then the reset area returns below the cards (nodes kept)", async () => {
-    authUserState = { status: "signed_in", user: userWith(DEMO_OWNER) } as unknown as AuthUserState;
+  // The shell never remounts across a retry: error -> "Try again" -> Loading… -> ok keeps the same bar and nav nodes.
+  it("'Try again' shows 'Loading…' and then the cards, with the same top bar and nav nodes throughout", async () => {
     authedGetJson.mockResolvedValueOnce({ kind: "error" });
     renderApp();
-    await screen.findByRole("button", { name: "Reset the demo" });
+    await screen.findByRole("button", { name: "Try again" });
     const banner = screen.getByRole("banner");
     const nav = screen.getByRole("navigation");
 
@@ -224,27 +186,22 @@ describe("HomeApp", () => {
 
     await screen.findByText("Loading…");
     expect(screen.queryByText("Could not load the notes.")).toBeNull();
-    expect(screen.queryByTestId("reset-area")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Reset the demo" })).toBeNull();
     expect(screen.getByRole("banner")).toBe(banner);
     expect(screen.getByRole("navigation")).toBe(nav);
 
     resolveFetch({ kind: "ok", data: makeData() });
     await waitFor(() => expect(screen.getByText("Today in five lines")).not.toBeNull());
-    const button = await screen.findByRole("button", { name: "Reset the demo" });
-    const area = button.closest("[data-testid='reset-area']")!;
-    expect(area.parentElement!.lastElementChild).toBe(area);
     expect(screen.getByRole("banner")).toBe(banner);
     expect(screen.getByRole("navigation")).toBe(nav);
   });
 
-  it("renders the reset area in the error state too (a demo owner can still reset after a failed load)", async () => {
-    authUserState = { status: "signed_in", user: userWith(DEMO_OWNER) } as unknown as AuthUserState;
-    authedGetJson.mockResolvedValue({ kind: "error" });
+  it("is one page: a single <main> inside the shell, the Home nav item current, no second top bar", async () => {
+    authedGetJson.mockResolvedValue({ kind: "ok", data: makeData() });
     renderApp();
-    await waitFor(() => expect(screen.getByText("Could not load the notes.")).not.toBeNull());
-    const button = await screen.findByRole("button", { name: "Reset the demo" });
-    const area = button.closest("[data-testid='reset-area']")!;
-    expect(area.parentElement!.lastElementChild).toBe(area);
+    await waitFor(() => expect(screen.getByText("Today in five lines")).not.toBeNull());
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+    expect(screen.getAllByRole("banner")).toHaveLength(1);
+    expect(screen.getByRole("heading", { level: 1 })).not.toBeNull();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
   });
 });
