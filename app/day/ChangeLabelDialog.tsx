@@ -2,18 +2,20 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Button, Card, Pill } from "@/app/ui";
+import { Button, Card, Chip, Pill } from "@/app/ui";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import type { Lang } from "@/lib/i18n/lang";
 import { WorkCategorySchema, type WorkCategory } from "@/lib/pipeline/categories";
 import { CATEGORY_KEY } from "@/lib/day/view-model";
+import { CATEGORY_CODE } from "@/app/day/summary";
 import styles from "@/app/day/change-label.module.css";
 
 /**
- * The supervisor's change-label dialog (R-19 PR-12a, plan 9.5; board D2-02b): every work category as a radio
- * row by its `C-cat-*` label, the current one checked and marked "Bee6 pick", the runner-up marked when it is a
- * work category, Save label / Cancel. Presentation only: `ThreadActions` opens it and runs the same `override`
- * action as before. No thread text, name or device appears here (hard rule #7): the body names the category only.
+ * The supervisor's change-label dialog (R-19 PR-12a, plan 9.5; board D2-02b; R-25 T9): every work category as a radio
+ * row (code chip + `C-cat-*` name), Bee6's pick first and checked, the runner-up second when it is a work category,
+ * Save label / Cancel. The body names the moment by its summary and confidence, as on the card behind it.
+ * Presentation only: `ThreadActions` opens it and runs the same `override` action as before. No name or device
+ * appears here (hard rule #7): the summary is the redacted work-note summary the day record already shows.
  *
  * Modal for real (WCAG 2.4.3 / 2.1.2, same pattern as `app/capture/SignOutDialog.tsx`): initial focus on the
  * checked radio, Tab and Shift+Tab cycle inside, Escape cancels unless a save is in flight, and focus goes back
@@ -23,6 +25,9 @@ export interface ChangeLabelDialogProps {
   lang: Lang;
   current: WorkCategory;
   runnerUp: WorkCategory | null;
+  /** The moment's summary and Bee6's confidence, for the body line. Without a summary the body names the category only. */
+  summary?: string;
+  confidencePct?: number;
   busy: boolean;
   /** The page's own copy key for a failed save (GATE_BLOCKED, generic); never server text. */
   errorKey: DictKey | null;
@@ -32,7 +37,9 @@ export interface ChangeLabelDialogProps {
 
 const FOCUSABLE = 'input:not([disabled]), button:not([disabled])';
 
-export function ChangeLabelDialog({ lang, current, runnerUp, busy, errorKey, onSave, onCancel }: ChangeLabelDialogProps) {
+const SUMMARY_MARK = "\u0001";
+
+export function ChangeLabelDialog({ lang, current, runnerUp, summary, confidencePct, busy, errorKey, onSave, onCancel }: ChangeLabelDialogProps) {
   const [selected, setSelected] = useState<WorkCategory>(current);
   const ids = useId();
   const titleId = `${ids}-title`;
@@ -95,13 +102,37 @@ export function ChangeLabelDialog({ lang, current, runnerUp, busy, errorKey, onS
     return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  // Bee6's pick first, the runner-up second, then the rest in schema order (board D2-02b).
+  const ordered = [
+    current,
+    ...(runnerUp && runnerUp !== current ? [runnerUp] : []),
+    ...WorkCategorySchema.options.filter((c) => c !== current && c !== runnerUp),
+  ];
+
+  // The summary is bold on the board; split the translated line around a mark so the word order stays the translator's.
+  const trimmedSummary = summary?.trim() ?? "";
+  const bodyParts =
+    trimmedSummary !== "" && confidencePct !== undefined
+      ? t(lang, "C-day2-lbl-body", { summary: SUMMARY_MARK, category: t(lang, CATEGORY_KEY[current]), pct: confidencePct }).split(SUMMARY_MARK)
+      : null;
+
   const dialog = (
     <div ref={rootRef} className={styles.overlay}>
       <Card as="section" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} className={styles.panel}>
         <h2 id={titleId} className={styles.title}>
           {t(lang, "C-lbl-title")}
         </h2>
-        <p className={styles.body}>{t(lang, "C-lbl-body", { category: t(lang, CATEGORY_KEY[current]) })}</p>
+        <p className={styles.body}>
+          {bodyParts ? (
+            <>
+              {bodyParts[0]}
+              <strong className={styles.moment}>{trimmedSummary}</strong>
+              {bodyParts[1]}
+            </>
+          ) : (
+            t(lang, "C-lbl-body", { category: t(lang, CATEGORY_KEY[current]) })
+          )}
+        </p>
         <form
           noValidate
           onSubmit={(e) => {
@@ -113,7 +144,7 @@ export function ChangeLabelDialog({ lang, current, runnerUp, busy, errorKey, onS
             <legend id={legendId} className={styles.legend}>
               {t(lang, "C-lbl-group")}
             </legend>
-            {WorkCategorySchema.options.map((category) => (
+            {ordered.map((category) => (
               <label key={category} className={styles.option}>
                 <input
                   ref={category === current ? currentRef : undefined}
@@ -124,6 +155,9 @@ export function ChangeLabelDialog({ lang, current, runnerUp, busy, errorKey, onS
                   disabled={busy}
                   onChange={() => setSelected(category)}
                 />
+                <Chip className={styles.code} aria-hidden="true">
+                  {CATEGORY_CODE[category]}
+                </Chip>
                 <span className={styles.optionLabel}>{t(lang, CATEGORY_KEY[category])}</span>
                 {category === current ? (
                   <Pill tone="amber">{t(lang, "C-lbl-current")}</Pill>

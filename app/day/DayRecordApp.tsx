@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
@@ -12,6 +12,8 @@ import { useLang } from "@/lib/i18n/context";
 import { t } from "@/lib/i18n/dict";
 import { DayRecordResponseSchema, type DayRecordResponse } from "@/lib/day/contract";
 import { WebTopBar } from "@/app/web/WebTopBar";
+import { Button, buttonClassName } from "@/app/ui";
+import styles from "@/app/day/day.module.css";
 import { DayRecordView } from "@/app/day/DayRecordView";
 
 /**
@@ -26,8 +28,18 @@ import { DayRecordView } from "@/app/day/DayRecordView";
  * the currently-shown data first (no loading flash on a decision refetch).
  */
 
-const PAGE_STYLE: CSSProperties = { maxWidth: 720, margin: "0 auto", padding: 16, boxSizing: "border-box" };
-const RETRY_STYLE: CSSProperties = { minHeight: 48, padding: "0 16px", fontSize: 16, cursor: "pointer" };
+/**
+ * The page frame (R-25 T9): `main` + the top bar + the content column. One place, so adopting T8's `WebShell`
+ * (bar + nav + `main`) is a one-component swap.
+ */
+function Frame({ auth, showSignOut, children }: { auth: Parameters<typeof WebTopBar>[0]["auth"]; showSignOut: boolean; children: ReactNode }) {
+  return (
+    <main className={styles.page}>
+      <WebTopBar auth={auth} showSignOut={showSignOut} current="day" />
+      {children}
+    </main>
+  );
+}
 
 type ViewState =
   | { kind: "loading" }
@@ -104,14 +116,11 @@ export function DayRecordApp({
 
   if (!config || !auth) {
     return (
-      <main>
-        <div style={PAGE_STYLE}>
-          <WebTopBar auth={null} showSignOut={false} />
-          <p role="status" aria-live="polite">
-            {t(lang, "C-signin-config")}
-          </p>
-        </div>
-      </main>
+      <Frame auth={null} showSignOut={false}>
+        <p role="status" aria-live="polite" className="b6-sub">
+          {t(lang, "C-signin-config")}
+        </p>
+      </Frame>
     );
   }
 
@@ -121,66 +130,57 @@ export function DayRecordApp({
 
   if (state.kind === "loading") {
     return (
-      <main>
-        <div style={PAGE_STYLE}>
-          <WebTopBar auth={auth} showSignOut current="day" />
-          <p role="status" aria-live="polite">
-            {t(lang, "C-day-loading")}
-          </p>
-        </div>
-      </main>
+      <Frame auth={auth} showSignOut>
+        <p role="status" aria-live="polite" className="b6-sub">
+          {t(lang, "C-day-loading")}
+        </p>
+      </Frame>
     );
   }
 
   if (state.kind === "forbidden") {
     return (
-      <main>
-        <div style={PAGE_STYLE}>
-          <WebTopBar auth={auth} showSignOut current="day" />
-          <p role="status" aria-live="polite">
-            {t(lang, "C-day-forbidden")}
-          </p>
-        </div>
-      </main>
+      <Frame auth={auth} showSignOut>
+        <p role="status" aria-live="polite" className="b6-sub">
+          {t(lang, "C-day-forbidden")}
+        </p>
+      </Frame>
     );
   }
 
   if (state.kind === "invalid") {
     return (
-      <main>
-        <div style={PAGE_STYLE}>
-          <WebTopBar auth={auth} showSignOut current="day" />
-          <p role="status" aria-live="polite">
+      <Frame auth={auth} showSignOut>
+        <div className={styles.state}>
+          <p role="status" aria-live="polite" className="b6-sub">
             {t(lang, "C-day-invalid")}
           </p>
-          <Link href="/day">{t(lang, "C-day-to-today")}</Link>
+          <Link href="/day" className={buttonClassName({ variant: "secondary" })}>
+            {t(lang, "C-day-to-today")}
+          </Link>
         </div>
-      </main>
+      </Frame>
     );
   }
 
   if (state.kind === "error") {
     return (
-      <main>
-        <div style={PAGE_STYLE}>
-          <WebTopBar auth={auth} showSignOut current="day" />
-          <p role="status" aria-live="polite">
+      <Frame auth={auth} showSignOut>
+        <div className={styles.state}>
+          <p role="status" aria-live="polite" className="b6-sub">
             {t(lang, "C-day-err")}
           </p>
-          <button type="button" style={RETRY_STYLE} onClick={reload}>
+          <Button variant="secondary" onClick={reload}>
             {t(lang, "C-day-retry")}
-          </button>
+          </Button>
         </div>
-      </main>
+      </Frame>
     );
   }
 
   const { data } = state;
   return (
-    <main>
-      <div style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut current="day" />
-      </div>
+    <Frame auth={auth} showSignOut>
       <DayRecordView
         data={data}
         auth={auth}
@@ -188,6 +188,6 @@ export function DayRecordApp({
         onNext={() => goTo(addDays(data.day.date, 1))}
         onReload={reload}
       />
-    </main>
+    </Frame>
   );
 }
