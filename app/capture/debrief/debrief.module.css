@@ -96,6 +96,32 @@
   color: var(--b6-muted);
 }
 
+/* demo-feedback-2 item 10: the quoted line(s) that replace .why on a sandbox question */
+.heard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.heardLead {
+  margin: 0;
+  font-size: var(--b6-fs-small);
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--b6-muted);
+}
+
+.heardLine {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--b6-line);
+  font-size: var(--b6-fs-ui);
+  line-height: 1.5;
+  color: var(--b6-ink-soft);
+  /* a long unbroken token (a URL, an id) must wrap inside the 360 px card, not push it wider */
+  overflow-wrap: anywhere;
+}
+
 .choices {
   display: flex;
   gap: 10px;

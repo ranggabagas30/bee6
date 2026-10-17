@@ -6,9 +6,16 @@ import {
   type DebriefListResponse,
   type DebriefQuestionView,
 } from "@/lib/debrief/contract";
-import { ANSWER_FUTURE_TOLERANCE_MS, ANSWER_CACHE_MAX_AGE_MS, CORRECTION_TEXT_MAX_CHARS } from "@/lib/debrief/constants";
+import {
+  ANSWER_FUTURE_TOLERANCE_MS,
+  ANSWER_CACHE_MAX_AGE_MS,
+  CORRECTION_TEXT_MAX_CHARS,
+  QUESTION_LINE_MAX_CHARS,
+  QUESTION_LINES_MAX,
+} from "@/lib/debrief/constants";
 import { checkReason, reasonLength } from "@/lib/debrief/reason";
 import { scrubReason } from "@/lib/debrief/scrub";
+import { scrubQuestionLine, stripInvisibleChars } from "@/lib/debrief/question-line";
 import { rankQuestions } from "@/lib/debrief/rank";
 import {
   planAnswerCommit,
@@ -18,7 +25,7 @@ import {
 import { businessDateOf, localHmOf, DEBRIEF_DURATION_MS } from "@/lib/capture/calendar";
 import { computePreparing } from "@/lib/debrief/preparing";
 import { AppError, DemoCapError, LockedError, NotFoundError, ServiceUnavailableError } from "@/lib/http/errors";
-import type { LastEnded, Question } from "@/lib/firestore/schema";
+import type { LastEnded, Question, Thread } from "@/lib/firestore/schema";
 import type { WorkCategory } from "@/lib/pipeline/categories";
 import type { Redactor } from "@/lib/redact/types";
 
@@ -46,6 +53,11 @@ export interface DebriefStore {
   findEndedDebrief(device_id: string, business_date: string): Promise<EndedDebrief | null>;
   /** Raw `staff.name` values of the outlet, for the scrub (never persisted). */
   listStaffNames(): Promise<string[]>;
+  /**
+   * demo-feedback-2 item 10 (sandbox only): one thread document by id, or null when missing or malformed. Any
+   * outlet/device — the caller re-checks scope itself before using a single character of it.
+   */
+  getThread(thread_id: string): Promise<Thread | null>;
   transactAnswer(
     question_id: string,
     fn: (s: AnswerTxSnapshot) => AnswerWritePlan,
@@ -89,6 +101,84 @@ function earlierDay(q: Question, debriefDate: string, tz: string): { business_da
   return date < debriefDate ? { business_date: date } : {};
 }
 
+
+/** Cuts a line to `QUESTION_LINE_MAX_CHARS` code points, the last one being "…" (same `Array.from` counting as `reasonLength`). */
+function truncateLine(line: string): string {
+  const chars = Array.from(line);
+  if (chars.length <= QUESTION_LINE_MAX_CHARS) return line;
+  return `${chars.slice(0, QUESTION_LINE_MAX_CHARS - 1).join("").trimEnd()}…`;
+}
+
+/**
+ * demo-feedback-2 item 10: up to `QUESTION_LINES_MAX` of the thread's own stored lines for a question. The text is
+ * the already-redacted line text; invisible/bidi characters are stripped, then it is scrubbed against the staff
+ * names (including Indonesian clitic forms such as "Budinya") FIRST (a name cut in half by the truncation would
+ * otherwise survive as a prefix), then trimmed, blank lines dropped, and truncated. Evidence
+ * lines (the ones the gate counted) win; with none usable the thread's first lines stand in. Never persisted.
+ */
+function pickQuestionLines(thread: Thread, staffNames: readonly string[]): string[] {
+  const byStart = (a: { start_ms: number }, b: { start_ms: number }) => a.start_ms - b.start_ms;
+  const clean = (candidates: Thread["lines"]): string[] =>
+    [...candidates]
+      .sort(byStart)
+      .map((line) => scrubQuestionLine(stripInvisibleChars(line.text), staffNames).trim())
+      .filter((text) => text.length > 0)
+      .slice(0, QUESTION_LINES_MAX)
+      .map(truncateLine);
+  const evidence = new Set(thread.evidence_line_ids);
+  const fromEvidence = clean(thread.lines.filter((line) => evidence.has(line.line_id)));
+  return fromEvidence.length > 0 ? fromEvidence : clean(thread.lines);
+}
+
+/**
+ * Sandbox only. `question_id -> lines` for the gate questions whose own thread can be read and is this device's
+ * and outlet's. FAIL CLOSED: if the staff names cannot be read, no thread text is read or returned at all; a
+ * thread that cannot be read, is missing, malformed or belongs to another device/outlet gives that question no
+ * lines. `log` gets counts and a flag only.
+ */
+async function loadQuestionLines(
+  store: DebriefStore,
+  claims: { outlet_id: string; device_id: string },
+  ranked: readonly Question[],
+  log: (entry: Record<string, unknown>) => void,
+): Promise<Map<string, string[]>> {
+  const result = new Map<string, string[]>();
+  const candidates = ranked.filter((q) => q.kind === "gate" && q.thread_id !== null);
+  if (candidates.length === 0) return result;
+
+  let staffNames: string[];
+  try {
+    staffNames = await store.listStaffNames();
+  } catch {
+    log({ event: "debrief.lines", candidates: candidates.length, shown: 0, degraded: true });
+    return result;
+  }
+
+  const threadIds = Array.from(new Set(candidates.map((q) => q.thread_id as string)));
+  const threads = new Map<string, Thread | null>();
+  await Promise.all(
+    threadIds.map(async (id) => {
+      try {
+        threads.set(id, await store.getThread(id));
+      } catch {
+        threads.set(id, null);
+      }
+    }),
+  );
+
+  for (const q of candidates) {
+    const thread = threads.get(q.thread_id as string);
+    if (!thread) continue;
+    // Scope: this device's own thread of this outlet, and the very thread the question points at.
+    if (thread.outlet_id !== claims.outlet_id || thread.device_id !== claims.device_id) continue;
+    if (thread.thread_id !== q.thread_id) continue;
+    const lines = pickQuestionLines(thread, staffNames);
+    if (lines.length > 0) result.set(q.question_id, lines);
+  }
+  log({ event: "debrief.lines", candidates: candidates.length, shown: result.size, degraded: false });
+  return result;
+}
+
 /** `GET /api/v1/questions` (device). `log` receives counts only (R-19 `debrief.preparing`), never text or ids. */
 export async function listDebriefQuestions(
   store: DebriefStore,
@@ -107,6 +197,8 @@ export async function listDebriefQuestions(
   const ranked = rankQuestions(scoped);
 
   const calendar = await store.getOutletCalendar();
+  // demo-feedback-2 item 10, sandbox only: a pilot response never carries `lines` (and costs no extra read).
+  const quoted = calendar.sandbox === true ? await loadQuestionLines(store, claims, ranked, log) : new Map<string, string[]>();
   const questions: DebriefQuestionView[] = ranked.map((q) => ({
     question_id: q.question_id,
     kind: q.kind,
@@ -118,6 +210,7 @@ export async function listDebriefQuestions(
     end_hm: localHmOf(q.window_end_ms, calendar.tz),
     // R-18 sandbox only: a pilot response never carries business_date.
     ...(calendar.sandbox === true ? earlierDay(q, last.business_date, calendar.tz) : {}),
+    ...(quoted.has(q.question_id) ? { lines: quoted.get(q.question_id) } : {}),
   }));
 
   // R-19 PR-3, sandbox only: a pilot response never carries the key (and costs no extra read).

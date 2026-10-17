@@ -42,12 +42,18 @@ async function deviceQuestionsGet(req: NextRequest) {
       firestoreDebriefStore(claims.outlet_id),
       { outlet_id: claims.outlet_id, device_id: claims.device_id },
       Date.now(),
-      // R-19: `{event, pending, preparing}` counts only; the service never hands this a line id or text.
-      (entry) => console.log("debrief.preparing", entry),
+      // R-19 `{event, pending, preparing}` and item 10 `{event, candidates, shown, degraded}`: counts and flags
+      // only; the service never hands this a line id or any text.
+      (entry) => console.log(typeof entry.event === "string" ? entry.event : "debrief", entry),
     );
-    return jsonOk(data);
+    // A sandbox body can hold stored thread text (item 10): never let a browser or proxy cache it.
+    const res = jsonOk(data);
+    res.headers.set("Cache-Control", "private, no-store");
+    return res;
   } catch (error) {
-    return handleApiError(error);
+    const res = handleApiError(error);
+    res.headers.set("Cache-Control", "private, no-store");
+    return res;
   }
 }
 

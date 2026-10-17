@@ -15,9 +15,10 @@ import css from "@/app/capture/debrief/debrief.module.css";
 /**
  * One debrief question at a time (R-07 Task 7.2, UX-03 section 4.2/5.8; page-2 look from R-25 T7, boards P2-09 /
  * L2-08). Purely presentational and controlled: the caller (`DebriefFlow`) owns the reducer state and the
- * Next/Skip side effects (the phone cache write, the POST, the gate). Nothing here ever reads a server-supplied
- * thread line, a name or a role: only `questionText()`'s enum-mapped template, the category code and the fixed
- * `questionWhy()` sentence. The answer is Yes or No plus a required reason, as the route accepts (the board's
+ * Next/Skip side effects (the phone cache write, the POST, the gate). Nothing here ever reads a name or a role:
+ * only `questionText()`'s enum-mapped template, the category code and the fixed `questionWhy()` sentence. The one
+ * server-supplied text is `question.lines` (demo-feedback-2 item 10, sandbox only): already-redacted,
+ * server-scrubbed thread lines, rendered as plain text nodes in React state only (never stored, never HTML). The answer is Yes or No plus a required reason, as the route accepts (the board's
  * "Not sure" is not offered: R-25 ruling R9).
  */
 
@@ -75,6 +76,7 @@ export function QuestionScreen({
   const qText = questionText(lang, question);
   const qLines = questionLines(lang, question);
   const chip = questionCategoryChip(lang, question);
+  const quoted = question.lines && question.lines.length > 0 ? question.lines : null;
   const n = reasonLength(view.reason);
   const over = n > REASON_MAX_CHARS ? n - REASON_MAX_CHARS : 0;
   const disabled = !canCommit(view);
@@ -153,7 +155,22 @@ export function QuestionScreen({
             </span>
           ))}
         </h2>
-        <p className={css.why}>{questionWhy(lang, question)}</p>
+        {quoted ? (
+          // demo-feedback-2 item 10 (sandbox only): the device's own stored, already-redacted, name-scrubbed
+          // line(s). Plain text nodes only (never t() interpolation, never HTML); they replace the generic why.
+          <div className={css.heard}>
+            <p className={css.heardLead}>{t(lang, "C-d2-heard")}</p>
+            {quoted.map((line, i) => (
+              <p key={i} className={css.heardLine}>
+                {"\u201C"}
+                {line}
+                {"\u201D"}
+              </p>
+            ))}
+          </div>
+        ) : (
+          <p className={css.why}>{questionWhy(lang, question)}</p>
+        )}
       </Card>
 
       <div role="radiogroup" aria-label={qText} className={css.choices} onKeyDown={handleGroupKeyDown}>

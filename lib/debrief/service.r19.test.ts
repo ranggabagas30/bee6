@@ -38,6 +38,7 @@ function fakeStore(opts: {
     getQuestion: async () => null,
     findEndedDebrief: async () => null,
     listStaffNames: async () => [],
+    getThread: async () => null,
     transactAnswer: async () => "already_answered",
     getLatestEndedSession: async (device_id, business_date) => {
       calls.push(`session:${device_id}:${business_date}`);

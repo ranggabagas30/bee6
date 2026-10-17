@@ -6,6 +6,7 @@ import {
   DebriefListResponseSchema,
   DebriefQuestionViewSchema,
 } from "@/lib/debrief/contract";
+import { QUESTION_LINES_MAX, QUESTION_LINE_MAX_CHARS } from "@/lib/debrief/constants";
 import { CorrectionSchema } from "@/lib/firestore/schema";
 
 const goodAnswerBody = {
@@ -197,3 +198,60 @@ describe("DebriefQuestionViewSchema: R-18 optional business_date (earlier-day ch
   });
 });
 
+
+describe("DebriefQuestionViewSchema: demo-feedback-2 item 10 optional `lines` (sandbox only)", () => {
+  const base = { question_id: "q1", kind: "gate", category: "ROUTINE_OPS", start_hm: "10:00", end_hm: "10:05" };
+  const parse = (extra: Record<string, unknown>) => DebriefQuestionViewSchema.safeParse({ ...base, ...extra });
+
+  it("accepts a view without `lines` (every pilot response)", () => {
+    expect(parse({}).success).toBe(true);
+  });
+
+  it("accepts one or two non-empty lines", () => {
+    expect(parse({ lines: ["Telur tart masih segar."] }).success).toBe(true);
+    expect(parse({ lines: ["a", "b"] }).success).toBe(true);
+  });
+
+  it("rejects more than QUESTION_LINES_MAX (2) lines", () => {
+    expect(QUESTION_LINES_MAX).toBe(2);
+    expect(parse({ lines: ["a", "b", "c"] }).success).toBe(false);
+  });
+
+  it("rejects an empty line", () => {
+    expect(parse({ lines: [""] }).success).toBe(false);
+  });
+
+  it("counts code points, not UTF-16 units: 160 emoji pass, 161 fail", () => {
+    expect(QUESTION_LINE_MAX_CHARS).toBe(160);
+    expect(parse({ lines: ["😀".repeat(160)] }).success).toBe(true);
+    expect(parse({ lines: ["😀".repeat(161)] }).success).toBe(false);
+    expect(parse({ lines: ["a".repeat(161)] }).success).toBe(false);
+  });
+
+  it("rejects a non-string line and a non-array `lines`", () => {
+    expect(parse({ lines: [1] }).success).toBe(false);
+    expect(parse({ lines: "Telur tart" }).success).toBe(false);
+  });
+
+  it("stays strict: an extra key next to `lines` is still rejected", () => {
+    expect(parse({ lines: ["a"], text: "x" }).success).toBe(false);
+    expect(parse({ lines: ["a"], thread_id: "t1" }).success).toBe(false);
+  });
+});
+
+describe("AnswerCacheEntrySchema: demo-feedback-2 item 10 keeps the phone cache text-free of the quoted lines", () => {
+  const entry = {
+    question_id: "q1",
+    debrief_business_date: "2026-10-07",
+    answer: "yes" as const,
+    reason: "sudah",
+    answered_at_ms: 1_700_000_000_000,
+  };
+  it("rejects a `lines` key (the question's quoted text can never be cached)", () => {
+    expect(AnswerCacheEntrySchema.safeParse(entry).success).toBe(true);
+    expect(AnswerCacheEntrySchema.safeParse({ ...entry, lines: ["Pelanggan tanya roti."] }).success).toBe(false);
+  });
+  it("AnswerBodySchema (the upload body) rejects it as well", () => {
+    expect(AnswerBodySchema.safeParse({ ...entry, lines: ["x"] }).success).toBe(false);
+  });
+});

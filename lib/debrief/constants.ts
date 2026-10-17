@@ -21,6 +21,12 @@ export const CORRECTION_TEXT_MAX_CHARS = 1000;
 export const DEBRIEF_SHOW_MAX = 5;
 /** The server returns at most 10 (the phone filters cached ids, then takes 5). */
 export const DEBRIEF_LIST_SERVER_CAP = 10;
+/**
+ * demo-feedback-2 item 10 (sandbox only): a debrief question may quote at most this many already-redacted,
+ * name-scrubbed lines of the device's own thread, each cut to `QUESTION_LINE_MAX_CHARS` code points (with "…").
+ */
+export const QUESTION_LINES_MAX = 2;
+export const QUESTION_LINE_MAX_CHARS = 160;
 /** `answered_at_ms` more than this far in the future is refused (400). */
 export const ANSWER_FUTURE_TOLERANCE_MS = 5 * 60_000;
 // DEFERRED (Rangga, 7 Oct) to the rate-limit follow-up due before Sun 11 sign-off: do NOT add now.

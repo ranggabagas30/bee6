@@ -1092,3 +1092,89 @@ describe("DebriefFlow: R-19 demo debrief (sandbox only)", () => {
     });
   });
 });
+
+describe("DebriefFlow: quoted lines (demo-feedback-2 item 10, sandbox only)", () => {
+  const LINE_A = "Pelanggan tanya roti tawar habis.";
+  const LINE_B = "Kami bilang besok pagi ada lagi.";
+
+  /** Records every request body; the list response carries `lines` on q1. */
+  function linesFetch() {
+    const bodies: string[] = [];
+    const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url === "/api/v1/questions" && method === "GET") {
+        const body = listResponse([q("q1", { lines: [LINE_A, LINE_B] })]);
+        return { ok: true, status: 200, json: async () => body } as Response;
+      }
+      if (/\/answer$/.test(url) && method === "POST") {
+        bodies.push(String(init?.body ?? ""));
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }
+      throw new Error(`unexpected fetch ${method} ${url}`);
+    });
+    return { fn: fn as unknown as typeof fetch, bodies };
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("passes the list response's lines through to the question screen as quoted text", async () => {
+    const { fn } = linesFetch();
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} />);
+    await openCard();
+    expect(screen.getByText("Bee6 heard:")).toBeTruthy();
+    expect(screen.getByText(`“${LINE_A}”`)).toBeTruthy();
+    expect(screen.getByText(`“${LINE_B}”`)).toBeTruthy();
+  });
+
+  it("never reaches the storage, IndexedDB, or the answer upload body", async () => {
+    const { fn, bodies } = linesFetch();
+    const storage = new FakeStorage();
+    const setItemSpy = vi.spyOn(storage, "setItem");
+    let idbTouched = 0;
+    Object.defineProperty(globalThis, "indexedDB", {
+      configurable: true,
+      get() {
+        idbTouched += 1;
+        return undefined;
+      },
+    });
+    try {
+      render(<Harness fetchFn={fn} storage={storage} />);
+      await openCard();
+      fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
+      fireEvent.change(screen.getByRole("textbox"), { target: { value: "sudah" } });
+      fireEvent.click(screen.getByRole("button", { name: "Next question" }));
+      await waitFor(() => expect(screen.getByText("Debrief complete. Thank you.")).toBeTruthy());
+    } finally {
+      delete (globalThis as Record<string, unknown>).indexedDB;
+    }
+
+    expect(setItemSpy).toHaveBeenCalled();
+    for (const [key, value] of setItemSpy.mock.calls) {
+      expect(String(key)).not.toContain("Pelanggan");
+      expect(String(value)).not.toContain("Pelanggan");
+      expect(String(value)).not.toContain("roti");
+      expect(String(value)).not.toContain("lines");
+    }
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).not.toContain("Pelanggan");
+    expect(bodies[0]).not.toContain("lines");
+    expect(Object.keys(JSON.parse(bodies[0]!)).sort()).toEqual(
+      ["answer", "answered_at_ms", "debrief_business_date", "question_id", "reason"].sort(),
+    );
+    // The phone cache holds the strict five-key entry and nothing else.
+    for (const entry of readCache(storage)) {
+      expect(Object.keys(entry).sort()).toEqual(["answer", "answered_at_ms", "debrief_business_date", "question_id", "reason"]);
+    }
+    expect(idbTouched).toBe(0);
+  });
+
+  it("the sandbox (demo) flow shows the lines too", async () => {
+    const { fn } = linesFetch();
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} demo />);
+    await waitFor(() => expect(screen.getByText(`“${LINE_A}”`)).toBeTruthy());
+  });
+});

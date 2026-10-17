@@ -124,6 +124,17 @@ export function firestoreDebriefStore(outletId: string, db: Firestore = adminDb(
       return parsed.data;
     },
 
+    async getThread(threadId: string): Promise<Thread | null> {
+      const doc = await threads().doc(threadId).get();
+      if (!doc.exists) return null;
+      const parsed = ThreadSchema.safeParse(doc.data());
+      if (!parsed.success) {
+        logSkippedDoc("thread", doc.id);
+        return null;
+      }
+      return parsed.data;
+    },
+
     async findEndedDebrief(deviceId: string, businessDate: string): Promise<EndedDebrief | null> {
       // Fast path: devices/{outlet}:{device}.last_ended, when its own business_date matches.
       const last = await readLastEnded(deviceId);
