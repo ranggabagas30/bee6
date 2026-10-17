@@ -18,5 +18,6 @@ export default defineConfig({
     // parallel on a loaded machine without changing test logic or adding retries.
     testTimeout: 30000,
     hookTimeout: 30000,
+    setupFiles: ["./vitest.setup.ts"],
   },
 });
