@@ -1146,9 +1146,6 @@ export default function CapturePage() {
     }
     return (
       <>
-        {/* R-25 T5: the debrief screens carry their own h2 until R-25 T7 gives each its stage and h1; the page keeps one h1. */}
-        {sandbox ? <h1 className="b6-sr-only">{t(lang, "C-cap-title")}</h1> : null}
-        {dayLine ? <p className="b6-mono" style={{ textAlign: "center", margin: "0 0 12px" }}>{dayLine}</p> : null}
         <DebriefFlow
           key={debriefEndsAtMs}
           auth={auth}
@@ -1159,6 +1156,7 @@ export default function CapturePage() {
           headline={headline}
           primary={primary}
           demo={config?.demo_session !== undefined}
+          dayNumber={demoSession?.day ?? null}
         />
         {/* UX-03 section 5.10: the privacy notice is on every screen of the page, the debrief included. */}
         {sandbox ? <div className={cx("b6-foot", css.foot)}>{renderNote()}</div> : null}
