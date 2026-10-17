@@ -1658,6 +1658,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       expect((within(dialog).getByRole("button", { name: "Yes, end" }) as HTMLButtonElement).disabled).toBe(false);
       fireEvent.click(within(dialog).getByRole("button", { name: "Not yet, keep going" }));
       expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.queryByRole("alert")).toBeNull(); // dismissing the sheet clears the End error
       expect(screen.getByRole("heading", { name: "Today's session is still open" })).toBeTruthy();
       expect((screen.getByRole("button", { name: "End today" }) as HTMLButtonElement).disabled).toBe(false);
     });

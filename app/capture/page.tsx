@@ -1053,7 +1053,10 @@ export default function CapturePage() {
               body={t(lang, "C-script-end-b")}
               busy={openBusy}
               errorKey={openErrorKey}
-              onKeep={() => setOpenEndConfirm(false)}
+              onKeep={() => {
+                setOpenEndConfirm(false);
+                setOpenErrorKey(null);
+              }}
               onEnd={() => void handleOpenEnd()}
             />
           ) : null}
