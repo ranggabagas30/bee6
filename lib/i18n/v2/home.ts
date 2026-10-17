@@ -74,8 +74,8 @@ export const homeID = {
   "C-home-waiting-sop": "Lihat versi SOP yang baru", // PROVISIONAL
   "C-home-to-day-full": "Lihat hari penuh (tampilan supervisor)", // PROVISIONAL
   "C-home-review-title": "Tinjauan berikutnya", // PROVISIONAL
-  "C-home-review-none": "Belum ada tinjauan terjadwal", // PROVISIONAL
-  "C-home-review-none-sub": "Muncul setelah Anda menyetujui perubahan", // PROVISIONAL
+  "C-home-nr-empty-v": "Belum ada tinjauan terjadwal", // PROVISIONAL
+  "C-home-nr-empty-d": "Muncul setelah Anda menyetujui perubahan", // PROVISIONAL
   "C-home-cost-day": "BIAYA PER OUTLET-HARI", // PROVISIONAL
 } as const satisfies Record<string, string>;
 
@@ -129,7 +129,7 @@ export const homeEN: Record<keyof typeof homeID, string> = {
   "C-home-waiting-sop": "See the new SOP version",
   "C-home-to-day-full": "See the full day (supervisor view)",
   "C-home-review-title": "Next review",
-  "C-home-review-none": "No review scheduled yet",
-  "C-home-review-none-sub": "Appears after you approve a change",
+  "C-home-nr-empty-v": "No review scheduled yet",
+  "C-home-nr-empty-d": "Appears after you approve a change",
   "C-home-cost-day": "COST PER OUTLET-DAY",
 };

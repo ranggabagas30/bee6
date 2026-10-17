@@ -233,8 +233,8 @@ export function HomeView({ data, hour = new Date().getHours() }: { data: HomeRes
             <h2 id={reviewId} className={styles.cardTitle}>{t(lang, "C-home-review-title")}</h2>
             {review.date === null ? (
               <>
-                <span className={styles.reviewMain}>{t(lang, "C-home-review-none")}</span>
-                <span className={styles.reviewMono}>{t(lang, "C-home-review-none-sub")}</span>
+                <span className={styles.reviewMain}>{t(lang, "C-home-nr-empty-v")}</span>
+                <span className={styles.reviewMono}>{t(lang, "C-home-nr-empty-d")}</span>
               </>
             ) : (
               <>
