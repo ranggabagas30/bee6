@@ -98,7 +98,7 @@ export const proposalsID = {
   "C-propa-dates": "{starts} · tinjauan {review}", // PROVISIONAL
   "C-propa-shipped": "Terbit sebagai SOP versi {version}", // PROVISIONAL
   "C-propa-decided-on": "Diputuskan {date}", // PROVISIONAL
-  "C-propa-decision": "KEPUTUSAN ANDA", // PROVISIONAL
+  "C-propa-decision": "Keputusan Anda", // PROVISIONAL
   "C-propa-approve": "Setujui", // PROVISIONAL
   "C-propa-approve-na": "Setujui · tidak tersedia", // PROVISIONAL
   "C-propa-sop-changed": "SOP berubah setelah usulan ini dibuat. Anda masih bisa menolaknya dengan alasan.", // PROVISIONAL
@@ -107,7 +107,7 @@ export const proposalsID = {
   "C-propa-reject-send": "Tolak dengan alasan", // PROVISIONAL
   "C-propa-done-approved": "Disetujui. Perubahan ini terbit sebagai versi SOP baru.", // PROVISIONAL
   "C-propa-done-rejected": "Ditolak. Alasan Anda kini menjadi aturan yang dipatuhi Bee6.", // PROVISIONAL
-  "C-propa-all-both": "Keduanya sudah diputuskan.", // PROVISIONAL
+  "C-propa-all-both": "Keduanya sudah diputuskan. Tenang dan rapi.", // PROVISIONAL
   "C-propa-all": "Semua sudah diputuskan.", // PROVISIONAL
   "C-propa-rule": "Kini menjadi aturan: {reason}", // PROVISIONAL
   "C-propa-rule-none": "Kini menjadi aturan yang dipatuhi Bee6.", // PROVISIONAL
@@ -115,6 +115,20 @@ export const proposalsID = {
   "C-propa-next-p": "Perubahan yang disetujui masuk ke SOP sejak tanggal mulainya. Bee6 memantau ukurannya sampai tanggal tinjauan, lalu tinjauan menunjukkan apakah perubahan itu berhasil. Setiap alasan yang Anda tulis menjadi aturan yang dipatuhi Bee6 pada usulan berikutnya.", // PROVISIONAL
   "C-propa-home": "Kembali ke beranda", // PROVISIONAL
   "C-propa-see-sop": "Lihat SOP", // PROVISIONAL
+  // ── R-25 T11 (G4b): page-2 owner approvals (boards D2-08, 08c, 08d, 08e). Append-only. ──────────────────────
+  "C-propa-kicker": "PERSETUJUAN · {n} DARI {total} · SISA {left}", // PROVISIONAL
+  "C-propa-kicker-done": "PERSETUJUAN · SELESAI", // PROVISIONAL
+  "C-propa-meta": "#{n} · supervisor: layak dijalankan {date}", // PROVISIONAL
+  "C-propa-evidence-h": "Mengapa Bee6 menyarankan ini", // PROVISIONAL
+  "C-propa-pace-why": "Persetujuan membuat versi SOP baru. Versi lama tetap ada di buku SOP.", // PROVISIONAL
+  "C-propa-pace-one": "Setelah Anda menyetujui satu perubahan, yang lain hanya bisa ditolak.", // PROVISIONAL
+  "C-propa-na-h": "Tidak tersedia: SOP berubah", // PROVISIONAL
+  "C-propa-na-why": "Usulan ini dibuat pada versi SOP yang lama, jadi hanya bisa ditolak. Alasan penolakan menjadi aturan yang dipatuhi Bee6.", // PROVISIONAL
+  "C-propa-reject-ph": "Mengapa ini tidak bisa dijalankan?", // PROVISIONAL
+  "C-propa-all-counts": "{approved} disetujui, {rejected} ditolak.", // PROVISIONAL
+  "C-propa-all-starts": "Perubahan yang disetujui mulai {starts} dan ditinjau pada {review}.", // PROVISIONAL
+  "C-propa-st-approved-starts": "Disetujui · mulai {date}", // PROVISIONAL
+  "C-propa-st-rejected-rule": "Ditolak · kini menjadi aturan", // PROVISIONAL
 } as const satisfies Record<string, string>;
 
 export const proposalsEN: Record<keyof typeof proposalsID, string> = {
@@ -193,7 +207,7 @@ export const proposalsEN: Record<keyof typeof proposalsID, string> = {
   "C-propa-dates": "{starts} · review {review}",
   "C-propa-shipped": "Shipped as SOP version {version}",
   "C-propa-decided-on": "Decided {date}",
-  "C-propa-decision": "YOUR DECISION",
+  "C-propa-decision": "Your decision",
   "C-propa-approve": "Approve",
   "C-propa-approve-na": "Approve · not available",
   "C-propa-sop-changed": "The SOP changed after this was drafted. You can still reject it with a reason.",
@@ -202,7 +216,7 @@ export const proposalsEN: Record<keyof typeof proposalsID, string> = {
   "C-propa-reject-send": "Reject with reason",
   "C-propa-done-approved": "Approved. It ships as a new SOP version.",
   "C-propa-done-rejected": "Rejected. Your reason is now a rule Bee6 will respect.",
-  "C-propa-all-both": "Both decided.",
+  "C-propa-all-both": "Both decided. Nice and calm.",
   "C-propa-all": "All decided.",
   "C-propa-rule": "Now a rule: {reason}",
   "C-propa-rule-none": "Now a rule Bee6 will respect.",
@@ -210,4 +224,18 @@ export const proposalsEN: Record<keyof typeof proposalsID, string> = {
   "C-propa-next-p": "The approved change is in the SOP from its start date. Bee6 watches its metric until the review date, then the review shows whether it worked. Every reason you wrote is a rule Bee6 respects in future proposals.",
   "C-propa-home": "Back to home",
   "C-propa-see-sop": "See the SOP",
+  // ── R-25 T11 (G4b): page-2 owner approvals (boards D2-08, 08c, 08d, 08e). Append-only. ──────────────────────
+  "C-propa-kicker": "APPROVALS · {n} OF {total} · {left} LEFT",
+  "C-propa-kicker-done": "APPROVALS · DONE",
+  "C-propa-meta": "#{n} · supervisor: feasible {date}",
+  "C-propa-evidence-h": "Why Bee6 suggests this",
+  "C-propa-pace-why": "Approving creates a new SOP version. The old version stays in the SOP book.",
+  "C-propa-pace-one": "After you approve one change, the other can only be rejected.",
+  "C-propa-na-h": "Not available: the SOP changed",
+  "C-propa-na-why": "This proposal was drafted on the old SOP version, so it can only be rejected. A rejection reason becomes a rule Bee6 respects.",
+  "C-propa-reject-ph": "Why is this not workable?",
+  "C-propa-all-counts": "{approved} approved, {rejected} rejected.",
+  "C-propa-all-starts": "The approved change starts on {starts} and is reviewed on {review}.",
+  "C-propa-st-approved-starts": "Approved · starts {date}",
+  "C-propa-st-rejected-rule": "Rejected · now a rule",
 };
