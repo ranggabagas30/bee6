@@ -366,3 +366,35 @@ describe("UploadStatusLine recovery toast (C-u-toast, UX-03 section 5.7)", () =>
     expect(screen.queryByTestId("upload-toast")).toBeNull();
   });
 });
+
+// R-25 T5: the page-2 look on a sandbox. Same words, same order, same one live region; only the surfaces change.
+describe("UploadStatusLine styled (sandbox, boards P2-05)", () => {
+  function renderStyled(props: Partial<React.ComponentProps<typeof UploadStatusLine>> = {}) {
+    return render(withLang("en", <UploadStatusLine view={{ phase: "succeeded" }} styled {...props} />));
+  }
+
+  it("keeps one live region with the lost notice, helper, Dismiss, then the row, in that order", () => {
+    const onDismissLost = vi.fn();
+    const { container } = renderStyled({ lost: true, onDismissLost, view: { phase: "retrying", failedAttempts: 2 }, online: false });
+    const region = screen.getByTestId("upload-status");
+    expect(region.getAttribute("role")).toBe("status");
+    expect(container.querySelectorAll("[aria-live]").length).toBe(1);
+    const lead = screen.getByText(/Some speech was not captured/);
+    const help = screen.getByText("That note is now incomplete. It cannot be recovered.");
+    expect(help).toBeTruthy();
+    const dismiss = screen.getByRole("button", { name: "Dismiss" });
+    const row = screen.getByText(/Not sent yet · retrying/);
+    const follows = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(lead, dismiss)).toBe(true);
+    expect(follows(dismiss, row)).toBe(true);
+    fireEvent.click(dismiss);
+    expect(onDismissLost).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(region); // focus parks on the live region once Dismiss goes
+  });
+
+  it("shows no notice and no Dismiss when nothing was lost, and the succeeded row stays", () => {
+    renderStyled();
+    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
+    expect(screen.getByText("Upload succeeded")).toBeTruthy();
+  });
+});

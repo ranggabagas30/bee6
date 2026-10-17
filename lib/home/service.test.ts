@@ -92,6 +92,7 @@ function proposalRow(
     supervisor_decision: supervisor,
     owner_decision: owner === null ? null : { decision: owner, decided_at_ms: decidedAtMs },
     change_title: `TITLE-${status}`,
+    created_at_ms: decidedAtMs,
     updated_at_ms: decidedAtMs,
   };
 }
@@ -338,15 +339,15 @@ describe("getOwnerHome", () => {
     expect(result.progress.week.approved).toBe(1);
   });
 
-  it("waiting_approval lists only awaiting_owner proposals, newest first, by id and title", async () => {
+  it("waiting_approval lists only awaiting_owner proposals, oldest created first (approvals-queue order), by id and title", async () => {
     const a = proposalRow("awaiting_owner", "feasible", null, at("10:00"));
     const b = proposalRow("awaiting_owner", "feasible", null, at("11:00"));
     const store = new FakeDayStore(emptyFixture({ awaiting: [a, b] }));
     const result = await getOwnerHome(store, { claims: OWNER_CLAIMS, now_ms: at("12:00") });
     expect(result.waiting_approval.count).toBe(2);
     expect(result.waiting_approval.items).toEqual([
-      { proposal_id: b.proposal_id, change_title: "TITLE-awaiting_owner" },
       { proposal_id: a.proposal_id, change_title: "TITLE-awaiting_owner" },
+      { proposal_id: b.proposal_id, change_title: "TITLE-awaiting_owner" },
     ]);
   });
 
@@ -376,6 +377,7 @@ describe("getOwnerHome", () => {
     const json = JSON.stringify(HomeResponseSchema.parse(result));
     expect(json).not.toContain("decided_at_ms");
     expect(json).not.toContain("updated_at_ms");
+    expect(json).not.toContain("created_at_ms");
     expect(json).not.toContain("supervisor_decision");
     expect(json).not.toContain("owner_decision");
   });

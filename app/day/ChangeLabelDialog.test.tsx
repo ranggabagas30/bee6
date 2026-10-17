@@ -79,4 +79,37 @@ describe("ChangeLabelDialog (D2-02b)", () => {
     expect((screen.getByRole("radio", { name: /Keluhan pelanggan/ }) as HTMLInputElement).checked).toBe(true);
     expect(screen.getByRole("button", { name: "Simpan label" })).not.toBeNull();
   });
+
+  it("names the moment and Bee6's confidence in the body, the summary in bold (board D2-02b)", () => {
+    renderDialog({ summary: "Display check: cinnamon rolls running low", confidencePct: 62 });
+    const dialog = screen.getByRole("dialog", { name: "Change label" });
+    const body = dialog.querySelector("p") as HTMLElement;
+    expect(body.textContent).toBe(
+      "Bee6 labelled this moment Display check: cinnamon rolls running low as Routine work (62% confidence). Pick the label that fits best. Your choice is recorded as a supervisor decision.",
+    );
+    expect(body.querySelector("strong")?.textContent).toBe("Display check: cinnamon rolls running low");
+  });
+
+  it("falls back to the category-only body when the moment has no summary", () => {
+    renderDialog({ summary: "   ", confidencePct: 62 });
+    expect(screen.getByText(/^Bee6 labelled this moment Routine work\./)).not.toBeNull();
+  });
+
+  it("in Bahasa the summary stays byte-identical inside the translated line", () => {
+    renderDialog({ lang: "id", summary: "SUMMARY-CONTENT", confidencePct: 80 });
+    const body = screen.getByRole("dialog").querySelector("p") as HTMLElement;
+    expect(body.querySelector("strong")?.textContent).toBe("SUMMARY-CONTENT");
+    expect(body.textContent).toContain("keyakinan 80%");
+  });
+
+  it("lists Bee6's pick first, the runner-up second, then the rest; each row carries a code chip and the name", () => {
+    renderDialog({ current: "COMPLAINT", runnerUp: "CUSTOMER_SERVICE" });
+    const radios = screen.getAllByRole("radio");
+    expect(radios[0]).toBe(screen.getByRole("radio", { name: /Customer complaint/ }));
+    expect(radios[1]).toBe(screen.getByRole("radio", { name: /Customer service/ }));
+    const first = radios[0]!.closest("label") as HTMLElement;
+    expect(first.querySelector(".b6-chip")?.textContent).toBe("CMP");
+    expect(first.querySelector(".b6-chip")?.getAttribute("aria-hidden")).toBe("true");
+    expect(radios).toHaveLength(WorkCategorySchema.options.length);
+  });
 });

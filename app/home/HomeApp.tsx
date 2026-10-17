@@ -9,25 +9,22 @@ import { useAuthUser } from "@/lib/auth/client/use-auth-user";
 import { useLang } from "@/lib/i18n/context";
 import { t } from "@/lib/i18n/dict";
 import { HomeResponseSchema, type HomeResponse } from "@/lib/home/contract";
-import { Button, Mist } from "@/app/ui";
-import { WebTopBar } from "@/app/web/WebTopBar";
-import { ResetDemoButton, ResetNotice } from "@/app/demo/ResetDemoButton";
+import { Button } from "@/app/ui";
+import { WebShell } from "@/app/web/WebShell";
+import { ResetNotice } from "@/app/demo/ResetDemoButton";
 import { HomeView } from "@/app/home/HomeView";
 import styles from "@/app/home/home.module.css";
 
 /**
- * /home (R-06 Task 14a; R-19 PR-8 plan 9.2 = page-1 W4). Fetches `GET /api/v1/home` through the shared authed
+ * /home (R-06 Task 14a; R-19 PR-8 plan 9.2 = page-1 W4; R-25 T13). Fetches `GET /api/v1/home` through the shared authed
  * client, same auth-gate shape as `DayRecordApp` — except `forbidden` sends a non-owner straight to `/day` (a
  * supervisor's start page), since this screen is owner-only and the server, not the client, decides that.
  *
- * One tree for every state (the top bar and nav never remount): the mist ground, the top bar, PR-7's `ResetNotice`
- * ("Demo reset to day 1" after `/home?demo_reset=1`), the state's body, and — in the settled states only — the reset
- * area with PR-7's `ResetDemoButton` (it renders nothing unless the signed-in user is a demo owner, so the pilot never
- * sees it). While loading the reset area is not in the tree: a destructive control must not flash under "Loading…" at
- * the top of the first viewport and then jump to the page bottom when the cards land (QA on PR-8: a layout shift of
- * 0.06 at 360 px). Appearing fresh below the settled cards contributes no layout shift. A retry from the error state
- * goes back through loading for the same reason (`reload()`), so error -> "Try again" -> ok is shift-free too.
- * Both PR-7 pieces read the Firebase app this component already initialised, so they are mounted after it.
+ * One tree for every state: `WebShell` (top bar, nav and the page's single `<main>`) never remounts, and PR-7's
+ * `ResetNotice` ("Demo reset to day 1" after `/home?demo_reset=1`) sits above the state's body. There is no reset
+ * control on this page (R-25 R15): the judge guide's owner-home card hosts `ResetDemoButton` (`reset_demo`), and that
+ * is the only way to start a reset. A retry from the error state still goes back through loading (`reload()`), so
+ * error -> "Try again" -> ok shifts nothing.
  */
 
 type ViewState =
@@ -88,8 +85,6 @@ export function HomeApp({ config }: { config: FirebaseWebConfig | null }) {
     setReloadTick((n) => n + 1);
   }
 
-  const settled = state.kind !== "loading";
-
   let body: ReactNode;
   if (!config || !auth) {
     body = (
@@ -119,18 +114,9 @@ export function HomeApp({ config }: { config: FirebaseWebConfig | null }) {
   }
 
   return (
-    <div className={styles.page}>
-      <Mist />
-      <main className={styles.main}>
-        <WebTopBar auth={auth} showSignOut={auth !== null} current="home" />
-        {auth ? <ResetNotice lang={lang} /> : null}
-        {body}
-        {auth && settled ? (
-          <div className={styles.reset} data-testid="reset-area">
-            <ResetDemoButton lang={lang} />
-          </div>
-        ) : null}
-      </main>
-    </div>
+    <WebShell auth={auth} current="home">
+      {auth ? <ResetNotice lang={lang} /> : null}
+      {body}
+    </WebShell>
   );
 }

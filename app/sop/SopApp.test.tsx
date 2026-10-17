@@ -163,8 +163,29 @@ describe("SopApp header", () => {
   });
 });
 
-describe("SopApp sections", () => {
-  it("5.T5 changes render newest first, and the latest steps list shows each step with its role", async () => {
+describe("SopApp page (R-25 T12, board D2-04)", () => {
+  it("opens with the SOP book title and sub, then the VERSION row, in the web shell's single main", async () => {
+    authedGetJson.mockResolvedValue({
+      kind: "ok",
+      data: overview({
+        latest: { version: 2, effective_from_date: "2026-10-16", steps: [step("a-01")] },
+        in_force_version: 2,
+        changes: [changeView(2)],
+      }),
+    });
+    renderApp();
+    const group = await screen.findByRole("group", { name: "SOP version" });
+    const h1 = screen.getByRole("heading", { level: 1, name: "SOP book" });
+    expect(h1.className).toContain("b6-h1-web");
+    expect(screen.getByText("Every step your shop uses. Pick a date to see an older version.")).not.toBeNull();
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+    expect(screen.getByText("VERSION")).not.toBeNull();
+    // The title comes before the version row, the row before the book.
+    expect(h1.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(group.compareDocumentPosition(screen.getByRole("navigation", { name: "Contents" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("has no 'Steps in version n' title on screen (it stays for screen readers) and no 'Changes' section", async () => {
     authedGetJson.mockResolvedValue({
       kind: "ok",
       data: overview({
@@ -174,20 +195,50 @@ describe("SopApp sections", () => {
       }),
     });
     renderApp();
-    await screen.findByText("Change title v3");
-    const titles = screen.getAllByText(/^Change title v/).map((n) => n.textContent);
-    expect(titles).toEqual(["Change title v3", "Change title v2"]);
-    expect(screen.getByRole("heading", { name: "Steps in version 3" })).not.toBeNull();
-    const items = Array.from(document.querySelector("ol")!.querySelectorAll("li")); // the nav <ul> has its own items
-    expect(items).toHaveLength(2);
-    expect(items[0]!.textContent).toContain("Title a-01");
-    expect(items[0]!.textContent).toContain("Done by: Staff");
-    expect(items[1]!.textContent).toContain("Done by: Supervisor");
+    const heading = await screen.findByRole("heading", { name: "Steps in version 3" });
+    expect(heading.className).toContain("b6-sr-only");
+    expect(screen.queryByRole("heading", { name: "Changes" })).toBeNull();
+    expect(screen.queryByText("No changes yet. The SOP changes only through approved proposals.")).toBeNull();
+    expect(screen.queryByText("Change title v3")).toBeNull();
+    const items = Array.from(document.querySelector("ol")!.querySelectorAll("li"));
+    expect(items.length).toBeGreaterThan(0);
   });
 
-  it("5.T5 no changes shows the empty line", async () => {
+  it("no changes: no empty 'Changes' line either", async () => {
     renderApp();
-    await screen.findByText("No changes yet. The SOP changes only through approved proposals.");
+    await screen.findByText("Standard Operating Procedures"); // the book has loaded
+    expect(screen.queryByText("No changes yet. The SOP changes only through approved proposals.")).toBeNull();
+  });
+
+  it("the cover names 'Standard Operating Procedures' and the edition; the outlet line shows on a demo sandbox only", async () => {
+    getIdTokenResult.mockResolvedValue({ claims: { role: "supervisor", demo_exp_ms: 1 } });
+    renderApp();
+    expect(await screen.findByText("Standard Operating Procedures")).not.toBeNull();
+    expect(screen.getAllByText("Demo Bakery · Outlet 1").length).toBeGreaterThan(0);
+    expect(screen.getByText(/Version 1 · in use from/)).not.toBeNull();
+  });
+
+  it("a real outlet has no outlet line on the cover (its name is not reachable from the browser)", async () => {
+    renderApp();
+    expect(await screen.findByText("Standard Operating Procedures")).not.toBeNull();
+    expect(screen.queryByText("Demo Bakery · Outlet 1")).toBeNull();
+  });
+
+  it("the improved step's 'why' control opens the approved change inline, with no separate Changes list", async () => {
+    authedGetJson.mockResolvedValue({
+      kind: "ok",
+      data: overview({
+        latest: { version: 2, effective_from_date: "2026-10-16", steps: [step("a-01"), { ...step("stock-01"), text: "New text v2" }] },
+        in_force_version: 2,
+        changes: [changeView(2)],
+      }),
+    });
+    renderApp();
+    // Book opens on chapter 1; "Stock" holds the improved step.
+    fireEvent.click(await screen.findByRole("button", { name: "Stock 1 step" }));
+    expect(screen.queryByText("Change title v2")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "See why it changed and the result" }));
+    expect(screen.getByText("Change title v2")).not.toBeNull();
   });
 });
 
@@ -267,7 +318,7 @@ describe("SopApp version switch (R-19 PR-9a §9.1)", () => {
     expect(screen.getByRole("heading", { name: "Steps in version 2" })).not.toBeNull();
     expect(screen.getByText("IMPROVED · NEW ON 16/10/26")).not.toBeNull();
     expect(document.querySelector("del")?.textContent).toBe("Text stock-01");
-    // The steps list (the only <ol>) shows the new text; the Changes section below repeats it in its after block.
+    // The steps list (the only <ol>) shows the new text.
     expect(document.querySelector("ol")!.textContent).toContain("New text v2");
   });
 
