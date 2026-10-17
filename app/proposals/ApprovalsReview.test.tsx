@@ -118,6 +118,7 @@ describe("ApprovalsReview — states", () => {
     proposalsResult = new Promise(() => {});
     renderScreen();
     expect(screen.getByRole("status").textContent).toBe("Loading…");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Approvals");
   });
 
   it("an error shows the generic line", async () => {

@@ -279,9 +279,12 @@ export function ApprovalsReview({
       </div>
 
       {list.kind === "loading" && (
-        <p role="status" aria-live="polite" className="b6-sub">
-          {t(lang, "C-day-loading")}
-        </p>
+        <>
+          <PageHead title={t(lang, "C-web-nav-approvals")} sub={t(lang, "C-propa-sub")} />
+          <p role="status" aria-live="polite" className="b6-sub">
+            {t(lang, "C-day-loading")}
+          </p>
+        </>
       )}
       {list.kind === "error" && (
         <>
