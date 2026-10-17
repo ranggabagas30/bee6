@@ -6,7 +6,7 @@ import { FRESH_DEMO_SESSION, type DemoSessionProfile } from "@/lib/capture/contr
 import { publishProposalsProgress, publishProposalsScreen } from "@/lib/demo/proposals-signal";
 import { createMemoryStorage } from "@/lib/demo/testing/memory-storage";
 import { DEMO_STATE_KEY } from "@/app/demo/demo-client";
-import { publishCaptureBridge, type CaptureBridge, type CaptureBridgeState } from "@/app/demo/guide-bridge";
+import { publishCaptureBridge, publishPairDone, clearPairDone, type CaptureBridge, type CaptureBridgeState } from "@/app/demo/guide-bridge";
 import { SHEET_RESERVE_PX, SUPERVISOR_SEEN_KEY, scriptStorageKey } from "@/app/demo/JudgeGuide";
 import { PairForm } from "@/app/pair/PairForm";
 
@@ -95,6 +95,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   publishCaptureBridge(null);
+  clearPairDone();
   publishProposalsScreen(null);
   vi.clearAllMocks();
   vi.useRealTimers();
@@ -494,7 +495,9 @@ describe("/capture: the debrief cards and Jump to tomorrow (plan 4.4, 7.2)", () 
 });
 
 describe("web routes: progress and the supervisor-visited flag", () => {
-  it("supervisor on /day: fetches the progress with the ID token, sets the visited flag, and the stage moves to Staff days 2-3", async () => {
+  // R-25 R7 (UI-052): arriving on a supervisor page right after day 1 used to flip the pill to STAGE 3 at once, because
+  // the visited flag is set the moment the page mounts. The guide now holds stage 2 on the supervisor pages.
+  it("supervisor on /day: fetches the progress with the ID token, sets the visited flag, and the stage stays Supervisor · look around (stage 2)", async () => {
     pathname = "/day";
     seedWeb("supervisor");
     vi.mocked(fetch).mockImplementation(async (url) => {
@@ -502,8 +505,10 @@ describe("web routes: progress and the supervisor-visited flag", () => {
       return new Response(JSON.stringify({ data: { day: 1, days_done: 1, proposals_with_content: 0, feasible: 0, owner_decided: 0 } }), { status: 200 });
     });
     renderGuide();
-    await waitFor(() => expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("STAGE 3 OF 5"));
-    expect(window.localStorage.getItem(SUPERVISOR_SEEN_KEY)).toBe("1");
+    await waitFor(() => expect(window.localStorage.getItem(SUPERVISOR_SEEN_KEY)).toBe("1"));
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    await act(async () => {});
+    expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("STAGE 2 OF 5");
     openGuide();
     expect(screen.getByRole("heading", { name: "The day record" })).toBeTruthy();
     expect(screen.getByText(/fresh egg tarts question under Customer service/)).toBeTruthy();
@@ -831,5 +836,65 @@ describe("R-19 PR-5 QA fixes: scroll body, 48 px controls, open-session card, bu
       expect(document.body.textContent).toMatch(/Tap Cancel today on the screen/);
       expect(document.body.textContent).not.toMatch(/End today/);
     });
+  });
+});
+
+// R-25 R7: the stage with the page context, and R12: the paired card after /pair reports the device as paired.
+describe("R-25 contracts: supervisor stage 2 and the paired card", () => {
+  const dayOne = { day: 1, days_done: 1, proposals_with_content: 0, feasible: 0, owner_decided: 0 };
+  const stageText = () => screen.getByRole("button", { name: /Open the judge guide/ }).textContent;
+
+  it("stays at STAGE 2 on every supervisor page after day 1, with the visited flag already stored", async () => {
+    window.localStorage.setItem(SUPERVISOR_SEEN_KEY, "1");
+    vi.mocked(fetch).mockImplementation(async () => new Response(JSON.stringify({ data: dayOne }), { status: 200 }));
+    for (const route of ["/day", "/proposals", "/sop", "/reviews", "/devices"]) {
+      cleanup();
+      pathname = route;
+      seedWeb("supervisor");
+      renderGuide();
+      await waitFor(() => expect(fetch).toHaveBeenCalled());
+      await act(async () => {});
+      expect(stageText(), route).toContain("STAGE 2 OF 5");
+    }
+  });
+
+  it("the same progress on the staff phone with the visited flag moves on to STAGE 3", async () => {
+    window.localStorage.setItem(SUPERVISOR_SEEN_KEY, "1");
+    pathname = "/capture";
+    act(() => publishCaptureBridge(bridge({ profile: profile({ day: 2, days_done: 1 }) })));
+    renderGuide();
+    expect(stageText()).toContain("STAGE 3 OF 5");
+  });
+
+  it("the pair card says Fill in the code until the paired checklist reports, then points at the listening page (and not for another route)", () => {
+    pathname = "/pair";
+    renderGuide();
+    expect(stageText()).toContain("Set up the staff phone");
+    act(() => void publishPairDone());
+    expect(stageText()).toContain("Open the listening page");
+    openGuide();
+    expect(screen.getByRole("heading", { name: "Open the listening page" })).toBeTruthy();
+    expect(screen.getByText(/Tap Open the listening page\. Then tap Start and read the script cards/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Fill in/ })).toBeNull();
+  });
+
+  it("the paired signal is dropped when the route leaves /pair, so an unpaired return shows the code card again", () => {
+    pathname = "/pair";
+    const { rerender } = renderGuide();
+    act(() => void publishPairDone());
+    expect(stageText()).toContain("Open the listening page");
+    pathname = "/sign-in";
+    rerender(
+      <LangProvider initial="en">
+        <JudgeGuide config={CONFIG} />
+      </LangProvider>,
+    );
+    pathname = "/pair";
+    rerender(
+      <LangProvider initial="en">
+        <JudgeGuide config={CONFIG} />
+      </LangProvider>,
+    );
+    expect(stageText()).toContain("Set up the staff phone");
   });
 });

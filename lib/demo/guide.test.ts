@@ -77,6 +77,15 @@ describe("STAGES and GUIDE data", () => {
     expect(JSON.stringify(GUIDE.pair)).toContain("{code}");
   });
 
+  it("the paired card (R-25 R12) names the next step, has no action and no demo code", () => {
+    const c = GUIDE.pair_done;
+    expect(c.title.en).toBe("Open the listening page");
+    expect(c.body.map((b) => b.en).join(" ")).toBe("Tap Open the listening page. Then tap Start and read the script cards that appear in this guide.");
+    expect(c.action).toBeNull();
+    expect(JSON.stringify(c)).not.toContain("{code}");
+    expect(JSON.stringify(c)).not.toMatch(/Fill in|Set up/);
+  });
+
   it("never hard-codes which proposal comes first (focus order is ready, most facts, most dates, category order)", () => {
     const text = [GUIDE.proposals_ready, GUIDE.proposal_detail, GUIDE.proposals_feasible, GUIDE.approvals, GUIDE.approvals_done]
       .map((c) => JSON.stringify(c))
@@ -200,6 +209,30 @@ describe("currentStage (exact rule of plan 7.1)", () => {
   });
 });
 
+// R-25 R7 (UI-052): after day 1 the supervisor guide on a supervisor web page says STAGE 2, with or without the
+// local "supervisor visited" flag; on the phone the flag still moves the judge on to stage 3.
+describe("currentStage with the page context (R-25 R7)", () => {
+  const web = { onSupervisorWeb: true };
+  const phone = { onSupervisorWeb: false };
+  it.each<[string, Partial<JourneyProgress>, { onSupervisorWeb: boolean } | undefined, string]>([
+    ["day 1 done, not visited, supervisor web", { days_done: 1, supervisor_visited: false }, web, "supervisor_look"],
+    ["day 1 done, visited, supervisor web", { days_done: 1, supervisor_visited: true }, web, "supervisor_look"],
+    ["day 1 done, visited, phone", { days_done: 1, supervisor_visited: true }, phone, "staff_days23"],
+    ["day 1 done, not visited, phone", { days_done: 1, supervisor_visited: false }, phone, "supervisor_look"],
+    ["no ctx behaves as the phone (visited)", { days_done: 1, supervisor_visited: true }, undefined, "staff_days23"],
+    ["no ctx behaves as the phone (not visited)", { days_done: 1, supervisor_visited: false }, undefined, "supervisor_look"],
+    ["no day done, supervisor web", { days_done: 0, supervisor_visited: true }, web, "staff_day1"],
+    ["no day done, not visited, supervisor web", { days_done: 0 }, web, "staff_day1"],
+    ["no day done, phone", { days_done: 0 }, phone, "staff_day1"],
+    ["day 2 done, no proposals, supervisor web", { days_done: 2, supervisor_visited: true }, web, "staff_days23"],
+    ["day 2 done, no proposals, not visited, supervisor web", { days_done: 2, supervisor_visited: false }, web, "staff_days23"],
+    ["day 2 done, a proposal, supervisor web", { days_done: 2, proposals_with_content: 1, feasible: 0 }, web, "supervisor_decide"],
+    ["day 3 done, all feasible, supervisor web", { days_done: 3, proposals_with_content: 2, feasible: 2 }, web, "owner_approve"],
+  ])("%s -> %s", (_name, over, ctx, stage) => {
+    expect(currentStage(progress(over), ctx)).toBe(stage);
+  });
+});
+
 describe("guideKeyFor (route x state table)", () => {
   const cap = (phase: CaptureGuideState["phase"]): CaptureGuideState => ({ kind: "capture", phase });
   const web = (role: WebGuideState["role"], over: Partial<JourneyProgress> | null = {}, screen: WebGuideState["screen"] = null): WebGuideState => ({
@@ -213,6 +246,12 @@ describe("guideKeyFor (route x state table)", () => {
     expect(guideKeyFor("/", null)).toBe("entry");
     expect(guideKeyFor("/sign-in", null)).toBe("entry");
     expect(guideKeyFor("/pair", null)).toBe("pair");
+    expect(guideKeyFor("/pair", { kind: "pair", paired: false })).toBe("pair");
+    expect(guideKeyFor("/pair", { kind: "pair", paired: true })).toBe("pair_done");
+    expect(guideKeyFor("/pair/", { kind: "pair", paired: true })).toBe("pair_done");
+    // a stale paired signal never leaks onto another route
+    expect(guideKeyFor("/capture", { kind: "pair", paired: true })).toBe("capture_ready");
+    expect(guideKeyFor("/", { kind: "pair", paired: true })).toBe("entry");
   });
 
   it("/capture follows the phone's phase; no phase reads as the Start-ready card", () => {
@@ -280,6 +319,7 @@ describe("guideKeyFor (route x state table)", () => {
     const reached = new Set<string>([
       guideKeyFor("/", null),
       guideKeyFor("/pair", null),
+      guideKeyFor("/pair", { kind: "pair", paired: true }),
       ...(["ready", "listening", "all_spoken", "closing", "open_session", "debrief_preparing", "debrief_question", "debrief_done"] as const).map((p) =>
         guideKeyFor("/capture", cap(p)),
       ),
