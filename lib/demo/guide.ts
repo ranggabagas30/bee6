@@ -10,7 +10,8 @@ import type { Lang } from "@/lib/i18n/lang";
  *
  * Where the demo facts live: ONLY here. The entry card says what Bee6 is, "about 20 minutes", and how to change
  * role; the pair card fills the demo code (rendered from lib/demo/credentials by the component through the
- * `{code}` placeholder; the literal never sits in copy, see app/demo/import-boundaries.test.ts). EN is final; the
+ * `{code}` placeholder; the literal never sits in copy, see app/demo/import-boundaries.test.ts); the sign-in cards print
+ * the web roles' demo email and password the same way (`{email}`, `{password}`). EN is final; the
  * Bahasa column is PROVISIONAL (EN until Tiffany). Nothing here is read by server code (hard rule #10).
  */
 
@@ -34,6 +35,8 @@ export const STAGES: readonly { id: StageId; title: Bilingual }[] = z
 /** Every screen/state that has its own guide card (page-2 boards in the plan's section 11a). */
 export const GUIDE_KEYS = [
   "entry",
+  "sign_in_supervisor",
+  "sign_in_owner",
   "pair",
   "pair_done",
   "capture_ready",
@@ -62,6 +65,8 @@ export type GuideKey = (typeof GUIDE_KEYS)[number];
 export const GuideActionSchema = z.discriminatedUnion("kind", [
   /** pair: "Fill in {code}" fills the field (does not submit). */
   z.object({ kind: z.literal("fill_demo_code") }).strict(),
+  /** sign-in: "Fill in the form" puts the demo email and password into the page's fields (does not submit). */
+  z.object({ kind: z.literal("fill_demo_credentials") }).strict(),
   /** listening: the card body is the active script card (plan 5.3). */
   z.object({ kind: z.literal("script_card") }).strict(),
   /** all spoken: POST /api/v1/demo/closing. */
@@ -115,7 +120,7 @@ const card = (spec: CardSpec): GuideCard => ({
 const NEXT = bi("NEXT", "SELANJUTNYA");
 
 // PROVISIONAL: every `id` below is unreviewed Bahasa (EN is final, from the page-2 boards). `**x**` is bold; `{code}`,
-// `{day}`, `{n}` and `{total}` are filled by the component.
+// `{email}`, `{password}`, `{day}`, `{n}` and `{total}` are filled by the component (the credentials from lib/demo/credentials).
 export const GUIDE: Readonly<Record<GuideKey, GuideCard>> = z
   .object(Object.fromEntries(GUIDE_KEYS.map((k) => [k, GuideCardSchema])) as Record<GuideKey, typeof GuideCardSchema>)
   .strict()
@@ -129,7 +134,35 @@ export const GUIDE: Readonly<Record<GuideKey, GuideCard>> = z
           "Bee6 listens to a shop's day on one phone and turns speech into short work notes. You will run three short days as staff, check what Bee6 found as supervisor, then approve a change as owner. About 20 minutes.",
           "Bee6 mendengarkan hari kerja sebuah toko lewat satu ponsel dan mengubah ucapan menjadi catatan kerja singkat. Anda akan menjalankan tiga hari singkat sebagai staf, memeriksa temuan Bee6 sebagai supervisor, lalu menyetujui satu perubahan sebagai pemilik. Sekitar 20 menit.",
         ),
+        bi(
+          "Supervisor and Owner sign in with the email and password this guide shows on the sign-in page.",
+          "Supervisor dan Pemilik masuk dengan email dan kata sandi yang ditampilkan panduan ini di halaman masuk.",
+        ),
       ],
+      footnote: bi("To change role later: sign out, then pick a role again.", "Untuk berganti peran nanti: keluar, lalu pilih peran lagi."),
+    }),
+    sign_in_supervisor: card({
+      title: bi("Sign in as Supervisor", "Masuk sebagai Supervisor"),
+      handle: bi("Supervisor email and password", "Email dan kata sandi Supervisor"),
+      kicker: bi("SIGN IN AS SUPERVISOR", "MASUK SEBAGAI SUPERVISOR"),
+      body: [
+        bi("Type these into the form, then tap Sign in.", "Ketik ini ke formulir, lalu ketuk Masuk."),
+        bi("Email **{email}** · password **{password}**", "Email **{email}** · kata sandi **{password}**"),
+        bi("This opens your own private copy of a fictional shop for 2 hours.", "Ini membuka salinan pribadi toko fiktif Anda selama 2 jam."),
+      ],
+      action: { kind: "fill_demo_credentials" },
+      footnote: bi("To change role later: sign out, then pick a role again.", "Untuk berganti peran nanti: keluar, lalu pilih peran lagi."),
+    }),
+    sign_in_owner: card({
+      title: bi("Sign in as Owner", "Masuk sebagai Pemilik"),
+      handle: bi("Owner email and password", "Email dan kata sandi Pemilik"),
+      kicker: bi("SIGN IN AS OWNER", "MASUK SEBAGAI PEMILIK"),
+      body: [
+        bi("Type these into the form, then tap Sign in.", "Ketik ini ke formulir, lalu ketuk Masuk."),
+        bi("Email **{email}** · password **{password}**", "Email **{email}** · kata sandi **{password}**"),
+        bi("This opens your own private copy of a fictional shop for 2 hours.", "Ini membuka salinan pribadi toko fiktif Anda selama 2 jam."),
+      ],
+      action: { kind: "fill_demo_credentials" },
       footnote: bi("To change role later: sign out, then pick a role again.", "Untuk berganti peran nanti: keluar, lalu pilih peran lagi."),
     }),
     pair: card({
@@ -548,7 +581,16 @@ export interface PairGuideState {
   paired: boolean;
 }
 
-export type GuideState = CaptureGuideState | WebGuideState | PairGuideState;
+export type SignInGuideRole = "staff" | "supervisor" | "owner";
+
+/** Demo feedback 2, finding 4: /sign-in reports the role panel it shows (app/demo/guide-bridge.ts `publishSignInRole`). */
+export interface SignInGuideState {
+  kind: "sign_in";
+  /** The panel's role as DemoAccess publishes it; null before it mounts. */
+  role: SignInGuideRole | null;
+}
+
+export type GuideState = CaptureGuideState | WebGuideState | PairGuideState | SignInGuideState;
 
 const CAPTURE_KEY: Record<CapturePhase, GuideKey> = {
   ready: "capture_ready",
@@ -581,7 +623,10 @@ export function guideKeyFor(route: string, state: GuideState | null): GuideKey {
   const path = route.split("?")[0] ?? "";
   const seg = path.split("/").filter(Boolean)[0] ?? "";
   if (seg === "") return "entry";
-  if (seg === "sign-in") return "entry";
+  if (seg === "sign-in") {
+    const role = state?.kind === "sign_in" ? state.role : null;
+    return role === "supervisor" ? "sign_in_supervisor" : role === "owner" ? "sign_in_owner" : "entry";
+  }
   if (seg === "pair") return state?.kind === "pair" && state.paired ? "pair_done" : "pair";
   if (seg === "capture") return state?.kind === "capture" ? CAPTURE_KEY[state.phase] : "capture_ready";
   const web = state?.kind === "web" ? state : null;

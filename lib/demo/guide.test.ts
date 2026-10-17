@@ -67,7 +67,11 @@ describe("STAGES and GUIDE data", () => {
     expect(actions.debrief_done).toBe("jump_tomorrow");
     expect(actions.debrief_question).toBeNull(); // UI-112: no Jump control while questions are open
     expect(actions.home).toBe("reset_demo");
-    const others = GUIDE_KEYS.filter((k) => !["pair", "capture_listening", "capture_all_spoken", "debrief_done", "home"].includes(k));
+    expect(actions.sign_in_supervisor).toBe("fill_demo_credentials");
+    expect(actions.sign_in_owner).toBe("fill_demo_credentials");
+    const others = GUIDE_KEYS.filter(
+      (k) => !["pair", "capture_listening", "capture_all_spoken", "debrief_done", "home", "sign_in_supervisor", "sign_in_owner"].includes(k),
+    );
     for (const k of others) expect(actions[k], k).toBeNull();
   });
 
@@ -77,6 +81,13 @@ describe("STAGES and GUIDE data", () => {
     expect(entry.footnote?.en).toBe("To change role later: sign out, then pick a role again.");
     expect(JSON.stringify(GUIDE)).not.toMatch(/\b0{6}\b/);
     expect(JSON.stringify(GUIDE.pair)).toContain("{code}");
+    // Demo feedback 2, finding 4: the sign-in cards print the credentials through placeholders; no literal sits in copy.
+    expect(JSON.stringify(GUIDE)).not.toMatch(/judge@example|bee6-demo/);
+    for (const k of ["sign_in_supervisor", "sign_in_owner"] as const) {
+      expect(JSON.stringify(GUIDE[k]), k).toContain("{email}");
+      expect(JSON.stringify(GUIDE[k]), k).toContain("{password}");
+    }
+    expect(entry.body.map((b) => b.en).join(" ")).toContain("the email and password this guide shows on the sign-in page");
   });
 
   it("the paired card (R-25 R12) names the next step, has no action and no demo code", () => {
@@ -204,6 +215,8 @@ describe("STAGES and GUIDE data", () => {
   it("every handle line is the board's (UI-006); a card without its own handle uses its title", () => {
     const handles: Record<string, string> = {
       entry: "Welcome · pick Staff to start",
+      sign_in_supervisor: "Supervisor email and password",
+      sign_in_owner: "Owner email and password",
       pair: "Fill in the demo code",
       capture_listening: "Read card {n} of {total} aloud",
       capture_all_spoken: "All cards spoken · jump to closing",
@@ -222,6 +235,8 @@ describe("STAGES and GUIDE data", () => {
   it("the card kickers are the board's", () => {
     const kickers: Record<string, string> = {
       entry: "WELCOME, JUDGE",
+      sign_in_supervisor: "SIGN IN AS SUPERVISOR",
+      sign_in_owner: "SIGN IN AS OWNER",
       pair: "STEP: PAIR THE DEVICE",
       pair_done: "NEXT",
       capture_ready: "NEXT",
@@ -337,6 +352,17 @@ describe("guideKeyFor (route x state table)", () => {
     expect(guideKeyFor("/", { kind: "pair", paired: true })).toBe("entry");
   });
 
+  it("/sign-in follows the role the sign-in panel publishes; staff, no role and no state read as the entry card", () => {
+    expect(guideKeyFor("/sign-in", { kind: "sign_in", role: "supervisor" })).toBe("sign_in_supervisor");
+    expect(guideKeyFor("/sign-in", { kind: "sign_in", role: "owner" })).toBe("sign_in_owner");
+    expect(guideKeyFor("/sign-in", { kind: "sign_in", role: "staff" })).toBe("entry");
+    expect(guideKeyFor("/sign-in", { kind: "sign_in", role: null })).toBe("entry");
+    expect(guideKeyFor("/sign-in", null)).toBe("entry");
+    // a stale sign-in signal never leaks onto another route
+    expect(guideKeyFor("/", { kind: "sign_in", role: "owner" })).toBe("entry");
+    expect(guideKeyFor("/pair", { kind: "sign_in", role: "owner" })).toBe("pair");
+  });
+
   it("/capture follows the phone's phase; no phase reads as the Start-ready card", () => {
     expect(guideKeyFor("/capture", null)).toBe("capture_ready");
     expect(guideKeyFor("/capture", cap("ready"))).toBe("capture_ready");
@@ -403,6 +429,8 @@ describe("guideKeyFor (route x state table)", () => {
       guideKeyFor("/", null),
       guideKeyFor("/pair", null),
       guideKeyFor("/pair", { kind: "pair", paired: true }),
+      guideKeyFor("/sign-in", { kind: "sign_in", role: "supervisor" }),
+      guideKeyFor("/sign-in", { kind: "sign_in", role: "owner" }),
       ...(["ready", "listening", "all_spoken", "closing", "open_session", "debrief_preparing", "debrief_question", "debrief_done"] as const).map((p) =>
         guideKeyFor("/capture", cap(p)),
       ),

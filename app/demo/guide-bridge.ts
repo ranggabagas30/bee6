@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 import type { DemoSessionProfile } from "@/lib/capture/contract";
 import { DEBRIEF_DONE_EVENT, DEBRIEF_DONE_FLAG_KEY, DEBRIEF_VIEW_EVENT } from "@/lib/debrief/constants";
 import { readDebriefView, type DebriefViewKind } from "@/lib/debrief/view-signal";
-import type { CapturePhase, ProposalsGuideScreen } from "@/lib/demo/guide";
+import type { CapturePhase, ProposalsGuideScreen, SignInGuideRole } from "@/lib/demo/guide";
 import { PROPOSALS_PROGRESS_EVENT, PROPOSALS_SCREEN_EVENT, readProposalsProgressVersion, readProposalsScreen } from "@/lib/demo/proposals-signal";
 import type { DictKey } from "@/lib/i18n/dict";
 
@@ -234,4 +234,45 @@ export function subscribePairBridge(onChange: () => void): () => void {
 /** True while the paired checklist is on screen. False on the server. */
 export function usePairBridge(): boolean {
   return useSyncExternalStore(subscribePairBridge, readPairDone, () => false);
+}
+
+// ── the sign-in bridge (demo feedback 2, finding 4) ──────────────────────────────────────────────────────────
+//
+// DemoAccess tells the guide which role panel the sign-in page shows, so the guide prints that role's demo email and
+// password. A role word only; never a credential. `publishSignInRole(role)` returns the cleanup that clears it, so
+// `useEffect(() => publishSignInRole(role), [role])` is the whole wiring; the guide also clears it itself when the
+// route leaves /sign-in.
+
+let signInRole: SignInGuideRole | null = null;
+const signInListeners = new Set<() => void>();
+
+function setSignInRole(next: SignInGuideRole | null): void {
+  if (signInRole === next) return;
+  signInRole = next;
+  for (const l of [...signInListeners]) l();
+}
+
+/** Tell the guide which role panel is on screen. Returns the cleanup (clears the signal). */
+export function publishSignInRole(role: SignInGuideRole): () => void {
+  setSignInRole(role);
+  return () => setSignInRole(null);
+}
+
+/** Take the role back (the guide calls it when the route leaves /sign-in). */
+export function clearSignInRole(): void {
+  setSignInRole(null);
+}
+
+export function readSignInRole(): SignInGuideRole | null {
+  return signInRole;
+}
+
+export function subscribeSignInBridge(onChange: () => void): () => void {
+  signInListeners.add(onChange);
+  return () => void signInListeners.delete(onChange);
+}
+
+/** The sign-in panel's role while DemoAccess is mounted; null otherwise and on the server. */
+export function useSignInBridge(): SignInGuideRole | null {
+  return useSyncExternalStore(subscribeSignInBridge, readSignInRole, () => null);
 }
