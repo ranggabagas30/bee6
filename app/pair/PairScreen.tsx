@@ -62,7 +62,7 @@ export function PairScreen({ demo, config }: { demo: boolean; config: FirebaseWe
                 <p className={styles.help}>{t(lang, "C-pair-help")}</p>
               </div>
               {demo ? (
-                <DemoAccess config={config} role="staff" onFill={() => {}} onStarted={() => setPaired({ kind: "demo" })} barShowsEnded bare>
+                <DemoAccess config={config} role="staff" onFill={() => {}} onStarted={() => setPaired({ kind: "demo" })} suppressEnded bare>
                   {form}
                 </DemoAccess>
               ) : (

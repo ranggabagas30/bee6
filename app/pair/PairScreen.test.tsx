@@ -7,10 +7,11 @@ import { createMemoryStorage } from "@/lib/demo/testing/memory-storage";
 import { axeViolations } from "@/lib/testing/axe";
 import { DEMO_STATE_KEY } from "@/app/demo/demo-client";
 import { PairScreen } from "@/app/pair/PairScreen";
+import { DemoBar } from "@/app/demo/DemoBar";
 import { publishPairDone } from "@/app/demo/guide-bridge";
 
 const push = vi.fn();
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push, replace: vi.fn() }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push, replace: vi.fn() }), usePathname: () => "/pair" }));
 vi.mock("@/lib/auth/client/firebase-client", () => ({ getClientAuth: () => ({ kind: "fake-auth" }), signOut: vi.fn(), signInWithCustomToken: vi.fn() }));
 
 vi.mock("@/app/demo/guide-bridge", async (importOriginal) => ({
@@ -206,12 +207,20 @@ describe("PairScreen on the demo (demo=true): the demo code opens a sandbox, the
     expect(screen.getByRole("group", { name: "Choose language" })).toBeTruthy();
   });
 
-  it("an ended demo: the demo box does not repeat the ended sentence (the DemoBar shows it), the form stays usable", async () => {
+  it("an ended demo: /pair shows no ended-session text anywhere (neither the demo bar nor the status line), no amber box, the form stays usable", async () => {
     window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: "A".repeat(43), expires_at_ms: 1_000, role: "staff" }));
-    renderScreen({ demo: true });
+    const { container } = render(
+      <LangProvider initial="en">
+        <DemoBar config={null} />
+        <PairScreen demo config={null} />
+      </LangProvider>,
+    );
     const status = await screen.findByTestId("demo-status");
-    expect(screen.queryByText("Your demo session has ended.")).toBeNull();
+    expect(container.textContent).not.toContain("Your demo session has ended.");
+    expect(container.textContent).not.toContain("Sesi demo Anda sudah berakhir.");
+    expect(container.querySelector(".b6-alert")).toBeNull();
     expect(status.textContent).toBe("");
+    expect(screen.queryByTestId("demo-bar-status")).toBeNull(); // the bar leaves no empty live region behind
     expect(screen.getByRole("button", { name: "Set up" })).toBeTruthy();
   });
 

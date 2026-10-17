@@ -47,7 +47,7 @@ const noNavigation = () => {};
  * `bare` (R-25 T4, ruling R5): /pair shows no "Demo access" box (board P2-02 has none). The hooks and the start logic are
  * unchanged; only the box chrome is dropped, leaving the one live status line (busy, refusal, ended) below the form.
  */
-export function DemoAccess({ config, role, onFill, onStarted, barShowsEnded, bare = false, children }: DemoAccessProps & { bare?: boolean }) {
+export function DemoAccess({ config, role, onFill, onStarted, suppressEnded, bare = false, children }: DemoAccessProps & { bare?: boolean }) {
   const { lang } = useLang();
   const { busy, refusal, start, clearRefusal } = useDemoStart(config, "restart", onStarted ? noNavigation : undefined);
   // The role the box last filled in for; the "Filled in" line shows only while the panel is still on that role.
@@ -98,8 +98,8 @@ export function DemoAccess({ config, role, onFill, onStarted, barShowsEnded, bar
     statusText = [t(lang, lines.message), lines.hint ? t(lang, lines.hint.key, lines.hint.vars) : ""].filter(Boolean).join(" ");
   } else if (filledFor !== null && filledFor === role) {
     statusText = t(lang, "C-demo-cred-filled");
-  } else if (earlier?.expired && !barShowsEnded) {
-    // On /pair the DemoBar is visible and already says the session ended (`barShowsEnded`); /sign-in hides it once ended, so the box says it there.
+  } else if (earlier?.expired && !suppressEnded) {
+    // /pair says nothing about an ended session (`suppressEnded`; demo feedback 2, ruling B); /sign-in hides the DemoBar once ended, so the box says it there.
     statusText = t(lang, "C-demo-expired");
   }
 

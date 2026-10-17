@@ -44,10 +44,10 @@ function Panel() {
 }
 const onFill = vi.fn();
 
-function renderAccess(opts: { role?: SignInRole; lang?: "en" | "id"; config?: FirebaseWebConfig | null; barShowsEnded?: boolean } = {}) {
+function renderAccess(opts: { role?: SignInRole; lang?: "en" | "id"; config?: FirebaseWebConfig | null; suppressEnded?: boolean } = {}) {
   return render(
     <LangProvider initial={opts.lang ?? "en"}>
-      <DemoAccess role={opts.role ?? "staff"} onFill={onFill} config={opts.config === undefined ? CONFIG : opts.config} barShowsEnded={opts.barShowsEnded}>
+      <DemoAccess role={opts.role ?? "staff"} onFill={onFill} config={opts.config === undefined ? CONFIG : opts.config} suppressEnded={opts.suppressEnded}>
         <Panel />
       </DemoAccess>
     </LangProvider>,
@@ -304,9 +304,9 @@ describe("DemoAccess with an earlier visit in this browser", () => {
     expect(status().textContent).toContain("Your demo session has ended.");
   });
 
-  it("with the DemoBar showing the ended sentence (/pair) the box does not repeat it", () => {
+  it("on /pair (suppressEnded) the box does not say the session ended either, and leaves no text behind", () => {
     window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: 1_000, role: "staff" }));
-    renderAccess({ role: "staff", barShowsEnded: true });
+    renderAccess({ role: "staff", suppressEnded: true });
     expect(screen.queryByText("Your demo session has ended.")).toBeNull();
     expect(status().textContent).toBe("");
   });
