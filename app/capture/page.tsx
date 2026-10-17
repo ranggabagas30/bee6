@@ -259,6 +259,9 @@ export default function CapturePage() {
   const openBusyRef = useRef(false);
   const [openBusy, setOpenBusy] = useState(false);
   const [openErrorKey, setOpenErrorKey] = useState<DictKey | null>(null);
+  // R25-002: the open-session view's End confirm (spec §8 step 10a). Separate from `selesaiConfirmOpen`, which
+  // belongs to the running session's sheet, so a stale flag can never open the wrong sheet after Start.
+  const [openEndConfirm, setOpenEndConfirm] = useState(false);
   // R-19 PR-4b: bumped whenever the phone itself changes the session, so a config re-fetch that started earlier
   // can never overwrite what the phone just did.
   const configGenRef = useRef(0);
@@ -321,6 +324,11 @@ export default function CapturePage() {
   // dialog's `busy` also covers `autoStopBusy`, so Confirm cannot fire during the end call itself.
   if (signOutKind === "running" && session === null) {
     setSignOutKind(null);
+  }
+  // R25-002: the 30 s config re-poll can drop the open session under the sheet (the server closed it): nothing to
+  // end any more, so the sheet goes with the view.
+  if (openEndConfirm && !demoSession?.open_session) {
+    setOpenEndConfirm(false);
   }
 
   // Debrief entry (R-07, technical spec §8.10): per-device, from this
@@ -804,6 +812,7 @@ export default function CapturePage() {
       setOpenErrorKey(sessionErrorKey(result.status, result.code));
       return;
     }
+    setOpenEndConfirm(false);
     setLastEnded({ business_date: localDate, end_reason: "selesai", debrief_ends_at_ms: endedAt + DEBRIEF_DURATION_MS });
     setConfig((c) => (c ? dropOpenSession(c) : c));
     afterSessionChanged();
@@ -957,6 +966,10 @@ export default function CapturePage() {
   // ── R-25 T5: sandbox screen pieces ───────────────────────────────────────────
   // A sandbox device (server field `demo_session`) gets the page-2 staff screen; the pilot keeps its screen.
   const sandbox = demoSession !== undefined;
+  // R25-003 (boards L2-*): from 900 px the one sign-out control is the header's secondary button; under 900 px it is
+  // the footer link (R10). Decided here, not in CSS, so there is never a second affordance in the tree.
+  const headerSignOut = sandbox && drawerLayout.wide;
+  const signOutDisabled = signOutBusy || selesaiBusy || autoStopBusy || closingBusy || mulaiBusy || openBusy;
   // R-19 (Q6): "Day n of 3 · date". The date is the real local date (the shifted days are behind it).
   const dayLine =
     view === "ready" && demoSession !== undefined && config && nowMs !== null
@@ -972,11 +985,12 @@ export default function CapturePage() {
    * header button, same disabled rule.
    */
   function renderSignOutLink(tone: "muted" | "danger") {
+    if (headerSignOut) return null;
     return (
       <Button
         variant={tone === "danger" ? "text-danger" : "text"}
         onClick={handleSignOutTap}
-        disabled={signOutBusy || selesaiBusy || autoStopBusy || closingBusy || mulaiBusy || openBusy}
+        disabled={signOutDisabled}
       >
         {t(lang, tone === "danger" ? "C-sess-signout-running-link" : "C-sess-signout")}
       </Button>
@@ -1013,21 +1027,40 @@ export default function CapturePage() {
     const openSession = demoSession?.open_session ?? null;
     if (openSession) {
       return (
-        <OpenSessionView
-          lang={lang}
-          closingReached={openSession.closing_reached}
-          busy={openBusy}
-          errorKey={openErrorKey}
-          onEnd={() => void handleOpenEnd()}
-          onCancel={() => void handleOpenCancel()}
-          dayLine={dayLine}
-          footer={
-            <>
-              {renderNote()}
-              {renderSignOutLink("muted")}
-            </>
-          }
-        />
+        <>
+          <OpenSessionView
+            lang={lang}
+            closingReached={openSession.closing_reached}
+            busy={openBusy}
+            // R25-002: while the sheet is open the error is shown in the sheet, not twice.
+            errorKey={openEndConfirm ? null : openErrorKey}
+            onEnd={() => {
+              setOpenErrorKey(null);
+              setOpenEndConfirm(true);
+            }}
+            onCancel={() => void handleOpenCancel()}
+            dayLine={dayLine}
+            footer={
+              <>
+                {renderNote()}
+                {renderSignOutLink("muted")}
+              </>
+            }
+          />
+          {openEndConfirm ? (
+            <EndConfirmSheet
+              lang={lang}
+              body={t(lang, "C-script-end-b")}
+              busy={openBusy}
+              errorKey={openErrorKey}
+              onKeep={() => {
+                setOpenEndConfirm(false);
+                setOpenErrorKey(null);
+              }}
+              onEnd={() => void handleOpenEnd()}
+            />
+          ) : null}
+        </>
       );
     }
     if (!idle) return null;
@@ -1415,8 +1448,22 @@ export default function CapturePage() {
   return (
     <div className={modern ? css.page : undefined}>
       {modern ? <Mist /> : null}
-      {/* The staff bar (logo, the demo outlet line with its expiry, ID | EN). No Sign out in the header: the footer link is the only one. */}
-      {modern ? <StaffTopBar demo outletLine /> : null}
+      {/* The staff bar (logo, the demo outlet line with its expiry, ID | EN; the Sign out button from 900 px, R25-003). */}
+      {modern ? (
+        <StaffTopBar
+          demo
+          outletLine
+          signOut={
+            headerSignOut
+              ? {
+                  label: t(lang, "C-sess-signout"),
+                  onClick: handleSignOutTap,
+                  disabled: signOutDisabled,
+                }
+              : undefined
+          }
+        />
+      ) : null}
       <main className={modern ? css.column : undefined} style={modern ? inset : mainStyle}>
         {modern ? null : <ShopTopBar compact={compactChrome} />}
         {modern ? null : (

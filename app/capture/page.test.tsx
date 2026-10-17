@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEBRIEF_DONE_FLAG_KEY, DEBRIEF_DONE_SUMMARY_KEY } from "@/lib/debrief/constants";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
@@ -1490,10 +1490,97 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       postSessionEnd.mockImplementationOnce(() => new Promise((resolve) => { resolveEnd = resolve; }));
       await renderReady();
       fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+      fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
       await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
       expect((screen.getByRole("button", { name: "Sign out" }) as HTMLButtonElement).disabled).toBe(true);
       resolveEnd({ ok: true });
       await waitFor(() => expect((screen.getByRole("button", { name: "Sign out" }) as HTMLButtonElement).disabled).toBe(false));
+    });
+  });
+
+  // R25-003 (boards L2-*): from 900 px the one sign-out control is the header's secondary button, no footer link.
+  describe("sign-out at >= 900 px (R25-003)", () => {
+    beforeEach(() => {
+      vi.stubGlobal("matchMedia", (q: string) => ({
+        matches: q === "(min-width: 900px)",
+        media: q,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }));
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    const headerOf = (container: HTMLElement) => within(container.querySelector("header")!);
+    const mainOf = (container: HTMLElement) => within(container.querySelector("main")!);
+
+    it("idle: the header carries Sign out and the footer has none; the header button signs out at once", async () => {
+      pinClock(MON_2230_WIB);
+      fetchCaptureConfig.mockResolvedValue(demoConfig());
+      const { container } = await renderReady();
+      await screen.findByRole("button", { name: "Start" });
+      expect(headerOf(container).getByRole("button", { name: "Sign out" })).toBeTruthy();
+      expect(mainOf(container).queryByRole("button", { name: /Sign out/ })).toBeNull();
+      fireEvent.click(headerOf(container).getByRole("button", { name: "Sign out" }));
+      expect(screen.queryByRole("dialog")).toBeNull(); // no session: nothing to ask
+      expect(clearDeviceAuth).toHaveBeenCalledTimes(1);
+      expect(replace).toHaveBeenCalledWith("/");
+    });
+
+    it("running before closing: the header button opens the cancel-today dialog; no red footer link anywhere", async () => {
+      await startDemoSession();
+      const container = document.body;
+      expect(headerOf(container).getByRole("button", { name: "Sign out" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: SIGN_OUT_RUNNING_LINK })).toBeNull();
+      expect(mainOf(container).queryByRole("button", { name: /Sign out/ })).toBeNull();
+      fireEvent.click(headerOf(container).getByRole("button", { name: "Sign out" }));
+      expect(screen.getByRole("dialog", { name: "Sign out and cancel today?" })).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Keep listening" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(postSessionDiscard).not.toHaveBeenCalled();
+    });
+
+    it("after closing: the header button opens the closed dialog (nothing is deleted)", async () => {
+      await startDemoSession();
+      await reachClosing();
+      const header = headerOf(document.body);
+      fireEvent.click(header.getByRole("button", { name: "Sign out" }));
+      expect(screen.getByRole("dialog", { name: "Sign out?" })).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Stay" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(postSessionDiscard).not.toHaveBeenCalled();
+      expect(clearDeviceAuth).not.toHaveBeenCalled();
+    });
+
+    it("open-session view: the header carries Sign out, the footer has none", async () => {
+      vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+      vi.setSystemTime(new Date(MON_2230_WIB));
+      fetchCaptureConfig.mockResolvedValue(demoConfig({ open_session: open({ closing_reached: true }), closing_reached: true }));
+      const { container } = await renderReady();
+      await screen.findByRole("heading", { name: "Today's session is still open" });
+      expect(headerOf(container).getByRole("button", { name: "Sign out" })).toBeTruthy();
+      expect(mainOf(container).queryByRole("button", { name: /Sign out/ })).toBeNull();
+    });
+
+    it("the header button is disabled while the Start request is in flight", async () => {
+      vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+      vi.setSystemTime(new Date(MON_2230_WIB));
+      fetchCaptureConfig.mockResolvedValue(demoConfig());
+      let resolveStart: (v: { ok: boolean; status?: number }) => void = () => {};
+      postSessionStart.mockImplementationOnce(() => new Promise((resolve) => { resolveStart = resolve; }));
+      const { container } = await renderReady();
+      fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+      await waitFor(() => expect(postSessionStart).toHaveBeenCalledTimes(1));
+      expect((headerOf(container).getByRole("button", { name: "Sign out" }) as HTMLButtonElement).disabled).toBe(true);
+      resolveStart({ ok: false, status: 500 });
+      await waitFor(() => expect((headerOf(container).getByRole("button", { name: "Sign out" }) as HTMLButtonElement).disabled).toBe(false));
+    });
+
+    it("pilot (no sandbox): no header Sign out even when wide", async () => {
+      pinClock(MON_2230_WIB);
+      fetchCaptureConfig.mockResolvedValue(pilotConfig());
+      await renderReady();
+      await screen.findByRole("button", { name: "Start" });
+      expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
     });
   });
 
@@ -1526,6 +1613,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       stubPreparingQuestions();
       await renderWithOpen(open({ closing_reached: true }));
       fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+      fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
       await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
       const [, id, body] = postSessionEnd.mock.calls[0]! as [unknown, string, { started_at_ms: number; ended_at_ms: number; end_reason: string }];
       expect(id).toBe(SID);
@@ -1540,6 +1628,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       stubPreparingQuestions();
       await renderWithOpen(open({ closing_reached: true }));
       fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+      fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
       await waitFor(() => expect(screen.getByText("Preparing your questions")).toBeTruthy());
       expect(screen.queryByRole("button", { name: "Answer questions" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
@@ -1561,9 +1650,63 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       await renderWithOpen(open({ closing_reached: true }));
       postSessionEnd.mockImplementationOnce(async () => ({ ok: false, status: 500 }));
       fireEvent.click(await screen.findByRole("button", { name: "End today" }));
-      await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Could not process that. Try again."));
+      fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
+      // R25-002: the error shows inside the sheet (once), the sheet stays and "Yes, end" is enabled for the retry.
+      const dialog = await screen.findByRole("dialog", { name: "End today's operations?" });
+      await waitFor(() => expect(within(dialog).getByRole("alert").textContent).toBe("Could not process that. Try again."));
+      expect(screen.getAllByRole("alert")).toHaveLength(1);
+      expect((within(dialog).getByRole("button", { name: "Yes, end" }) as HTMLButtonElement).disabled).toBe(false);
+      fireEvent.click(within(dialog).getByRole("button", { name: "Not yet, keep going" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.queryByRole("alert")).toBeNull(); // dismissing the sheet clears the End error
       expect(screen.getByRole("heading", { name: "Today's session is still open" })).toBeTruthy();
       expect((screen.getByRole("button", { name: "End today" }) as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it("End today opens the End confirm first; Not yet keeps the open session, nothing posted", async () => {
+      await renderWithOpen(open({ closing_reached: true }));
+      fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+      const dialog = screen.getByRole("dialog", { name: "End today's operations?" });
+      expect(within(dialog).getByText("The 1-hour debrief starts now. This cannot be undone.")).toBeTruthy();
+      expect(postSessionEnd).not.toHaveBeenCalled();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Not yet, keep going" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.getByRole("button", { name: "End today" })).toBeTruthy();
+      expect(postSessionEnd).not.toHaveBeenCalled();
+    });
+
+    it("Yes, end ends THAT session once (selesai) and the debrief follows", async () => {
+      stubPreparingQuestions();
+      await renderWithOpen(open({ closing_reached: true }));
+      fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+      fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
+      await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+      const [, id, body] = postSessionEnd.mock.calls[0]! as [unknown, string, { end_reason: string }];
+      expect(id).toBe(SID);
+      expect(body.end_reason).toBe("selesai");
+      await waitFor(() => expect(screen.getByText("Preparing your questions")).toBeTruthy());
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Today's session is still open" })).toBeNull();
+    });
+
+    it("the sheet goes with the view when the 30 s re-poll drops the open session under it", async () => {
+      await renderWithOpen(open({ closing_reached: true }));
+      fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+      expect(screen.getByRole("dialog", { name: "End today's operations?" })).toBeTruthy();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000);
+      });
+      await waitFor(() => expect(screen.queryByRole("heading", { name: "Today's session is still open" })).toBeNull());
+      expect(screen.queryByRole("dialog", { name: "End today's operations?" })).toBeNull();
+      expect(postSessionEnd).not.toHaveBeenCalled();
+    });
+
+    it("Cancel today stays a single tap (no confirm)", async () => {
+      await renderWithOpen(open({ closing_reached: false }));
+      fireEvent.click(await screen.findByRole("button", { name: "Cancel today" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      await waitFor(() => expect(postSessionDiscard).toHaveBeenCalledTimes(1));
+      expect(screen.queryByRole("dialog")).toBeNull();
     });
 
     it("Cancel today refused with 409 closing_reached (closing was marked meanwhile) becomes End today", async () => {
