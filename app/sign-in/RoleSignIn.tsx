@@ -9,7 +9,6 @@ import { getClientAuth } from "@/lib/auth/client/firebase-client";
 import { useAuthUser } from "@/lib/auth/client/use-auth-user";
 import { useLang } from "@/lib/i18n/context";
 import { t, type DictKey } from "@/lib/i18n/dict";
-import { cx } from "@/app/ui/cx";
 import { PairForm, type PairedInfo } from "@/app/pair/PairForm";
 import { PairedChecklist } from "@/app/pair/PairedChecklist";
 import { EmailSignInForm, useEmailFields } from "@/app/sign-in/EmailSignInForm";
@@ -148,7 +147,7 @@ export function RoleSignIn({ config, demo, initialRole, headingLevel = 1, redire
     }
     return (
       <>
-        <p className={styles.sub}>{t(lang, "C-signin-help")}</p>
+        <p className="b6-sub">{t(lang, "C-signin-help")}</p>
         <EmailSignInForm
           auth={auth}
           disabled={busy}
@@ -193,7 +192,7 @@ export function RoleSignIn({ config, demo, initialRole, headingLevel = 1, redire
   const Heading = headingLevel === 1 ? "h1" : "h2";
   return (
     <section className={styles.screen}>
-      <Heading className={headingLevel === 1 ? cx("b6-h1-web", styles.h1) : undefined}>{t(lang, "C-signin-title")}</Heading>
+      <Heading className={headingLevel === 1 ? "b6-h1-web" : undefined}>{t(lang, "C-signin-title")}</Heading>
       <fieldset className={styles.fieldset}>
         <legend className={styles.legend}>{t(lang, "C-signin-as")}</legend>
         <div className={styles.roles}>

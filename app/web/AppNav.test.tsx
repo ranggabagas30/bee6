@@ -104,7 +104,7 @@ describe("AppNav (R-19 PR-6 §8.2, D-9)", () => {
 
   it("the nav CSS fades only on request (data-fade), keeps the focus ring clear, and drops the fade from 900 px", () => {
     const css = readFileSync(join(__dirname, "shell.module.css"), "utf8");
-    const nav = css.match(/\n\.nav\s*{[^}]*}/)?.[0] ?? "";
+    const nav = css.match(/\n\.shell \.nav\s*{[^}]*}/)?.[0] ?? "";
     expect(nav).not.toMatch(/mask-image/); // never unconditional
     expect(nav).toMatch(/scroll-padding-inline:/);
     expect(css).toMatch(/\.nav\[data-fade="true"\]\s*{[^}]*mask-image:\s*linear-gradient\(to right/);

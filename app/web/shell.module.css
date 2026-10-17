@@ -1,4 +1,8 @@
 /*
+ * (Selectors for the elements that also carry G0's `.b6-dtop` / `.b6-dwrap` / `.b6-main` / `.b6-nav` / `.b6-badge`
+ * start with `.shell` so this file wins by specificity, whatever the stylesheet order: G0's grid, padding and
+ * overflow defaults do not apply here.)
+ *
  * Supervisor / owner web shell (R-25 T8; page-2 boards D2-02..D2-08): the `.dtop` bar, the left nav and `main`, on the
  * PR-0b tokens (app/globals.css). Mobile-first: one column at 360 px (bar wraps to two rows, the nav is a sideways
  * scrolling row with a right-edge fade as the cue); from 900 px the nav is the board's 210 px left column beside `main`.
@@ -20,7 +24,7 @@
 
 /* ---- top bar (board .dtop) ---- */
 
-.dtop {
+.shell .dtop {
   position: relative;
   box-sizing: border-box;
   display: flex;
@@ -81,27 +85,6 @@
   outline-offset: 2px;
 }
 
-/* Logo stand-in (see BrandMark.tsx): mark 26 px in the teal, wordmark 18px/800/-0.035em. */
-.logo {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.logoMark {
-  width: 26px;
-  height: 26px;
-  flex: none;
-  display: block;
-  color: var(--b6-teal);
-}
-
-.logoWord {
-  font-size: var(--b6-fs-title);
-  font-weight: 800;
-  letter-spacing: -0.035em;
-}
-
 .outlet {
   font-size: var(--b6-fs-ui);
   color: var(--b6-muted);
@@ -119,14 +102,14 @@
 
 /* ---- body: nav + main (board .dwrap) ---- */
 
-.dwrap {
+.shell .dwrap {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: stretch;
 }
 
-.main {
+.shell .main {
   box-sizing: border-box;
   flex: 1 1 0;
   min-width: 0;
@@ -145,7 +128,7 @@
 
 /* ---- nav (board .nav) ---- */
 
-.nav {
+.shell .nav {
   /* The scroller clips on both axes: 4 px of its own padding (undone by the negative top margin and a smaller bottom one)
      plus the list's 2 px give the 2 px focus ring + 2 px offset their full room, top and bottom. */
   margin: -4px -16px 12px;
@@ -158,18 +141,18 @@
 }
 
 /* inside the shell the row has its own room under the bar, no negative margins */
-.navRail {
+.shell .navRail {
   margin: 0;
-  padding: 8px 16px 0;
+  padding: 8px 16px 4px;
 }
 
 /* Edge fade: the cue that more items wait to the right. AppNav sets data-fade only while the row overflows and is not
    scrolled to the end, so the last item is never dimmed. Dropped from 900 px, where the row wraps or becomes the rail. */
-.nav[data-fade="true"] {
+.shell .nav[data-fade="true"] {
   mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
 }
 
-.nav::-webkit-scrollbar {
+.shell .nav::-webkit-scrollbar {
   display: none;
 }
 
@@ -219,7 +202,7 @@
 }
 
 /* count on a nav item (board .badge) */
-.badge {
+.shell .badge {
   min-width: 22px;
   height: 22px;
   box-sizing: border-box;
@@ -244,7 +227,7 @@
 }
 
 @media (min-width: 900px) {
-  .dtop {
+  .shell .dtop {
     padding: 14px 28px;
     gap: 12px;
   }
@@ -268,20 +251,20 @@
     order: 0;
   }
 
-  .dwrap {
+  .shell .dwrap {
     flex-direction: row;
   }
 
-  .main {
+  .shell .main {
     padding: 22px 32px 56px;
   }
 
-  .nav {
+  .shell .nav {
     margin: 0 0 12px;
     padding: 0;
     overflow: visible; /* wrapped, not scrolled: nothing to clip, so the focus ring shows whole */
   }
-  .nav[data-fade="true"] {
+  .shell .nav[data-fade="true"] {
     mask-image: none;
   }
   .navList {
@@ -291,13 +274,13 @@
   }
 
   /* the board's left column: 210 px, items stacked */
-  .navRail {
+  .shell .navRail {
     flex: none;
     width: 210px;
     margin: 0;
     padding: 16px 14px;
   }
-  .navRail .navList {
+  .shell .navRail .navList {
     flex-direction: column;
     flex-wrap: nowrap;
     gap: 2px;
@@ -311,7 +294,7 @@
   }
 }
 
-/* ---- page head (board: h1 38px/300 + 15px muted sub) and the plain card ---- */
+/* ---- page head (h1 and sub are G0's .b6-h1-web / .b6-sub) and the plain card ---- */
 
 .pageHead {
   display: flex;
@@ -320,21 +303,7 @@
   min-width: 0;
 }
 
-.h1 {
-  margin: 0;
-  font-size: clamp(30px, 8.5vw, 38px);
-  line-height: 1.1;
-  font-weight: 300;
-  letter-spacing: -0.6px;
-  overflow-wrap: anywhere;
-}
 
-.sub {
-  margin: 0;
-  font-size: var(--b6-fs-body);
-  line-height: 1.5;
-  color: var(--b6-muted);
-}
 
 .softCard {
   box-sizing: border-box;
@@ -344,12 +313,6 @@
   padding: 20px;
 }
 
-.kick {
-  font-family: var(--b6-font-mono);
-  font-size: var(--b6-fs-kicker);
-  letter-spacing: 0.3px;
-  color: var(--b6-muted);
-}
 
 .cardLine {
   margin: 0;

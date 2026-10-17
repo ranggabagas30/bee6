@@ -43,7 +43,7 @@ export function DevicesApp({ config }: { config: FirebaseWebConfig | null }) {
     <WebShell auth={auth} current="devices">
       <PageHead title={t(lang, "C-web-nav-devices")} sub={t(lang, "C-web-devices-sub")} />
       <Card className={styles.softCard}>
-        <span className={styles.kick}>{t(lang, "C-web-devices-soon-kick")}</span>
+        <span className="b6-kick">{t(lang, "C-web-devices-soon-kick")}</span>
         <p className={styles.cardLine}>{t(lang, "C-web-devices-soon-p")}</p>
       </Card>
     </WebShell>

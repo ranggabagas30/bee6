@@ -13,20 +13,7 @@
   gap: 18px;
 }
 
-.h1 {
-  margin: 0;
-  font-size: clamp(30px, 8.5vw, 38px);
-  line-height: 1.1;
-  font-weight: 300;
-  letter-spacing: -0.6px;
-}
 
-.sub {
-  margin: 0;
-  font-size: var(--b6-fs-body);
-  line-height: 1.5;
-  color: var(--b6-muted);
-}
 
 /* ---- role choice: a native radio group drawn as the board's segmented control ---- */
 

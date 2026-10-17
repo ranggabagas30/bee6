@@ -24,17 +24,24 @@ describe("shell.module.css: the .dtop bar", () => {
     expect(dtop).toMatch(/flex-wrap:\s*wrap/);
   });
 
-  it(".brand is a 44 x 44 px minimum box and the mark is 26 px", () => {
+  it(".brand is a 44 x 44 px minimum box (the Logo itself is G0's)", () => {
     const brand = block(".brand");
     expect(brand).toMatch(/min-height:\s*44px/);
     expect(brand).toMatch(/min-width:\s*44px/);
     expect(brand).toMatch(/display:\s*inline-flex/);
-    expect(block(".logoMark")).toMatch(/width:\s*26px/);
-    expect(block(".logoWord")).toMatch(/font-weight:\s*800/);
+  });
+
+  it("the elements that carry G0's shell classes win by specificity: every such selector starts with .shell", () => {
+    const bare = css.split("\n").filter((l) => l.endsWith("{") && /^\s*\.(dtop|dwrap|main|nav|navRail|badge)(?![A-Za-z])/.test(l));
+    expect(bare).toEqual([]);
   });
 });
 
 describe("shell.module.css: nav and main", () => {
+  it("under 900 px the rail's row keeps 4 px under it, so the focus ring is not clipped at the bottom", () => {
+    expect(block(".navRail")).toMatch(/padding:\s*8px 16px 4px/);
+  });
+
   it("the rail is 210 px wide from 900 px and stacks its items", () => {
     expect(block(".navRail", wide)).toMatch(/width:\s*210px/);
     expect(css.slice(wide)).toMatch(/\.navRail \.navList\s*{[^}]*flex-direction:\s*column/);
