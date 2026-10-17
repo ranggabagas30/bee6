@@ -94,7 +94,7 @@ describe("sandbox capture screen (R-25 T5): document order and landmarks", () =>
     const note = screen.getByTestId("capture-notice");
     const signOut = screen.getByRole("button", { name: "Sign out" });
     const upload = screen.getByTestId("upload-status");
-    expect(inOrder(header, stage, h1, sub, day, start, note, signOut, upload)).toBe(true);
+    expect(inOrder(header, upload, stage, h1, sub, day, start, note, signOut)).toBe(true);
     expect(screen.getByText("Demo Bakery · Outlet 1")).toBeTruthy();
     // the board's one note, and the pilot's privacy line, are the same single element
     expect(screen.getAllByText("Speech becomes short work notes. Audio is not kept.")).toHaveLength(1);
@@ -120,7 +120,7 @@ describe("sandbox capture screen (R-25 T5): document order and landmarks", () =>
     const note = screen.getByTestId("capture-notice");
     const signOut = screen.getByRole("button", { name: "Sign out" });
     const upload = screen.getByTestId("upload-status");
-    expect(inOrder(header, stage, h1, sub, day, start, note, signOut, upload)).toBe(true);
+    expect(inOrder(header, upload, stage, h1, sub, day, start, note, signOut)).toBe(true);
     expect(screen.getByText("Demo Bakery · Outlet 1")).toBeTruthy();
     expect((start as HTMLButtonElement).getAttribute("aria-disabled")).not.toBe("true");
     expect(screen.getAllByText("Speech becomes short work notes. Audio is not kept.")).toHaveLength(1);
@@ -157,7 +157,7 @@ describe("sandbox capture screen (R-25 T5): document order and landmarks", () =>
     const signOut = screen.getByRole("button", { name: "Sign out (cancels today's session)" });
     const note = screen.getByTestId("capture-notice");
     const upload = screen.getByTestId("upload-status");
-    expect(inOrder(container.querySelector("header")!, stage, h1, sub1, day, end, signOut, note, upload)).toBe(true);
+    expect(inOrder(container.querySelector("header")!, upload, stage, h1, sub1, day, end, signOut, note)).toBe(true);
     expect(screen.queryByRole("button", { name: "Cancel session" })).toBeNull();
   });
 
@@ -290,6 +290,16 @@ describe("sandbox capture screen (R-25 T5): document order and landmarks", () =>
     expect(container.querySelector(".b6-stage")!.classList.contains("b6-stage--idle")).toBe(true);
     const headline = headlineStatus(container);
     expect(headline.textContent).toContain("Microphone problem · not listening");
+  });
+
+  it("sandbox: the upload block sits between the top bar and the stage", async () => {
+    fetchCaptureConfig.mockResolvedValue({ ...base, demo_session: PROFILE });
+    const { container } = await renderPage();
+    await screen.findByRole("button", { name: "Start" });
+    const header = container.querySelector("header")!;
+    const upload = screen.getByTestId("upload-status");
+    const stage = container.querySelector(".b6-stage")!;
+    expect(inOrder(header, upload, stage)).toBe(true);
   });
 });
 

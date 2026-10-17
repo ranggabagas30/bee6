@@ -996,6 +996,29 @@ export default function CapturePage() {
       </Button>
     );
   }
+  /** Upload block (UX-03 §5.7): shown in every mode, including idle and
+      stopped. While a session runs it follows the live status; after a
+      stop it keeps the lost notice (until Dismiss or the next Start, R-23)
+      and the retry row. It never changes the headline. */
+  function renderUploadBlock() {
+    return (
+      <UploadStatusLine
+        view={
+          sessionRunning
+            ? deriveUploadView(status)
+            : deriveRetainedUploadView(lastUploadStatus)
+        }
+        lost={lostNotice}
+        onDismissLost={() => setDismissedDrops(uploadSource?.droppedCount ?? 0)}
+        online={networkOnline}
+        styled={modern}
+        httpStatus={
+          sessionRunning ? status?.lastUploadHttpStatus : lastUploadStatus?.lastUploadHttpStatus
+        }
+      />
+    );
+  }
+
   /** Capture privacy notice (UX-03 §5.10): a muted notice, not a consent gate (CLAUDE.md §7b). */
   function renderNote() {
     return (
@@ -1495,6 +1518,8 @@ export default function CapturePage() {
           </p>
         ) : null}
 
+        {modern ? renderUploadBlock() : null}
+
         {view === "loading" ? <p>{t(lang, "C-h-loading")}</p> : null}
 
         {view === "error" ? (
@@ -1525,24 +1550,7 @@ export default function CapturePage() {
           />
         ) : null}
 
-        {/* Upload block (UX-03 §5.7): shown in every mode, including idle and
-            stopped. While a session runs it follows the live status; after a
-            stop it keeps the lost notice (until Dismiss or the next Start, R-23)
-            and the retry row. It never changes the headline. */}
-        <UploadStatusLine
-          view={
-            sessionRunning
-              ? deriveUploadView(status)
-              : deriveRetainedUploadView(lastUploadStatus)
-          }
-          lost={lostNotice}
-          onDismissLost={() => setDismissedDrops(uploadSource?.droppedCount ?? 0)}
-          online={networkOnline}
-          styled={modern}
-          httpStatus={
-            sessionRunning ? status?.lastUploadHttpStatus : lastUploadStatus?.lastUploadHttpStatus
-          }
-        />
+        {modern ? null : renderUploadBlock()}
         {/* Capture privacy notice (UX-03 §5.10): a muted notice, not a consent
             gate (CLAUDE.md §7b). One per page, in the page's language, every mode. On a sandbox it sits in the
             stage screens' footer (renderNote), right under the action, as on the board. */}
