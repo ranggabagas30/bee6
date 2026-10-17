@@ -106,6 +106,7 @@ describe("EntryLanding: the demo entry page (R-25 T3, boards P2-01 and D2-01)", 
     renderLanding();
     const banner = screen.getByRole("banner");
     expect(banner.className).toContain("b6-dtop");
+    expect(banner.classList.contains("b6-pill-room")).toBe(true); // R-25 fixes-2 §2: keeps its controls left of the guide pill
     expect(within(banner).getByText("DEMO DATA")).toBeTruthy();
     for (const card of cards()) expect(card.querySelector('[aria-hidden="true"]')).not.toBeNull();
   });

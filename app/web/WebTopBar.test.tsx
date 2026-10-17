@@ -94,6 +94,28 @@ describe("WebTopBar (R-19 PR-6 §8.2)", () => {
     expect(outlet.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(chip.compareDocumentPosition(demoChip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole("banner").className).toContain("b6-dtop");
+    expect(screen.getByRole("banner").classList.contains("b6-pill-room")).toBe(true); // R-25 fixes-2 §2
+  });
+
+  it("the role chip and the DEMO DATA chip share one parent, so they wrap together or not at all (R-25 fixes-2 §5.3, QA M-005)", async () => {
+    for (const role of ["owner", "supervisor"] as const) {
+      signedIn({ role, outlet_id: "o1", demo_exp_ms: Date.now() + 60_000 });
+      renderBar();
+      const roleChip = await screen.findByText(role === "owner" ? "Owner" : "Supervisor");
+      const demoChip = screen.getByText("DEMO DATA");
+      expect(roleChip.parentElement).toBe(demoChip.parentElement);
+      expect(roleChip.parentElement!.className).toContain("chips");
+      expect(roleChip.parentElement!.children).toHaveLength(2);
+      cleanup();
+    }
+  });
+
+  it("a real principal's chip unit holds only the role chip (R-25 fixes-2 §5.3)", async () => {
+    signedIn({ role: "owner", outlet_id: "o1" });
+    renderBar();
+    const roleChip = await screen.findByText("Owner");
+    expect(roleChip.parentElement!.children).toHaveLength(1);
+    expect(screen.queryByText("DEMO DATA")).toBeNull();
   });
 
   it("the outlet line ends with the demo's end time while the hook has one, and drops it when it has none (R6)", async () => {

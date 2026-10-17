@@ -48,7 +48,7 @@ export function SidePanel({ label, open, onOpenChange, openLabel, closeLabel, pi
     return () => root.classList.remove("b6-panel-open");
   }, [open]);
 
-  // While collapsed the pill sits fixed at the top right: tell the page to start below it (see globals.css).
+  // While collapsed the pill sits fixed at the top right of the header band: tell each .b6-pill-room header to keep its controls left of it (see globals.css).
   useEffect(() => {
     if (open) return;
     const root = document.documentElement;

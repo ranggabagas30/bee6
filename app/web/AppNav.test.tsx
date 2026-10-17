@@ -170,3 +170,56 @@ describe("AppNav edge fade states (R-19 PR-6 defect 3)", () => {
     expect(navEl().getAttribute("data-fade")).toBe("false");
   });
 });
+
+describe("AppNav reveals the current item on a phone (R-25 fixes-2 §5.2, QA M-004)", () => {
+  const navEl = () => screen.getByRole("navigation", { name: /Main|Menu utama/ });
+  function stubLayout(scrollWidth: number, clientWidth: number, offsets: Record<string, [number, number]>) {
+    vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(scrollWidth);
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(clientWidth);
+    vi.spyOn(HTMLElement.prototype, "offsetLeft", "get").mockImplementation(function (this: HTMLElement) {
+      return offsets[this.textContent ?? ""]?.[0] ?? 0;
+    });
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return offsets[this.textContent ?? ""]?.[1] ?? 0;
+    });
+  }
+  afterEach(() => vi.restoreAllMocks());
+
+  it("scrolls the row so an off-screen current item ends 24 px from the right edge", () => {
+    stubLayout(554, 360, { "Connected devices": [386, 168] });
+    renderNav("supervisor", "devices");
+    expect(navEl().scrollLeft).toBe(386 + 168 + 24 - 360);
+  });
+
+  it("an item already at the start leaves the row at 0 (never a negative scroll)", () => {
+    stubLayout(554, 360, { "Day record": [0, 110] });
+    renderNav("supervisor", "day");
+    expect(navEl().scrollLeft).toBe(0);
+  });
+
+  it("no overflow: nothing scrolls", () => {
+    stubLayout(360, 360, { "Connected devices": [386, 168] });
+    renderNav("supervisor", "devices");
+    expect(navEl().scrollLeft).toBe(0);
+  });
+
+  it("moves again when the current item changes", () => {
+    stubLayout(554, 360, { "Connected devices": [386, 168], "Day record": [0, 110] });
+    const { rerender } = renderNav("supervisor", "devices");
+    expect(navEl().scrollLeft).toBe(218);
+    rerender(
+      <LangProvider initial="en">
+        <AppNav role="supervisor" current="day" />
+      </LangProvider>,
+    );
+    expect(navEl().scrollLeft).toBe(0);
+  });
+
+  it("never calls scrollIntoView (it could scroll the page vertically)", () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    stubLayout(554, 360, { "Connected devices": [386, 168] });
+    renderNav("supervisor", "devices");
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+});

@@ -5,6 +5,7 @@ import { t } from "@/lib/i18n/dict";
 import { LangSwitch } from "@/app/shop/LangSwitch";
 import { useDemoExpiryHHMM } from "@/app/demo/demo-expiry"; // Firebase-free module: the pilot bar must not pull demo-client
 import { Button, Chip, Logo } from "@/app/ui";
+import { cx } from "@/app/ui/cx";
 import styles from "@/app/shop/shop.module.css";
 
 /**
@@ -29,7 +30,7 @@ export function StaffTopBar({ demo = false, outletLine = false, signOut }: Staff
   const expiry = useDemoExpiryHHMM();
   const showOutlet = demo && outletLine;
   return (
-    <header className={styles.bar}>
+    <header className={cx("b6-pill-room", styles.bar)}>
       <Logo className={styles.logo} />
       {showOutlet && (
         <p className={styles.outlet}>

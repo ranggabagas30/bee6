@@ -64,6 +64,9 @@ export const SHEET_RESERVE_PX = 96;
 export const CONFIG_REPOLL_MS = 10_000;
 
 const WIDE_QUERY = "(min-width: 900px)";
+
+/** localStorage flag (value "1"): this browser has seen the entry page's auto-opened welcome panel (R-25 fixes-2 §3). */
+export const WELCOME_SEEN_KEY = "bee6.guide.welcome_seen";
 const STAGE_TOTAL = STAGES.length;
 
 const NEXT_DAY_REASON_KEY: Record<Exclude<NextDayRefusal, "unanswered_questions">, DictKey> = {
@@ -197,7 +200,25 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
   const auth = config ? getClientAuth(config) : null;
   const authStatus = useAuthUser(auth).status;
   const [progress, setProgress] = useState<JourneyProgress | null>(null);
-  const [open, setOpen] = useState(false);
+  // R-25 fixes-2 §3: on the entry page the laptop panel opens by itself the first time this browser sees it. Decided
+  // once, in the first client render (the guide never renders on the server); the phone sheet never auto-opens.
+  const [autoOpened] = useState(
+    () => seg === "" && readLocal(WELCOME_SEEN_KEY) !== "1" && typeof window.matchMedia === "function" && window.matchMedia(WIDE_QUERY).matches,
+  );
+  const [open, setOpen] = useState(autoOpened);
+  // The first close of the auto-opened panel (close button, Escape, a route change, the pill) remembers it was seen.
+  useEffect(() => {
+    if (autoOpened && !open) writeLocal(WELCOME_SEEN_KEY, "1");
+  }, [autoOpened, open]);
+  // Escape closes the auto-opened panel even while nothing inside it has focus (SidePanel handles Escape only inside).
+  useEffect(() => {
+    if (!autoOpened || !open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [autoOpened, open]);
   // "Supervisor visited" (plan 7.1): true the moment any supervisor page is on screen, and remembered in
   // localStorage for the later stages. Derived, not set in the effect: the effect only persists it.
   const [visitedStored] = useState(() => readLocal(SUPERVISOR_SEEN_KEY) === "1");

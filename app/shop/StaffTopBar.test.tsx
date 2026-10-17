@@ -29,6 +29,7 @@ describe("StaffTopBar", () => {
     expect(within(bar).getByText("Bee6")).toBeTruthy();
     expect(within(bar).getByRole("group", { name: "Choose language" })).toBeTruthy();
     expect(bar.textContent).not.toMatch(/Bakery|ends|Staff|DEMO|Sign out/i);
+    expect(bar.classList.contains("b6-pill-room")).toBe(true); // R-25 fixes-2 §2: an inert class on the pilot (no b6-panel-* on <html>)
   });
 
   it("demo: the outlet line, the expiry in its mono slot, and the STAFF and DEMO DATA chips", () => {

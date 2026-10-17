@@ -103,6 +103,7 @@
   --b6-tap: 44px;
   --b6-panel-w: 360px;
   --b6-panel-pill-h: 48px;
+  --b6-panel-pill-room: 300px;
   --b6-z-overlay: 40;
   --b6-z-dialog: 50;
 }
@@ -567,20 +568,18 @@
   padding-right: var(--b6-panel-w);
 }
 
-/* While it is collapsed the pill (fixed, top 14, right 20) would sit on the page header controls at laptop widths:
-   SidePanel puts this class on <html> for exactly as long as the pill is shown, and every page starts below it
-   (pill height + its 14 px offset + 8 px of air). The open panel uses the right inset above instead. */
-.b6-panel-collapsed body {
-  padding-top: calc(var(--b6-panel-pill-h) + 14px + 8px);
+/* The pill is fixed at top 14 / right 20 inside the header band (boards D2-01, L2-01: the fab sits over the .dtop
+   row). While it is shown, each header keeps its right-hand controls (ID | EN, Sign out) left of it: SidePanel puts
+   b6-panel-collapsed on <html> for exactly as long as the pill is shown (laptop widths only), and the first-paint
+   script's b6-panel-reserved reserves the same room from the first frame. The open panel insets the body instead.
+   No page is pushed down. The doubled class beats the page modules' two-class header padding with no !important. */
+.b6-panel-collapsed .b6-pill-room.b6-pill-room {
+  padding-right: var(--b6-panel-pill-room);
 }
 
-/* The class above lands in an effect, so on a full page load the padding arrived only after hydration and every
-   page jumped down by it. A host that knows at first paint that the pill will be there (the root layout's inline
-   script) puts b6-panel-reserved on <html> before anything paints; at panel widths that reserves the same padding
-   from the first frame. An open panel wins (right inset only), exactly as the collapsed class behaves. */
 @media (min-width: 900px) {
-  .b6-panel-reserved:not(.b6-panel-open) body {
-    padding-top: calc(var(--b6-panel-pill-h) + 14px + 8px);
+  .b6-panel-reserved:not(.b6-panel-open) .b6-pill-room.b6-pill-room {
+    padding-right: var(--b6-panel-pill-room);
   }
 }
 
@@ -1114,6 +1113,9 @@
 .b6-codefield::placeholder {
   color: var(--b6-faint);
   opacity: 1;
+  /* six dots must fit a 280 px content box at 360 (QA M-003): the hint is spaced tighter than the digits */
+  letter-spacing: 4px;
+  text-indent: 4px;
 }
 
 .b6-field {

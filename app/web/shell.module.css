@@ -56,6 +56,14 @@
   min-width: 0;
 }
 
+/* The role chip and DEMO DATA stay together: they wrap onto the next row as one unit (QA M-005). */
+.chips {
+  display: inline-flex;
+  flex: none;
+  gap: 8px;
+  align-items: center;
+}
+
 .meta:empty {
   display: none;
 }

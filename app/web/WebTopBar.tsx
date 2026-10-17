@@ -35,7 +35,7 @@ export function ShellBar({ auth, claim, showSignOut }: { auth: Auth | null; clai
   const ends = useDemoExpiryHHMM();
 
   return (
-    <header className={cx("b6-dtop", styles.dtop)}>
+    <header className={cx("b6-dtop", "b6-pill-room", styles.dtop)}>
       <div className={styles.dtopLeft}>
         <Link href="/" className={styles.brand}>
           <BrandMark />
@@ -47,11 +47,16 @@ export function ShellBar({ auth, claim, showSignOut }: { auth: Auth | null; clai
               {ends !== null && <span className={styles.ends}> · {t(lang, "C-web-ends-at", { time: ends })}</span>}
             </span>
           )}
-          {webRole && <Chip className={styles.upper}>{t(lang, webRole === "owner" ? "C-signin-role-owner" : "C-signin-role-supervisor")}</Chip>}
-          {claim.demo && (
-            <Chip variant="line" className={styles.upper}>
-              {t(lang, "C-web-demo-chip")}
-            </Chip>
+          {(webRole || claim.demo) && (
+            // One flex unit (QA M-005): at 360 px the two chips wrap together or not at all, never DEMO DATA alone on a row.
+            <span className={styles.chips}>
+              {webRole && <Chip className={styles.upper}>{t(lang, webRole === "owner" ? "C-signin-role-owner" : "C-signin-role-supervisor")}</Chip>}
+              {claim.demo && (
+                <Chip variant="line" className={styles.upper}>
+                  {t(lang, "C-web-demo-chip")}
+                </Chip>
+              )}
+            </span>
           )}
         </div>
       </div>

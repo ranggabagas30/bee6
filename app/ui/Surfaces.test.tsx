@@ -183,6 +183,9 @@ describe("code field and field", () => {
     expect(decl(".b6-codefield")["font-family"]).toBe("var(--b6-font-mono)");
     expect(contrast(tok(rootTokens(css), "--b6-faint"), tok(rootTokens(css), "--b6-surface"))).toBeGreaterThanOrEqual(3);
     expect(decl(".b6-codefield::placeholder")["color"]).toBe("var(--b6-faint)");
+    // QA M-003: six dots must fit the 280 px content box at 360, so the hint is spaced tighter than the digits
+    expect(decl(".b6-codefield::placeholder")["letter-spacing"]).toBe("4px");
+    expect(decl(".b6-codefield::placeholder")["text-indent"]).toBe("4px");
   });
 
   it("both have a visible focus ring from the focus token", () => {

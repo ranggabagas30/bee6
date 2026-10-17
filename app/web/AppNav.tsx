@@ -87,6 +87,15 @@ export interface AppNavProps {
 export function AppNav({ role, current, variant = "row", proposalsBadge }: AppNavProps) {
   const { lang } = useLang();
   const { ref, fade } = useOverflowFade(`${lang}:${role}`);
+  // QA M-004: on a phone the row scrolls sideways and the current item can start off-screen (Reviews, Connected devices).
+  // Only the row's own scrollLeft moves (never scrollIntoView, which could also scroll the page vertically).
+  useEffect(() => {
+    const nav = ref.current;
+    const link = nav?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!nav || !link || nav.scrollWidth <= nav.clientWidth) return;
+    // Right-align the item with 24 px of air (the row's scroll-padding-inline), clamped at the start.
+    nav.scrollLeft = Math.max(0, link.offsetLeft + link.offsetWidth + 24 - nav.clientWidth);
+  }, [ref, current, variant]);
   return (
     <nav
       ref={ref}
