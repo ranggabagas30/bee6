@@ -32,16 +32,16 @@ export const proposalsID = {
   "C-propw-all-asked": "Semua sudah diusulkan · tidak ada bukti lain", // PROVISIONAL
   "C-propw-days": "Hari terlihat", // PROVISIONAL (aria-label of the two day marks)
   // ── Generating state and ask results ────────────────────────────────────────────────────────────────────
-  "C-propg-title": "Menanyakan Bee6…", // PROVISIONAL
-  "C-propg-body": "Ini bisa memakan waktu sampai satu menit. Biarkan halaman ini terbuka.", // PROVISIONAL
+  "C-propg-title": "Bee6 sedang menulis usulan", // PROVISIONAL
+  "C-propg-body": "Ini bisa memakan waktu sampai satu menit. Mohon biarkan halaman ini terbuka.", // PROVISIONAL
   "C-propg-est": "Biasanya {min}–{max} detik: Bee6 membaca SOP dan buktinya dulu sebelum menulis. Biarkan halaman ini terbuka.", // PROVISIONAL (R-24: shown only while the v4 flag is on)
   "C-propg-over": "Lebih lama dari biasanya. Bee6 masih bekerja. Biarkan halaman ini terbuka.", // PROVISIONAL (R-24: after the range has passed)
   "C-propg-wrote": "Bee6 menulis sebuah usulan. Buka untuk membaca buktinya.", // PROVISIONAL
   "C-propg-none-other": "Belum ada masalah lain yang siap.", // PROVISIONAL
   "C-propg-timeout": "Bee6 masih bekerja. Muat ulang halaman ini sebentar lagi.", // PROVISIONAL
   // ── Supervisor list ─────────────────────────────────────────────────────────────────────────────────────
-  "C-propd-open": "Buka", // PROVISIONAL
-  "C-propd-open-aria": "Buka usulan: {title}", // PROVISIONAL
+  "C-propd-open": "Tinjau", // PROVISIONAL
+  "C-propd-open-aria": "Tinjau usulan: {title}", // PROVISIONAL
   "C-propd-moments": "{n} momen · {dates}", // PROVISIONAL
   "C-propd-step-new": "Langkah baru", // PROVISIONAL
   // ── Proposal detail ─────────────────────────────────────────────────────────────────────────────────────
@@ -71,6 +71,15 @@ export const proposalsID = {
   "C-lbl-current": "Pilihan Bee6", // PROVISIONAL
   "C-lbl-runner-up": "pilihan kedua", // PROVISIONAL
   "C-lbl-save": "Simpan label", // PROVISIONAL
+  // ── R-25 T10 (G4a): page-2 supervisor proposals (boards D2-03, 03a, 03b, 03d, 03f, 03g). Append-only. ───────
+  "C-propw-notseen": "Belum terlihat", // PROVISIONAL
+  "C-propw-one-h": "Satu usulan bisa dibuat sekarang", // PROVISIONAL
+  "C-propw-one-p": "Masalah tanggal pembuatan muncul pada 2 hari. Untuk usulan kedua, jalankan hari ke-3 di ponsel staf dulu, lalu minta. Setelah Anda meminta usulan, “Lompat ke besok” terkunci.", // PROVISIONAL
+  "C-propd-st-yours-list": "Menunggu Anda", // PROVISIONAL
+  "C-propd-reject-h": "Tolak usulan ini?", // PROVISIONAL
+  "C-propd-feasible-owner": "Keluar lalu pilih Pemilik untuk menyetujui atau menolak.", // PROVISIONAL
+  "C-propd-signout-owner": "Keluar · pilih Pemilik", // PROVISIONAL
+  "C-propd-rules": "Aturan untuk Bee6 (opsional)", // PROVISIONAL
   // ── Owner approvals = page-1 W8 "Review in order" (PR-12b; boards D2-08, D2-08c, D2-08d, D2-08e) ──────────
   "C-propa-back-home": "‹ Kembali ke beranda", // PROVISIONAL
   "C-propa-sub": "Satu usulan sekaligus, sesuai urutan yang disarankan. Supervisor sudah memeriksa bahwa setiap usulan bisa dijalankan.", // PROVISIONAL
@@ -120,17 +129,17 @@ export const proposalsEN: Record<keyof typeof proposalsID, string> = {
   "C-propw-ask-another": "Ask for another proposal",
   "C-propw-asking": "Asking Bee6…",
   "C-propw-none": "Not enough evidence yet",
-  "C-propw-all-asked": "All asked · no more evidence to use",
+  "C-propw-all-asked": "Both asked · no more evidence to use",
   "C-propw-days": "Days seen",
-  "C-propg-title": "Asking Bee6…",
-  "C-propg-body": "This can take up to a minute. Keep this page open.",
+  "C-propg-title": "Bee6 is writing a proposal",
+  "C-propg-body": "This can take up to a minute. Please keep this page open.",
   "C-propg-est": "Usually {min}–{max} seconds: Bee6 reads the SOP and the evidence before it writes. Keep this page open.",
   "C-propg-over": "Taking longer than usual. Bee6 is still working. Keep this page open.",
   "C-propg-wrote": "Bee6 wrote a proposal. Open it to read the evidence.",
   "C-propg-none-other": "No other problem is ready yet.",
   "C-propg-timeout": "Bee6 is still working. Reload this page in a moment.",
-  "C-propd-open": "Open",
-  "C-propd-open-aria": "Open proposal: {title}",
+  "C-propd-open": "Review",
+  "C-propd-open-aria": "Review proposal: {title}",
   "C-propd-moments": "{n} moments · {dates}",
   "C-propd-step-new": "New step",
   "C-propd-back": "‹ Proposals",
@@ -158,6 +167,14 @@ export const proposalsEN: Record<keyof typeof proposalsID, string> = {
   "C-lbl-current": "Bee6 pick",
   "C-lbl-runner-up": "runner-up",
   "C-lbl-save": "Save label",
+  "C-propw-notseen": "Not seen yet",
+  "C-propw-one-h": "One proposal can be made now",
+  "C-propw-one-p": "The bake-date problem showed on 2 days. For a second proposal, run day 3 on the staff phone first, then ask. After you ask for a proposal, “Jump to tomorrow” is locked.",
+  "C-propd-st-yours-list": "Waiting for you",
+  "C-propd-reject-h": "Reject this proposal?",
+  "C-propd-feasible-owner": "Sign out and pick Owner to approve or reject.",
+  "C-propd-signout-owner": "Sign out · pick Owner",
+  "C-propd-rules": "Rules for Bee6 (optional)",
   "C-propa-back-home": "‹ Back to home",
   "C-propa-sub": "One proposal at a time, in the recommended order. The supervisor already checked that each one is workable.",
   "C-propa-progress": "{done} of {total} decided",

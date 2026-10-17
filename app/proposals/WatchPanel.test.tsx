@@ -49,11 +49,28 @@ describe("WatchPanel — rows", () => {
     expect(within(items[2]!).getByText("Proposed")).not.toBeNull();
   });
 
-  it("shows the window as dates, the kicker and the plain-rules note", () => {
+  it("shows the kicker and the plain-rules note, and no date-range line (board D2-03)", () => {
     renderPanel();
     expect(screen.getByText("WHAT BEE6 IS WATCHING")).not.toBeNull();
     expect(screen.getByText("Repeated problems, counted by plain rules. Not a guess.")).not.toBeNull();
-    expect(screen.getByText("Mon 5 Oct to Sun 11 Oct")).not.toBeNull();
+    expect(screen.queryByText(/Mon 5 Oct/)).toBeNull();
+    expect(screen.queryByText(/ to /)).toBeNull();
+  });
+
+  it("the category is a chip, in the order the server sent it (pilot: nothing added)", () => {
+    renderPanel({ watch: watchOf([row("PHONE_CALL", 1, "needs_more"), row("COMPLAINT", 2, "proposed")]) });
+    const items = screen.getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(items[0]!.querySelector(".b6-chip")?.textContent).toBe("Phone call");
+    expect(items[1]!.querySelector(".b6-chip")?.textContent).toBe("Customer complaint");
+  });
+
+  it("UI-115: the count never reads above the need (3 days seen shows '2 of 2')", () => {
+    renderPanel({ watch: watchOf([row("STAFF_CONSULT", 3, "ready")]) });
+    const item = screen.getByRole("listitem");
+    expect(within(item).getByText("seen on 2 of 2 days needed")).not.toBeNull();
+    expect(item.textContent).not.toMatch(/3 of 2/);
+    expect(within(item).getByRole("img", { name: "Days seen: 2/2" })).not.toBeNull();
   });
 
   it("never renders anything but counts: no thread text, no device, no name key", () => {
@@ -90,9 +107,9 @@ describe("WatchPanel — the ask button", () => {
     expect(onAsk).not.toHaveBeenCalled();
   });
 
-  it("every seen category already proposed: a disabled 'All asked' line", () => {
+  it("every seen category already proposed: a disabled 'Both asked' line", () => {
     renderPanel({ watch: watchOf([row("CUSTOMER_SERVICE", 2, "proposed")]), hasProposal: true });
-    expect((screen.getByRole("button", { name: "All asked · no more evidence to use" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Both asked · no more evidence to use" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("while busy the button reads 'Asking Bee6…' and is disabled", () => {
@@ -108,5 +125,72 @@ describe("WatchPanel — the ask button", () => {
     expect(screen.getByRole("button", { name: "Minta usulan dari Bee6" })).not.toBeNull();
     expect(screen.getByText("Layanan pelanggan")).not.toBeNull();
     expect(screen.getByText("Siap")).not.toBeNull();
+  });
+});
+
+describe("WatchPanel — demo sandbox (R14, board D2-03b / D2-03a)", () => {
+  it("before day 1 is processed: both problem rows with 'Not seen yet' and the button locked", () => {
+    const { onAsk } = renderPanel({ demo: true });
+    const items = screen.getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(items[0]!.querySelector(".b6-chip")?.textContent).toBe("Customer service"); // problem A, the egg-tart question
+    expect(items[1]!.querySelector(".b6-chip")?.textContent).toBe("Phone call"); // problem B, the phone order
+    for (const li of items) {
+      expect(within(li).getByText("Not seen yet")).not.toBeNull();
+      expect(within(li).getByText("seen on 0 of 2 days needed")).not.toBeNull();
+    }
+    const button = screen.getByRole("button", { name: "Not enough evidence yet" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    fireEvent.click(button);
+    expect(onAsk).not.toHaveBeenCalled();
+  });
+
+  it("only the categories the server did not send get a placeholder; the server's row wins, and the other seen ones follow", () => {
+    renderPanel({ demo: true, watch: watchOf([row("TRAINING", 1, "needs_more"), row("CUSTOMER_SERVICE", 1, "needs_more")]) });
+    const items = screen.getAllByRole("listitem");
+    expect(items.map((li) => li.querySelector(".b6-chip")?.textContent)).toEqual(["Customer service", "Phone call", "Training"]);
+    expect(within(items[0]!).getByText("seen on 1 of 2 days needed")).not.toBeNull();
+    expect(within(items[0]!).getByText("Needs 1 more day")).not.toBeNull();
+    expect(within(items[1]!).getByText("Not seen yet")).not.toBeNull();
+  });
+
+  it("a placeholder never makes the button live: only the server's rows decide it", () => {
+    renderPanel({ demo: true, watch: watchOf([row("PHONE_CALL", 2, "proposed")]), hasProposal: true });
+    // one real row, proposed: 'Both asked' (the placeholder for the egg-tart problem does not count as 'not proposed')
+    expect((screen.getByRole("button", { name: "Both asked · no more evidence to use" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("the pilot gets no placeholder rows even with nothing seen", () => {
+    renderPanel({ demo: false });
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+    expect(screen.queryByText("Not seen yet")).toBeNull();
+  });
+
+  it("D2-03a: egg-tart row ready, phone row needs a day, nothing proposed: the 'One proposal can be made now' note", () => {
+    renderPanel({ demo: true, watch: watchOf([row("CUSTOMER_SERVICE", 2, "ready"), row("PHONE_CALL", 1, "needs_more")]) });
+    expect(screen.getByRole("heading", { name: "One proposal can be made now" })).not.toBeNull();
+    expect(
+      screen.getByText(
+        "The bake-date problem showed on 2 days. For a second proposal, run day 3 on the staff phone first, then ask. After you ask for a proposal, “Jump to tomorrow” is locked.",
+      ),
+    ).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Ask Bee6 for a proposal" })).not.toBeNull();
+  });
+
+  it("the note is demo-only and goes once a proposal exists or both problems are ready", () => {
+    const watch = watchOf([row("CUSTOMER_SERVICE", 2, "ready"), row("PHONE_CALL", 1, "needs_more")]);
+    const { unmount } = render(<WatchPanel lang="en" watch={watch} hasProposal={false} busy={false} onAsk={() => {}} />);
+    expect(screen.queryByText("One proposal can be made now")).toBeNull(); // pilot
+    unmount();
+    const again = render(<WatchPanel lang="en" demo watch={watch} hasProposal busy={false} onAsk={() => {}} />);
+    expect(screen.queryByText("One proposal can be made now")).toBeNull(); // a proposal exists
+    again.unmount();
+    render(<WatchPanel lang="en" demo watch={watchOf([row("CUSTOMER_SERVICE", 2, "ready"), row("PHONE_CALL", 2, "ready")])} hasProposal={false} busy={false} onAsk={() => {}} />);
+    expect(screen.queryByText("One proposal can be made now")).toBeNull(); // both ready
+  });
+
+  it("ID: 'Belum terlihat' and the note", () => {
+    renderPanel({ lang: "id", demo: true, watch: watchOf([row("CUSTOMER_SERVICE", 2, "ready"), row("PHONE_CALL", 1, "needs_more")]) });
+    expect(screen.getByRole("heading", { name: "Satu usulan bisa dibuat sekarang" })).not.toBeNull();
   });
 });
