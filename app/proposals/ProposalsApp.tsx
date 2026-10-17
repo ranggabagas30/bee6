@@ -15,7 +15,6 @@ import { WebShell } from "@/app/web/WebShell";
 import { PageHead } from "@/app/web/PageHead";
 import { ApprovalsReview, type ApprovalsBridgeEvent } from "@/app/proposals/ApprovalsReview";
 import { SupervisorProposals, type ProposalsBridgeEvent } from "@/app/proposals/SupervisorProposals";
-import styles from "@/app/proposals/supervisor.module.css";
 
 /**
  * /proposals (R-08 Task 7.3; R-19 PR-12a/PR-12b split the roles). One route, two screens by the ID token's role
@@ -139,15 +138,12 @@ export function ProposalsApp({
     );
   }
 
-  // Owner: page-1 W8 "Review in order" (PR-12b). The page-2 owner layout is R-25 T11's: until it lands the screen keeps
-  // its old 720px column inside the new shell.
+  // Owner: page-1 W8 "Review in order" (PR-12b), page-2 layout in R-25 T11: the screen fills the shell's `main`.
   return (
     <WebShell auth={auth} current="proposals">
-      <div className={styles.ownerColumn}>
-        <Suspense fallback={null}>
-          <OwnerApprovals auth={auth} lang={lang} onBridge={onBridge} />
-        </Suspense>
-      </div>
+      <Suspense fallback={null}>
+        <OwnerApprovals auth={auth} lang={lang} onBridge={onBridge} />
+      </Suspense>
     </WebShell>
   );
 }
