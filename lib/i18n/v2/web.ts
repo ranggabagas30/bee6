@@ -52,13 +52,44 @@ export const webID = {
   "C-web-empty-prop-p": "Bee6 perlu masalah yang sama pada minimal 2 hari.", // PROVISIONAL
   "C-web-empty-appr-h": "Tidak ada yang menunggu Anda.", // PROVISIONAL
   "C-web-empty-appr-p": "Usulan muncul di sini setelah supervisor menandainya layak.", // PROVISIONAL
+  // R-25 T9: day record page (board D2-02, D2-02b). `C-day2-*` keys; the older `C-day-*` base keys are untouched.
+  "C-day2-sub": "Apa yang terjadi di hari toko, beserta kata-kata di baliknya.", // PROVISIONAL
+  "C-day2-date-nav": "Pilih hari", // PROVISIONAL
+  "C-day2-notes-label": "Catatan kerja", // PROVISIONAL
+  "C-day2-tiles-label": "Ringkasan hari", // PROVISIONAL
+  "C-day2-tile-notes": "CATATAN KERJA", // PROVISIONAL
+  "C-day2-tile-notes-d": "{n} belum berlabel", // PROVISIONAL
+  "C-day2-tile-answers": "JAWABAN DEBRIEF", // PROVISIONAL
+  "C-day2-tile-answers-v": "{answered} dari {asked}", // PROVISIONAL
+  "C-day2-tile-answers-unv": "{n} tidak terverifikasi", // PROVISIONAL
+  "C-day2-tile-answers-open": "{n} masih terbuka", // PROVISIONAL
+  "C-day2-tile-answers-none": "Belum ada pertanyaan", // PROVISIONAL
+  "C-day2-tile-check": "PERLU DICEK ANDA", // PROVISIONAL
+  "C-day2-tile-check-d": "{time} · {label}", // PROVISIONAL
+  "C-day2-tile-check-more": "+{n} lagi", // PROVISIONAL
+  "C-day2-tile-check-none": "Tidak ada yang perlu dicek", // PROVISIONAL
+  "C-day2-pill-auto": "Dilabeli otomatis", // PROVISIONAL
+  "C-day2-pill-check": "Perlu dicek Anda", // PROVISIONAL
+  "C-day2-debrief-h": "Debrief staf", // PROVISIONAL
+  "C-day2-debrief-sub": "Pertanyaan yang diajukan Bee6 setelah tutup. Seorang staf menjawab; tidak ada nama yang disimpan.", // PROVISIONAL
+  "C-day2-debrief-none": "Tidak ada pertanyaan debrief untuk hari ini.", // PROVISIONAL
+  "C-day2-ans-yes": "Ya", // PROVISIONAL
+  "C-day2-ans-no": "Tidak", // PROVISIONAL
+  "C-day2-ans-open": "Terbuka", // PROVISIONAL
+  "C-day2-lbl-body": "Bee6 memberi label momen ini {summary} sebagai {category} (keyakinan {pct}%). Pilih label yang paling cocok. Pilihan Anda dicatat sebagai keputusan supervisor.", // PROVISIONAL
   "C-web-empty-sop-h": "Belum ada SOP.", // PROVISIONAL
   "C-web-empty-sop-owner": "Unggah SOP akan segera hadir. Demo memakai SOP yang sudah disiapkan.", // PROVISIONAL
   "C-web-empty-rev-h": "Belum ada yang perlu ditinjau", // PROVISIONAL
-  "C-web-empty-rev-p": "Saat perubahan yang disetujui mencapai tanggal tinjauannya, perubahan itu muncul di sini.", // PROVISIONAL
+  "C-web-empty-rev-p":
+    "Saat perubahan yang disetujui mencapai tanggal tinjauannya, perubahan itu muncul di sini. Tanggal tinjauan ditetapkan saat pemilik menyetujui usulan.", // PROVISIONAL
   "C-web-empty-devices": "Belum ada HP yang terhubung.", // PROVISIONAL
   "C-web-empty-tile-value": "—",
   "C-web-empty-tile": "Belum ada data", // PROVISIONAL
+  // R-25 T8: web shell (D2 `.dtop` bar, left nav) and the Reviews sub line.
+  "C-web-outlet-demo": "Demo Bakery · Outlet 1", // PROVISIONAL
+  "C-web-ends-at": "berakhir {time}", // PROVISIONAL
+  "C-web-nav-badge": "{n} menunggu", // PROVISIONAL
+  "C-web-reviews-sub": "Apakah perubahan yang disetujui berhasil?", // PROVISIONAL
 } as const satisfies Record<string, string>;
 
 export const webEN: Record<keyof typeof webID, string> = {
@@ -95,11 +126,41 @@ export const webEN: Record<keyof typeof webID, string> = {
   "C-web-empty-prop-p": "Bee6 needs the same problem on at least 2 days.",
   "C-web-empty-appr-h": "Nothing waiting for you.",
   "C-web-empty-appr-p": "Proposals appear here after the supervisor marks them feasible.",
+  // R-25 T9: day record page (board D2-02, D2-02b).
+  "C-day2-sub": "What happened on the shop day, with the words behind it.",
+  "C-day2-date-nav": "Choose a day",
+  "C-day2-notes-label": "Work notes",
+  "C-day2-tiles-label": "Day summary",
+  "C-day2-tile-notes": "WORK NOTES",
+  "C-day2-tile-notes-d": "{n} not labelled",
+  "C-day2-tile-answers": "DEBRIEF ANSWERS",
+  "C-day2-tile-answers-v": "{answered} of {asked}",
+  "C-day2-tile-answers-unv": "{n} unverified",
+  "C-day2-tile-answers-open": "{n} still open",
+  "C-day2-tile-answers-none": "No questions asked",
+  "C-day2-tile-check": "NEED YOUR CHECK",
+  "C-day2-tile-check-d": "{time} · {label}",
+  "C-day2-tile-check-more": "+{n} more",
+  "C-day2-tile-check-none": "Nothing to check",
+  "C-day2-pill-auto": "Auto-labelled",
+  "C-day2-pill-check": "Needs your check",
+  "C-day2-debrief-h": "Staff debrief",
+  "C-day2-debrief-sub": "Questions Bee6 asked after closing. A staff member answered; no names are kept.",
+  "C-day2-debrief-none": "No debrief questions for this day.",
+  "C-day2-ans-yes": "Yes",
+  "C-day2-ans-no": "No",
+  "C-day2-ans-open": "Open",
+  "C-day2-lbl-body": "Bee6 labelled this moment {summary} as {category} ({pct}% confidence). Pick the label that fits best. Your choice is recorded as a supervisor decision.",
   "C-web-empty-sop-h": "No SOP yet.",
   "C-web-empty-sop-owner": "Uploading an SOP is coming soon. The demo uses a ready-made SOP.",
   "C-web-empty-rev-h": "Nothing to review yet",
-  "C-web-empty-rev-p": "When an approved change reaches its review date, it appears here.",
+  "C-web-empty-rev-p":
+    "When an approved change reaches its review date, it appears here. Review dates are set when the owner approves a proposal.",
   "C-web-empty-devices": "No phone connected yet.",
   "C-web-empty-tile-value": "—",
   "C-web-empty-tile": "No data yet",
+  "C-web-outlet-demo": "Demo Bakery · Outlet 1",
+  "C-web-ends-at": "ends {time}",
+  "C-web-nav-badge": "{n} waiting",
+  "C-web-reviews-sub": "Did an approved change work?",
 };

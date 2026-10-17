@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
@@ -11,7 +11,9 @@ import { addDays } from "@/lib/capture/calendar";
 import { useLang } from "@/lib/i18n/context";
 import { t } from "@/lib/i18n/dict";
 import { DayRecordResponseSchema, type DayRecordResponse } from "@/lib/day/contract";
-import { WebTopBar } from "@/app/web/WebTopBar";
+import { WebShell } from "@/app/web/WebShell";
+import { Button, buttonClassName } from "@/app/ui";
+import styles from "@/app/day/day.module.css";
 import { DayRecordView } from "@/app/day/DayRecordView";
 
 /**
@@ -25,9 +27,6 @@ import { DayRecordView } from "@/app/day/DayRecordView";
  * (the `active` flag), and so `reload()` re-fetches without ever clearing
  * the currently-shown data first (no loading flash on a decision refetch).
  */
-
-const PAGE_STYLE: CSSProperties = { maxWidth: 720, margin: "0 auto", padding: 16, boxSizing: "border-box" };
-const RETRY_STYLE: CSSProperties = { minHeight: 48, padding: "0 16px", fontSize: 16, cursor: "pointer" };
 
 type ViewState =
   | { kind: "loading" }
@@ -104,14 +103,11 @@ export function DayRecordApp({
 
   if (!config || !auth) {
     return (
-      <main>
-        <div style={PAGE_STYLE}>
-          <WebTopBar auth={null} showSignOut={false} />
-          <p role="status" aria-live="polite">
-            {t(lang, "C-signin-config")}
-          </p>
-        </div>
-      </main>
+      <WebShell auth={null}>
+        <p role="status" aria-live="polite" className="b6-sub">
+          {t(lang, "C-signin-config")}
+        </p>
+      </WebShell>
     );
   }
 
@@ -121,66 +117,57 @@ export function DayRecordApp({
 
   if (state.kind === "loading") {
     return (
-      <main>
-        <div style={PAGE_STYLE}>
-          <WebTopBar auth={auth} showSignOut current="day" />
-          <p role="status" aria-live="polite">
-            {t(lang, "C-day-loading")}
-          </p>
-        </div>
-      </main>
+      <WebShell auth={auth} current="day">
+        <p role="status" aria-live="polite" className="b6-sub">
+          {t(lang, "C-day-loading")}
+        </p>
+      </WebShell>
     );
   }
 
   if (state.kind === "forbidden") {
     return (
-      <main>
-        <div style={PAGE_STYLE}>
-          <WebTopBar auth={auth} showSignOut current="day" />
-          <p role="status" aria-live="polite">
-            {t(lang, "C-day-forbidden")}
-          </p>
-        </div>
-      </main>
+      <WebShell auth={auth} current="day">
+        <p role="status" aria-live="polite" className="b6-sub">
+          {t(lang, "C-day-forbidden")}
+        </p>
+      </WebShell>
     );
   }
 
   if (state.kind === "invalid") {
     return (
-      <main>
-        <div style={PAGE_STYLE}>
-          <WebTopBar auth={auth} showSignOut current="day" />
-          <p role="status" aria-live="polite">
+      <WebShell auth={auth} current="day">
+        <div className={styles.state}>
+          <p role="status" aria-live="polite" className="b6-sub">
             {t(lang, "C-day-invalid")}
           </p>
-          <Link href="/day">{t(lang, "C-day-to-today")}</Link>
+          <Link href="/day" className={buttonClassName({ variant: "secondary" })}>
+            {t(lang, "C-day-to-today")}
+          </Link>
         </div>
-      </main>
+      </WebShell>
     );
   }
 
   if (state.kind === "error") {
     return (
-      <main>
-        <div style={PAGE_STYLE}>
-          <WebTopBar auth={auth} showSignOut current="day" />
-          <p role="status" aria-live="polite">
+      <WebShell auth={auth} current="day">
+        <div className={styles.state}>
+          <p role="status" aria-live="polite" className="b6-sub">
             {t(lang, "C-day-err")}
           </p>
-          <button type="button" style={RETRY_STYLE} onClick={reload}>
+          <Button variant="secondary" onClick={reload}>
             {t(lang, "C-day-retry")}
-          </button>
+          </Button>
         </div>
-      </main>
+      </WebShell>
     );
   }
 
   const { data } = state;
   return (
-    <main>
-      <div style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut current="day" />
-      </div>
+    <WebShell auth={auth} current="day">
       <DayRecordView
         data={data}
         auth={auth}
@@ -188,6 +175,6 @@ export function DayRecordApp({
         onNext={() => goTo(addDays(data.day.date, 1))}
         onReload={reload}
       />
-    </main>
+    </WebShell>
   );
 }

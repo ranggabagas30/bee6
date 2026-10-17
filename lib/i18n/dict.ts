@@ -30,14 +30,18 @@ export const ID_BASE = {
   "C-lang-said": "Bahasa Indonesia dipilih.",
 
   // /pair
-  "C-pair-title": "Pasang perangkat ini",
-  "C-pair-help": "Masukkan 6 digit kode dari orang yang memasang HP ini.",
+  "C-pair-title": "Siapkan perangkat ini", // PROVISIONAL (R-25 T4)
+  "C-pair-help": "Minta kode 6 digit dari supervisor Anda. Berlaku sekali, selama 10 menit.", // PROVISIONAL (R-25 T4)
   "C-pair-label": "Kode 6 digit",
-  "C-pair-need": "Isi 6 digit untuk bisa memasang.",
-  "C-b-pasang": "Pasang",
-  "C-pair-busy": "Memasangkan…",
-  "C-pair-refused": "Kode tidak dikenali atau sudah dipakai. Minta kode baru dari orang yang memasang HP ini.",
+  "C-pair-need": "Masukkan 6 digit untuk menyiapkan.", // PROVISIONAL (R-25 T4)
+  "C-b-pasang": "Siapkan", // PROVISIONAL (R-25 T4)
+  "C-pair-busy": "Menyiapkan…", // PROVISIONAL (R-25 T4)
+  "C-pair-refused": "Kode tidak dikenali, kedaluwarsa, atau sudah dipakai. Minta kode baru ke supervisor Anda.", // PROVISIONAL (R-25 T4)
+  "C-pair-refused-lead": "Kode tidak dikenali, kedaluwarsa, atau sudah dipakai.", // PROVISIONAL (R-25 T4)
+  "C-pair-refused-rest": "Minta kode baru ke supervisor Anda.", // PROVISIONAL (R-25 T4)
   "C-pair-net": "Tidak ada koneksi. Coba lagi saat sinyal stabil.",
+  "C-pair-net-lead": "Tidak ada koneksi.",
+  "C-pair-net-rest": "Coba lagi saat sinyal stabil.",
   "C-pair-ok-h": "HP terpasang",
   "C-pair-ok-line": "Untuk outlet {outlet_id}",
   "C-pair-srv": "Server belum bisa memproses ini. Coba lagi sebentar.", // PROVISIONAL: not in the copy sheet (server 5xx line)
@@ -46,6 +50,14 @@ export const ID_BASE = {
   "C-pair-step-3": "Mulai bisa ditekan 01:00 sampai {until}, tiap hari buka.",
   "C-pair-step-4": "Selesai muncul 4 jam setelah Mulai.",
   "C-b-buka-mendengarkan": "Buka halaman mendengarkan",
+  // R-25 T4 (UI-002, UI-020): the staff top bar's demo line and the demo "Device set up" steps (board P2-03).
+  "C-pair-outlet-demo": "Demo Bakery · Outlet 1",
+  "C-pair-ends-at": "berakhir {time}", // PROVISIONAL
+  "C-pair-demo-for": "Untuk Demo Bakery · Outlet 1", // PROVISIONAL
+  "C-pair-demo-step-1": "Letakkan perangkat di tempat tetap dan colokkan charger.", // PROVISIONAL
+  "C-pair-demo-step-2": "Biarkan layar menyala dan halaman ini terbuka. Menutup halaman berarti tidak mendengarkan.", // PROVISIONAL
+  "C-pair-demo-step-3": "Ketuk Mulai untuk memulai hari, lalu bacakan kartu naskah di panduan juri.", // PROVISIONAL
+  "C-pair-demo-step-4": "Selesai terbuka saat jam tutup. Di demo ini, panduan bisa melompat ke sana setelah semua kartu dibacakan.", // PROVISIONAL
 
   // /capture headline, states and helpers
   "C-cap-title": "HP toko", // one fixed neutral heading on every state (UX-03, 7 Oct)
@@ -532,13 +544,17 @@ export const EN_BASE: Record<keyof typeof ID_BASE, string> = {
   "C-lang-said": "English selected.",
 
   "C-pair-title": "Set up this device",
-  "C-pair-help": "Enter the 6-digit code from the person who set up this phone.",
+  "C-pair-help": "Ask your supervisor for the 6-digit code. It works once, for 10 minutes.",
   "C-pair-label": "6-digit code",
   "C-pair-need": "Enter all 6 digits to set up.",
   "C-b-pasang": "Set up",
   "C-pair-busy": "Setting up…",
-  "C-pair-refused": "Code not recognized or already used. Ask the person who set up this phone for a new code.",
+  "C-pair-refused": "Code not recognized, expired or already used. Ask your supervisor for a new code.",
+  "C-pair-refused-lead": "Code not recognized, expired or already used.",
+  "C-pair-refused-rest": "Ask your supervisor for a new code.",
   "C-pair-net": "No connection. Try again when the signal is steady.",
+  "C-pair-net-lead": "No connection.",
+  "C-pair-net-rest": "Try again when the signal is steady.",
   "C-pair-ok-h": "Phone set up",
   "C-pair-ok-line": "For outlet {outlet_id}",
   "C-pair-srv": "The server could not finish this. Try again in a moment.", // PROVISIONAL: not in the copy sheet (server 5xx line)
@@ -547,6 +563,14 @@ export const EN_BASE: Record<keyof typeof ID_BASE, string> = {
   "C-pair-step-3": "You can tap Start from 01:00 until {until}, on each open day.",
   "C-pair-step-4": "The End button appears 4 hours after Start.",
   "C-b-buka-mendengarkan": "Open the listening page",
+  // R-25 T4 (UI-002, UI-020): the staff top bar's demo line and the demo "Device set up" steps (board P2-03).
+  "C-pair-outlet-demo": "Demo Bakery · Outlet 1",
+  "C-pair-ends-at": "ends {time}",
+  "C-pair-demo-for": "For Demo Bakery · Outlet 1",
+  "C-pair-demo-step-1": "Leave the device in one fixed place and plug in the charger.",
+  "C-pair-demo-step-2": "Keep the screen on and this page open. Closing the page means not listening.",
+  "C-pair-demo-step-3": "Tap Start to begin the day, then read the script cards in the judge guide.",
+  "C-pair-demo-step-4": "End unlocks at closing time. In this demo the guide can jump to it after every card is spoken.",
 
   "C-cap-title": "Shop phone", // one fixed neutral heading on every state (UX-03, 7 Oct)
   "C-h-loading": "Loading…",

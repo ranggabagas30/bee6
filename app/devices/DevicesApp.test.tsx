@@ -30,15 +30,32 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-describe("/devices placeholder (R-19 PR-6 §8.2; PR-10 replaces it)", () => {
-  it("a signed-in supervisor sees the heading, the coming-in-this-release line, the empty state and the nav with Connected devices current", async () => {
+describe("/devices placeholder (R-19 PR-6 §8.2; R-25 R11: coming soon, page-2 look)", () => {
+  it("a signed-in supervisor sees the heading, the sub line, one COMING SOON card and the nav with Connected devices current", async () => {
     authUserState = { status: "signed_in", user: user("supervisor") } as unknown as AuthUserState;
     renderApp();
     expect(screen.getByRole("heading", { level: 1, name: "Connected devices" })).toBeTruthy();
-    expect(screen.getByText("Connected devices · coming in this release")).toBeTruthy();
-    expect(screen.getByText("No phone connected yet.")).toBeTruthy();
+    expect(screen.getByText("Phones that listen for this shop.")).toBeTruthy();
+    expect(screen.getByText("COMING SOON")).toBeTruthy();
+    expect(
+      screen.getByText("Pairing codes for a new phone will be made here. For this demo the staff phone is already set up."),
+    ).toBeTruthy();
     await waitFor(() => expect(screen.getByRole("link", { name: "Connected devices" }).getAttribute("aria-current")).toBe("page"));
-    expect(screen.queryByRole("button", { name: /generate|QR|unpair/i })).toBeNull();
+    // hard rule 7 + D2-05 OUT: no code generation, no device row, no device id
+    expect(screen.queryByRole("button", { name: /generate|copy|QR|unpair/i })).toBeNull();
+    expect(screen.queryByText(/No phone connected yet/)).toBeNull();
+  });
+
+  it("is one page with one main landmark and the bar above the nav above the content", async () => {
+    authUserState = { status: "signed_in", user: user("supervisor") } as unknown as AuthUserState;
+    renderApp();
+    await waitFor(() => expect(screen.getByRole("navigation", { name: "Main" })).toBeTruthy());
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+    const header = screen.getByRole("banner");
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    const main = screen.getByRole("main");
+    expect(header.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(nav.compareDocumentPosition(main) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("sends a signed-out visitor to /sign-in", () => {
@@ -55,8 +72,8 @@ describe("/devices placeholder (R-19 PR-6 §8.2; PR-10 replaces it)", () => {
   it("is in Bahasa when the language says so", () => {
     authUserState = { status: "signed_in", user: user("supervisor") } as unknown as AuthUserState;
     renderApp(CONFIG, "id");
-    expect(screen.getByText("Perangkat terhubung · hadir dalam rilis ini")).toBeTruthy();
-    expect(screen.getByText("Belum ada HP yang terhubung.")).toBeTruthy();
+    expect(screen.getByText("HP yang mendengarkan toko ini.")).toBeTruthy();
+    expect(screen.getByText("SEGERA HADIR")).toBeTruthy();
   });
 
   it("axe finds no violation", async () => {

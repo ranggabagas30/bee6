@@ -8,10 +8,13 @@ import { cx } from "@/app/ui/cx";
 import styles from "@/app/web/shell.module.css";
 
 /**
- * The supervisor and owner navigation (R-19 PR-6 §8.2, decision D-9). One row of links under the top bar:
- * supervisor = Day record, Proposals, SOP, Reviews, Connected devices; owner = Home, Approvals, SOP, Reviews.
- * No Team item. The role comes from the ID token claim (navigation only; the server still enforces).
- * `/devices` is a placeholder page until PR-10 replaces it.
+ * The supervisor and owner navigation (R-19 PR-6 §8.2, decision D-9; page-2 look in R-25 T8). Supervisor = Day record,
+ * Proposals, SOP, Reviews, Connected devices; owner = Home, Approvals, SOP, Reviews. No Team item. The role comes from
+ * the ID token claim (navigation only; the server still enforces). `/devices` is a placeholder page.
+ *
+ * `variant="rail"` is the board's left column (210 px from 900 px; inside `WebShell`, next to `main`). `variant="row"` is
+ * the same links in one row under the top bar, for a page that has not adopted `WebShell` yet. Under 900 px both are the
+ * horizontally scrolling row.
  */
 
 export type NavItemId = "home" | "day" | "proposals" | "sop" | "reviews" | "devices";
@@ -70,14 +73,31 @@ function useOverflowFade(dep: unknown) {
   return { ref, fade };
 }
 
-export function AppNav({ role, current }: { role: NavRoleId; current?: NavItemId }) {
+export interface AppNavProps {
+  role: NavRoleId;
+  current?: NavItemId;
+  variant?: "rail" | "row";
+  /**
+   * Proposals waiting for this role. The badge shows only when a page already holds a count (none does today: no route
+   * returns it without a fetch, so the shell draws no badge and fetches nothing).
+   */
+  proposalsBadge?: number;
+}
+
+export function AppNav({ role, current, variant = "row", proposalsBadge }: AppNavProps) {
   const { lang } = useLang();
   const { ref, fade } = useOverflowFade(`${lang}:${role}`);
   return (
-    <nav ref={ref} data-fade={fade ? "true" : "false"} aria-label={t(lang, "C-web-nav-label")} className={styles.nav}>
+    <nav
+      ref={ref}
+      data-fade={fade ? "true" : "false"}
+      aria-label={t(lang, "C-web-nav-label")}
+      className={cx("b6-nav", styles.nav, variant === "rail" && styles.navRail)}
+    >
       <ul className={styles.navList}>
         {NAV[role].map((item) => {
           const isCurrent = item === current;
+          const badge = item === "proposals" && proposalsBadge !== undefined && proposalsBadge > 0 ? proposalsBadge : null;
           return (
             <li key={item}>
               <Link
@@ -87,6 +107,14 @@ export function AppNav({ role, current }: { role: NavRoleId; current?: NavItemId
                 className={cx(styles.navLink, isCurrent && styles.navLinkCurrent)}
               >
                 {t(lang, labelKey(item, role))}
+                {badge !== null && (
+                  <>
+                    <span className={cx("b6-badge", styles.badge)} aria-hidden="true">
+                      {badge}
+                    </span>
+                    <span className={styles.sr}>{t(lang, "C-web-nav-badge", { n: badge })}</span>
+                  </>
+                )}
               </Link>
             </li>
           );

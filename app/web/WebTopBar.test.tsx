@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { LangProvider } from "@/lib/i18n/context";
 import type { AuthUserState } from "@/lib/auth/client/use-auth-user";
 import type { Auth } from "@/lib/auth/client/firebase-client";
@@ -9,6 +9,9 @@ import { WebTopBar } from "@/app/web/WebTopBar";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn() }) }));
 vi.mock("@/lib/auth/client/firebase-client", () => ({ signOut: vi.fn() }));
+
+let expiry: string | null = null;
+vi.mock("@/app/demo/demo-expiry", () => ({ useDemoExpiryHHMM: () => expiry }));
 
 let authUserState: AuthUserState = { status: "loading" };
 vi.mock("@/lib/auth/client/use-auth-user", () => ({ useAuthUser: () => authUserState }));
@@ -37,6 +40,7 @@ const nav = () => screen.queryByRole("navigation", { name: /Main|Menu utama/ });
 
 beforeEach(() => {
   authUserState = { status: "loading" };
+  expiry = null;
 });
 afterEach(cleanup);
 
@@ -45,7 +49,7 @@ describe("WebTopBar (R-19 PR-6 §8.2)", () => {
     signedIn({ role: "supervisor", outlet_id: "o1" });
     renderBar();
     expect(screen.getByRole("banner")).toBeTruthy();
-    expect(screen.getByText("bee6")).toBeTruthy();
+    expect(screen.getByText("Bee6")).toBeTruthy();
     expect(screen.getByRole("group", { name: "Choose language" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
   });
@@ -53,7 +57,7 @@ describe("WebTopBar (R-19 PR-6 §8.2)", () => {
   it("the brand is a link to the entry page", () => {
     signedIn({ role: "supervisor", outlet_id: "o1" });
     renderBar();
-    expect(screen.getByRole("link", { name: "bee6" }).getAttribute("href")).toBe("/");
+    expect(screen.getByRole("link", { name: "Bee6" }).getAttribute("href")).toBe("/");
   });
 
   it("a supervisor claim shows the supervisor nav and a Supervisor role chip, no demo chip", async () => {
@@ -79,6 +83,53 @@ describe("WebTopBar (R-19 PR-6 §8.2)", () => {
     signedIn({ role: "owner", outlet_id: "o1", demo_exp_ms: Date.now() + 60_000 });
     renderBar();
     await waitFor(() => expect(screen.getByText("DEMO DATA")).toBeTruthy());
+  });
+
+  it("a demo sandbox shows the outlet line, then the role chip and DEMO DATA, in that order (R-25 T8)", async () => {
+    signedIn({ role: "supervisor", outlet_id: "o1", demo_exp_ms: Date.now() + 60_000 });
+    renderBar();
+    const outlet = await screen.findByText(/Demo Bakery · Outlet 1/);
+    const chip = screen.getByText("Supervisor");
+    const demoChip = screen.getByText("DEMO DATA");
+    expect(outlet.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(chip.compareDocumentPosition(demoChip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("banner").className).toContain("b6-dtop");
+  });
+
+  it("the outlet line ends with the demo's end time while the hook has one, and drops it when it has none (R6)", async () => {
+    expiry = "11:20";
+    signedIn({ role: "supervisor", outlet_id: "o1", demo_exp_ms: Date.now() + 60_000 });
+    renderBar();
+    expect((await screen.findByText(/Demo Bakery/)).textContent).toBe("Demo Bakery · Outlet 1 · ends 11:20");
+    cleanup();
+    expiry = null;
+    signedIn({ role: "supervisor", outlet_id: "o1", demo_exp_ms: Date.now() + 60_000 });
+    renderBar();
+    expect((await screen.findByText(/Demo Bakery/)).textContent).toBe("Demo Bakery · Outlet 1");
+  });
+
+  it("the end time is in Bahasa when the language says so", async () => {
+    expiry = "09:05";
+    signedIn({ role: "owner", outlet_id: "o1", demo_exp_ms: Date.now() + 60_000 });
+    renderBar({}, "id");
+    expect((await screen.findByText(/Demo Bakery/)).textContent).toBe("Demo Bakery · Outlet 1 · berakhir 09:05");
+  });
+
+  it("a real principal has no outlet line (no client route returns the outlet name) and no end time", async () => {
+    expiry = "11:20"; // even a stale demo record in this browser must not label a real outlet
+    signedIn({ role: "owner", outlet_id: "o1" });
+    renderBar();
+    await waitFor(() => expect(screen.getByText("Owner")).toBeTruthy());
+    expect(screen.queryByText(/Demo Bakery/)).toBeNull();
+    expect(screen.queryByText(/ends 11:20/)).toBeNull();
+  });
+
+  it("Sign out is a real button and the language switch stays in the bar", () => {
+    signedIn({ role: "supervisor", outlet_id: "o1" });
+    renderBar();
+    const bar = screen.getByRole("banner");
+    expect(within(bar).getByRole("button", { name: "Sign out" }).className).toContain("b6-btn--secondary");
+    expect(within(bar).getByRole("group", { name: "Choose language" })).toBeTruthy();
   });
 
   it("renders no nav and no chip while loading, when signed out, with a device or unknown role, or when the claim cannot be read", async () => {
