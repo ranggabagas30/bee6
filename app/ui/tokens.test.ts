@@ -38,6 +38,15 @@ describe("page-2 design tokens (app/globals.css)", () => {
     }
   });
 
+  it("declares the R-25 G0 tokens (orb faces, guide card box, dialog scrim)", () => {
+    expect(tokens).toMatchObject({
+      "--b6-orb-idle": "#FAF9F6",
+      "--b6-orb-amber": "#FAF4E6",
+      "--b6-cardbox": "#F7F6F3",
+      "--b6-scrim": "rgba(43, 42, 38, 0.42)",
+    });
+  });
+
   it("declares the layer order: a dialog sits above the sheet/panel overlay", () => {
     expect(tokens["--b6-z-overlay"]).toBe("40");
     expect(tokens["--b6-z-dialog"]).toBe("50");
@@ -84,6 +93,14 @@ describe("page-2 design tokens (app/globals.css)", () => {
       ["--b6-surface", "--b6-red-ink"],
       ["--b6-on-dark", "--b6-dark-hi"],
       ["--b6-muted", "--b6-disabled-bg"],
+      // R-25 G0: new surfaces and the unfilled text buttons
+      ["--b6-red-ink", "--b6-ground"],
+      ["--b6-muted", "--b6-cardbox"],
+      ["--b6-ink", "--b6-cardbox"],
+      ["--b6-ink", "--b6-orb-idle"],
+      ["--b6-amber-ink", "--b6-orb-amber"],
+      ["--b6-surface", "--b6-ink"],
+      ["--b6-teal-ink", "--b6-cardbox"],
     ];
     for (const [fg, bg] of pairs) {
       expect(t(fg), fg).toBeTruthy();
