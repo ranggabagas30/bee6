@@ -439,7 +439,7 @@ describe("/capture: the script card (plan 5.3-5.4)", () => {
 });
 
 describe("/capture: the debrief cards and Jump to tomorrow (plan 4.4, 7.2)", () => {
-  const debrief = (next_day: DemoSessionProfile["next_day"], phase: CaptureBridgeState["phase"] = "debrief_question", day: 1 | 2 | 3 = 1) =>
+  const debrief = (next_day: DemoSessionProfile["next_day"], phase: CaptureBridgeState["phase"] = "debrief_done", day: 1 | 2 | 3 = 1) =>
     bridge({ phase, profile: profile({ day, next_day }) });
 
   it("refetches the config when the phone enters the debrief (after End), and re-polls every 10 s while the server says busy or preparing", async () => {
@@ -455,13 +455,13 @@ describe("/capture: the debrief cards and Jump to tomorrow (plan 4.4, 7.2)", () 
     });
     expect(refetchConfig).toHaveBeenCalledTimes(2);
     // preparing -> questions is a debrief phase change: one more refetch at once, then the 10 s poll goes on (busy)
-    act(() => publishCaptureBridge(debrief({ allowed: false, reason: "busy" })));
+    act(() => publishCaptureBridge(debrief({ allowed: false, reason: "busy" }, "debrief_question")));
     expect(refetchConfig).toHaveBeenCalledTimes(3);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10_000);
     });
     expect(refetchConfig).toHaveBeenCalledTimes(4);
-    act(() => publishCaptureBridge(debrief({ allowed: true, reason: null })));
+    act(() => publishCaptureBridge(debrief({ allowed: true, reason: null }, "debrief_question")));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(30_000);
     });
@@ -469,6 +469,27 @@ describe("/capture: the debrief cards and Jump to tomorrow (plan 4.4, 7.2)", () 
     // the debrief's end (timed out or PR-3's done flag) refetches once more, so Start / the lock line are current
     act(() => publishCaptureBridge(debrief({ allowed: true, reason: null }, "debrief_done")));
     expect(refetchConfig).toHaveBeenCalledTimes(5);
+  });
+
+  // R-25 UI-112: the question card has no Jump control, even though the server would allow the jump; the 409 confirm
+  // path stays for the complete card.
+  it("UI-112: while questions are open (debrief_question) there is no Jump to tomorrow button, whatever the server allows; the card says when it appears", () => {
+    pathname = "/capture";
+    act(() => publishCaptureBridge(debrief({ allowed: true, reason: null }, "debrief_question")));
+    renderGuide();
+    openGuide();
+    expect(screen.getByRole("heading", { name: "Answer what really happened" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Jump to tomorrow/ })).toBeNull();
+    expect(screen.getByText("When every question is answered or skipped, this guide shows Jump to tomorrow.")).toBeTruthy();
+    expect(screen.queryByText(/Leave \d+ questions unanswered/)).toBeNull();
+  });
+
+  it("UI-112: the Jump button is there on the complete card (debrief_done)", () => {
+    pathname = "/capture";
+    act(() => publishCaptureBridge(debrief({ allowed: true, reason: null }, "debrief_done", 2)));
+    renderGuide();
+    openGuide();
+    expect(screen.getByRole("button", { name: "Jump to tomorrow" })).toBeTruthy();
   });
 
   it("busy and preparing show their line with NO retry tap; max_days shows its line and never offers the button", () => {
@@ -501,7 +522,7 @@ describe("/capture: the debrief cards and Jump to tomorrow (plan 4.4, 7.2)", () 
     pathname = "/capture";
     postDemoNextDay.mockResolvedValueOnce({ ok: false, status: 409, code: "unanswered_questions", details: { unanswered: 2 } });
     postDemoNextDay.mockResolvedValueOnce({ ok: true, data: { day: 3 } });
-    act(() => publishCaptureBridge(debrief({ allowed: true, reason: null }, "debrief_question", 2)));
+    act(() => publishCaptureBridge(debrief({ allowed: true, reason: null }, "debrief_done", 2)));
     renderGuide();
     openGuide();
     fireEvent.click(screen.getByRole("button", { name: "Jump to tomorrow" }));
@@ -883,7 +904,7 @@ describe("R-19 PR-5 QA fixes: scroll body, 48 px controls, open-session card, bu
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
     pathname = "/capture";
     postDemoNextDay.mockResolvedValueOnce({ ok: false, status: 409, code: "busy", details: null });
-    act(() => publishCaptureBridge(bridge({ phase: "debrief_question", profile: profile({ day: 1, next_day: { allowed: true, reason: null } }) })));
+    act(() => publishCaptureBridge(bridge({ phase: "debrief_done", profile: profile({ day: 1, next_day: { allowed: true, reason: null } }) })));
     renderGuide();
     openGuide();
     const refetchesBefore = refetchConfig.mock.calls.length;

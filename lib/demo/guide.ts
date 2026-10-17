@@ -241,12 +241,12 @@ export const GUIDE: Readonly<Record<GuideKey, GuideCard>> = z
           "Answering does not end the debrief. It ends when every question is answered or the 60 minutes are over.",
           "Menjawab tidak mengakhiri debrief. Debrief berakhir saat semua pertanyaan terjawab atau 60 menit habis.",
         ),
+        // UI-112: no Jump control while questions are open (the board shows it on the complete screen only).
         bi(
-          "When your questions are answered, jump to tomorrow to run the next day.",
-          "Setelah pertanyaan terjawab, lompat ke besok untuk menjalankan hari berikutnya.",
+          "When every question is answered or skipped, this guide shows Jump to tomorrow.",
+          "Setelah setiap pertanyaan dijawab atau dilewati, panduan ini menampilkan Lompat ke besok.",
         ),
       ],
-      action: { kind: "jump_tomorrow" },
     }),
     debrief_done: card({
       title: bi("Today is done", "Hari ini selesai"),

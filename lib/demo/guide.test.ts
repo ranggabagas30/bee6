@@ -65,9 +65,9 @@ describe("STAGES and GUIDE data", () => {
     expect(actions.capture_listening).toBe("script_card");
     expect(actions.capture_all_spoken).toBe("jump_closing");
     expect(actions.debrief_done).toBe("jump_tomorrow");
-    expect(actions.debrief_question).toBe("jump_tomorrow");
+    expect(actions.debrief_question).toBeNull(); // UI-112: no Jump control while questions are open
     expect(actions.home).toBe("reset_demo");
-    const others = GUIDE_KEYS.filter((k) => !["pair", "capture_listening", "capture_all_spoken", "debrief_done", "debrief_question", "home"].includes(k));
+    const others = GUIDE_KEYS.filter((k) => !["pair", "capture_listening", "capture_all_spoken", "debrief_done", "home"].includes(k));
     for (const k of others) expect(actions[k], k).toBeNull();
   });
 
@@ -118,12 +118,17 @@ describe("STAGES and GUIDE data", () => {
     }
   });
 
+  it("UI-112: the question card has no Jump control on any day; the complete card keeps it on days 1 and 2", () => {
+    for (const day of [1, 2, 3, null] as const) expect(guideCard("debrief_question", day).action, `day ${day}`).toBeNull();
+    for (const day of [1, 2, 3, null] as const) expect(guideCard("debrief_done", day).action, `day ${day}`).toEqual({ kind: "jump_tomorrow" });
+  });
+
   it("the day-1 debrief card never mentions the phone order (day 1 has no phone-order card): answer what really happened", () => {
     const text = guideCard("debrief_question", 1).body.map((b) => b.en).join(" ");
     expect(text).not.toMatch(/phone order/i);
     expect(text).toMatch(/what really happened in today's script/);
     expect(text).toMatch(/a few words/);
-    expect(guideCard("debrief_question", 1).action).toEqual({ kind: "jump_tomorrow" });
+    expect(guideCard("debrief_question", 1).action).toBeNull();
   });
 
   it("the day-1 Complete card offers the Supervisor look-around before tomorrow (stage 2); days 2-3 keep the jump-to-tomorrow / after-day-3 wording", () => {
@@ -145,7 +150,7 @@ describe("STAGES and GUIDE data", () => {
     }
     // days 1 and 2 keep the jump wording
     for (const day of [1, 2] as const) {
-      expect(guideCard("debrief_question", day).body.map((b) => b.en).join(" "), `day ${day}`).toMatch(/jump to tomorrow to run the next day/);
+      expect(guideCard("debrief_question", day).body.map((b) => b.en).join(" "), `day ${day}`).toMatch(/this guide shows Jump to tomorrow/);
     }
   });
 
