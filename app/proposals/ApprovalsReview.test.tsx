@@ -118,6 +118,7 @@ describe("ApprovalsReview — states", () => {
     proposalsResult = new Promise(() => {});
     renderScreen();
     expect(screen.getByRole("status").textContent).toBe("Loading…");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Approvals");
   });
 
   it("an error shows the generic line", async () => {
@@ -147,7 +148,7 @@ describe("ApprovalsReview — review in order", () => {
   it("shows the oldest waiting proposal first, the recommended order with status, and the progress segments", async () => {
     proposalsResult = ok([item(2, "awaiting_owner"), item(1, "awaiting_owner")]);
     renderScreen();
-    expect((await screen.findByRole("heading", { level: 2, name: "Proposal 1" })).textContent).toBe("Proposal 1");
+    expect((await screen.findByRole("heading", { level: 1, name: "Proposal 1" })).textContent).toBe("Proposal 1");
     const order = screen.getByRole("list", { name: "RECOMMENDED ORDER" });
     const rows = within(order).getAllByRole("listitem");
     expect(rows).toHaveLength(2);
@@ -191,30 +192,30 @@ describe("ApprovalsReview — review in order", () => {
 
   it("picking #2 in the order shows #2 alone (one at a time)", async () => {
     renderScreen();
-    await screen.findByRole("heading", { level: 2, name: "Proposal 1" });
+    await screen.findByRole("heading", { level: 1, name: "Proposal 1" });
     fireEvent.click(screen.getByRole("button", { name: /^#2 Proposal 2/ }));
-    expect(screen.getByRole("heading", { level: 2, name: "Proposal 2" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { level: 2, name: "Proposal 1" })).toBeNull();
+    expect(screen.getByRole("heading", { level: 1, name: "Proposal 2" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { level: 1, name: "Proposal 1" })).toBeNull();
   });
 
   it("opens the proposal from ?id= when it is in the queue", async () => {
     render(<ApprovalsReview auth={AUTH} lang="en" initialId={uuid(2)} />);
-    expect(await screen.findByRole("heading", { level: 2, name: "Proposal 2" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { level: 2, name: "Proposal 1" })).toBeNull();
+    expect(await screen.findByRole("heading", { level: 1, name: "Proposal 2" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { level: 1, name: "Proposal 1" })).toBeNull();
     expect(screen.getByRole("button", { name: /^#2 Proposal 2/ }).getAttribute("aria-current")).toBe("true");
   });
 
   it("an unknown id falls back to the first undecided", async () => {
     render(<ApprovalsReview auth={AUTH} lang="en" initialId={uuid(9)} />);
-    expect(await screen.findByRole("heading", { level: 2, name: "Proposal 1" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { level: 2, name: "Proposal 2" })).toBeNull();
+    expect(await screen.findByRole("heading", { level: 1, name: "Proposal 1" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { level: 1, name: "Proposal 2" })).toBeNull();
   });
 
   it("the id of an owner-decided proposal falls back to the first undecided (not the read-only view)", async () => {
     proposalsResult = ok([item(2, "awaiting_owner")], [item(1, "approved", { owner: APPROVED })]);
     render(<ApprovalsReview auth={AUTH} lang="en" initialId={uuid(1)} />);
-    expect(await screen.findByRole("heading", { level: 2, name: "Proposal 2" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { level: 2, name: "Proposal 1" })).toBeNull();
+    expect(await screen.findByRole("heading", { level: 1, name: "Proposal 2" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { level: 1, name: "Proposal 1" })).toBeNull();
     expect(screen.getByRole("button", { name: /^#2 Proposal 2/ }).getAttribute("aria-current")).toBe("true");
     expect(screen.getByRole("button", { name: /^#1 Proposal 1/ }).getAttribute("aria-current")).toBeNull();
     expect(screen.queryByText(/^Decided /)).toBeNull();
@@ -224,7 +225,7 @@ describe("ApprovalsReview — review in order", () => {
   it("reports the screen to the bridge", async () => {
     const onBridge = vi.fn();
     renderScreen(onBridge);
-    await screen.findByRole("heading", { level: 2, name: "Proposal 1" });
+    await screen.findByRole("heading", { level: 1, name: "Proposal 1" });
     expect(onBridge).toHaveBeenCalledWith({ type: "screen", screen: "review" });
   });
 });
@@ -234,14 +235,14 @@ describe("ApprovalsReview — approve", () => {
     const onBridge = vi.fn();
     authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "approved", status: "approved" } });
     renderScreen(onBridge);
-    await screen.findByRole("heading", { level: 2, name: "Proposal 1" });
+    await screen.findByRole("heading", { level: 1, name: "Proposal 1" });
     proposalsResult = ok([item(2, "awaiting_owner", { notices: { sop_changed: true } })], [item(1, "approved", { owner: APPROVED })]);
     sopResult = { kind: "ok", data: SOP_WITH_V2 };
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     expect(authedPostJson).toHaveBeenCalledWith(AUTH, `/api/v1/proposals/${uuid(1)}/approve`, { decision: "approve", acknowledged_constraint_ids: [] }, expect.anything());
 
     expect(await screen.findByText("Approved. It ships as a new SOP version.")).toBeTruthy();
-    await screen.findByRole("heading", { level: 2, name: "Proposal 2" });
+    await screen.findByRole("heading", { level: 1, name: "Proposal 2" });
     const na = screen.getByRole("button", { name: "Approve · not available" });
     expect(na.hasAttribute("disabled")).toBe(true);
     expect(screen.getByText("The SOP changed after this was drafted. You can still reject it with a reason.")).toBeTruthy();
@@ -258,7 +259,7 @@ describe("ApprovalsReview — approve", () => {
     let resolve: (v: unknown) => void = () => {};
     authedPostJson.mockReturnValue(new Promise((r) => (resolve = r)));
     renderScreen();
-    await screen.findByRole("heading", { level: 2, name: "Proposal 1" });
+    await screen.findByRole("heading", { level: 1, name: "Proposal 1" });
     const approve = screen.getByRole("button", { name: "Approve" });
     fireEvent.click(approve);
     fireEvent.click(approve);
@@ -274,7 +275,7 @@ describe("ApprovalsReview — approve", () => {
       item(2, "awaiting_owner", { notices: { late_constraints: [{ constraint_id: uuid(9), text: "No new trays." }] } }),
     ]);
     renderScreen();
-    await screen.findByRole("heading", { level: 2, name: "Proposal 1" });
+    await screen.findByRole("heading", { level: 1, name: "Proposal 1" });
     expect(screen.getByRole("button", { name: "Approve" }).hasAttribute("disabled")).toBe(true);
     expect(screen.getByText("Some of the evidence no longer holds. Generate again for these dates.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /^#2 Proposal 2/ }));
@@ -291,7 +292,7 @@ describe("ApprovalsReview — approve", () => {
   it("after the server answers, the decision stays locked until the reload lands (a fast second tap sends nothing)", async () => {
     authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "approved", status: "approved" } });
     renderScreen();
-    await screen.findByRole("heading", { level: 2, name: "Proposal 1" });
+    await screen.findByRole("heading", { level: 1, name: "Proposal 1" });
     proposalsResult = new Promise(() => {}); // the reload never lands in this test
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     expect(await screen.findByText("Approved. It ships as a new SOP version.")).toBeTruthy();
@@ -307,7 +308,7 @@ describe("ApprovalsReview — approve", () => {
   it("the lock lifts when the reload lands with the same proposal still waiting (409 SOP_CHANGED → reject stays possible)", async () => {
     authedPostJson.mockResolvedValue({ kind: "conflict", code: "SOP_CHANGED" });
     renderScreen();
-    await screen.findByRole("heading", { level: 2, name: "Proposal 1" });
+    await screen.findByRole("heading", { level: 1, name: "Proposal 1" });
     proposalsResult = ok([item(1, "awaiting_owner", { notices: { sop_changed: true } }), item(2, "awaiting_owner")]);
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     expect(await screen.findByText("The SOP has changed, so this cannot go ahead. Generate again.")).toBeTruthy();
@@ -320,7 +321,7 @@ describe("ApprovalsReview — approve", () => {
   it("a 409 shows its message and reloads", async () => {
     authedPostJson.mockResolvedValue({ kind: "conflict", code: "SOP_CHANGED" });
     renderScreen();
-    await screen.findByRole("heading", { level: 2, name: "Proposal 1" });
+    await screen.findByRole("heading", { level: 1, name: "Proposal 1" });
     const reads = authedGetJson.mock.calls.filter((c) => c[1] === "/api/v1/proposals").length;
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     expect(await screen.findByText("The SOP has changed, so this cannot go ahead. Generate again.")).toBeTruthy();
@@ -332,7 +333,7 @@ describe("ApprovalsReview — reject with reason", () => {
   it("Reject with reason stays disabled until 3 characters, then posts the trimmed reason", async () => {
     authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "rejected", status: "rejected" } });
     renderScreen();
-    await screen.findByRole("heading", { level: 2, name: "Proposal 1" });
+    await screen.findByRole("heading", { level: 1, name: "Proposal 1" });
     const send = screen.getByRole("button", { name: "Reject with reason" });
     const box = screen.getByLabelText("Reject — why?");
     expect(send.hasAttribute("disabled")).toBe(true);
@@ -346,18 +347,18 @@ describe("ApprovalsReview — reject with reason", () => {
     fireEvent.click(send);
     expect(authedPostJson).toHaveBeenCalledWith(AUTH, `/api/v1/proposals/${uuid(1)}/approve`, { decision: "reject", reason: "The oven is too small." }, expect.anything());
     expect(await screen.findByText("Rejected. Your reason is now a rule Bee6 will respect.")).toBeTruthy();
-    await screen.findByRole("heading", { level: 2, name: "Proposal 2" });
+    await screen.findByRole("heading", { level: 1, name: "Proposal 2" });
     expect((screen.getByLabelText("Reject — why?") as HTMLTextAreaElement).value).toBe("");
   });
 
   it("two rejections in a row each move focus to the answer (same message key twice)", async () => {
     authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "rejected", status: "rejected" } });
     renderScreen();
-    await screen.findByRole("heading", { level: 2, name: "Proposal 1" });
+    await screen.findByRole("heading", { level: 1, name: "Proposal 1" });
     fireEvent.change(screen.getByLabelText("Reject — why?"), { target: { value: "The oven is too small." } });
     proposalsResult = ok([item(2, "awaiting_owner")], [item(1, "rejected", { owner: REJECTED })]);
     fireEvent.click(screen.getByRole("button", { name: "Reject with reason" }));
-    await screen.findByRole("heading", { level: 2, name: "Proposal 2" });
+    await screen.findByRole("heading", { level: 1, name: "Proposal 2" });
     expect(document.activeElement?.textContent).toBe("Rejected. Your reason is now a rule Bee6 will respect.");
 
     // the owner moves on to the second one: focus is on the send button when the answer comes back
@@ -367,14 +368,14 @@ describe("ApprovalsReview — reject with reason", () => {
     expect(document.activeElement).toBe(send);
     proposalsResult = ok([], [item(1, "rejected", { owner: REJECTED }), item(2, "rejected", { owner: REJECTED })]);
     fireEvent.click(send);
-    await screen.findByRole("heading", { level: 2, name: "Both decided." });
+    await screen.findByRole("heading", { level: 1, name: "Both decided. Nice and calm." });
     expect(document.activeElement?.textContent).toBe("Rejected. Your reason is now a rule Bee6 will respect.");
   });
 
   it("the SOP-changed proposal can still be rejected", async () => {
     proposalsResult = ok([item(2, "awaiting_owner", { notices: { sop_changed: true } })], [item(1, "approved", { owner: APPROVED })]);
     renderScreen();
-    await screen.findByRole("heading", { level: 2, name: "Proposal 2" });
+    await screen.findByRole("heading", { level: 1, name: "Proposal 2" });
     expect(screen.getByRole("button", { name: "Approve · not available" }).hasAttribute("disabled")).toBe(true);
     fireEvent.change(screen.getByLabelText("Reject — why?"), { target: { value: "Not this week." } });
     expect(screen.getByRole("button", { name: "Reject with reason" }).hasAttribute("disabled")).toBe(false);
@@ -383,7 +384,7 @@ describe("ApprovalsReview — reject with reason", () => {
   it("a 422 on the reason shows the length line and keeps the form", async () => {
     authedPostJson.mockResolvedValue({ kind: "invalid" });
     renderScreen();
-    await screen.findByRole("heading", { level: 2, name: "Proposal 1" });
+    await screen.findByRole("heading", { level: 1, name: "Proposal 1" });
     fireEvent.change(screen.getByLabelText("Reject — why?"), { target: { value: "abc" } });
     fireEvent.click(screen.getByRole("button", { name: "Reject with reason" }));
     expect((await screen.findByRole("alert")).textContent).toBe("Write between 3 and 300 characters.");
@@ -397,7 +398,7 @@ describe("ApprovalsReview — all decided", () => {
     sopResult = { kind: "ok", data: SOP_WITH_V2 };
     const onBridge = vi.fn();
     renderScreen(onBridge);
-    expect(await screen.findByRole("heading", { level: 2, name: "Both decided." })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 1, name: "Both decided. Nice and calm." })).toBeTruthy();
     expect(screen.getByRole("progressbar").getAttribute("aria-label")).toBe("2 of 2 decided");
     expect(await screen.findByText("Shipped as SOP version 2")).toBeTruthy();
     expect(screen.getByText("Starts Wed 14 Oct · review Wed 28 Oct")).toBeTruthy();
@@ -412,7 +413,7 @@ describe("ApprovalsReview — all decided", () => {
   it("one decided proposal reads 'All decided.' and an approved one without a matching SOP change keeps the day-after line", async () => {
     proposalsResult = ok([], [item(1, "approved", { owner: APPROVED })]);
     renderScreen();
-    expect(await screen.findByRole("heading", { level: 2, name: "All decided." })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 1, name: "All decided." })).toBeTruthy();
     expect(screen.getByText("Starts the day after approval · review Wed 21 Oct")).toBeTruthy();
     expect(screen.queryByText(/Shipped as SOP version/)).toBeNull();
   });
@@ -420,20 +421,132 @@ describe("ApprovalsReview — all decided", () => {
   it("a decided proposal opened from the order is read-only with its decision date", async () => {
     proposalsResult = ok([item(2, "awaiting_owner")], [item(1, "approved", { owner: APPROVED })]);
     renderScreen();
-    await screen.findByRole("heading", { level: 2, name: "Proposal 2" });
+    await screen.findByRole("heading", { level: 1, name: "Proposal 2" });
     fireEvent.click(screen.getByRole("button", { name: /^#1 Proposal 1/ }));
-    expect(screen.getByRole("heading", { level: 2, name: "Proposal 1" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Proposal 1" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Approve/ })).toBeNull();
     expect(screen.queryByLabelText("Reject — why?")).toBeNull();
     expect(screen.getByText("Decided Tue 13 Oct")).toBeTruthy();
   });
 });
 
+describe("ApprovalsReview — page-2 layout (R-25 T11)", () => {
+  it("the proposal title is the one h1; the kicker counts the place in the order; one bar per proposal with the open one marked", async () => {
+    renderScreen();
+    const h1 = await screen.findByRole("heading", { level: 1, name: "Proposal 1" });
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(h1.className).toContain("b6-h1-web");
+    expect(screen.queryByRole("heading", { name: "Approvals" })).toBeNull();
+    expect(screen.getByText("APPROVALS · 1 OF 2 · 2 LEFT").className).toContain("b6-kick");
+    const bar = screen.getByRole("progressbar");
+    expect(bar.children).toHaveLength(2);
+    expect(bar.children[0]!.className).toContain("segmentNow");
+    expect(bar.children[1]!.className).not.toContain("segmentNow");
+  });
+
+  it("the kicker and bars follow a decision: #2 open, #1 approved", async () => {
+    proposalsResult = ok([item(2, "awaiting_owner")], [item(1, "approved", { owner: APPROVED })]);
+    renderScreen();
+    await screen.findByRole("heading", { level: 1, name: "Proposal 2" });
+    expect(screen.getByText("APPROVALS · 2 OF 2 · 1 LEFT")).toBeTruthy();
+    const bar = screen.getByRole("progressbar");
+    expect(bar.children[0]!.className).toContain("segmentApproved");
+    expect(bar.children[1]!.className).toContain("segmentNow");
+  });
+
+  it("the chip row has the step chip and the '#n · supervisor: feasible' line (a date, never a name)", async () => {
+    renderScreen();
+    const c = await waitFor(card);
+    expect(within(c).getByText("Display check")).toBeTruthy();
+    expect(within(c).getByText("#1 · supervisor: feasible Mon 12 Oct")).toBeTruthy();
+  });
+
+  it("the evidence sits under its own h2 'Why Bee6 suggests this' with the count line and the metric", async () => {
+    renderScreen();
+    const c = await waitFor(card);
+    expect(within(c).getByRole("heading", { level: 2, name: "Why Bee6 suggests this" })).toBeTruthy();
+    expect(within(c).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(c).getByText("THE EVIDENCE · 2 MOMENTS ON 2 DAYS")).toBeTruthy();
+    expect(within(c).getByText("WATCH THIS METRIC")).toBeTruthy();
+  });
+
+  it("the pace box says approving creates a version, and that the other can only be rejected while another is waiting", async () => {
+    renderScreen();
+    const c = await waitFor(card);
+    expect(within(c).getByText(/Approving creates a new SOP version\./).textContent).toContain("the other can only be rejected");
+    cleanup();
+    proposalsResult = ok([item(1, "awaiting_owner")]);
+    renderScreen();
+    const alone = await waitFor(card);
+    expect(within(alone).getByText(/Approving creates a new SOP version\./).textContent).not.toContain("only be rejected");
+  });
+
+  it("the SOP-changed proposal shows the amber 'Not available' pace box and the same line in the decision card", async () => {
+    proposalsResult = ok([item(2, "awaiting_owner", { notices: { sop_changed: true } })], [item(1, "approved", { owner: APPROVED })]);
+    renderScreen();
+    await screen.findByRole("heading", { level: 1, name: "Proposal 2" });
+    const lead = screen.getByText("Not available: the SOP changed");
+    expect(lead.parentElement!.parentElement!.className).toContain("paceBlocked");
+    expect(screen.getByText(/can only be rejected\. A rejection reason becomes a rule Bee6 respects\./)).toBeTruthy();
+    expect(screen.getByText("The SOP changed after this was drafted. You can still reject it with a reason.")).toBeTruthy();
+  });
+
+  it("the decision card is an h2 'Your decision' (sentence case); the reject field is required, with a placeholder, and the label text is plain", async () => {
+    renderScreen();
+    await screen.findByRole("heading", { level: 1, name: "Proposal 1" });
+    expect(screen.getByRole("heading", { level: 2, name: "Your decision" })).toBeTruthy();
+    const box = screen.getByLabelText("Reject — why?") as HTMLTextAreaElement;
+    expect(box.required).toBe(true);
+    expect(box.placeholder).toBe("Why is this not workable?");
+    // approve is the large primary button, reject the destructive one
+    expect(screen.getByRole("button", { name: "Approve" }).className).toContain("b6-btn--lg");
+    expect(screen.getByRole("button", { name: "Reject with reason" }).className).toContain("b6-btn--destructive");
+  });
+
+  it("the recommended order sits after the decision card, the open row carries the dark 'Reviewing now' pill", async () => {
+    renderScreen();
+    await screen.findByRole("heading", { level: 1, name: "Proposal 1" });
+    const decision = screen.getByRole("heading", { level: 2, name: "Your decision" });
+    const order = screen.getByRole("list", { name: "RECOMMENDED ORDER" });
+    expect(decision.compareDocumentPosition(order) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(order).getByText("Reviewing now").className).toContain("pillNow");
+    expect(within(order).getByText("Waiting for you").className).not.toContain("pillNow");
+  });
+
+  it("all decided: h1 'Both decided. Nice and calm.', a counts + dates sentence, '#n' rows with their pills, Back to home first", async () => {
+    proposalsResult = ok([], [item(1, "approved", { owner: APPROVED }), item(2, "rejected", { owner: REJECTED })]);
+    sopResult = { kind: "ok", data: SOP_WITH_V2 };
+    renderScreen();
+    expect(await screen.findByRole("heading", { level: 1, name: "Both decided. Nice and calm." })).toBeTruthy();
+    expect(screen.getByText("APPROVALS · DONE")).toBeTruthy();
+    expect(await screen.findByText("1 approved, 1 rejected. The approved change starts on Wed 14 Oct and is reviewed on Wed 28 Oct.")).toBeTruthy();
+    const rows = within(screen.getByRole("list", { name: "Both decided. Nice and calm." })).getAllByRole("listitem");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.textContent).toContain("#1");
+    expect(within(rows[0]!).getByText("Approved · starts Wed 14 Oct")).toBeTruthy();
+    expect(rows[1]!.textContent).toContain("#2");
+    expect(within(rows[1]!).getByText("Rejected · now a rule")).toBeTruthy();
+    const links = screen.getAllByRole("link", { name: /^(Back to home|See the SOP)$/ });
+    expect(links.map((l) => l.textContent)).toEqual(["Back to home", "See the SOP"]);
+    expect(links[0]!.className).toContain("b6-btn--primary");
+    expect(links[1]!.className).toContain("b6-btn--secondary");
+  });
+
+  it("all decided before the SOP version is known: the counts sentence only, the pill is plain 'Approved'", async () => {
+    proposalsResult = ok([], [item(1, "approved", { owner: APPROVED }), item(2, "rejected", { owner: REJECTED })]);
+    renderScreen();
+    expect(await screen.findByText("1 approved, 1 rejected.")).toBeTruthy();
+    expect(screen.queryByText(/The approved change starts on/)).toBeNull();
+    expect(screen.getByText("Approved")).toBeTruthy();
+  });
+});
+
 describe("ApprovalsReview — Bahasa", () => {
   it("renders the provisional Bahasa copy", async () => {
     render(<ApprovalsReview auth={AUTH} lang="id" />);
-    expect(await screen.findByRole("heading", { level: 1 })).toBeTruthy();
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Persetujuan");
+    expect(await screen.findByRole("heading", { level: 1, name: "Proposal 1" })).toBeTruthy();
+    expect(screen.getByText("PERSETUJUAN · 1 DARI 2 · SISA 2")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: "Keputusan Anda" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Setujui" })).toBeTruthy();
     expect(screen.getByLabelText("Tolak — mengapa?")).toBeTruthy();
   });

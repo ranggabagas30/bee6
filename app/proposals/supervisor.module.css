@@ -17,13 +17,6 @@
   overflow-wrap: anywhere;
 }
 
-/* The owner's approvals screen (T11 restyles it) keeps its old 720px column inside the new shell until then. */
-.ownerColumn {
-  box-sizing: border-box;
-  width: 100%;
-  max-width: 720px;
-}
-
 /* ---- watch panel ---- */
 .watch {
   display: flex;

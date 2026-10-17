@@ -150,13 +150,13 @@ describe("ProposalsApp — auth / role gate", () => {
     proposalsResult = { kind: "ok", data: { open: [waiting(1), waiting(2)], decided: [], watch: EMPTY_WATCH } };
     search = `?id=${uuid(2)}`;
     renderApp();
-    expect(await screen.findByRole("heading", { level: 2, name: "Proposal 2" })).not.toBeNull();
-    expect(screen.queryByRole("heading", { level: 2, name: "Proposal 1" })).toBeNull();
+    expect(await screen.findByRole("heading", { level: 1, name: "Proposal 2" })).not.toBeNull();
+    expect(screen.queryByRole("heading", { level: 1, name: "Proposal 1" })).toBeNull();
     cleanup();
 
     search = "?id=not-a-uuid";
     renderApp();
-    expect(await screen.findByRole("heading", { level: 2, name: "Proposal 1" })).not.toBeNull();
+    expect(await screen.findByRole("heading", { level: 1, name: "Proposal 1" })).not.toBeNull();
   });
 
   it("supervisor claims: the supervisor screen renders (watch panel, no approvals head)", async () => {
@@ -267,7 +267,7 @@ describe("ProposalsApp — the judge guide signal", () => {
     proposalsResult = { kind: "ok", data: { open: [waiting(1)], decided: [], watch: EMPTY_WATCH } };
     authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "approved", status: "approved" } });
     renderApp();
-    await screen.findByRole("heading", { level: 2, name: "Proposal 1" });
+    await screen.findByRole("heading", { level: 1, name: "Proposal 1" });
     expect(readProposalsScreen()).toBe("review");
     const before = readProposalsProgressVersion();
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
