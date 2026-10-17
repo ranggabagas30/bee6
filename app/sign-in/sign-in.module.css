@@ -1,0 +1,148 @@
+/*
+ * Supervisor / owner sign-in, page-2 look (R-25 T8, decision R5: look only, no flow change). The page sits in the web
+ * shell (`.dtop` bar, `main`); this file styles the role choice, the fields and the message on the PR-0b tokens.
+ * Mobile-first: one column to 440 px, every control at least 44 px tall.
+ */
+
+.screen {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.h1 {
+  margin: 0;
+  font-size: clamp(30px, 8.5vw, 38px);
+  line-height: 1.1;
+  font-weight: 300;
+  letter-spacing: -0.6px;
+}
+
+.sub {
+  margin: 0;
+  font-size: var(--b6-fs-body);
+  line-height: 1.5;
+  color: var(--b6-muted);
+}
+
+/* ---- role choice: a native radio group drawn as the board's segmented control ---- */
+
+.fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.legend {
+  padding: 0;
+  margin-bottom: 8px;
+  font-size: var(--b6-fs-ui);
+  font-weight: 500;
+}
+
+.roles {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--b6-r-control);
+  background: var(--b6-chip);
+}
+
+.role {
+  position: relative;
+  box-sizing: border-box;
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: var(--b6-r-seg-item);
+  font-size: var(--b6-fs-ui);
+  color: var(--b6-muted);
+  text-align: center;
+  cursor: pointer;
+}
+
+/* the radio stays in the page for keyboard and screen readers; the label is what is drawn */
+.role input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.role:has(input:checked) {
+  background: var(--b6-surface);
+  color: var(--b6-ink);
+  font-weight: 500;
+  box-shadow: var(--b6-shadow-seg-on);
+}
+
+.role:has(input:focus-visible) {
+  outline: 2px solid var(--b6-focus);
+  outline-offset: 2px;
+}
+
+/* ---- email form ---- */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  font-size: var(--b6-fs-ui);
+  font-weight: 500;
+}
+
+.input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--b6-surface);
+  box-shadow: inset 0 0 0 1px var(--b6-line-strong);
+  color: var(--b6-ink);
+  font-family: var(--b6-font-sans);
+  font-size: 16px; /* 16 px keeps iOS from zooming on focus */
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--b6-focus);
+  outline-offset: 2px;
+}
+
+.input:disabled {
+  background: var(--b6-surface-soft);
+  color: var(--b6-muted);
+}
+
+.message {
+  margin: 0;
+  min-height: 0;
+  font-size: var(--b6-fs-ui);
+  line-height: 1.45;
+  color: var(--b6-red-ink);
+}
+
+/* stays mounted (it is the live region) but takes no room while empty: cancels the form's 16 px gap above it */
+.message:empty {
+  margin-top: -16px;
+}
