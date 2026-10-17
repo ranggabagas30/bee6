@@ -89,6 +89,10 @@ describe("EntryLanding: the demo entry page (R-25 T3, boards P2-01 and D2-01)", 
     expect(css()).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
   });
 
+  it("the STEP kick does not grow inside the card column, so a stretched card keeps its button at the foot", () => {
+    expect(css()).toMatch(/\.card > :global\(\.b6-kick\)\s*{\s*flex:\s*none;/);
+  });
+
   it("the fictional-data note is in the footer and the CSS hides it below 600 px", () => {
     renderLanding();
     expect(screen.getByRole("contentinfo").textContent).toContain(

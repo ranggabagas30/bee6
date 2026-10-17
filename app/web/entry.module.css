@@ -96,6 +96,11 @@
   padding: 16px 18px;
 }
 
+/* G0's `.b6-kick` has flex-grow 1; in this flex column the grown kick would swallow the free space of a stretched card */
+.card > :global(.b6-kick) {
+  flex: none;
+}
+
 .title {
   margin: 0;
   font-size: 20px;
