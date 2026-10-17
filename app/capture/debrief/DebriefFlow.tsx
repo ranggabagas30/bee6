@@ -55,7 +55,8 @@ export interface DebriefFlowProps {
   headline?: ReactNode;
   /**
    * The Mulai button + its help line + any Mulai error, rendered below the card or the timeout block only (see
-   * `headline`). On a sandbox it is also rendered under the terminal done summary (the Start-locked line, §5.6).
+   * `headline`). On a sandbox it is the footer of the done and closed screens (the disabled Start button, the lock
+   * reason or the jump hint, and the Sign out link, §5.6; R-25 T7).
    */
   primary?: ReactNode;
   /**
@@ -63,6 +64,17 @@ export interface DebriefFlowProps {
    * pilot: no auto-open, no poll, no preparing/waiting screens, no completion flag.
    */
   demo?: boolean;
+  /**
+   * R-25 T7, sandbox only: "Day n" on the Preparing screen's mono line (board P2-08). Absent: "Debrief window 60 min".
+   * The page passes `demo_session.day`.
+   */
+  dayNumber?: number | null;
+  /**
+   * R-25 T7, sandbox only: the page's sign-out (its `handleSignOutTap`), for the quiet "Sign out" link on the
+   * done and closed screens (boards P2-10 / P2-10b). Used only when the page passes no `primary` (a page whose
+   * `primary` already carries its own Sign out link needs not pass it). Absent: no link.
+   */
+  onSignOut?: () => void;
   /** Test seam only; defaults to the global fetch. */
   fetchFn?: typeof fetch;
   /** Test seam only; defaults to window.localStorage. */
@@ -84,6 +96,8 @@ export function DebriefFlow({
   headline,
   primary,
   demo = false,
+  dayNumber = null,
+  onSignOut,
   fetchFn,
   storage,
 }: DebriefFlowProps) {
@@ -371,21 +385,43 @@ export function DebriefFlow({
     dispatch({ type: "SKIP" });
   }
 
+  // R-25 T7 (display only): how many of the day's questions had no answer the last time a question list was on
+  // screen, so the closed screen can say "2 of 5 questions were not answered" (board P2-10b). Derived while
+  // rendering from the view's own counters (the reducer is untouched); null until a question was shown.
+  const [lastCounts, setLastCounts] = useState<{ k: number; n: number } | null>(null);
+  {
+    const v = state.view;
+    const counts =
+      v.kind === "question"
+        ? { k: v.skipped + (v.list.length - v.index), n: v.answered + v.skipped + (v.list.length - v.index) }
+        : v.kind === "waiting_more" || v.kind === "done"
+          ? { k: v.skipped, n: v.answered + v.skipped }
+          : null;
+    if (counts && (lastCounts === null || lastCounts.k !== counts.k || lastCounts.n !== counts.n)) setLastCounts(counts);
+  }
+
+  // Whole minutes left in the debrief hour for the question screen's chip, from the page's own ticked clock.
+  const minutesLeft = Math.max(0, Math.ceil((endsAtMs - nowMs) / 60_000));
+
+  // Sandbox only: the one h1 of the page for the debrief views that have no heading of their own (the stage
+  // screens carry theirs). The page keeps no h1 of its own while a debrief is mounted.
+  const pageH1 = demo ? <h1 className="b6-sr-only">{t(lang, "C-cap-title")}</h1> : null;
+
   function demoDone(answered: number, skipped: number, pending: number) {
     return (
-      <>
-        <DebriefDone
-          demo
-          pending={pending}
-          answered={answered}
-          skipped={skipped}
-          endsAtMs={endsAtMs}
-          tz={tz}
-          nextMulaiText={nextMulaiText}
-          onBack={handleBack}
-        />
-        {primary}
-      </>
+      <DebriefDone
+        demo
+        pending={pending}
+        answered={answered}
+        skipped={skipped}
+        endsAtMs={endsAtMs}
+        tz={tz}
+        nextMulaiText={nextMulaiText}
+        nowMs={nowMs}
+        footer={primary}
+        onSignOut={onSignOut}
+        onBack={handleBack}
+      />
     );
   }
 
@@ -399,9 +435,12 @@ export function DebriefFlow({
       if (demo && !expired) {
         // The auto-open effect is about to dispatch OPEN; never flash the entry card on a sandbox.
         return (
-          <section aria-busy="true">
-            <p style={{ margin: 0 }}>{t(lang, "C-d-load")}</p>
-          </section>
+          <>
+            {pageH1}
+            <section aria-busy="true">
+              <p style={{ margin: 0 }}>{t(lang, "C-d-load")}</p>
+            </section>
+          </>
         );
       }
       return (
@@ -417,46 +456,56 @@ export function DebriefFlow({
 
     case "loading":
       return (
-        <section aria-busy="true">
-          <p style={{ margin: 0 }}>{t(lang, "C-d-load")}</p>
-          <p style={{ margin: "2px 0 0" }}>{t(lang, "C-d-load-2")}</p>
-        </section>
+        <>
+          {pageH1}
+          <section aria-busy="true">
+            <p style={{ margin: 0 }}>{t(lang, "C-d-load")}</p>
+            <p style={{ margin: "2px 0 0" }}>{t(lang, "C-d-load-2")}</p>
+          </section>
+        </>
       );
 
     case "load_error":
       return (
-        <section role="alert">
-          <p style={{ margin: 0 }}>{t(lang, "C-d-err")}</p>
-          <p style={{ margin: "2px 0 0" }}>{t(lang, "C-d-err-2")}</p>
-          <button type="button" style={{ minHeight: 48, marginTop: 12 }} onClick={handleRetry}>
-            {t(lang, "C-b-coba")}
-          </button>
-        </section>
+        <>
+          {pageH1}
+          <section role="alert">
+            <p style={{ margin: 0 }}>{t(lang, "C-d-err")}</p>
+            <p style={{ margin: "2px 0 0" }}>{t(lang, "C-d-err-2")}</p>
+            <button type="button" style={{ minHeight: 48, marginTop: 12 }} onClick={handleRetry}>
+              {t(lang, "C-b-coba")}
+            </button>
+          </section>
+        </>
       );
 
     case "empty":
       return <DebriefEmpty onBack={handleBack} />;
 
     case "preparing":
-      return <DebriefPreparing />;
+      return <DebriefPreparing dayNumber={dayNumber} />;
 
     case "waiting_more":
       return <DebriefWaitingMore />;
 
     case "question":
       return (
-        <QuestionScreen
-          view={state.view}
-          lang={lang}
-          uploadNote={uploadNote}
-          onChoose={(answer) => dispatch({ type: "CHOOSE", answer })}
-          onTypeReason={(reason) => dispatch({ type: "TYPE", reason })}
-          onLanjut={handleLanjut}
-          onLewati={handleLewati}
-          onCheck={demo ? () => void refreshQuestions(true) : undefined}
-          checking={checking}
-          debriefDate={state.business_date}
-        />
+        <>
+          {pageH1}
+          <QuestionScreen
+            view={state.view}
+            lang={lang}
+            uploadNote={uploadNote}
+            onChoose={(answer) => dispatch({ type: "CHOOSE", answer })}
+            onTypeReason={(reason) => dispatch({ type: "TYPE", reason })}
+            onLanjut={handleLanjut}
+            onLewati={handleLewati}
+            onCheck={demo ? () => void refreshQuestions(true) : undefined}
+            checking={checking}
+            debriefDate={state.business_date}
+            minutesLeft={minutesLeft}
+          />
+        </>
       );
 
     case "done":
@@ -473,6 +522,23 @@ export function DebriefFlow({
       );
 
     case "timed_out":
+      // Sandbox (R-25 T7, board P2-10b): the whole closed screen, Start button included; no headline or `primary`
+      // slot under it.
+      if (demo) {
+        return (
+          <DebriefTimeout
+            endedAtMs={state.view.ended_at_ms}
+            tz={tz}
+            onBack={handleBack}
+            demo
+            unanswered={lastCounts}
+            nowMs={nowMs}
+            nextMulaiText={nextMulaiText}
+            footer={primary}
+            onSignOut={onSignOut}
+          />
+        );
+      }
       // Shown inline on /capture in place of the card (plan §7.5), not as a
       // replacement for the whole idle section — the headline and Mulai
       // stay, same placement as `closed`.
