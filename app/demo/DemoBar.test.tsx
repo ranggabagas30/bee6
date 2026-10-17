@@ -272,6 +272,13 @@ describe("DemoBar clears the judge phone's device keys once the demo has ended",
     renderBar();
     expect(keys()).toEqual([null, null]);
   });
+
+  it("removes them on /pair too, where the ended text is not shown", () => {
+    seed("staff", Date.now() - 1000);
+    pathname = "/pair";
+    renderBar();
+    expect(keys()).toEqual([null, null]);
+  });
 });
 
 describe("DemoBar signs the Firebase web user out when the demo ends", () => {
@@ -416,6 +423,45 @@ describe("DemoBar expiry", () => {
     expect(box.classList.contains("b6-alert")).toBe(true);
     expect(box.classList.contains("b6-alert--amber")).toBe(true);
     expect(box.contains(screen.getByRole("status"))).toBe(true);
+  });
+
+  // Demo feedback 2, finding 1 (ruling B): /pair carries no ended-session text at all, neither as a visible box nor as
+  // a live-region announcement, and leaves no empty gap behind. Every other path keeps the box (tests above).
+  it("on /pair an expired record draws nothing: no ended text, no amber box, no empty status region", () => {
+    seed("staff", Date.now() - 1000);
+    pathname = "/pair";
+    const { container } = renderBar();
+    expect(container.innerHTML).toBe("");
+    expect(screen.queryByText("Your demo session has ended.")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("on /pair the Bahasa ended line is gone too", () => {
+    seed("staff", Date.now() - 1000);
+    pathname = "/pair";
+    const { container } = renderBar("id");
+    expect(container.innerHTML).toBe("");
+  });
+
+  it("on /pair a timer-driven end leaves no ended text and no amber box", () => {
+    vi.useFakeTimers({ now: new Date("2026-10-19T08:00:00Z") });
+    seed("staff", Date.now() + 5_000);
+    pathname = "/pair";
+    const { container } = renderBar();
+    act(() => void vi.advanceTimersByTime(5_001));
+    expect(screen.queryByText("Your demo session has ended.")).toBeNull();
+    expect(container.textContent).toBe("");
+    expect(container.querySelector(".b6-alert")).toBeNull();
+  });
+
+  it("on every other path (/day, /home) the ended box is unchanged", () => {
+    for (const route of ["/day", "/home"]) {
+      seed("owner", Date.now() - 1000);
+      pathname = route;
+      renderBar();
+      expect(screen.getByText("Your demo session has ended.")).toBeTruthy();
+      cleanup();
+    }
   });
 
   it("on /sign-in the ended state is left to the sign-in page's own link (no double message)", () => {
