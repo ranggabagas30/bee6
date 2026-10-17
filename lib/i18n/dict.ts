@@ -221,6 +221,9 @@ export const ID_BASE = {
   "C-demo-cred-private": "Setiap masuk membuka salinan pribadi toko fiktif selama 2 jam. Yang Anda lakukan tidak memengaruhi orang lain.", // PROVISIONAL
   "C-demo-cred-continuing": "Anda melanjutkan demo Anda (berakhir pukul {time}).", // PROVISIONAL
   "C-demo-cred-fresh": "Mulai demo baru dari awal", // PROVISIONAL
+  // Demo feedback 2, finding 4: the sign-in page shows no credentials; the judge guide does. PROVISIONAL.
+  "C-demo-cred-in-guide": "Email dan kata sandi demo Anda ada di Panduan Juri.", // PROVISIONAL
+  "C-signin-solo": "Masuk sebagai {role}", // PROVISIONAL
   "C-srv-generic": "Ada masalah. Coba lagi.", // PROVISIONAL
   "C-web-signout": "Keluar", // PROVISIONAL
 
@@ -720,6 +723,9 @@ export const EN_BASE: Record<keyof typeof ID_BASE, string> = {
   "C-demo-cred-private": "Each sign-in opens your own private copy of a fictional shop for 2 hours. Nothing you do affects anyone else.", // PROVISIONAL
   "C-demo-cred-continuing": "You are continuing your demo (ends {time}).", // PROVISIONAL
   "C-demo-cred-fresh": "Start a fresh demo", // PROVISIONAL
+  // Demo feedback 2, finding 4: the sign-in page shows no credentials; the judge guide does. PROVISIONAL.
+  "C-demo-cred-in-guide": "Your demo email and password are in the Judge Guide.", // PROVISIONAL
+  "C-signin-solo": "Sign in as {role}", // PROVISIONAL
   "C-srv-generic": "Something went wrong. Try again.",
   "C-web-signout": "Sign out",
 

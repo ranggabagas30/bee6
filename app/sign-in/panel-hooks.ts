@@ -12,17 +12,12 @@ export interface DemoPanelHooks {
   interceptEmail?: (email: string, password: string) => Promise<boolean>;
 }
 
-/** The values a "Fill in" tap puts into the panel's fields. Filling never submits. */
-export interface DemoFill {
-  code?: string;
-  email?: string;
-  password?: string;
-}
+// "Fill in" moved to the judge guide (demo feedback 2, finding 4): it fills the panel's fields through the DOM, so the
+// box no longer hands the panels any values.
 
 export interface DemoAccessProps {
   config: FirebaseWebConfig | null;
   role: SignInRole;
-  onFill: (fill: DemoFill) => void;
   /**
    * R-19 PR-6 (/pair): when given, a started demo does NOT hard-navigate to the role's landing page; the box calls this
    * instead and the screen shows its own next step (Device set up). Without it the start navigates as before.

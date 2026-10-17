@@ -104,6 +104,15 @@ describe("RoleSignIn on the pilot (demo=false)", () => {
     expect(screen.queryByLabelText("6-digit code")).toBeNull();
   });
 
+  it("pilot + initialRole supervisor or owner still renders the three radios (solo mode is demo-only)", () => {
+    for (const role of ["supervisor", "owner"] as const) {
+      renderSignIn({ initialRole: role });
+      expect(screen.getAllByRole("radio")).toHaveLength(3);
+      expect(screen.queryByText(/^Sign in as (Supervisor|Owner)$/)).toBeNull();
+      cleanup();
+    }
+  });
+
   it("the three radios are one native group (arrow keys move between them) with 48 px tall labels", () => {
     renderSignIn();
     const radios = screen.getAllByRole("radio") as HTMLInputElement[];
@@ -310,18 +319,62 @@ describe("RoleSignIn on a demo deployment (demo=true)", () => {
     return view;
   }
 
-  it("shows the demo access box for the chosen role: no code for staff (W8), the email and password for the web roles", async () => {
+  it("the box never prints a credential and has no Fill in; it points at the Judge Guide", async () => {
+    for (const role of ["staff", "supervisor", "owner"] as const) {
+      await renderDemo(role);
+      expect(screen.getByText("Demo access"), role).toBeTruthy();
+      expect(screen.queryByText(/judge@example\.com/), role).toBeNull();
+      expect(screen.queryByText("bee6-demo"), role).toBeNull();
+      expect(screen.queryByText("000000"), role).toBeNull();
+      expect(screen.queryByRole("button", { name: /Fill in/ }), role).toBeNull();
+      expect(document.body.textContent, role).toContain("in the Judge Guide");
+      expect(screen.getByText(/Each sign-in opens your own private copy of a fictional shop for 2 hours/), role).toBeTruthy();
+      cleanup();
+    }
+  });
+
+  it("demo + initialRole supervisor: no radio group, the kicker says Sign in as Supervisor, the email form is there", async () => {
+    await renderDemo("supervisor");
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
+    expect(screen.queryByRole("group", { name: "Sign in as" })).toBeNull();
+    expect(screen.getByRole("heading", { level: 1, name: "Sign in" })).toBeTruthy();
+    expect(screen.getByText("Sign in as Supervisor")).toBeTruthy();
+    expect(screen.getByLabelText("Email")).toBeTruthy();
+    expect(screen.getByLabelText("Password")).toBeTruthy();
+  });
+
+  it("demo + initialRole owner: same, Sign in as Owner", async () => {
+    await renderDemo("owner");
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
+    expect(screen.getByText("Sign in as Owner")).toBeTruthy();
+    expect(screen.getByLabelText("Email")).toBeTruthy();
+  });
+
+  it("demo + initialRole staff and demo + no role keep the three radios", async () => {
     await renderDemo("staff");
-    expect(screen.getByText("Demo access")).toBeTruthy();
-    expect(screen.queryByText("000000")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Fill in" })).toBeNull();
-    expect(screen.getByText(/Each sign-in opens your own private copy of a fictional shop for 2 hours/)).toBeTruthy();
-    fireEvent.click(radio("Supervisor"));
-    expect(screen.getByText("supervisor.judge@example.com")).toBeTruthy();
-    expect(screen.getByText("bee6-demo")).toBeTruthy();
-    fireEvent.click(radio("Owner"));
-    expect(screen.getByText("owner.judge@example.com")).toBeTruthy();
-    expect(screen.queryByText("supervisor.judge@example.com")).toBeNull();
+    expect(screen.getAllByRole("radio")).toHaveLength(3);
+    cleanup();
+    renderSignIn({ demo: true, initialRole: null });
+    expect(screen.getAllByRole("radio")).toHaveLength(3);
+  });
+
+  it("solo supervisor: the typed demo credential still opens the demo (startOrSwitch once, role from the credential), and a real account still goes to Firebase", async () => {
+    startOrSwitch.mockResolvedValue({ kind: "started" });
+    await renderDemo("supervisor");
+    await act(async () => {
+      submitEmail("supervisor.judge@example.com", "bee6-demo");
+    });
+    await waitFor(() => expect(startOrSwitch).toHaveBeenCalledTimes(1));
+    expect(startOrSwitch.mock.calls[0]![0]).toBe("supervisor");
+    expect(signInWithEmailAndPassword).not.toHaveBeenCalled();
+    cleanup();
+    startOrSwitch.mockClear();
+    await renderDemo("supervisor");
+    await act(async () => {
+      submitEmail("qa-supervisor@shop.test", "pw");
+    });
+    await waitFor(() => expect(signInWithEmailAndPassword).toHaveBeenCalledWith(FAKE_AUTH, "qa-supervisor@shop.test", "pw"));
+    expect(startOrSwitch).not.toHaveBeenCalled();
   });
 
   it("13.T3: the staff demo code opens a Staff demo and never calls the pair route", async () => {
@@ -380,16 +433,6 @@ describe("RoleSignIn on a demo deployment (demo=true)", () => {
     expect(startOrSwitch).not.toHaveBeenCalled();
   });
 
-  it("Fill in puts the credential into the panel's fields and does not submit", async () => {
-    await renderDemo("supervisor");
-    fireEvent.click(screen.getByRole("button", { name: "Fill in" }));
-    expect((screen.getByLabelText("Email") as HTMLInputElement).value).toBe("supervisor.judge@example.com");
-    expect((screen.getByLabelText("Password") as HTMLInputElement).value).toBe("bee6-demo");
-    expect(startOrSwitch).not.toHaveBeenCalled();
-    expect(signInWithEmailAndPassword).not.toHaveBeenCalled();
-    expect(screen.getByTestId("demo-status").textContent).toContain("Filled in. Submit to continue.");
-  });
-
   it("the Staff panel still pairs with a typed demo code (the judge guide fills it, PR-5); nothing on the panel shows it", async () => {
     await renderDemo("staff");
     expect(document.body.textContent).not.toContain("000000");
@@ -419,6 +462,8 @@ describe("RoleSignIn on a demo deployment (demo=true)", () => {
   it("the demo box is in Bahasa too", async () => {
     await renderDemo("owner", { lang: "id" });
     expect(screen.getByText("Akses demo")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Isi otomatis" })).toBeTruthy();
+    expect(document.body.textContent).toContain("Panduan Juri");
+    expect(screen.queryByRole("button", { name: "Isi otomatis" })).toBeNull();
+    expect(screen.getByText("Masuk sebagai Pemilik")).toBeTruthy();
   });
 });
