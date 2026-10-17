@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { readCaptureBridge } from "@/app/demo/guide-bridge";
+import { axeViolations } from "@/lib/testing/axe";
 
 /**
  * R-25 T5 (docs/tasks/R-25-ui-fidelity.md section 9.4 proof b): the page-2 staff screen on a sandbox, asserted by
@@ -9,7 +10,9 @@ import { readCaptureBridge } from "@/app/demo/guide-bridge";
  * restyle must not drift from: the DOM order, the one headline status, and what the pilot keeps.
  */
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn() }), usePathname: () => "/capture" }));
+// A stable router object, as the real one: the page re-runs its config load whenever `router` changes identity.
+const router = { replace: vi.fn() };
+vi.mock("next/navigation", () => ({ useRouter: () => router, usePathname: () => "/capture" }));
 vi.mock("@/lib/auth/client/firebase-client", () => ({ getClientAuth: () => null }));
 vi.mock("@/lib/capture/dev-mode", () => ({ isDevControlsEnabled: () => false }));
 
@@ -166,6 +169,60 @@ describe("sandbox capture screen (R-25 T5): document order and landmarks", () =>
     await screen.findByRole("heading", { level: 1, name: "Listening" });
     expect(headline.textContent).toBe("Listening");
     expect(container.querySelector("[data-tone]")!.closest("[role='status']")).toBeNull();
+  });
+
+  it("the privacy notice is on the page in every sandbox state, exactly once: idle, running, and the debrief after End", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          ({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              data: { debrief: { business_date: "2026-10-12", ends_at_ms: Date.now() + 3_600_000 }, questions: [], preparing: true },
+            }),
+          }) as Response,
+      ),
+    );
+    fetchCaptureConfig.mockResolvedValue({ ...base, demo_session: PROFILE });
+    await renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await screen.findByRole("heading", { level: 1, name: "Listening" });
+    expect(screen.getAllByTestId("capture-notice")).toHaveLength(1);
+    await act(async () => {
+      readCaptureBridge()!.actions.jumpToClosing();
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
+    await screen.findByText("Preparing your questions");
+    expect(screen.getAllByTestId("capture-notice")).toHaveLength(1);
+    expect(screen.getByTestId("capture-notice").textContent).toBe("Speech becomes short work notes. Audio is not kept.");
+    vi.unstubAllGlobals();
+    vi.stubGlobal("crypto", { randomUUID: () => "11111111-1111-1111-1111-000000000001" });
+  });
+
+  it("a cancelled day is announced through the same single headline status, not a second region", async () => {
+    fetchCaptureConfig.mockResolvedValue({
+      ...base,
+      last_ended: { business_date: "2026-10-12", end_reason: "discarded", debrief_ends_at_ms: null },
+      demo_session: PROFILE,
+    });
+    const { container } = await renderPage();
+    const h1 = await screen.findByRole("heading", { level: 1, name: "Session cancelled" });
+    const headline = container.querySelector("p[role='status'].b6-sr-only")!;
+    expect(headline.textContent).toBe("Session cancelled");
+    expect(h1).toBeTruthy();
+    const regions = Array.from(container.querySelectorAll("[aria-live='polite']")).filter((el) => el.closest("header") === null);
+    expect(regions).toHaveLength(2); // this one and the upload block's
+  });
+
+  it("has no axe violations idle or listening (one h1, labelled controls, the decorative stage hidden)", async () => {
+    fetchCaptureConfig.mockResolvedValue({ ...base, demo_session: PROFILE });
+    const { container } = await renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await screen.findByRole("heading", { level: 1, name: "Listening" });
+    expect(await axeViolations(container)).toEqual([]);
   });
 
   it("a mic problem keeps the page honest: the h1 says so, the help line shows, the orb stays idle, and it is announced", async () => {

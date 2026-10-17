@@ -16,7 +16,7 @@ import {
   retainEngineStatus,
   type RetainedUpload,
 } from "@/app/capture/upload-retention";
-import { idleViewFor } from "@/app/capture/idle-view";
+import { idleViewFor, type IdleView } from "@/app/capture/idle-view";
 import { selesaiViewFor } from "@/app/capture/selesai-view";
 import { isDiscardArmed, nextMulaiIsNow, shouldAutoClosePanel } from "@/app/capture/batalkan-panel";
 import { DebriefFlow } from "@/app/capture/debrief/DebriefFlow";
@@ -990,6 +990,15 @@ export default function CapturePage() {
     );
   }
 
+  /** The h1 of a sandbox idle stage: Ready to open, or what the day ended as (the same words the headline status carries). */
+  function sandboxIdleTitle(v: IdleView): string {
+    if (!v.offered) {
+      if (v.headline === "ended_auto") return t(lang, "C-h-ended-auto", { time: v.endedAt ?? "" });
+      return t(lang, v.headline === "discarded" ? "C-h-discarded" : "C-h-ended");
+    }
+    return t(lang, v.headline === "discarded" ? "C-h-discarded" : "C-sess-ready-h");
+  }
+
   // ── idle view (no session open) ─────────────────────────────────────────────
   // The debrief card sits above the primary slot (UX-03 §5.2 / plan §7.5),
   // and while a question is open it must replace the idle section entirely —
@@ -1111,13 +1120,7 @@ export default function CapturePage() {
     if (debriefEndsAtMs === null || nowMs === null || !effectiveConfig || !auth) {
       if (sandbox) {
         const ended = !idle.offered;
-        const title = ended
-          ? idle.headline === "ended_auto"
-            ? t(lang, "C-h-ended-auto", { time: idle.endedAt ?? "" })
-            : t(lang, idle.headline === "discarded" ? "C-h-discarded" : "C-h-ended")
-          : idle.headline === "discarded"
-            ? t(lang, "C-h-discarded")
-            : t(lang, "C-sess-ready-h");
+        const title = sandboxIdleTitle(idle);
         const subText = ended ? idle.note : t(lang, "C-sess-ready-sub");
         return (
           <StageScreen
@@ -1156,6 +1159,8 @@ export default function CapturePage() {
           primary={primary}
           demo={config?.demo_session !== undefined}
         />
+        {/* UX-03 section 5.10: the privacy notice is on every screen of the page, the debrief included. */}
+        {sandbox ? <div className={css.foot}>{renderNote()}</div> : null}
       </>
     );
   }
@@ -1434,7 +1439,10 @@ export default function CapturePage() {
               ? headlineStateFor(status?.state ?? "listening") === "mic_error"
                 ? `${t(lang, "C-h-mic")}. ${t(lang, "C-h-mic-help")}`
                 : t(lang, "C-h-listening")
-              : ""}
+              : // Not running: what the stage screen's h1 says when the day ended or was cancelled (same region, no second one).
+                idle && idle.headline !== "idle" && debriefEndsAtMs === null && !demoSession?.open_session
+                ? sandboxIdleTitle(idle)
+                : ""}
           </p>
         ) : null}
 
@@ -1489,7 +1497,7 @@ export default function CapturePage() {
         {/* Capture privacy notice (UX-03 §5.10): a muted notice, not a consent
             gate (CLAUDE.md §7b). One per page, in the page's language, every mode. On a sandbox it sits in the
             stage screens' footer (renderNote), right under the action, as on the board. */}
-        {modern ? null : (
+        {modern ? (view !== "ready" ? renderNote() : null) : (
           <p data-testid="capture-notice" style={{ marginTop: 24, fontSize: 14, color: "#444" }}>
             {t(lang, "C-notice-pilot")}
           </p>
