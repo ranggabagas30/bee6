@@ -9,7 +9,7 @@ import { useAuthUser } from "@/lib/auth/client/use-auth-user";
 import { postDemoNextDay, readDeviceAuth } from "@/lib/capture/browser/client";
 import { DEMO_DAYS_TOTAL } from "@/lib/demo/constants";
 import { DemoProgressResponseSchema, type NextDayRefusal } from "@/lib/demo/contract";
-import { DEMO_STAFF_CODE } from "@/lib/demo/credentials";
+import { DEMO_EMAILS, DEMO_PASSWORD, DEMO_STAFF_CODE } from "@/lib/demo/credentials";
 import {
   guideCard,
   STAGES,
@@ -32,7 +32,7 @@ import { Button, Chip, Sheet, SidePanel, StepTick } from "@/app/ui";
 import { cx } from "@/app/ui/cx";
 import styles from "@/app/demo/guide.module.css";
 import { demoSnapshot, subscribeDemoState, viewFromSnapshot } from "@/app/demo/demo-client";
-import { clearPairDone, useCaptureBridge, usePairBridge, useProposalsSignal, type CaptureBridge } from "@/app/demo/guide-bridge";
+import { clearPairDone, clearSignInRole, useCaptureBridge, usePairBridge, useProposalsSignal, useSignInBridge, type CaptureBridge } from "@/app/demo/guide-bridge";
 import { GUIDE_CONTROLS } from "@/app/demo/guide-controls";
 
 /**
@@ -91,10 +91,13 @@ const SR_ONLY: CSSProperties = { position: "absolute", width: 1, height: 1, marg
 /** Every guide control is at least 48 px high (plan 7.2); the board's control is 44, the guide keeps the larger tap row. */
 const GUIDE_BUTTON: CSSProperties = { minHeight: 48 };
 
-/** `{code}`, `{day}`, `{next}`, `{n}`, `{total}` in guide copy; `**x**` is bold; `strong` bolds a phrase that has no markup. */
-function rich(text: string, strong?: string): ReactNode {
+/**
+ * `{code}`, `{email}`, `{password}`, `{day}`, `{next}`, `{n}`, `{total}` in guide copy; `**x**` is bold (`boldClass` styles
+ * it, the credential values use it); `strong` bolds a phrase that has no markup.
+ */
+function rich(text: string, strong?: string, boldClass?: string): ReactNode {
   if (text.includes("**")) {
-    return text.split("**").map((part, i) => (i % 2 === 1 ? <b key={i}>{part}</b> : part));
+    return text.split("**").map((part, i) => (i % 2 === 1 ? <b key={i} className={boldClass}>{part}</b> : part));
   }
   if (strong && text.includes(strong)) {
     const [head, ...rest] = text.split(strong);
@@ -177,6 +180,7 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
   const wide = useWide();
   const bridge = useCaptureBridge();
   const pairDone = usePairBridge();
+  const signInRole = useSignInBridge();
   const demoSnap = useSyncExternalStore(subscribeDemoState, () => demoSnapshot(), () => "");
   const demoView = viewFromSnapshot(demoSnap);
   const webRole = demoView && !demoView.expired && demoView.state.role !== "staff" ? demoView.state.role : null;
@@ -185,10 +189,15 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
   const isEntry = seg === "" || seg === "sign-in" || seg === "pair";
   const isCapture = seg === "capture";
   const isPair = seg === "pair";
+  const isSignIn = seg === "sign-in";
   // R-25 R12: /pair reports "paired" through the pair bridge; a stale signal never outlives the /pair route.
   useEffect(() => {
     if (!isPair) clearPairDone();
   }, [isPair]);
+  // Demo feedback 2, finding 4: /sign-in reports the role panel it shows; same rule, the signal never outlives the route.
+  useEffect(() => {
+    if (!isSignIn) clearSignInRole();
+  }, [isSignIn]);
   // The proposals page's own screen and write counter (after-merge wiring, lib/demo/proposals-signal). The screen
   // counts only on /proposals; the counter re-reads the progress after an ask, a feasible mark, a rejection or an approval.
   const proposals = useProposalsSignal();
@@ -250,9 +259,11 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
     ? bridge
       ? { kind: "capture", phase: bridge.state.phase === "listening" && allSpoken ? "all_spoken" : bridge.state.phase }
       : null
-    : isPair
-      ? { kind: "pair", paired: pairDone }
-      : webRole !== null
+    : isSignIn
+      ? { kind: "sign_in", role: signInRole }
+      : isPair
+        ? { kind: "pair", paired: pairDone }
+        : webRole !== null
         ? { kind: "web", role: webRole, progress: progress ? { ...progress, supervisor_visited: visited } : null, screen: proposalsScreen }
         : null;
   const key = guideKeyFor(pathname, state);
@@ -310,9 +321,11 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
   const dayText = bridge ? t(lang, "C-journey-guide-day", { n: bridge.state.profile.day, total: DEMO_DAYS_TOTAL }) : null;
   const pos = cardPos && bridge && cardPos.sid === bridge.state.sessionId ? cardPos : null;
   const handleText = fill(pick(card.handle ?? card.title, lang), { n: pos?.n ?? 1, total: pos?.total ?? 5, next: (day ?? 1) + 1 });
-  const chipText = key === "entry" ? t(lang, "C-journey-guide-demo-chip") : t(lang, "C-journey-guide-stage-chip", { n: stageN, total: STAGE_TOTAL });
+  // The entry and the two sign-in cards are "welcome" cards: a DEMO chip and the Welcome label, not a stage number.
+  const welcome = key === "entry" || key === "sign_in_supervisor" || key === "sign_in_owner";
+  const chipText = welcome ? t(lang, "C-journey-guide-demo-chip") : t(lang, "C-journey-guide-stage-chip", { n: stageN, total: STAGE_TOTAL });
   const kicker = t(lang, "C-journey-guide-kicker");
-  const stageLabel = key === "entry" ? t(lang, "C-journey-welcome") : pick(STAGES[stageN - 1]!.title, lang);
+  const stageLabel = welcome ? t(lang, "C-journey-welcome") : pick(STAGES[stageN - 1]!.title, lang);
 
   const body = (
     <>
@@ -419,14 +432,21 @@ interface GuideCardViewProps {
   onAllSpoken: (sessionId: string) => void;
   /** The script card reports the card on screen (the handle title says which). */
   onPosition: (pos: { sid: string; n: number; total: number }) => void;
-  /** The pair card's Fill in ran: the guide collapses so the page's Set up button is reachable. */
+  /** A Fill in ran (the pair card's, or the sign-in card's): the guide collapses so the page's Set up / Sign in button is reachable. */
   onFilled: () => void;
 }
 
 function GuideCardView({ guideKey, day, openClosingReached, lang, bridge, open, journey, onAllSpoken, onPosition, onFilled }: GuideCardViewProps) {
   const card = guideCard(guideKey, day, { openClosingReached });
   const action = card.action;
-  const vars = { day: day ?? 1, next: (day ?? 1) + 1 };
+  // The sign-in cards print the role's demo email and password; the literals come from lib/demo/credentials, never from copy.
+  const creds =
+    guideKey === "sign_in_supervisor"
+      ? { email: DEMO_EMAILS.supervisor, password: DEMO_PASSWORD }
+      : guideKey === "sign_in_owner"
+        ? { email: DEMO_EMAILS.owner, password: DEMO_PASSWORD }
+        : null;
+  const vars = { day: day ?? 1, next: (day ?? 1) + 1, ...creds };
   const title = pick(card.title, lang);
   const headId = `guide-card-${guideKey}`;
   const footnote = card.footnote ? fill(pick(card.footnote, lang), vars) : null;
@@ -462,10 +482,13 @@ function GuideCardView({ guideKey, day, openClosingReached, lang, bridge, open, 
       ) : null}
       {card.body.map((line, i) => (
         <p key={i} className={styles.line}>
-          {rich(fill(pick(line, lang), vars), guideKey === "pair_done" ? title : undefined)}
+          {rich(fill(pick(line, lang), vars), guideKey === "pair_done" ? title : undefined, creds ? styles.cred : undefined)}
         </p>
       ))}
       {action?.kind === "fill_demo_code" ? <FillCode lang={lang} onFilled={onFilled} /> : null}
+      {action?.kind === "fill_demo_credentials" ? (
+        <FillCredentials lang={lang} role={guideKey === "sign_in_owner" ? "owner" : "supervisor"} onFilled={onFilled} />
+      ) : null}
       {action?.kind === "script_card" && bridge ? <ScriptCard lang={lang} bridge={bridge} note={footnote} onAllSpoken={onAllSpoken} onPosition={onPosition} /> : null}
       {action?.kind === "jump_closing" && bridge ? <JumpClosing lang={lang} bridge={bridge} /> : null}
       {action?.kind === "jump_tomorrow" && bridge ? <JumpTomorrow lang={lang} bridge={bridge} /> : null}
@@ -497,15 +520,25 @@ function Ctl({ label, glyph, disabled, onClick }: { label: string; glyph: string
 }
 
 /** Pair: puts the demo code in the page's 6-digit field without submitting (the field is `#pairing-code`, PairForm). */
+/** The page's text input with this id, or null when it is not in the DOM. */
+function inputById(id: string): HTMLInputElement | null {
+  const input = document.getElementById(id);
+  return input instanceof HTMLInputElement ? input : null;
+}
+
+/** Through the native setter so React's controlled input sees the change (a plain `.value =` is swallowed). */
+function setInputValue(input: HTMLInputElement, value: string): void {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+  setter?.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 function FillCode({ lang, onFilled }: { lang: Lang; onFilled: () => void }) {
   const [filled, setFilled] = useState(false);
   function onFill() {
-    const input = document.getElementById("pairing-code");
-    if (!(input instanceof HTMLInputElement)) return;
-    // Through the native setter so React's controlled input sees the change (a plain `.value =` is swallowed).
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-    setter?.call(input, DEMO_STAFF_CODE);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
+    const input = inputById("pairing-code");
+    if (!input) return;
+    setInputValue(input, DEMO_STAFF_CODE);
     setFilled(true);
     onFilled(); // the open phone sheet covers Set up (R-21 D7): hand the page back
   }
@@ -520,6 +553,38 @@ function FillCode({ lang, onFilled }: { lang: Lang; onFilled: () => void }) {
       {/* The control's own label changes silently for a screen reader: say what to do next. */}
       <p role="status" aria-live="polite" style={SR_ONLY}>
         {filled ? t(lang, "C-journey-filled") : ""}
+      </p>
+    </>
+  );
+}
+
+/**
+ * The sign-in card's "Fill in the form" (demo feedback 2, finding 4): the role's demo email and the password go into the
+ * email form's two fields through the DOM, like `FillCode`; it never submits. If either field is not in the page (auth is
+ * still loading, or a signed-in user is about to be redirected) the tap does nothing.
+ */
+function FillCredentials({ lang, role, onFilled }: { lang: Lang; role: "supervisor" | "owner"; onFilled: () => void }) {
+  const [filled, setFilled] = useState(false);
+  function onFill() {
+    const email = inputById("signin-email");
+    const password = inputById("signin-password");
+    if (!email || !password) return;
+    setInputValue(email, DEMO_EMAILS[role]);
+    setInputValue(password, DEMO_PASSWORD);
+    setFilled(true);
+    onFilled(); // the open phone sheet covers the Sign in button: hand the page back
+  }
+  return (
+    <>
+      <Ctl
+        label={filled ? t(lang, "C-journey-filled-short") : t(lang, "C-journey-fill-credentials")}
+        glyph={filled ? "✓" : "›"}
+        disabled={filled}
+        onClick={onFill}
+      />
+      {/* The control's own label changes silently for a screen reader: say what to do next. */}
+      <p role="status" aria-live="polite" style={SR_ONLY}>
+        {filled ? t(lang, "C-journey-filled-signin") : ""}
       </p>
     </>
   );

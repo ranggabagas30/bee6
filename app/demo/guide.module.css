@@ -75,6 +75,14 @@
   font-weight: 600;
 }
 
+/* A credential value in a sign-in card (demo feedback 2, finding 4): mono, one tap selects the whole value, long values wrap. */
+.cred {
+  font-family: var(--b6-font-mono);
+  font-weight: 600;
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+
 .why {
   margin: 0;
   font-size: 12.5px;

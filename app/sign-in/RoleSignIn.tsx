@@ -13,19 +13,20 @@ import { PairForm, type PairedInfo } from "@/app/pair/PairForm";
 import { PairedChecklist } from "@/app/pair/PairedChecklist";
 import { EmailSignInForm, useEmailFields } from "@/app/sign-in/EmailSignInForm";
 import { redirectTarget } from "@/app/sign-in/redirect-target";
-import type { DemoAccessProps, DemoFill, DemoPanelHooks } from "@/app/sign-in/panel-hooks";
+import type { DemoAccessProps, DemoPanelHooks } from "@/app/sign-in/panel-hooks";
 import { DemoHooksConsumer } from "@/app/sign-in/demo-hooks";
 import { SIGN_IN_ROLES, type SignInRole } from "@/app/sign-in/roles";
 import styles from "@/app/sign-in/sign-in.module.css";
 
 /**
- * The official sign-in (R-18 P1): a native radio group for Staff / Supervisor / Owner and the matching panel.
+ * The official sign-in (R-18 P1): a native radio group for Staff / Supervisor / Owner and the matching panel. Solo mode
+ * hides the radio group on the demo web-role path (`?as=supervisor|owner`; demo feedback 2, finding 4).
  *
  * - Staff = the pairing form (the real staff entry in MVP 1; no staff sign-in exists). Supervisor and Owner = the email +
  *   password form. Role truth stays in the claims: the user lands by the role in their token, not by the panel picked.
  * - The pilot renders no demo text and loads no demo code. On a demo deployment (`demo`, read from DEMO_MODE by the
- *   server page) the panels sit inside `DemoAccess`, loaded lazily through `next/dynamic`, which shows the published demo
- *   credentials and supplies the intercepts that turn them into a private sandbox. This module imports nothing from
+ *   server page) the panels sit inside `DemoAccess`, loaded lazily through `next/dynamic`, which points at the judge guide
+ *   (where the demo credentials are) and supplies the intercepts that turn them into a private sandbox. This module imports nothing from
  *   `app/demo/**` except through that dynamic import (checked by app/demo/import-boundaries.test.ts).
  * - `redirectSignedIn` (default on): a signed-in Firebase user is sent to their start page. The demo home page turns it
  *   off so a judge already in a demo can still switch role or start a fresh demo there.
@@ -77,10 +78,10 @@ export function RoleSignIn({ config, demo, initialRole, headingLevel = 1, redire
   const router = useRouter();
   const [role, setRole] = useState<SignInRole | null>(initialRole);
   const [paired, setPaired] = useState<PairedInfo | null>(null);
+  // Solo mode is decided by the first render only: chooseRole() syncs ?as= with router.replace, the page is dynamic, and the
+  // refetch re-renders this component with a new initialRole. Deriving soloRole from the prop would make the radios vanish.
+  const [soloRole] = useState<SignInRole | null>(() => (demo && (initialRole === "supervisor" || initialRole === "owner") ? initialRole : null));
   const emailFields = useEmailFields();
-  // "Fill in" on the demo box: the code goes to the pairing form through its initial value (re-keyed by the nonce); the
-  // email and password go straight into the email form's values.
-  const [codeFill, setCodeFill] = useState<{ nonce: number; code: string }>({ nonce: 0, code: "" });
   const panelRef = useRef<HTMLDivElement>(null);
   // Armed by a pointer press (tap or click) on a role radio only. A native radio group also fires change on arrow keys, and
   // moving focus into the panel then would trap a keyboard or screen-reader user before they reach Owner (WCAG 3.2.2), so
@@ -117,13 +118,6 @@ export function RoleSignIn({ config, demo, initialRole, headingLevel = 1, redire
     focusPanel.current = byPointer;
     setRole(next);
     router.replace(`?as=${next}`, { scroll: false });
-  }
-
-  function fill(values: DemoFill) {
-    if (values.code !== undefined) setCodeFill((c) => ({ nonce: c.nonce + 1, code: values.code ?? "" }));
-    if (values.email !== undefined) emailFields.setEmail(values.email);
-    if (values.password !== undefined) emailFields.setPassword(values.password);
-    emailFields.setMessageKey(undefined);
   }
 
   function emailPanel(hooks: DemoPanelHooks) {
@@ -173,7 +167,7 @@ export function RoleSignIn({ config, demo, initialRole, headingLevel = 1, redire
           </p>
         )}
         <p>{t(lang, "C-signin-staff-help")}</p>
-        <PairForm key={codeFill.nonce} onPaired={setPaired} demoIntercept={hooks.interceptCode} initialCode={codeFill.code} />
+        <PairForm onPaired={setPaired} demoIntercept={hooks.interceptCode} />
       </>
     );
   }
@@ -190,31 +184,36 @@ export function RoleSignIn({ config, demo, initialRole, headingLevel = 1, redire
 
   const panel = <DemoHooksConsumer>{renderPanel}</DemoHooksConsumer>;
   const Heading = headingLevel === 1 ? "h1" : "h2";
+  // Solo mode: a demo deployment on the supervisor or owner path shows that one role's form and no chooser.
   return (
     <section className={styles.screen}>
       <Heading className={headingLevel === 1 ? "b6-h1-web" : undefined}>{t(lang, "C-signin-title")}</Heading>
-      <fieldset className={styles.fieldset}>
-        <legend className={styles.legend}>{t(lang, "C-signin-as")}</legend>
-        <div className={styles.roles}>
-          {SIGN_IN_ROLES.map((r) => (
-            <label key={r} className={styles.role} style={ROLE_LABEL_STYLE} onPointerDown={() => (pointerChange.current = true)}>
-              <input
-                type="radio"
-                name="signin-role"
-                value={r}
-                checked={role === r}
-                onChange={() => chooseRole(r)}
-                // A key press ends any pointer press that changed nothing (the already-selected radio), so it cannot leak.
-                onKeyDown={() => (pointerChange.current = false)}
-              />
-              <span>{t(lang, ROLE_KEY[r])}</span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      {soloRole ? (
+        <p className="b6-kick">{t(lang, "C-signin-solo", { role: t(lang, ROLE_KEY[soloRole]) })}</p>
+      ) : (
+        <fieldset className={styles.fieldset}>
+          <legend className={styles.legend}>{t(lang, "C-signin-as")}</legend>
+          <div className={styles.roles}>
+            {SIGN_IN_ROLES.map((r) => (
+              <label key={r} className={styles.role} style={ROLE_LABEL_STYLE} onPointerDown={() => (pointerChange.current = true)}>
+                <input
+                  type="radio"
+                  name="signin-role"
+                  value={r}
+                  checked={role === r}
+                  onChange={() => chooseRole(r)}
+                  // A key press ends any pointer press that changed nothing (the already-selected radio), so it cannot leak.
+                  onKeyDown={() => (pointerChange.current = false)}
+                />
+                <span>{t(lang, ROLE_KEY[r])}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      )}
       <div ref={panelRef}>
         {demo && role !== null ? (
-          <DemoAccess config={config} role={role} onFill={fill}>
+          <DemoAccess config={config} role={role}>
             {panel}
           </DemoAccess>
         ) : (
