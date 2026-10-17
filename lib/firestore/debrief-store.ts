@@ -91,7 +91,8 @@ export function firestoreDebriefStore(outletId: string, db: Firestore = adminDb(
       return {
         tz: outlet.timezone,
         retention_days: outlet.retention_days ?? 14,
-        ...(outlet.sandbox ? { sandbox: true as const } : {}),
+        // Sandbox only (D-1): the pilot calendar stays byte-identical.
+        ...(outlet.sandbox ? { sandbox: true as const, name: outlet.name } : {}),
       };
     },
 

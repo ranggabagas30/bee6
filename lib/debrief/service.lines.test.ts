@@ -75,6 +75,8 @@ interface Opts {
   questions?: Question[];
   threads?: Record<string, Thread | null | "throw">;
   staffNames?: string[] | "throw";
+  /** The outlet's display name, as the sandbox calendar returns it. */
+  outletName?: string;
 }
 
 function fakeStore(opts: Opts = {}) {
@@ -85,6 +87,7 @@ function fakeStore(opts: Opts = {}) {
       tz: "Asia/Jakarta",
       retention_days: 14,
       ...(opts.sandbox ? { sandbox: true as const } : {}),
+      ...(opts.sandbox && opts.outletName !== undefined ? { name: opts.outletName } : {}),
     }),
     listOpenQuestions: async () => opts.questions ?? [question()],
     getQuestion: async () => null,
@@ -383,5 +386,59 @@ describe("listDebriefQuestions: lines (sandbox only)", () => {
     await listDebriefQuestions(store, CLAIMS, NOW_MS, log);
     expect(log).toHaveBeenCalledWith({ event: "debrief.lines", candidates: 1, shown: 0, degraded: true });
     expect(JSON.stringify(log.mock.calls)).not.toContain("staff read failed");
+  });
+});
+
+describe("listDebriefQuestions: lines keep the shop name (D-1)", () => {
+  const SHOP_LINE = "Hello, Demo Bakery, thanks for calling.";
+  const staff = ["Ari Demo", "Bella Demo"];
+
+  it("leaves 'Demo Bakery' alone when 'Demo' is a staff surname, while the people stay scrubbed", async () => {
+    const t = thread(
+      [
+        { id: "a", start: 1, text: SHOP_LINE },
+        { id: "b", start: 2, text: "Ari and Bella and Ari Demo and Arinya were here." },
+      ],
+      ["a", "b"],
+    );
+    const { store } = fakeStore({ sandbox: true, threads: { t1: t }, staffNames: staff, outletName: "Demo Bakery" });
+    const res = await listDebriefQuestions(store, CLAIMS, NOW_MS);
+    expect(res.questions[0]!.lines).toEqual([
+      SHOP_LINE,
+      "[STAFF] and [STAFF] and [STAFF] and [STAFF] were here.",
+    ]);
+  });
+
+  it("still scrubs a staff surname that is not in the outlet name", async () => {
+    const t = thread([{ id: "a", start: 1, text: "Hello, Demo Bakery. Ask Ari Santoso or Santoso." }], ["a"]);
+    const { store } = fakeStore({
+      sandbox: true,
+      threads: { t1: t },
+      staffNames: ["Ari Santoso"],
+      outletName: "Demo Bakery",
+    });
+    const res = await listDebriefQuestions(store, CLAIMS, NOW_MS);
+    expect(res.questions[0]!.lines).toEqual(["Hello, Demo Bakery. Ask [STAFF] or [STAFF]."]);
+  });
+
+  it("scrubs the surname again when the calendar carries no outlet name", async () => {
+    const t = thread([{ id: "a", start: 1, text: SHOP_LINE }], ["a"]);
+    const { store } = fakeStore({ sandbox: true, threads: { t1: t }, staffNames: staff });
+    const res = await listDebriefQuestions(store, CLAIMS, NOW_MS);
+    expect(res.questions[0]!.lines).toEqual(["Hello, [STAFF] Bakery, thanks for calling."]);
+  });
+
+  it("matches the outlet name case- and diacritic-insensitively", async () => {
+    const t = thread([{ id: "a", start: 1, text: "Selamat datang di DÉMO Bakery" }], ["a"]);
+    const { store } = fakeStore({ sandbox: true, threads: { t1: t }, staffNames: staff, outletName: "demo bakery" });
+    const res = await listDebriefQuestions(store, CLAIMS, NOW_MS);
+    expect(res.questions[0]!.lines).toEqual(["Selamat datang di DÉMO Bakery"]);
+  });
+
+  it("pilot: no lines, and the outlet name is never asked for", async () => {
+    const t = thread([{ id: "a", start: 1, text: SHOP_LINE }], ["a"]);
+    const { store } = fakeStore({ sandbox: false, threads: { t1: t }, staffNames: staff, outletName: "Demo Bakery" });
+    const res = await listDebriefQuestions(store, CLAIMS, NOW_MS);
+    expect("lines" in res.questions[0]!).toBe(false);
   });
 });
