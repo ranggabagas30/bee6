@@ -147,8 +147,10 @@ describe("SopVersionSteps (R-19 PR-9a §9.1)", () => {
     expect(container.textContent).toContain("Dikerjakan oleh: Staf");
   });
 
-  it("has no axe violations", async () => {
+  it("has no axe violations, closed or with the change opened", async () => {
     const { container } = render(<SopVersionSteps view={v2} lang="en" />);
+    expect(await axeViolations(container)).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "See why it changed and the result" }));
     expect(await axeViolations(container)).toEqual([]);
   });
 });

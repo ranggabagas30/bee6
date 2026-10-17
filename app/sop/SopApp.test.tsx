@@ -174,13 +174,13 @@ describe("SopApp page (R-25 T12, board D2-04)", () => {
       }),
     });
     renderApp();
-    const h1 = await screen.findByRole("heading", { level: 1, name: "SOP book" });
+    const group = await screen.findByRole("group", { name: "SOP version" });
+    const h1 = screen.getByRole("heading", { level: 1, name: "SOP book" });
     expect(h1.className).toContain("b6-h1-web");
     expect(screen.getByText("Every step your shop uses. Pick a date to see an older version.")).not.toBeNull();
     expect(screen.getAllByRole("main")).toHaveLength(1);
     expect(screen.getByText("VERSION")).not.toBeNull();
     // The title comes before the version row, the row before the book.
-    const group = screen.getByRole("group", { name: "SOP version" });
     expect(h1.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(group.compareDocumentPosition(screen.getByRole("navigation", { name: "Contents" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
@@ -206,7 +206,7 @@ describe("SopApp page (R-25 T12, board D2-04)", () => {
 
   it("no changes: no empty 'Changes' line either", async () => {
     renderApp();
-    await screen.findByRole("heading", { level: 1, name: "SOP book" });
+    await screen.findByText("Standard Operating Procedures"); // the book has loaded
     expect(screen.queryByText("No changes yet. The SOP changes only through approved proposals.")).toBeNull();
   });
 
