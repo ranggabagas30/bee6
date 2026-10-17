@@ -1,4 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
+import { Chip, Tile } from "@/app/ui";
+import { cx } from "@/app/ui/cx";
+import styles from "@/app/reviews/reviews.module.css";
 import type { Lang } from "@/lib/i18n/lang";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import { dayLabel } from "@/lib/i18n/format";
@@ -39,27 +42,6 @@ export function suggestionDomId(version: number): string {
   return `rev-${version}-suggestion`;
 }
 
-const CARD_STYLE: CSSProperties = {
-  border: "1px solid #d1d5db",
-  borderRadius: 8,
-  padding: 12,
-  marginTop: 12,
-  overflowWrap: "anywhere",
-};
-const LINE_STYLE: CSSProperties = { margin: "0 0 8px 0", overflowWrap: "anywhere" };
-const HEADING_STYLE: CSSProperties = { margin: "0 0 8px 0", overflowWrap: "anywhere" };
-const BOLD_LINE_STYLE: CSSProperties = { ...LINE_STYLE, fontWeight: 700 };
-const STATUS_LINE_STYLE: CSSProperties = { ...LINE_STYLE, fontWeight: 600 };
-const REASON_STYLE: CSSProperties = { display: "block", overflowWrap: "anywhere" };
-const BAR_TRACK_STYLE: CSSProperties = {
-  height: 12,
-  width: "100%",
-  background: "#e5e7eb",
-  borderRadius: 4,
-  margin: "0 0 8px 0",
-  overflow: "hidden",
-};
-
 function rateOf(w: { days_captured: number; count: number }): number | null {
   return w.days_captured === 0 ? null : w.count / w.days_captured;
 }
@@ -81,19 +63,45 @@ function windowLine(
   });
 }
 
-function Bar({ rate, max, tone }: { rate: number | null; max: number; tone: string }) {
+function Bar({ rate, max, which }: { rate: number | null; max: number; which: "before" | "after" }) {
   const value = rate ?? 0;
   const pct = max > 0 ? Math.round((value / max) * 1000) / 10 : 0;
   const style: CSSProperties = {
-    height: "100%",
     width: `${pct}%`,
-    background: tone,
     ...(value > 0 ? { minWidth: 2 } : {}),
   };
   return (
-    <div aria-hidden="true" style={BAR_TRACK_STYLE}>
-      <div data-testid="rate-bar" style={style} />
-    </div>
+    <span aria-hidden="true" className={styles.track}>
+      <span data-testid="rate-bar" className={which === "before" ? styles.barBefore : styles.barAfter} style={style} />
+    </span>
+  );
+}
+
+/** One window as a glass tile: the rate per day as the value, the full window line as the detail, the bar under it. */
+function WindowTile({
+  which,
+  w,
+  max,
+  lang,
+}: {
+  which: "before" | "after";
+  w: { from_date: string; to_date: string; days_captured: number; count: number };
+  max: number;
+  lang: Lang;
+}) {
+  const rate = rateOf(w);
+  return (
+    <Tile
+      surface="glass"
+      label={t(lang, which === "before" ? "C-rev2-before" : "C-rev2-after")}
+      value={rate === null ? t(lang, "C-rev2-rate-none") : t(lang, "C-rev2-rate", { rate: rate.toFixed(1) })}
+      detail={
+        <>
+          {windowLine(which, w, lang)}
+          <Bar rate={rate} max={max} which={which} />
+        </>
+      }
+    />
   );
 }
 
@@ -134,78 +142,93 @@ export function ReviewCard({
   }
 
   return (
-    <article style={CARD_STYLE}>
-      <h3 style={HEADING_STYLE}>
-        {t(lang, "C-rev-head", { version: review.version, date: dayLabel(review.review_date, lang) })}
-      </h3>
-      {review.simulated && <p style={BOLD_LINE_STYLE}>{t(lang, "C-rev-simulated")}</p>}
-      <p style={LINE_STYLE}>{review.change_title}</p>
+    <article className={cx("b6-card", styles.card)}>
+      <header className={styles.cardHead}>
+        <p className="b6-kick">
+          {t(lang, "C-rev2-kick", { version: review.version, date: dayLabel(review.review_date, lang) })}
+        </p>
+        {review.simulated && <Chip variant="amber">{t(lang, "C-rev-simulated")}</Chip>}
+        {/* h3: the page h1 and the "Waiting for a verdict" / "Decided" h2 sit above it. */}
+        <h3 className={cx("b6-h2-card", styles.cardTitle)}>{review.change_title}</h3>
+      </header>
 
-      <p style={LINE_STYLE}>
-        {t(lang, "C-prop-metric", {
-          category: t(lang, CATEGORY_KEY[review.metric.category]),
-          direction: t(lang, dirKey),
-          count: review.metric.baseline_count,
-          days: review.metric.baseline_days,
-        })}
-      </p>
-      <p style={LINE_STYLE}>{review.metric.description}</p>
+      <div className={styles.lines}>
+        <p className="b6-sub">
+          {t(lang, "C-prop-metric", {
+            category: t(lang, CATEGORY_KEY[review.metric.category]),
+            direction: t(lang, dirKey),
+            count: review.metric.baseline_count,
+            days: review.metric.baseline_days,
+          })}
+        </p>
+        <p className="b6-sub">{review.metric.description}</p>
+      </div>
 
-      <p style={LINE_STYLE}>{windowLine("before", before, lang)}</p>
-      <Bar rate={beforeRate} max={maxRate} tone="#6b7280" />
-      <p style={LINE_STYLE}>{windowLine("after", after, lang)}</p>
-      <Bar rate={afterRate} max={maxRate} tone="#1d4ed8" />
-      <p style={LINE_STYLE}>{t(lang, "C-rev-short-window")}</p>
+      <div className={styles.windows} role="group" aria-label={t(lang, "C-rev2-windows")}>
+        <WindowTile which="before" w={before} max={maxRate} lang={lang} />
+        <WindowTile which="after" w={after} max={maxRate} lang={lang} />
+      </div>
+      <p className={cx("b6-note", styles.shortNote)}>{t(lang, "C-rev-short-window")}</p>
 
       {suggestion.verdict !== null ? (
-        <>
-          <p id={suggestionDomId(review.version)} style={STATUS_LINE_STYLE}>
+        <div className={cx("b6-alert", "b6-alert--amber", styles.suggest)}>
+          <p id={suggestionDomId(review.version)} className="b6-alert__lead">
             {t(lang, "C-rev-suggest", { verdict: t(lang, VERDICT_KEY[suggestion.verdict]) })}
           </p>
-          <p style={LINE_STYLE}>{why}</p>
-        </>
+          <p className={styles.status}>{why}</p>
+        </div>
       ) : (
-        <p id={suggestionDomId(review.version)} style={STATUS_LINE_STYLE}>
-          {t(lang, "C-rev-suggest-none", { why })}
-        </p>
+        <div className={cx("b6-alert", styles.suggest, styles.suggestNone)}>
+          <p id={suggestionDomId(review.version)} className="b6-alert__lead">
+            {t(lang, "C-rev-suggest-none", { why })}
+          </p>
+        </div>
       )}
 
-      <p style={LINE_STYLE}>
+      <p className={styles.line}>
         <strong>{t(lang, "C-prop-failure")}:</strong> {review.failure_condition}
       </p>
 
-      {notices.overlapping_change && <p style={LINE_STYLE}>{t(lang, "C-rev-notice-overlap")}</p>}
-      {notices.threads_truncated && <p style={LINE_STYLE}>{t(lang, "C-rev-notice-truncated")}</p>}
-
-      {supervisor && (
-        <p style={LINE_STYLE}>
-          {t(lang, "C-rev-sup-said", {
-            date: dayLabel(supervisor.decided_date, lang),
-            verdict: t(lang, VERDICT_KEY[supervisor.verdict]),
-          })}
-          {supervisor.reason !== null && (
-            <span style={REASON_STYLE}>
-              {t(lang, "C-rev-reason")} <span>{supervisor.reason}</span>
-            </span>
-          )}
-        </p>
+      {notices.overlapping_change && (
+        <p className={cx("b6-alert", "b6-alert--amber")}>{t(lang, "C-rev-notice-overlap")}</p>
       )}
-      {owner && (
-        <p style={LINE_STYLE}>
-          {t(lang, "C-rev-owner-said", {
-            date: dayLabel(owner.decided_date, lang),
-            verdict: t(lang, VERDICT_KEY[owner.verdict]),
-          })}
-          {owner.reason !== null && (
-            <span style={REASON_STYLE}>
-              {t(lang, "C-rev-reason")} <span>{owner.reason}</span>
-            </span>
-          )}
-        </p>
+      {notices.threads_truncated && (
+        <p className={cx("b6-alert", "b6-alert--amber")}>{t(lang, "C-rev-notice-truncated")}</p>
       )}
-      {anyRevert && <p style={LINE_STYLE}>{t(lang, "C-rev-revert-note")}</p>}
 
-      {statusLine !== null && <p style={STATUS_LINE_STYLE}>{statusLine}</p>}
+      {(supervisor || owner) && (
+        <div className={styles.decisions}>
+          {supervisor && (
+            <p className={styles.line}>
+              {t(lang, "C-rev-sup-said", {
+                date: dayLabel(supervisor.decided_date, lang),
+                verdict: t(lang, VERDICT_KEY[supervisor.verdict]),
+              })}
+              {supervisor.reason !== null && (
+                <span className={styles.reason}>
+                  {t(lang, "C-rev-reason")} <span>{supervisor.reason}</span>
+                </span>
+              )}
+            </p>
+          )}
+          {owner && (
+            <p className={styles.line}>
+              {t(lang, "C-rev-owner-said", {
+                date: dayLabel(owner.decided_date, lang),
+                verdict: t(lang, VERDICT_KEY[owner.verdict]),
+              })}
+              {owner.reason !== null && (
+                <span className={styles.reason}>
+                  {t(lang, "C-rev-reason")} <span>{owner.reason}</span>
+                </span>
+              )}
+            </p>
+          )}
+        </div>
+      )}
+      {anyRevert && <p className={cx("b6-alert", "b6-alert--amber")}>{t(lang, "C-rev-revert-note")}</p>}
+
+      {statusLine !== null && <p className={cx("b6-mono", styles.status)}>{statusLine}</p>}
 
       {children}
     </article>

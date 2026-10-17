@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import { getClientAuth, signOut, type Auth } from "@/lib/auth/client/firebase-client";
@@ -18,6 +18,9 @@ import { PageHead } from "@/app/web/PageHead";
 import { ReviewCard } from "@/app/reviews/ReviewCard";
 import { VerdictPanel } from "@/app/reviews/VerdictPanel";
 import { EmptyState } from "@/app/web/EmptyState";
+import { Button } from "@/app/ui";
+import { cx } from "@/app/ui/cx";
+import styles from "@/app/reviews/reviews.module.css";
 
 /**
  * /reviews (R-11 Task 6.3). Owner and supervisor see the same list: reviews
@@ -42,13 +45,6 @@ type View =
   | { kind: "ok"; data: ListReviewsResponse }
   | { kind: "forbidden" }
   | { kind: "error" };
-
-const LINE_STYLE: CSSProperties = { margin: "0 0 8px 0", overflowWrap: "anywhere" };
-const SECTION_STYLE: CSSProperties = { marginTop: 24, overflowWrap: "anywhere" };
-const BANNER_STYLE: CSSProperties = { margin: "16px 0 8px 0", overflowWrap: "anywhere" };
-const BANNER_EMPTY_STYLE: CSSProperties = { margin: 0 };
-const BUTTON_STYLE: CSSProperties = { minHeight: 48, width: "100%", fontSize: 16, padding: "0 16px", boxSizing: "border-box" };
-const SIMULATED_LABEL_STYLE: CSSProperties = { margin: "8px 0 0 0", fontWeight: 700, overflowWrap: "anywhere" };
 
 export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
   const { lang } = useLang();
@@ -158,7 +154,7 @@ export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
   if (!config || !auth) {
     return (
       <WebShell auth={null}>
-        <p role="status" aria-live="polite">
+        <p role="status" aria-live="polite" className="b6-alert b6-alert--red">
           {t(lang, "C-signin-config")}
         </p>
       </WebShell>
@@ -168,7 +164,7 @@ export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
   if (authUser.status === "loading" || authUser.status === "signed_out" || role === null) {
     return (
       <WebShell auth={auth} current="reviews">
-        <p role="status" aria-live="polite">
+        <p role="status" aria-live="polite" className="b6-sub">
           {t(lang, "C-day-loading")}
         </p>
       </WebShell>
@@ -179,7 +175,7 @@ export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
     return (
       <WebShell auth={auth} current="reviews">
         <PageHead title={t(lang, "C-rev-title")} />
-        <p role="status" aria-live="polite">
+        <p role="status" aria-live="polite" className="b6-alert b6-alert--amber">
           {t(lang, "C-rev-err-forbidden")}
         </p>
       </WebShell>
@@ -196,40 +192,40 @@ export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
     <WebShell auth={auth} current="reviews">
       <PageHead title={t(lang, "C-rev-title")} sub={t(lang, "C-web-reviews-sub")} />
 
-      <div>
+      <div className={styles.page}>
         <p
           ref={bannerRef}
           tabIndex={-1}
           role="status"
           aria-live="polite"
-          style={banner ? BANNER_STYLE : BANNER_EMPTY_STYLE}
+          className={banner ? styles.banner : styles.bannerEmpty}
         >
           {banner ? t(lang, banner) : ""}
         </p>
 
         {view.kind === "loading" && (
-          <p role="status" aria-live="polite">
+          <p role="status" aria-live="polite" className="b6-sub">
             {t(lang, "C-day-loading")}
           </p>
         )}
 
         {view.kind === "error" && (
-          <div>
-            <p role="status" aria-live="polite" style={LINE_STYLE}>
+          <div className={styles.stateBox}>
+            <p role="status" aria-live="polite" className="b6-alert b6-alert--red">
               {t(lang, "C-srv-generic")}
             </p>
-            <button type="button" onClick={retry} style={BUTTON_STYLE}>
+            <Button variant="secondary" onClick={retry}>
               {t(lang, "C-rev-retry")}
-            </button>
+            </Button>
           </div>
         )}
 
         {fastForwardAvailable && (
-          <div>
-            <button type="button" disabled={ffBusy} onClick={() => void fastForward()} style={BUTTON_STYLE}>
+          <div className={styles.ff}>
+            <p className="b6-kick">{t(lang, "C-rev-simulated")}</p>
+            <Button variant="secondary" disabled={ffBusy} onClick={() => void fastForward()}>
               {t(lang, "C-rev-ff")}
-            </button>
-            <p style={SIMULATED_LABEL_STYLE}>{t(lang, "C-rev-simulated")}</p>
+            </Button>
           </div>
         )}
 
@@ -238,8 +234,10 @@ export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
         )}
 
         {open.length > 0 && (
-          <section style={SECTION_STYLE} aria-labelledby="rev-list-open">
-            <h2 id="rev-list-open">{t(lang, "C-rev-open")}</h2>
+          <section className={styles.section} aria-labelledby="rev-list-open">
+            <h2 id="rev-list-open" className={cx("b6-kick", styles.sectionHead)}>
+              {t(lang, "C-rev-open")}
+            </h2>
             {open.map((review) => (
               <ReviewCard key={review.version} review={review} lang={lang}>
                 <VerdictPanel auth={auth} role={role} review={review} lang={lang} onSettled={handleSettled} />
@@ -249,8 +247,10 @@ export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
         )}
 
         {decided.length > 0 && (
-          <section style={SECTION_STYLE} aria-labelledby="rev-list-decided">
-            <h2 id="rev-list-decided">{t(lang, "C-rev-decided")}</h2>
+          <section className={styles.section} aria-labelledby="rev-list-decided">
+            <h2 id="rev-list-decided" className={cx("b6-kick", styles.sectionHead)}>
+              {t(lang, "C-rev-decided")}
+            </h2>
             {decided.map((review) => (
               <ReviewCard key={review.version} review={review} lang={lang} />
             ))}

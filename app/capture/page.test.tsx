@@ -1028,7 +1028,8 @@ describe("CapturePage judge-guide bridge (R-19 PR-5, sandbox only)", () => {
     });
     expect(fetchCaptureConfig).toHaveBeenCalledTimes(callsBefore + 1);
     const start = await screen.findByRole("button", { name: "Start" });
-    expect(screen.getByText("Day 2 of 3 · Mon 12 Oct")).toBeTruthy();
+    // R-25 T5b: the debrief-mounted dayLine was above DebriefFlow; now DebriefPreparing owns it. The timeout
+    // state has no day line visible (only Preparing does); the Start button still shows via the footer.
     await waitFor(() => expect(bridge().state.phase).toBe("ready"));
     expect(bridge().state.profile.day).toBe(2);
     fireEvent.click(start);
