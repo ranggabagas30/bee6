@@ -73,6 +73,7 @@ export const proposalsID = {
   "C-lbl-save": "Simpan label", // PROVISIONAL
   // ── R-25 T10 (G4a): page-2 supervisor proposals (boards D2-03, 03a, 03b, 03d, 03f, 03g). Append-only. ───────
   "C-propw-notseen": "Belum terlihat", // PROVISIONAL
+  "C-propw-all-asked-demo": "Keduanya sudah diminta · tidak ada bukti lain", // PROVISIONAL
   "C-propw-one-h": "Satu usulan bisa dibuat sekarang", // PROVISIONAL
   "C-propw-one-p": "Masalah tanggal pembuatan muncul pada 2 hari. Untuk usulan kedua, jalankan hari ke-3 di ponsel staf dulu, lalu minta. Setelah Anda meminta usulan, “Lompat ke besok” terkunci.", // PROVISIONAL
   "C-propd-st-yours-list": "Menunggu Anda", // PROVISIONAL
@@ -129,7 +130,7 @@ export const proposalsEN: Record<keyof typeof proposalsID, string> = {
   "C-propw-ask-another": "Ask for another proposal",
   "C-propw-asking": "Asking Bee6…",
   "C-propw-none": "Not enough evidence yet",
-  "C-propw-all-asked": "Both asked · no more evidence to use",
+  "C-propw-all-asked": "All asked · no more evidence to use",
   "C-propw-days": "Days seen",
   "C-propg-title": "Bee6 is writing a proposal",
   "C-propg-body": "This can take up to a minute. Please keep this page open.",
@@ -168,6 +169,7 @@ export const proposalsEN: Record<keyof typeof proposalsID, string> = {
   "C-lbl-runner-up": "runner-up",
   "C-lbl-save": "Save label",
   "C-propw-notseen": "Not seen yet",
+  "C-propw-all-asked-demo": "Both asked · no more evidence to use",
   "C-propw-one-h": "One proposal can be made now",
   "C-propw-one-p": "The bake-date problem showed on 2 days. For a second proposal, run day 3 on the staff phone first, then ask. After you ask for a proposal, “Jump to tomorrow” is locked.",
   "C-propd-st-yours-list": "Waiting for you",

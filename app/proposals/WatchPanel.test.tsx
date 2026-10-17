@@ -107,9 +107,9 @@ describe("WatchPanel — the ask button", () => {
     expect(onAsk).not.toHaveBeenCalled();
   });
 
-  it("every seen category already proposed: a disabled 'Both asked' line", () => {
+  it("every seen category already proposed: a disabled 'All asked' line (pilot copy)", () => {
     renderPanel({ watch: watchOf([row("CUSTOMER_SERVICE", 2, "proposed")]), hasProposal: true });
-    expect((screen.getByRole("button", { name: "Both asked · no more evidence to use" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "All asked · no more evidence to use" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("while busy the button reads 'Asking Bee6…' and is disabled", () => {
@@ -156,7 +156,7 @@ describe("WatchPanel — demo sandbox (R14, board D2-03b / D2-03a)", () => {
 
   it("a placeholder never makes the button live: only the server's rows decide it", () => {
     renderPanel({ demo: true, watch: watchOf([row("PHONE_CALL", 2, "proposed")]), hasProposal: true });
-    // one real row, proposed: 'Both asked' (the placeholder for the egg-tart problem does not count as 'not proposed')
+    // demo copy "Both asked"; one real row, proposed (the placeholder for the egg-tart problem does not count as 'not proposed')
     expect((screen.getByRole("button", { name: "Both asked · no more evidence to use" }) as HTMLButtonElement).disabled).toBe(true);
   });
 

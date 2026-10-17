@@ -245,7 +245,7 @@ export function ProposalDetail({ auth, lang, item, feasible, onBack, onFeasible,
         </div>
       )}
 
-      <p className={styles.note}>{t(lang, "C-propd-note")}</p>
+      {!feasible && <p className={styles.note}>{t(lang, "C-propd-note")}</p>}
 
       {feasible && <FeasibleActions lang={lang} auth={auth} />}
 
@@ -282,9 +282,9 @@ export function ProposalDetail({ auth, lang, item, feasible, onBack, onFeasible,
             if (canSend && !busy) void submit({ decision: "reject", reason: trimmed });
           }}
         >
-          <h3 id={titleId} className="b6-h2-card">
+          <h2 id={titleId} className="b6-h2-card">
             {t(lang, "C-propd-reject-h")}
-          </h3>
+          </h2>
           <p id={leadId} className="b6-sub">
             {t(lang, "C-propd-reject-hint")}
           </p>

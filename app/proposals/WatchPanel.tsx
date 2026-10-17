@@ -4,7 +4,7 @@ import type { Lang } from "@/lib/i18n/lang";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import { CATEGORY_KEY } from "@/lib/day/view-model";
 import type { ProposalsWatch, WatchRow } from "@/lib/proposals/review-contract";
-import { watchDisplayRows, type WatchDisplayRow } from "@/app/proposals/watch-placeholders";
+import { DEMO_WATCH_PLACEHOLDERS, watchDisplayRows, type WatchDisplayRow } from "@/app/proposals/watch-placeholders";
 import styles from "@/app/proposals/supervisor.module.css";
 
 /**
@@ -17,7 +17,7 @@ import styles from "@/app/proposals/supervisor.module.css";
  * The button has one of four looks, decided by the rows (the parent passes whether any proposal already exists):
  * - a `ready` row and no proposal yet: "Ask Bee6 for a proposal" (`another` false);
  * - a `ready` row and a proposal exists: "Ask for another proposal" (`another` true, plan 3.3);
- * - no `ready` row, every seen category `proposed`: "Both asked · no more evidence to use", disabled (D2-03);
+ * - no `ready` row, every seen category `proposed`: "All asked · no more evidence to use" (demo: "Both asked · …"), disabled (D2-03);
  * - no `ready` row otherwise: "Not enough evidence yet", disabled (D2-03b).
  * While `busy` it reads "Asking Bee6…" and is disabled (D2-03d). The server stays the authority: a tap only
  * sends the request; whatever it answers is what the parent shows. The button is decided by the SERVER's rows only.
@@ -68,12 +68,14 @@ export function WatchPanel({ lang, watch, hasProposal, busy, onAsk, demo = false
         ? "C-propw-ask-another"
         : "C-propw-ask"
       : allProposed
-        ? "C-propw-all-asked"
+        ? demo
+          ? "C-propw-all-asked-demo"
+          : "C-propw-all-asked"
         : "C-propw-none";
   const disabled = busy || !ready;
   const readyRows = serverRows.filter((r) => r.state === "ready");
   const showOneNote =
-    demo && !hasProposal && readyRows.length === 1 && readyRows[0]!.category === "CUSTOMER_SERVICE" && serverRows.some((r) => r.state === "needs_more");
+    demo && !hasProposal && readyRows.length === 1 && readyRows[0]!.category === DEMO_WATCH_PLACEHOLDERS[0]!.category && serverRows.some((r) => r.state === "needs_more");
 
   return (
     <>

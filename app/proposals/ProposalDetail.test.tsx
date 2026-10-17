@@ -210,7 +210,7 @@ describe("ProposalDetail — inline reject (D2-03f)", () => {
     // The panel stays inline (R-19 plan 9.5; tech-lead ruling on UI-078): a form, not a modal dialog.
     expect(screen.queryByRole("dialog")).toBeNull();
     const panel = screen.getByRole("form", { name: "Reject this proposal?" });
-    expect(within(panel).getByRole("heading", { level: 3, name: "Reject this proposal?" })).not.toBeNull();
+    expect(within(panel).getByRole("heading", { level: 2, name: "Reject this proposal?" })).not.toBeNull();
     expect(within(panel).getByText("Give a short reason. Bee6 remembers it and will not suggest the same thing again.")).not.toBeNull();
     const box = within(panel).getByLabelText("Why is this not workable? (required)") as HTMLTextAreaElement;
     expect(document.activeElement).toBe(box);
@@ -283,8 +283,8 @@ describe("ProposalDetail — read-only and hand-over", () => {
     expect(title.compareDocumentPosition(banner) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Mark feasible" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Reject… (reason required)" })).toBeNull();
-    // The note stays, and the two buttons are the last thing on the page: done look first, then the sign-out.
-    expect(screen.getByText("Feasible means staff can do this in the shop. The owner approves or rejects after you.")).not.toBeNull();
+    // The banner already says the owner decides next, so the note is gone; the two buttons close the page.
+    expect(screen.queryByText("Feasible means staff can do this in the shop. The owner approves or rejects after you.")).toBeNull();
     const done = screen.getByRole("button", { name: "Marked feasible ✓" }) as HTMLButtonElement;
     expect(done.disabled).toBe(true);
     const out = screen.getByRole("button", { name: "Sign out · pick Owner" });
