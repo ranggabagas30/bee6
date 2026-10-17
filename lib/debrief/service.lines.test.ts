@@ -214,6 +214,50 @@ describe("listDebriefQuestions: lines (sandbox only)", () => {
     expect(joined).toContain("[STAFF]");
   });
 
+  it("scrubs Indonesian clitic forms glued to a staff name (Budinya, Budiku, Budilah)", async () => {
+    const t = thread(
+      [
+        { id: "a", start: 1, text: "Itu salahnya Budinya sendiri." },
+        { id: "b", start: 2, text: "Tas Budiku hilang, BUDILAH yang tahu." },
+      ],
+      ["a", "b"],
+    );
+    const { store } = fakeStore({ sandbox: true, threads: { t1: t }, staffNames: ["Budi Santoso"] });
+    const res = await listDebriefQuestions(store, CLAIMS, NOW_MS);
+    expect(res.questions[0]!.lines).toEqual(["Itu salahnya [STAFF] sendiri.", "Tas [STAFF] hilang, [STAFF] yang tahu."]);
+  });
+
+  it("does not scrub a different word that starts with a staff name (arisan vs Ari)", async () => {
+    const t = thread([{ id: "a", start: 1, text: "Ada arisan hari ini." }], ["a"]);
+    const { store } = fakeStore({ sandbox: true, threads: { t1: t }, staffNames: ["Ari"] });
+    const res = await listDebriefQuestions(store, CLAIMS, NOW_MS);
+    expect(res.questions[0]!.lines).toEqual(["Ada arisan hari ini."]);
+  });
+
+  it("strips bidi/zero-width characters before scrubbing and truncating (a hidden name does not survive)", async () => {
+    const t = thread(
+      [
+        { id: "a", start: 1, text: "Bu\u200Bdi bilang \u202Ehabis\u202C." },
+        { id: "b", start: 2, text: `${"y".repeat(158)}\u200B\u202Ezz` },
+      ],
+      ["a", "b"],
+    );
+    const { store } = fakeStore({ sandbox: true, threads: { t1: t }, staffNames: ["Budi"] });
+    const res = await listDebriefQuestions(store, CLAIMS, NOW_MS);
+    const lines = res.questions[0]!.lines!;
+    expect(lines[0]).toBe("[STAFF] bilang habis.");
+    // 158 y + "zz" = 160 code points once the invisibles are gone: fits exactly, no ellipsis.
+    expect(lines[1]).toBe(`${"y".repeat(158)}zz`);
+    expect(JSON.stringify(lines)).not.toMatch(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/);
+  });
+
+  it("a line made only of invisible characters is dropped", async () => {
+    const t = thread([{ id: "a", start: 1, text: "\u200B\u202E\uFEFF" }, { id: "b", start: 2, text: "roti habis" }], ["a", "b"]);
+    const { store } = fakeStore({ sandbox: true, threads: { t1: t } });
+    const res = await listDebriefQuestions(store, CLAIMS, NOW_MS);
+    expect(res.questions[0]!.lines).toEqual(["roti habis"]);
+  });
+
   it("fails closed when the staff read throws: no lines, rest of the response intact, no thread read", async () => {
     const t = thread(TWO, ["d1:s1:0"]);
     const { store, calls } = fakeStore({ sandbox: true, threads: { t1: t }, staffNames: "throw" });

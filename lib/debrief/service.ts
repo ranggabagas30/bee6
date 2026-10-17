@@ -15,6 +15,7 @@ import {
 } from "@/lib/debrief/constants";
 import { checkReason, reasonLength } from "@/lib/debrief/reason";
 import { scrubReason } from "@/lib/debrief/scrub";
+import { scrubQuestionLine, stripInvisibleChars } from "@/lib/debrief/question-line";
 import { rankQuestions } from "@/lib/debrief/rank";
 import {
   planAnswerCommit,
@@ -110,8 +111,9 @@ function truncateLine(line: string): string {
 
 /**
  * demo-feedback-2 item 10: up to `QUESTION_LINES_MAX` of the thread's own stored lines for a question. The text is
- * the already-redacted line text; it is scrubbed against the staff names FIRST (a name cut in half by the
- * truncation would otherwise survive as a prefix), then trimmed, blank lines dropped, and truncated. Evidence
+ * the already-redacted line text; invisible/bidi characters are stripped, then it is scrubbed against the staff
+ * names (including Indonesian clitic forms such as "Budinya") FIRST (a name cut in half by the truncation would
+ * otherwise survive as a prefix), then trimmed, blank lines dropped, and truncated. Evidence
  * lines (the ones the gate counted) win; with none usable the thread's first lines stand in. Never persisted.
  */
 function pickQuestionLines(thread: Thread, staffNames: readonly string[]): string[] {
@@ -119,7 +121,7 @@ function pickQuestionLines(thread: Thread, staffNames: readonly string[]): strin
   const clean = (candidates: Thread["lines"]): string[] =>
     [...candidates]
       .sort(byStart)
-      .map((line) => scrubReason(line.text, staffNames).trim())
+      .map((line) => scrubQuestionLine(stripInvisibleChars(line.text), staffNames).trim())
       .filter((text) => text.length > 0)
       .slice(0, QUESTION_LINES_MAX)
       .map(truncateLine);
