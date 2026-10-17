@@ -75,6 +75,18 @@ export interface DebriefFlowProps {
    * `primary` already carries its own Sign out link needs not pass it). Absent: no link.
    */
   onSignOut?: () => void;
+  /**
+   * R-25 idle fix, sandbox only: what to render in place of the whole debrief when this debrief's hour is already
+   * over at mount and it was never opened (no completion flag): a fresh sandbox clone carries yesterday's expired
+   * `last_ended`, and "Jump to tomorrow" moves the judge's own day there. The page passes its idle StageScreen,
+   * privacy note included. Ignored on the pilot (`demo` false) and whenever a done flag or an open flow exists.
+   */
+  expiredFallback?: ReactNode;
+  /**
+   * R-25 idle fix, sandbox only: the page's privacy notice block (`<div className="b6-foot">...</div>`), rendered
+   * after every debrief screen EXCEPT `expiredFallback` (whose footer already carries it). Absent on the pilot.
+   */
+  note?: ReactNode;
   /** Test seam only; defaults to the global fetch. */
   fetchFn?: typeof fetch;
   /** Test seam only; defaults to window.localStorage. */
@@ -98,6 +110,8 @@ export function DebriefFlow({
   demo = false,
   dayNumber = null,
   onSignOut,
+  expiredFallback,
+  note,
   fetchFn,
   storage,
 }: DebriefFlowProps) {
@@ -425,129 +439,143 @@ export function DebriefFlow({
     );
   }
 
-  switch (state.view.kind) {
-    case "closed": {
-      // Past `endsAtMs` with the flow never opened: the card itself
-      // disappears silently (there is nothing to resume), but the headline
-      // and the Mulai section are not this component's to hide — they stay.
-      const expired = nowMs >= endsAtMs;
-      if (demo && restoredDone) return demoDone(restoredDone.answered, restoredDone.skipped, pendingCount);
-      if (demo && !expired) {
-        // The auto-open effect is about to dispatch OPEN; never flash the entry card on a sandbox.
+  function renderView(): ReactNode {
+    switch (state.view.kind) {
+      case "closed": {
+        // Past `endsAtMs` with the flow never opened: the card itself
+        // disappears silently (there is nothing to resume), but the headline
+        // and the Mulai section are not this component's to hide — they stay.
+        const expired = nowMs >= endsAtMs;
+        if (demo && restoredDone) return demoDone(restoredDone.answered, restoredDone.skipped, pendingCount);
+        if (demo && expired && expiredFallback !== undefined) return expiredFallback;
+        if (demo && !expired) {
+          // The auto-open effect is about to dispatch OPEN; never flash the entry card on a sandbox.
+          return (
+            <>
+              {pageH1}
+              <section aria-busy="true">
+                <p style={{ margin: 0 }}>{t(lang, "C-d-load")}</p>
+              </section>
+            </>
+          );
+        }
+        return (
+          <>
+            {headline}
+            {!expired ? (
+              <DebriefEntryCard endsAtMs={endsAtMs} nowMs={nowMs} nextMulaiText={nextMulaiText} onOpen={handleOpen} />
+            ) : null}
+            {primary}
+          </>
+        );
+      }
+
+      case "loading":
         return (
           <>
             {pageH1}
             <section aria-busy="true">
               <p style={{ margin: 0 }}>{t(lang, "C-d-load")}</p>
+              <p style={{ margin: "2px 0 0" }}>{t(lang, "C-d-load-2")}</p>
             </section>
           </>
         );
-      }
-      return (
-        <>
-          {headline}
-          {!expired ? (
-            <DebriefEntryCard endsAtMs={endsAtMs} nowMs={nowMs} nextMulaiText={nextMulaiText} onOpen={handleOpen} />
-          ) : null}
-          {primary}
-        </>
-      );
-    }
 
-    case "loading":
-      return (
-        <>
-          {pageH1}
-          <section aria-busy="true">
-            <p style={{ margin: 0 }}>{t(lang, "C-d-load")}</p>
-            <p style={{ margin: "2px 0 0" }}>{t(lang, "C-d-load-2")}</p>
-          </section>
-        </>
-      );
-
-    case "load_error":
-      return (
-        <>
-          {pageH1}
-          <section role="alert">
-            <p style={{ margin: 0 }}>{t(lang, "C-d-err")}</p>
-            <p style={{ margin: "2px 0 0" }}>{t(lang, "C-d-err-2")}</p>
-            <button type="button" style={{ minHeight: 48, marginTop: 12 }} onClick={handleRetry}>
-              {t(lang, "C-b-coba")}
-            </button>
-          </section>
-        </>
-      );
-
-    case "empty":
-      return <DebriefEmpty onBack={handleBack} />;
-
-    case "preparing":
-      return <DebriefPreparing dayNumber={dayNumber} />;
-
-    case "waiting_more":
-      return <DebriefWaitingMore />;
-
-    case "question":
-      return (
-        <>
-          {pageH1}
-          <QuestionScreen
-            view={state.view}
-            lang={lang}
-            uploadNote={uploadNote}
-            onChoose={(answer) => dispatch({ type: "CHOOSE", answer })}
-            onTypeReason={(reason) => dispatch({ type: "TYPE", reason })}
-            onLanjut={handleLanjut}
-            onLewati={handleLewati}
-            onCheck={demo ? () => void refreshQuestions(true) : undefined}
-            checking={checking}
-            debriefDate={state.business_date}
-            minutesLeft={minutesLeft}
-          />
-        </>
-      );
-
-    case "done":
-      if (demo) return demoDone(state.view.answered, state.view.skipped, pendingCount);
-      return (
-        <DebriefDone
-          pending={pendingCount}
-          skipped={state.view.skipped}
-          endsAtMs={endsAtMs}
-          tz={tz}
-          nextMulaiText={nextMulaiText}
-          onBack={handleBack}
-        />
-      );
-
-    case "timed_out":
-      // Sandbox (R-25 T7, board P2-10b): the whole closed screen, Start button included; no headline or `primary`
-      // slot under it.
-      if (demo) {
+      case "load_error":
         return (
-          <DebriefTimeout
-            endedAtMs={state.view.ended_at_ms}
+          <>
+            {pageH1}
+            <section role="alert">
+              <p style={{ margin: 0 }}>{t(lang, "C-d-err")}</p>
+              <p style={{ margin: "2px 0 0" }}>{t(lang, "C-d-err-2")}</p>
+              <button type="button" style={{ minHeight: 48, marginTop: 12 }} onClick={handleRetry}>
+                {t(lang, "C-b-coba")}
+              </button>
+            </section>
+          </>
+        );
+
+      case "empty":
+        return <DebriefEmpty onBack={handleBack} />;
+
+      case "preparing":
+        return <DebriefPreparing dayNumber={dayNumber} />;
+
+      case "waiting_more":
+        return <DebriefWaitingMore />;
+
+      case "question":
+        return (
+          <>
+            {pageH1}
+            <QuestionScreen
+              view={state.view}
+              lang={lang}
+              uploadNote={uploadNote}
+              onChoose={(answer) => dispatch({ type: "CHOOSE", answer })}
+              onTypeReason={(reason) => dispatch({ type: "TYPE", reason })}
+              onLanjut={handleLanjut}
+              onLewati={handleLewati}
+              onCheck={demo ? () => void refreshQuestions(true) : undefined}
+              checking={checking}
+              debriefDate={state.business_date}
+              minutesLeft={minutesLeft}
+            />
+          </>
+        );
+
+      case "done":
+        if (demo) return demoDone(state.view.answered, state.view.skipped, pendingCount);
+        return (
+          <DebriefDone
+            pending={pendingCount}
+            skipped={state.view.skipped}
+            endsAtMs={endsAtMs}
             tz={tz}
-            onBack={handleBack}
-            demo
-            unanswered={lastCounts}
-            nowMs={nowMs}
             nextMulaiText={nextMulaiText}
-            footer={primary}
-            onSignOut={onSignOut}
+            onBack={handleBack}
           />
         );
-      }
-      // Shown inline on /capture in place of the card (plan §7.5), not as a
-      // replacement for the whole idle section — the headline and Mulai
-      // stay, same placement as `closed`.
-      return (
-        <>
-          {headline}
-          <DebriefTimeout endedAtMs={state.view.ended_at_ms} tz={tz} onBack={handleBack} demo={demo} />
-          {primary}
-        </>
-      );
+
+      case "timed_out":
+        // Sandbox (R-25 T7, board P2-10b): the whole closed screen, Start button included; no headline or `primary`
+        // slot under it.
+        if (demo) {
+          return (
+            <DebriefTimeout
+              endedAtMs={state.view.ended_at_ms}
+              tz={tz}
+              onBack={handleBack}
+              demo
+              unanswered={lastCounts}
+              nowMs={nowMs}
+              nextMulaiText={nextMulaiText}
+              footer={primary}
+              onSignOut={onSignOut}
+            />
+          );
+        }
+        // Shown inline on /capture in place of the card (plan §7.5), not as a
+        // replacement for the whole idle section — the headline and Mulai
+        // stay, same placement as `closed`.
+        return (
+          <>
+            {headline}
+            <DebriefTimeout endedAtMs={state.view.ended_at_ms} tz={tz} onBack={handleBack} demo={demo} />
+            {primary}
+          </>
+        );
+    }
   }
+
+  // The same predicate as the `closed` arm's fallback line: `restoredDone` is mount-time state, `nowMs >= endsAtMs`
+  // comes from props. The fallback's own footer already carries the privacy note, so it is not appended again.
+  const fallbackShown =
+    demo && state.view.kind === "closed" && !restoredDone && nowMs >= endsAtMs && expiredFallback !== undefined;
+  return (
+    <>
+      {renderView()}
+      {fallbackShown ? null : note}
+    </>
+  );
 }
