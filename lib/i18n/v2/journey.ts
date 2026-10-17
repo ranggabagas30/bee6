@@ -77,6 +77,20 @@ export const journeyID = {
   "C-journey-entry-open-staff": "Buka layar staf", // PROVISIONAL
   "C-journey-entry-open-supervisor": "Buka tampilan supervisor", // PROVISIONAL
   "C-journey-entry-open-owner": "Buka tampilan pemilik", // PROVISIONAL
+
+  // R-25 T6 (G2-A): the guide's page-2 chrome. Append-only; ID is PROVISIONAL.
+  "C-journey-guide-kicker": "PANDUAN JURI", // PROVISIONAL
+  "C-journey-guide-stage-chip": "TAHAP {n} DARI {total}", // PROVISIONAL
+  "C-journey-guide-demo-chip": "DEMO", // PROVISIONAL
+  "C-journey-welcome": "Selamat datang", // PROVISIONAL
+  "C-journey-do-now": "Lakukan sekarang", // PROVISIONAL
+  "C-journey-spoken-next": "Saya sudah mengucapkan ini · kartu berikutnya", // PROVISIONAL
+  "C-journey-spoken-finish": "Saya sudah mengucapkan ini · selesai", // PROVISIONAL
+  "C-journey-jump-closing-at": "Lompat ke jam tutup · {time}", // PROVISIONAL
+  "C-journey-jump-tomorrow-on": "Lompat ke besok · {date}", // PROVISIONAL
+  "C-journey-filled-short": "Sudah terisi", // PROVISIONAL
+  "C-journey-script-text": "Teks kartu naskah", // PROVISIONAL
+  "C-journey-reread-hide": "Sembunyikan kartu", // PROVISIONAL
 } as const satisfies Record<string, string>;
 
 export const journeyEN: Record<keyof typeof journeyID, string> = {
@@ -137,4 +151,17 @@ export const journeyEN: Record<keyof typeof journeyID, string> = {
   "C-journey-entry-open-staff": "Open staff screen",
   "C-journey-entry-open-supervisor": "Open supervisor view",
   "C-journey-entry-open-owner": "Open owner view",
+
+  "C-journey-guide-kicker": "JUDGE GUIDE",
+  "C-journey-guide-stage-chip": "STAGE {n} OF {total}",
+  "C-journey-guide-demo-chip": "DEMO",
+  "C-journey-welcome": "Welcome",
+  "C-journey-do-now": "Do this now",
+  "C-journey-spoken-next": "I have spoken this · next card",
+  "C-journey-spoken-finish": "I have spoken this · finish",
+  "C-journey-jump-closing-at": "Jump to closing time · {time}",
+  "C-journey-jump-tomorrow-on": "Jump to tomorrow · {date}",
+  "C-journey-filled-short": "Filled in",
+  "C-journey-script-text": "Script card text",
+  "C-journey-reread-hide": "Hide the card",
 };
