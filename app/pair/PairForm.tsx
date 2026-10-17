@@ -66,6 +66,7 @@ export function PairForm({ onPaired, demoIntercept, initialCode = "" }: PairForm
   const [errorKey, setErrorKey] = useState<DictKey | null>(null);
   const inFlight = useRef(false);
   const errorRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const errorId = useId();
   const hintId = useId();
 
@@ -73,6 +74,21 @@ export function PairForm({ onPaired, demoIntercept, initialCode = "" }: PairForm
   useEffect(() => {
     if (errorKey) errorRef.current?.focus();
   }, [errorKey]);
+
+  // QA M-002: with six digits in, maxLength swallows every further key and a tap puts the caret mid-string. A digit typed
+  // into a full, unselected field selects it first, so the insert replaces all six. This is a NATIVE `beforeinput`
+  // listener, not React's onBeforeInput: React builds that prop from textInput/keypress events, whose nativeEvent has no
+  // inputType. Backspace, cut and paste are not `insertText`, so they are untouched (paste has its own handler).
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    const onBeforeInput = (event: Event) => {
+      if ((event as InputEvent).inputType !== "insertText") return;
+      if (el.value.length === CODE_LENGTH && el.selectionStart === el.selectionEnd) el.select();
+    };
+    el.addEventListener("beforeinput", onBeforeInput);
+    return () => el.removeEventListener("beforeinput", onBeforeInput);
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -132,6 +148,7 @@ export function PairForm({ onPaired, demoIntercept, initialCode = "" }: PairForm
       </label>
       <input
         id="pairing-code"
+        ref={inputRef}
         name="pairing-code"
         className={cx("b6-codefield", styles.input)}
         inputMode="numeric"
@@ -144,6 +161,10 @@ export function PairForm({ onPaired, demoIntercept, initialCode = "" }: PairForm
         value={code}
         aria-describedby={describedBy}
         aria-invalid={errorKey ? true : undefined}
+        onFocus={(event) => {
+          // QA M-002: a full field selects its digits on focus, so the next digit replaces them (the OTP "start over").
+          if (event.currentTarget.value.length === CODE_LENGTH) event.currentTarget.select();
+        }}
         onChange={(event) => setCode(digitsOnly(event.target.value))}
         onPaste={(event) => {
           if (submitting) return; // the field is read-only while a request is in flight

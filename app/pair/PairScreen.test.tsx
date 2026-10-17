@@ -289,4 +289,20 @@ describe("PairScreen on the demo (demo=true): the demo code opens a sandbox, the
     await screen.findByRole("heading", { level: 1, name: "Device set up" });
     expect(await axeViolations(container)).toEqual([]);
   });
+
+  it("R-25 fixes-2 §1: typing six digits one by one into the real /pair tree lands every digit and enables Set up", async () => {
+    renderScreen({ demo: true });
+    const field = (await screen.findByLabelText("6-digit code")) as HTMLInputElement;
+    field.focus();
+    let next = "";
+    for (const d of "123456") {
+      next += d;
+      fireEvent.keyDown(field, { key: d });
+      fireEvent.input(field, { target: { value: next } });
+      fireEvent.keyUp(field, { key: d });
+      expect(field.value).toBe(next);
+      expect(document.activeElement).toBe(field);
+    }
+    expect((screen.getByRole("button", { name: "Set up" }) as HTMLButtonElement).disabled).toBe(false);
+  });
 });

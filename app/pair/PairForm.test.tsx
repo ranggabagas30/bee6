@@ -209,4 +209,95 @@ describe("PairForm", () => {
       expect(submitButton().disabled).toBe(false);
     });
   });
+
+  describe("typing the code (R-25 fixes-2 §1, QA M-002)", () => {
+    /** One digit typed the way a browser does: keydown, input with the new value, keyup. */
+    function typeDigit(char: string, next: string) {
+      fireEvent.keyDown(input(), { key: char });
+      fireEvent.input(input(), { target: { value: next } });
+      fireEvent.keyUp(input(), { key: char });
+    }
+    function beforeInput(inputType: string, data: string | null = null) {
+      fireEvent(input(), new InputEvent("beforeinput", { inputType, data, bubbles: true, cancelable: true }));
+    }
+
+    it("types six digits one by one: each digit lands, focus stays, Set up enables on the sixth", () => {
+      renderForm();
+      input().focus();
+      let next = "";
+      for (const d of "123456") {
+        next += d;
+        typeDigit(d, next);
+        expect(input().value).toBe(next);
+        expect(document.activeElement).toBe(input());
+        expect(submitButton().disabled).toBe(next.length < 6);
+      }
+      expect(submitButton().disabled).toBe(false);
+    });
+
+    it("a seventh digit and a letter are dropped while typing", () => {
+      renderForm();
+      input().focus();
+      fireEvent.input(input(), { target: { value: "1234567" } });
+      expect(input().value).toBe("123456");
+      fireEvent.input(input(), { target: { value: "12345a" } });
+      expect(input().value).toBe("12345");
+    });
+
+    it("M-002: a full field selects all on focus, so the next digit replaces it", () => {
+      renderForm({ initialCode: "000000" });
+      fireEvent.focus(input());
+      expect(input().selectionStart).toBe(0);
+      expect(input().selectionEnd).toBe(6);
+      fireEvent.input(input(), { target: { value: "7" } });
+      expect(input().value).toBe("7");
+      expect(submitButton().disabled).toBe(true);
+      expect(screen.getByText("Enter all 6 digits to set up.")).toBeTruthy();
+    });
+
+    it("M-002: focusing a field that is not full does not select anything", () => {
+      renderForm({ initialCode: "123" });
+      input().setSelectionRange(3, 3);
+      fireEvent.focus(input());
+      expect(input().selectionStart).toBe(3);
+      expect(input().selectionEnd).toBe(3);
+    });
+
+    it("M-002: a digit typed into a full, unselected field replaces it", () => {
+      renderForm({ initialCode: "000000" });
+      input().focus();
+      input().setSelectionRange(3, 3);
+      beforeInput("insertText", "7");
+      expect(input().selectionStart).toBe(0);
+      expect(input().selectionEnd).toBe(6);
+      fireEvent.input(input(), { target: { value: "7" } });
+      expect(input().value).toBe("7");
+    });
+
+    it("M-002: Backspace on a full field is untouched (no select-all)", () => {
+      renderForm({ initialCode: "000000" });
+      input().focus();
+      input().setSelectionRange(3, 3);
+      beforeInput("deleteContentBackward");
+      expect(input().selectionStart).toBe(3);
+      expect(input().selectionEnd).toBe(3);
+      fireEvent.input(input(), { target: { value: "00000" } });
+      expect(input().value).toBe("00000");
+    });
+
+    it("M-002: typing into a field that is not full does not select it", () => {
+      renderForm({ initialCode: "123" });
+      input().focus();
+      input().setSelectionRange(3, 3);
+      beforeInput("insertText", "4");
+      expect(input().selectionStart).toBe(3);
+      expect(input().selectionEnd).toBe(3);
+    });
+
+    it("a full field: paste still replaces (own handler)", () => {
+      renderForm({ initialCode: "000000" });
+      fireEvent.paste(input(), { clipboardData: { getData: () => "123 456" } });
+      expect(input().value).toBe("123456");
+    });
+  });
 });
