@@ -29,7 +29,7 @@ import { t, type DictKey } from "@/lib/i18n/dict";
 import type { Lang } from "@/lib/i18n/lang";
 import { Button, Kicker, Sheet, SidePanel, StepTick } from "@/app/ui";
 import { demoSnapshot, subscribeDemoState, viewFromSnapshot } from "@/app/demo/demo-client";
-import { useCaptureBridge, useProposalsSignal, type CaptureBridge } from "@/app/demo/guide-bridge";
+import { clearPairDone, useCaptureBridge, usePairBridge, useProposalsSignal, type CaptureBridge } from "@/app/demo/guide-bridge";
 import { GUIDE_CONTROLS } from "@/app/demo/guide-controls";
 
 /**
@@ -158,6 +158,7 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
   const pathname = usePathname() ?? "/";
   const wide = useWide();
   const bridge = useCaptureBridge();
+  const pairDone = usePairBridge();
   const demoSnap = useSyncExternalStore(subscribeDemoState, () => demoSnapshot(), () => "");
   const demoView = viewFromSnapshot(demoSnap);
   const webRole = demoView && !demoView.expired && demoView.state.role !== "staff" ? demoView.state.role : null;
@@ -165,6 +166,11 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
   const seg = pathname.split("/").filter(Boolean)[0] ?? "";
   const isEntry = seg === "" || seg === "sign-in" || seg === "pair";
   const isCapture = seg === "capture";
+  const isPair = seg === "pair";
+  // R-25 R12: /pair reports "paired" through the pair bridge; a stale signal never outlives the /pair route.
+  useEffect(() => {
+    if (!isPair) clearPairDone();
+  }, [isPair]);
   // The proposals page's own screen and write counter (after-merge wiring, lib/demo/proposals-signal). The screen
   // counts only on /proposals; the counter re-reads the progress after an ask, a feasible mark, a rejection or an approval.
   const proposals = useProposalsSignal();
@@ -206,9 +212,11 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
     ? bridge
       ? { kind: "capture", phase: bridge.state.phase === "listening" && allSpoken ? "all_spoken" : bridge.state.phase }
       : null
-    : webRole !== null
-      ? { kind: "web", role: webRole, progress: progress ? { ...progress, supervisor_visited: visited } : null, screen: proposalsScreen }
-      : null;
+    : isPair
+      ? { kind: "pair", paired: pairDone }
+      : webRole !== null
+        ? { kind: "web", role: webRole, progress: progress ? { ...progress, supervisor_visited: visited } : null, screen: proposalsScreen }
+        : null;
   const key = guideKeyFor(pathname, state);
   const day = bridge ? bridge.state.profile.day : null;
   const openClosingReached = bridge?.state.profile.open_session?.closing_reached;
@@ -220,7 +228,8 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
     }
     return progress ? { ...progress, supervisor_visited: visited } : { day: 1, days_done: 0, proposals_with_content: 0, feasible: 0, owner_decided: 0, supervisor_visited: visited };
   }, [bridge, progress, visited]);
-  const stage = currentStage(journey);
+  // R-25 R7: on a supervisor web page right after day 1 the stage stays "Supervisor · look around".
+  const stage = currentStage(journey, { onSupervisorWeb: supervisorHere });
   const stageN = stageIndex(stage) + 1;
 
   // Collapsed on every route change and on every card change the PAGE drives (a capture phase, the proposals page's
@@ -228,7 +237,7 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
   // progress read (the re-read on open, or the one a page write signals) never collapses it: the guide re-reads the
   // counters the moment it opens, and shutting itself on that read was integration QA D1 (one tap opened it, the
   // moved card closed it ~50 ms later, a second tap was needed).
-  const pageSig = `${pathname}|${bridge?.state.phase ?? ""}|${proposalsScreen ?? ""}|${webRole ?? ""}`;
+  const pageSig = `${pathname}|${bridge?.state.phase ?? ""}|${proposalsScreen ?? ""}|${webRole ?? ""}|${isPair && pairDone ? "paired" : ""}`;
   const prevRef = useRef({ pathname, key, pageSig });
   useEffect(() => {
     const prev = prevRef.current;
