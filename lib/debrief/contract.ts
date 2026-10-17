@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { WorkCategorySchema } from "@/lib/pipeline/categories";
-import { DEBRIEF_LIST_SERVER_CAP, REASON_MAX_CHARS } from "@/lib/debrief/constants";
+import {
+  DEBRIEF_LIST_SERVER_CAP,
+  QUESTION_LINE_MAX_CHARS,
+  QUESTION_LINES_MAX,
+  REASON_MAX_CHARS,
+} from "@/lib/debrief/constants";
 
 /**
  * Wire contracts for the debrief device routes (R-07; web spec §6.6.6,
@@ -45,6 +50,22 @@ export const DebriefQuestionViewSchema = z
      * pilot question, so a pilot response is unchanged.
      */
     business_date: dateString.optional(),
+    /**
+     * demo-feedback-2 item 10: present ONLY on a demo sandbox outlet, only on a `gate` question whose own thread
+     * could be read, scoped to this device and outlet, and name-scrubbed at read time. At most two stored
+     * (already Sensitive-Data-Protection-redacted) lines of that thread, each at most 160 code points. Absent on
+     * every pilot question, on `unlabelled_unit`, and whenever any step above cannot be completed (fail closed).
+     * Counted in code points (not UTF-16 units) so a line the server truncated can never fail this parse.
+     */
+    lines: z
+      .array(
+        z
+          .string()
+          .min(1)
+          .refine((line) => Array.from(line).length <= QUESTION_LINE_MAX_CHARS, { message: "line too long" }),
+      )
+      .max(QUESTION_LINES_MAX)
+      .optional(),
   })
   .strict();
 export type DebriefQuestionView = z.infer<typeof DebriefQuestionViewSchema>;
