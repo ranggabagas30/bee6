@@ -69,10 +69,15 @@ describe("VerdictPanel: which actions show", () => {
     if (!shown) expect(container.innerHTML).toBe("");
   });
 
-  it("offers Worked, Revise and Revert as 48px buttons and posts nothing on the first tap", () => {
+  it("offers Worked (large primary), Revise and Revert (secondary) and posts nothing on the first tap", () => {
     renderPanel("supervisor", reviewView());
-    for (const name of ["Worked", "Revise", "Revert"]) {
-      expect(screen.getByRole("button", { name }).style.minHeight).toBe("48px");
+    const worked = screen.getByRole("button", { name: "Worked" });
+    expect(worked.className).toContain("b6-btn--primary");
+    expect(worked.className).toContain("b6-btn--lg");
+    for (const name of ["Revise", "Revert"]) {
+      const btn = screen.getByRole("button", { name });
+      expect(btn.className).toContain("b6-btn--secondary");
+      expect(btn.className).not.toContain("b6-btn--lg");
     }
     tap("Revise");
     expect(authedPostJson).not.toHaveBeenCalled();

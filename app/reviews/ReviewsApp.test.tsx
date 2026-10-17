@@ -215,12 +215,12 @@ describe("ReviewsApp: fast-forward (demo only)", () => {
     expect(screen.queryByRole("button", { name: /Fast-forward/ })).toBeNull();
   });
 
-  it("shows a 48px fast-forward button with a visible simulated label when available", async () => {
+  it("shows a secondary fast-forward button under a visible simulated kick when available", async () => {
     authedGetJson.mockResolvedValue(ok(list({ fast_forward_available: true })));
     renderApp();
     const button = await screen.findByRole("button", { name: "Fast-forward to the review date (simulated)" });
-    expect(button.style.minHeight).toBe("48px");
-    screen.getByText("Simulated time (demo)");
+    expect(button.className).toContain("b6-btn--secondary");
+    expect(screen.getByText("Simulated time (demo)").className).toContain("b6-kick");
   });
 
   it("one tap posts once with an empty body, shows the banner, reloads, and puts focus on the banner", async () => {
@@ -238,7 +238,7 @@ describe("ReviewsApp: fast-forward (demo only)", () => {
       {},
       FastForwardResponseSchema,
     );
-    await screen.findByRole("heading", { level: 3, name: "SOP version 2: review on Fri 23 Oct" });
+    await screen.findByRole("heading", { level: 3, name: "Check the display more often" });
     expect(authedGetJson).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole("button", { name: /Fast-forward/ })).toBeNull();
     expect(document.activeElement).toBe(banner);
@@ -296,7 +296,7 @@ describe("ReviewsApp: a failed list reload", () => {
     fireEvent.click(screen.getByRole("button", { name: "Yes" }));
   };
 
-  it("keeps the success banner, focuses it, and offers a 48px retry when the reload after a verdict fails", async () => {
+  it("keeps the success banner, focuses it, and offers a secondary retry when the reload after a verdict fails", async () => {
     authedGetJson.mockResolvedValueOnce(ok(list({ open: [reviewView()] }))).mockResolvedValueOnce({ kind: "error" });
     authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "recorded", status: "awaiting_owner" } });
     renderApp();
@@ -308,7 +308,7 @@ describe("ReviewsApp: a failed list reload", () => {
     expect(banner.getAttribute("tabindex")).toBe("-1");
     expect(document.activeElement).toBe(banner);
     const retry = screen.getByRole("button", { name: "Try again" });
-    expect(retry.style.minHeight).toBe("48px");
+    expect(retry.className).toContain("b6-btn--secondary");
   });
 
   it("keeps the fast-forward banner too when its reload fails", async () => {
