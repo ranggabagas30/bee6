@@ -120,7 +120,7 @@ describe("SopApp header", () => {
     expect(screen.queryByRole("group", { name: "SOP version" })).toBeNull();
   });
 
-  it("v2 pending with a version switch hides the pending line: the switch already carries the date (board-literal)", async () => {
+  it("v2 pending with a version switch shows the pending line with the date (board-literal, option B)", async () => {
     authedGetJson.mockResolvedValue({
       kind: "ok",
       data: overview({
@@ -131,12 +131,11 @@ describe("SopApp header", () => {
     });
     renderApp();
     const group = await screen.findByRole("group", { name: "SOP version" });
-    expect(Array.from(group.querySelectorAll("button")).map((b) => b.textContent)).toEqual(["05/10/26 · current", "16/10/26 · upcoming"]);
-    expect(screen.queryByText(/starts on/)).toBeNull();
-    expect(screen.queryByText(/Until then/)).toBeNull();
+    expect(Array.from(group.querySelectorAll("button")).map((b) => b.textContent)).toEqual(["05/10/26 · current", "16/10/26"]);
+    expect(screen.getByText("Version 2 starts on Fri 16 Oct. Until then, version 1 applies.")).not.toBeNull();
   });
 
-  it("R-21 O-5: only the in_force_version shows '· current', newer shows '· upcoming'", async () => {
+  it("R-21 O-5: only the in_force_version shows '· current', newer shows plain date", async () => {
     authedGetJson.mockResolvedValue({
       kind: "ok",
       data: overview({
@@ -148,8 +147,8 @@ describe("SopApp header", () => {
     });
     renderApp();
     const group = await screen.findByRole("group", { name: "SOP version" });
-    // v1 is in_force_version=1, so "05/10/26 · current"; v2 is newer, so "16/10/26 · upcoming"
-    expect(Array.from(group.querySelectorAll("button")).map((b) => b.textContent)).toEqual(["05/10/26 · current", "16/10/26 · upcoming"]);
+    // v1 is in_force_version=1, so "05/10/26 · current"; v2 is newer, so plain "16/10/26"
+    expect(Array.from(group.querySelectorAll("button")).map((b) => b.textContent)).toEqual(["05/10/26 · current", "16/10/26"]);
   });
 
   it("5.T4 no SOP shows the empty state (owner: with the upload-coming line) and no sections", async () => {
