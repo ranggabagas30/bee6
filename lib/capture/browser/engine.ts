@@ -367,7 +367,7 @@ export class CaptureEngine {
     this.pumping = true;
     try {
       for (;;) {
-        if (this.mode === "aborted") break;
+        if (this.isAborted()) break;
         const item = this.queue.peek();
         if (!item) break;
 
@@ -431,7 +431,8 @@ export class CaptureEngine {
         this.emitStatus();
         // Hard stop: never wait or retry. Finishing: a network failure (null) exits at once and leaves the
         // queue in memory (finding #3, unchanged); a server refusal keeps its backoff (18 Oct fix).
-        if (this.mode === "aborted") break;
+        // (isAborted() is a method call so TS does not keep the loop-top narrowing across the awaits above.)
+        if (this.isAborted()) break;
         if (this.mode === "finishing" && status === null) break;
         await this.sleepOrAbort(
           backoffDelayMs(this.headAttempt.count, {
@@ -444,6 +445,10 @@ export class CaptureEngine {
     } finally {
       this.pumping = false;
     }
+  }
+
+  private isAborted(): boolean {
+    return this.mode === "aborted";
   }
 
   private dropHead(id: string): void {
@@ -460,7 +465,7 @@ export class CaptureEngine {
 
   /** Waits `ms`, but resolves immediately if `abort()` is called meanwhile. */
   private sleepOrAbort(ms: number): Promise<void> {
-    if (this.mode === "aborted") return Promise.resolve();
+    if (this.isAborted()) return Promise.resolve();
     return new Promise<void>((resolve) => {
       let done = false;
       const finish = () => {
