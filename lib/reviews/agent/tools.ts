@@ -1,5 +1,13 @@
 import { z } from "zod";
-import { changePct, checkReview, perDay, type ReviewCheckRule } from "@/lib/reviews/agent/check";
+import {
+  caveatContextOfInputs,
+  changePct,
+  checkReview,
+  extractNumbers,
+  perDay,
+  requiredCaveats,
+  type ReviewCheckRule,
+} from "@/lib/reviews/agent/check";
 import { REVIEW_AGENT_MAX_ROUNDS } from "@/lib/reviews/agent/constants";
 import { ReviewDraftArgsSchema, ReviewDraftSchema } from "@/lib/reviews/agent/schema";
 import type { ReviewAgentInputs, ReviewAgentSession, ReviewToolSpec } from "@/lib/reviews/agent/types";
@@ -19,17 +27,18 @@ const RUN_DECIDED_ERROR = "run already decided";
 
 /** The rule in words (what `suggestVerdict` does), so the model can derive the verdict without being handed it. */
 const RULE_IN_WORDS =
-  "Fewer than 2 captured days in either window: no suggestion. Otherwise compare per-day counts; a change of 20 " +
-  "percent or more in the metric's direction suggests worked, 20 percent or more against it suggests revert, less " +
-  "than 20 percent either way suggests revise.";
+  "A suggestion needs at least 2 captured days in both windows and a before count above 0; with 0 or 1 captured " +
+  "days in either window, or when the before count is 0, there is no suggestion. Otherwise compare per-day counts: a " +
+  "change of 20 percent or more in the metric's direction suggests worked, 20 percent or more against it suggests " +
+  "revert, less than 20 percent either way suggests revise.";
 
 const CHECK_REVIEW_DESCRIPTION =
   "Submit the review to the plain-code checker. It answers accepted, or a list of failed rule codes to fix: " +
   "change_not_inspected, counts_not_inspected, sample_not_inspected (call get_change, get_counts and " +
   "get_evidence_sample for before and after first), verdict_mismatch (apply the rule in get_counts exactly; " +
   "none when it gives no suggestion), number_not_allowed (only numbers from get_counts), " +
-  "quoted_numbers_mismatch (quoted_numbers must list exactly the numbers in the narrative), caveat_missing and " +
-  "caveat_not_applicable (list exactly the caveats that apply), too_short and too_long (60 to 600 characters), " +
+  "quoted_numbers_mismatch (quoted_numbers must list exactly the digit numbers in the narrative; the answer lists them as numbers_in_narrative), caveat_missing and " +
+  "caveat_not_applicable (list exactly the caveats get_counts gave you), too_short and too_long (60 to 600 characters), " +
   "control_chars, placeholder (no brackets or braces), url_or_handle, date_or_time, staff_name, role_or_person " +
   "(say staff or a customer), instruction_word, causal_claim (say fewer moments were noted, never that the change " +
   "caused it). Fix exactly those reasons and submit again. At most " +
@@ -72,7 +81,7 @@ export function buildReviewTools(
 
   const getCounts = tool(
     "get_counts",
-    "Read the counted moments before and after the change (captured days, count, per day, percent change) and the rule that turns them into a suggestion.",
+    "Read the counted moments before and after the change (captured days, count, per day, percent change), the rule that turns them into a suggestion, and the caveats to list.",
     z.object({}).strict(),
     () => {
       session.inspected.add("counts");
@@ -86,6 +95,9 @@ export function buildReviewTools(
         after: win(inputs.counts.after),
         change_pct: changePct(inputs.suggestion.change_ratio),
         rule: RULE_IN_WORDS,
+        // The caveats the code computed (a fixed vocabulary, never shop text). Without this the model can only guess
+        // them, and `check_review` names a missing caveat by rule code, not by member (found in the PR-4 spike).
+        caveats: requiredCaveats(caveatContextOfInputs(inputs)),
       };
     },
   );
@@ -144,6 +156,10 @@ export function buildReviewTools(
         round: session.checkRounds,
         rounds_left: Math.max(0, REVIEW_AGENT_MAX_ROUNDS - session.checkRounds),
         reasons: result.reasons,
+        // The numbers the model's own narrative contains (never shop text), so it can make quoted_numbers match.
+        ...(result.reasons.includes("quoted_numbers_mismatch")
+          ? { numbers_in_narrative: [...new Set(extractNumbers(parsed.data.narrative_en.trim()))].sort((a, b) => a - b) }
+          : {}),
       };
     },
   );

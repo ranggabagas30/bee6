@@ -69,6 +69,20 @@ describe("buildReviewTools", () => {
     expect(JSON.stringify(out)).not.toMatch(/"(worked|revise|revert)"/);
   });
 
+  it("get_counts lists the caveats the code computed, so the model can list exactly them", () => {
+    const a = setup().call("get_counts") as { caveats: string[] };
+    expect(a.caveats).toEqual(["short_window", "category_count_not_problem_count"]);
+    const b = setup({ overlapping: true, after: { days: 1, count: 0 } }).call("get_counts") as { caveats: string[] };
+    expect(b.caveats).toEqual(["short_window", "category_count_not_problem_count", "overlapping_change", "not_enough_days"]);
+  });
+
+  it("get_counts states every condition under which the rule gives no suggestion (both windows >= 2 days, before count > 0)", () => {
+    const rule = (setup().call("get_counts") as { rule: string }).rule;
+    expect(rule).toMatch(/at least 2 captured days in both windows/i);
+    expect(rule).toMatch(/before .*count is 0.*no suggestion/i);
+    expect(rule).toContain("20 percent");
+  });
+
   it("get_counts gives null per_day / change_pct when the rule gave none", () => {
     const { call } = setup({ before: { days: 3, count: 0 }, after: { days: 0, count: 0 } });
     const out = call("get_counts") as { after: { per_day: number | null }; change_pct: number | null };
@@ -141,6 +155,20 @@ describe("buildReviewTools", () => {
       expect(call("check_review", goodDraft())).toEqual({ accepted: true });
       expect(session.checkRounds).toBe(2);
       expect(session.outcome?.kind).toBe("accepted");
+    });
+
+    it("quoted_numbers_mismatch also returns the numbers found in the narrative so the model can fix its list", () => {
+      const { call } = setup();
+      readAll(call);
+      const out = call("check_review", { ...goodDraft(), quoted_numbers: [2, 3, 0, 2, 100, 7] }) as { reasons: string[]; numbers_in_narrative?: number[] };
+      expect(out.reasons).toEqual(["quoted_numbers_mismatch"]);
+      expect(out.numbers_in_narrative).toEqual([0, 2, 3, 100]);
+    });
+
+    it("other failures carry no numbers_in_narrative", () => {
+      const { call } = setup();
+      const out = call("check_review", goodDraft()) as { numbers_in_narrative?: number[] };
+      expect(out).not.toHaveProperty("numbers_in_narrative");
     });
 
     it("a zod-invalid draft names the path and does not count as a round", () => {

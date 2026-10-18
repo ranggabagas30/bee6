@@ -133,7 +133,8 @@ const INSTRUCTION_WORD = /\b(ignore|system prompt|instruction|assistant|as an ai
 const CAUSAL_CLAIM =
   /\b(caused|because of the change|thanks to the change|proves|proof that|due to the change|as a result of the change)\b/i;
 
-function extractNumbers(text: string): number[] {
+/** Every digit run in `text` as a number (comma decimal read as a decimal point). */
+export function extractNumbers(text: string): number[] {
   return (text.match(NUMBER_TOKEN) ?? []).map((t) => Number(t.replace(",", ".")));
 }
 
