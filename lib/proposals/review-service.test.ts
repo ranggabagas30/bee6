@@ -286,6 +286,7 @@ class FakeReviewStore implements ProposalReviewStore {
       constraint_ids: this.cstore.docs.map((c) => c.constraint_id),
       current_sop_version_id: currentSop?.sop_version_id ?? null,
       current_sop: currentSop,
+      drafted_sop: p ? (this.sops.get(p.generator.sop_version_id) ?? null) : null,
     };
   }
   async readDecisionSnapshot(id: string) {
@@ -444,7 +445,7 @@ describe("listProposals", () => {
     const ctx = setup();
     ctx.cstore.docs.push(constraint(C1, "Old rule", 1), constraint(C2, "Brand new rule", 2));
     ctx.store.put(proposal(1), proposal(2, { range: { from_date: "2026-10-05", to_date: "2026-10-06" } }));
-    ctx.store.sops.set(`${OUTLET_ID}:v2`, sop(2));
+    ctx.store.sops.set(`${OUTLET_ID}:v2`, { ...sop(2), steps: [{ ...sop(2).steps[0]!, text: "Rewritten in v2." }] });
     ctx.store.threads.set(THREAD_IDS[0]!, { status: "fact", label_source: "supervisor_rejected", summary: "x" });
     ctx.store.threads.set(THREAD_IDS[1]!, { status: "open", summary: "y" });
     // P3 is a newer proposal for the SAME range as P1 -> P1 superseded
@@ -869,6 +870,15 @@ describe("decideProposal: owner reject (Q-1 = yes)", () => {
 
 const withContent = (p: Proposal, patch: Record<string, unknown>): Proposal =>
   ProposalSchema.parse({ ...p, content: { ...p.content!, ...patch } });
+/** A SOP version with two steps (stock-01, serve-01) so two proposals can target different steps. */
+const twoStepSop = (version: number, over: Record<string, string> = {}): SopVersion => ({
+  ...sop(version),
+  steps: [
+    { step_id: "stock-01", title: "Display check", text: over["stock-01"] ?? "Check hourly.", role: "staff" },
+    { step_id: "serve-01", title: "Serve the customer", text: over["serve-01"] ?? "Greet and serve.", role: "staff" },
+  ],
+});
+const RANGE_B = { from_date: "2026-10-05", to_date: "2026-10-06" };
 const legacy = (p: Proposal): Proposal =>
   ProposalSchema.parse({ ...p, generator: { ...p.generator, agent_version: "proposal-v1" } });
 
@@ -918,7 +928,7 @@ describe("decideProposal: the owner's approval ships the next SOP version (R-10)
       },
     });
     expect(Object.keys(sopAudit!.details!).sort()).toEqual(
-      ["change_kind", "effective_from_date", "review_date", "source_proposal_id", "version"].sort(),
+      ["change_kind", "drafted_on_sop_version_id", "effective_from_date", "review_date", "source_proposal_id", "version"].sort(),
     );
   });
 
@@ -934,10 +944,10 @@ describe("decideProposal: the owner's approval ships the next SOP version (R-10)
     expect({ ...stored.content!, review_date: before.content!.review_date }).toEqual(before.content);
   });
 
-  it("6.T4 a newer SOP than the proposal saw -> 409 SOP_CHANGED from R-09's guard, nothing written", async () => {
+  it("6.T4 a newer SOP that rewrote the proposal's step -> 409 SOP_CHANGED from R-09's guard, nothing written", async () => {
     const ctx = setup();
     ctx.store.put(awaitingOwner(1));
-    ctx.store.sops.set(`${OUTLET_ID}:v2`, { ...sop(2), source: "seed" });
+    ctx.store.sops.set(`${OUTLET_ID}:v2`, { ...sop(2), steps: [{ ...sop(2).steps[0]!, text: "Rewritten in v2." }] });
     const err = await own(ctx, approveBody()).catch((e) => e);
     expect((err as ConflictError).code).toBe("SOP_CHANGED");
     expect(ctx.store.proposals.get(P1)!.status).toBe("awaiting_owner");
@@ -1006,15 +1016,99 @@ describe("decideProposal: the owner's approval ships the next SOP version (R-10)
     expect(ctx.audits.filter((x) => x.action === "sop.version_created")).toHaveLength(1);
   });
 
-  it("6.T9 two proposals on v1: approving A ships v2, approving B is 409 SOP_CHANGED and B stays awaiting_owner", async () => {
+  it("6.T9 two proposals on v1 targeting different steps: approving A ships v2, approving B ships v3 on top of v2 with both changes", async () => {
     const ctx = setup();
-    const rangeB = { from_date: "2026-10-05", to_date: "2026-10-06" };
-    ctx.store.put(awaitingOwner(1), awaitingOwner(2, { range: rangeB }));
+    ctx.store.sops.set(`${OUTLET_ID}:v1`, twoStepSop(1));
+    const A = awaitingOwner(1);
+    const B = withContent(awaitingOwner(2, { range: RANGE_B }), {
+      target_step_id: "serve-01",
+      change_title: "Read the order back",
+      change_text: "Read the phone order back before ending the call.",
+      review_after_days: 7,
+    });
+    ctx.store.put(A, B);
+    expect(await own(ctx, approveBody(), { id: uuid(1) })).toEqual({ result: "approved", status: "approved" });
+    // B was drafted on v1 and v2 now exists: it is still approvable (item 20)
+    const listed = await list(ctx, claims("owner"));
+    expect(listed.open.find((i) => i.proposal.proposal_id === uuid(2))!.notices.sop_changed).toBe(false);
+    expect(await own(ctx, approveBody(), { id: uuid(2) })).toEqual({ result: "approved", status: "approved" });
+
+    const v2 = ctx.store.sops.get(`${OUTLET_ID}:v2`)!;
+    const v3 = ctx.store.sops.get(`${OUTLET_ID}:v3`)!;
+    expect(ctx.store.sopWrites.map((v) => v.version)).toEqual([2, 3]);
+    expect(v2.previous_version_id).toBe(`${OUTLET_ID}:v1`);
+    expect(v3.previous_version_id).toBe(`${OUTLET_ID}:v2`);
+    expect(v3.source_proposal_id).toBe(uuid(2));
+    // v3 = v2 + B's change: both A's and B's rewrites are present, nothing was overwritten
+    expect(v3.steps.find((st) => st.step_id === "stock-01")!.text).toBe("Check the display every 30 minutes.");
+    expect(v3.steps.find((st) => st.step_id === "serve-01")!.text).toBe("Read the phone order back before ending the call.");
+    expect(v3.change!.before).toEqual(v2.steps.find((st) => st.step_id === "serve-01"));
+    expect(v3.change!.change_title).toBe("Read the order back");
+    // v2 is untouched (immutable) and v2/v3 both start tomorrow, each with its own review date
+    expect(v2.steps.find((st) => st.step_id === "serve-01")!.text).toBe("Greet and serve.");
+    expect(v2.effective_from_date).toBe("2026-10-12");
+    expect(v3.effective_from_date).toBe("2026-10-12");
+    expect(v2.change!.review_date).toBe("2026-10-26"); // + 14
+    expect(v3.change!.review_date).toBe("2026-10-19"); // + 7: its own
+    // each approval has its own audit pair; the re-based one shows what it was drafted on (an id, rule 7)
+    expect(ctx.audits.filter((x) => x.action === "proposal.approved")).toHaveLength(2);
+    const created = ctx.audits.filter((x) => x.action === "sop.version_created");
+    expect(created.map((x) => x.target_id)).toEqual([`${OUTLET_ID}:v2`, `${OUTLET_ID}:v3`]);
+    for (const c of created) expect(c.details).toMatchObject({ drafted_on_sop_version_id: `${OUTLET_ID}:v1` });
+    expect(ctx.store.proposals.get(uuid(1))!.status).toBe("approved");
+    expect(ctx.store.proposals.get(uuid(2))!.status).toBe("approved");
+    expect(ctx.store.proposals.get(uuid(2))!.content!.review_date).toBe(v3.change!.review_date);
+  });
+
+  it("6.T9b two proposals on the same step: approving A ships v2, approving B is 409 SOP_CHANGED and B stays awaiting_owner (still rejectable)", async () => {
+    const ctx = setup();
+    ctx.store.put(awaitingOwner(1), awaitingOwner(2, { range: RANGE_B }));
     await own(ctx, approveBody(), { id: P1 });
+    const listed = await list(ctx, claims("owner"));
+    expect(listed.open.find((i) => i.proposal.proposal_id === uuid(2))!.notices.sop_changed).toBe(true);
     const err = await own(ctx, approveBody(), { id: uuid(2) }).catch((e) => e);
     expect((err as ConflictError).code).toBe("SOP_CHANGED");
     expect(ctx.store.proposals.get(uuid(2))!.status).toBe("awaiting_owner");
     expect(ctx.store.sopWrites).toHaveLength(1);
+    expect(ctx.audits.filter((x) => x.action === "sop.version_created")).toHaveLength(1);
+    // a rejection is never blocked by it
+    expect(await own(ctx, rejectBody(), { id: uuid(2) })).toEqual({ result: "rejected", status: "rejected" });
+  });
+
+  it("6.T9c A adds a new step, B modifies serve-01: both ship, v3 holds the new step and B's rewrite", async () => {
+    const ctx = setup();
+    ctx.store.sops.set(`${OUTLET_ID}:v1`, twoStepSop(1));
+    ctx.store.put(
+      withContent(awaitingOwner(1), { target_step_id: null }),
+      withContent(awaitingOwner(2, { range: RANGE_B }), { target_step_id: "serve-01", change_text: "Read the order back." }),
+    );
+    await own(ctx, approveBody(), { id: uuid(1) });
+    await own(ctx, approveBody(), { id: uuid(2) });
+    const v3 = ctx.store.sops.get(`${OUTLET_ID}:v3`)!;
+    expect(v3.steps).toHaveLength(3);
+    expect(v3.steps.at(-1)!.step_id).toMatch(/^p-/); // A's added step survives, appended last
+    expect(v3.steps.find((st) => st.step_id === "serve-01")!.text).toBe("Read the order back.");
+  });
+
+  it("6.T9d an add on a newer SOP never conflicts, even when its sibling rewrote a step", async () => {
+    const ctx = setup();
+    ctx.store.put(
+      awaitingOwner(1),
+      withContent(awaitingOwner(2, { range: RANGE_B }), { target_step_id: null, change_title: "A brand new step" }),
+    );
+    await own(ctx, approveBody(), { id: uuid(1) });
+    await own(ctx, approveBody(), { id: uuid(2) });
+    expect(ctx.store.sops.get(`${OUTLET_ID}:v3`)!.change!.kind).toBe("add");
+  });
+
+  it("6.T9e a proposal whose drafted version doc is missing fails closed once the SOP has moved on", async () => {
+    const ctx = setup();
+    ctx.store.sops.delete(`${OUTLET_ID}:v1`);
+    ctx.store.sops.set(`${OUTLET_ID}:v2`, twoStepSop(2));
+    ctx.store.put(withContent(awaitingOwner(1), { target_step_id: "serve-01" })); // drafted on v1, which is gone
+    const err = await own(ctx, approveBody()).catch((e) => e);
+    expect((err as ConflictError).code).toBe("SOP_CHANGED");
+    expect(ctx.store.sopWrites).toHaveLength(0);
   });
 
   it("6.T10 a commit race on the version id (ALREADY_EXISTS) is a 409 SOP_CHANGED and the proposal is unchanged", async () => {

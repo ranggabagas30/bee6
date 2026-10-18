@@ -41,6 +41,7 @@ import { selectCandidates } from "@/lib/proposals/candidates";
 import { evidenceByCategory } from "@/lib/proposals/precheck";
 import { evidenceReadWindow } from "@/lib/proposals/range";
 import type { ProposalStore } from "@/lib/proposals/service";
+import { sopConflict } from "@/lib/sop/rebase";
 import { planShip } from "@/lib/sop/ship";
 
 /**
@@ -233,7 +234,13 @@ async function listProposalsCore(
               .filter((c) => !p.content!.constraint_ids_acknowledged.includes(c.constraint_id))
               .map((c) => ({ constraint_id: c.constraint_id, text: c.text })),
             evidence_stale: !evidenceStillHolds(p.content.evidence, threads).holds,
-            sop_changed: currentSopId !== p.generator.sop_version_id,
+            // Item 20: only when the step this proposal rewrites changed after it was drafted (see sopConflict).
+            sop_changed:
+              sopConflict({
+                proposal: p,
+                drafted: sops.get(p.generator.sop_version_id) ?? null,
+                current: currentSopId !== null ? (sops.get(currentSopId) ?? null) : null,
+              }) === "SOP_CHANGED",
             superseded: superseded.has(p.proposal_id),
           }
         : { late_constraints: [], evidence_stale: false, sop_changed: false, superseded: false };
@@ -345,7 +352,7 @@ async function decideCore(
 
       // R-10: the owner's approval ships the next immutable SOP version in the SAME transaction. planShip runs on
       // the in-transaction snapshot (never the pre-check), so the version is built on exactly the SOP just read.
-      const plan = planShip({ current: snap.current_sop, proposal: check.proposal, now_ms, tz });
+      const plan = planShip({ current: snap.current_sop, drafted: snap.drafted_sop, proposal: check.proposal, now_ms, tz });
       if (plan.kind === "conflict") return { write: null, outcome: { kind: "conflict" as const, code: plan.code } };
       const proposal = ProposalSchema.parse({
         ...base.proposal,
@@ -367,6 +374,8 @@ async function decideCore(
           version: plan.sop_version.version,
           change_kind: plan.sop_version.change!.kind,
           source_proposal_id: proposal.proposal_id,
+          // An id (rule 7): makes a re-based approval (drafted on an older version) visible in the audit log.
+          drafted_on_sop_version_id: proposal.generator.sop_version_id,
           effective_from_date: plan.effective_from_date,
           review_date: plan.review_date,
         },

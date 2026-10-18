@@ -516,7 +516,7 @@ describe("decision snapshot (5.S4, 5.S5)", () => {
   });
 
   it("5.S5b drafted_sop is null when the drafted version doc is missing, malformed or another outlet's", async () => {
-    const read = async (versions: Record<string, unknown>) => {
+    const read = async (versions: Record<string, Record<string, unknown>>) => {
       const { db } = fakeDb({
         [COLLECTIONS.proposals]: { [P1]: asDoc(makeProposal()) },
         [COLLECTIONS.sopVersions]: versions,
