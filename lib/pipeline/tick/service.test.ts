@@ -647,6 +647,144 @@ describe("runTick", () => {
     expect(questionWrites[0]!.thread_id).toBe(storedThreadId);
   });
 
+  describe("QA 18 Oct DEFECT 1: a line that continues an open thread without a threads[] entry", () => {
+    const SECOND_START_MS = 15_000; // s2 starts exactly when s1 ends (same reasoning as the Decision 4 test)
+    const SECOND_AS_OF_MS = SECOND_START_MS + 15_000 + 90_000 + 5_000;
+
+    async function firstTick(store: FakeTickStore, confidence: number) {
+      store.devices = [{ outlet_id: "o1", device_id: "d1" }];
+      store.segmentsByDevice.set("o1:d1", [makeSegment({ segId: "s1", deviceStartMs: 0, text: "Checked the oven" })]);
+      const generate = vi.fn().mockResolvedValue(
+        fakeResponse(
+          JSON.stringify(
+            okWire({ threads: [{ id: "T1", category: "ROUTINE_OPS", confidence, evidence: [0], summary: "Checked the oven" }] }),
+          ),
+        ),
+      );
+      const result = await runTick({
+        store,
+        now_ms: SERVER_NOW_MS,
+        config: CONFIG,
+        labelClientDeps: { generate, project: "proj", resolveLocation: () => "global" },
+        sanitizeDeps: { redactBatch: async (texts) => [...texts] },
+      });
+      expect(result.devices[0]!.threads_written).toBe(1);
+      return Array.from(store.storedThreads.keys())[0]!;
+    }
+
+    function secondTick(store: FakeTickStore, wire: unknown, segments?: SegmentForTick[]) {
+      store.segmentsByDevice.set("o1:d1", [
+        makeSegment({ segId: "s1", deviceStartMs: 0, text: "Checked the oven" }),
+        ...(segments ?? [makeSegment({ segId: "s2", deviceStartMs: SECOND_START_MS, text: "Also wiped the counter" })]),
+      ]);
+      const generate = vi.fn().mockResolvedValue(fakeResponse(JSON.stringify(wire)));
+      return runTick({
+        store,
+        now_ms: SECOND_AS_OF_MS,
+        config: CONFIG,
+        labelClientDeps: { generate, project: "proj", resolveLocation: () => "global" },
+        sanitizeDeps: { redactBatch: async (texts) => [...texts] },
+      });
+    }
+
+    it("keeps the late line as extra evidence of a stored fact, without downgrading it or raising a question", async () => {
+      const store = new FakeTickStore();
+      const threadId = await firstTick(store, 0.95);
+      expect(store.storedThreads.get(threadId)!.status).toBe("fact");
+      const questionsBefore = store.writes.flatMap((w) => w.batch.questions).length;
+
+      const result = await secondTick(store, {
+        lines: [{ i: 0, reply_to: null, thread: "O1" }],
+        threads: [],
+        non_work_lines: [],
+      });
+
+      expect(result.devices[0]!.threads_written).toBe(1);
+      const after = store.storedThreads.get(threadId)!;
+      expect(store.storedThreads.size).toBe(1);
+      expect(after.line_ids).toContain("s2#0");
+      expect(after.evidence_line_ids).toContain("s2#0");
+      expect(after.lines).toHaveLength(2);
+      expect(after.confidence).toBe(0.95);
+      expect(after.summary).toBe("Checked the oven");
+      expect(after.status).toBe("fact");
+      expect(store.writes.flatMap((w) => w.batch.questions)).toHaveLength(questionsBefore);
+      expect(store.writes.at(-1)!.batch.ledger.status).toBe("done");
+      expect(store.writes.at(-1)!.batch.ledger.line_ids).toContain("s2#0");
+    });
+
+    it("keeps a stored open thread open and rewrites its gate question over the widened window", async () => {
+      const store = new FakeTickStore();
+      const threadId = await firstTick(store, 0.5);
+      expect(store.storedThreads.get(threadId)!.status).toBe("open");
+
+      await secondTick(store, { lines: [{ i: 0, reply_to: null, thread: "O1" }], threads: [], non_work_lines: [] });
+
+      const after = store.storedThreads.get(threadId)!;
+      expect(after.status).toBe("open");
+      expect(after.confidence).toBe(0.5);
+      expect(after.line_ids).toContain("s2#0");
+      const lastQuestion = store.writes
+        .flatMap((w) => w.batch.questions)
+        .filter((q) => q.kind === "gate" && q.thread_id === threadId)
+        .at(-1);
+      expect(lastQuestion?.status).toBe("open");
+      expect(lastQuestion?.window_end_ms).toBe(30_000);
+    });
+
+    it("is identical to the Decision 4 path when the model DOES send a threads[] entry for O1 (no duplicate write)", async () => {
+      const store = new FakeTickStore();
+      const threadId = await firstTick(store, 0.95);
+
+      const result = await secondTick(store, {
+        lines: [{ i: 0, reply_to: null, thread: "O1" }],
+        threads: [{ id: "O1", category: "ROUTINE_OPS", confidence: 0.95, evidence: [0], summary: "Wiped the counter" }],
+        non_work_lines: [],
+      });
+
+      expect(result.devices[0]!.threads_written).toBe(1);
+      expect(store.writes.at(-1)!.batch.threads).toHaveLength(1);
+      expect(store.storedThreads.size).toBe(1);
+      expect(store.storedThreads.get(threadId)!.line_ids).toEqual(["s1#0", "s2#0"]);
+    });
+
+    it("mixed unit: a new PHONE_CALL thread plus an O1 continuation without an entry writes two threads", async () => {
+      const store = new FakeTickStore();
+      const threadId = await firstTick(store, 0.95);
+      const mixedSegment: SegmentForTick = {
+        seg_id: "s2",
+        device_start: new Date(SECOND_START_MS).toISOString(),
+        device_end: new Date(SECOND_START_MS + 10_000).toISOString(),
+        received_at: new Date(SECOND_START_MS + 10_000).toISOString(),
+        lines: [
+          { text: "Supplier called about flour", start: 0, end: 5 },
+          { text: "Also wiped the counter", start: 5, end: 10 },
+        ],
+        session_id: null,
+      };
+
+      const result = await secondTick(
+        store,
+        {
+          lines: [
+            { i: 0, reply_to: null, thread: "T1" },
+            { i: 1, reply_to: null, thread: "O1" },
+          ],
+          threads: [{ id: "T1", category: "PHONE_CALL", confidence: 0.95, evidence: [0], summary: "Supplier called" }],
+          non_work_lines: [],
+        },
+        [mixedSegment],
+      );
+
+      expect(result.devices[0]!.threads_written).toBe(2);
+      expect(store.storedThreads.size).toBe(2);
+      expect(store.storedThreads.get(threadId)!.line_ids).toEqual(["s1#0", "s2#1"]);
+      const fresh = Array.from(store.storedThreads.values()).find((t) => t.thread_id !== threadId)!;
+      expect(fresh.category).toBe("PHONE_CALL");
+      expect(fresh.line_ids).toEqual(["s2#0"]);
+    });
+  });
+
   it("[tech-lead review round 2, finding 2] a lease release from an acquisition whose TTL already expired does not delete a later tick's lease", async () => {
     const store = new FakeTickStore();
     const outlet = "o1";

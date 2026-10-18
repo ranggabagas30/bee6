@@ -10,6 +10,7 @@ import { scrubUnitLines } from "@/lib/pipeline/label/scrub";
 import { sanitizeLabelOutput, type SanitizeDeps } from "@/lib/pipeline/label/sanitize";
 import { deriveAsOfMs } from "@/lib/pipeline/label/clock";
 import { buildWindows, planLabelUnits, earliestLineStartMs, type LabelUnit, type SegmentForWindowing } from "@/lib/pipeline/windowing";
+import { buildOpenContinuations } from "@/lib/pipeline/tick/continuation";
 import { buildThreads, openThreadsAt, type BuiltThread, type OpenThread, type LabelOutput } from "@/lib/pipeline/threads";
 import { evaluateGate, applyGateDecision } from "@/lib/pipeline/gate";
 import { remapOpenThreadAliases } from "@/lib/pipeline/tick/alias";
@@ -348,6 +349,16 @@ async function processOneUnit(input: {
     // purpose (PR1 tech-lead review; see lib/pipeline/tick/alias.ts).
     const remapped = remapOpenThreadAliases(sanitized, openThreads);
     const built = buildThreads({ unit: scrubbedUnit, label: remapped, open_threads: openThreads });
+    // QA 18 Oct DEFECT 1: lines filed under an offered open thread (O#) with no threads[] entry would otherwise be lost
+    // (unassigned, yet ledgered done). Plain-code continuation of that open thread; see continuation.ts.
+    const continuations = buildOpenContinuations({
+      unit: scrubbedUnit,
+      label: remapped,
+      openThreads,
+      unassignedLineIds: built.unassigned_line_ids,
+      alreadyBuiltIds: new Set(built.threads.map((t) => t.thread_id)),
+    });
+    const synthetic = new Set(continuations);
     const nonWorkLineIds = computeNonWorkLineIds(scrubbedUnit, remapped);
 
     const threadWrites: ThreadWrite[] = [];
@@ -355,10 +366,16 @@ async function processOneUnit(input: {
     // DebriefAgent: what each thread merged into (null = new), so a same-category continuation keeps its wording.
     const storedByThread = new Map<string, StoredThread | null>();
 
-    for (const builtThread of built.threads) {
+    for (const builtThread of [...built.threads, ...continuations]) {
       const stored = builtThread.continued_from_open
         ? await store.getStoredThread(outlet_id, builtThread.thread_id)
         : null;
+      if (synthetic.has(builtThread) && stored === null) {
+        // The open thread vanished between listRecentThreads and now (cannot happen under the lease; defensive). Never
+        // write a summary-less thread: log the class only and leave the line unassigned, as before this fix.
+        console.warn("[pipeline-tick] continuation target missing", { unit_id: unit.unit_id });
+        continue;
+      }
       storedByThread.set(builtThread.thread_id, stored);
       const merged = mergeThread(stored, builtThread);
 
