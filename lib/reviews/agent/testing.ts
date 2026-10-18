@@ -20,6 +20,8 @@ export interface FixtureOptions {
   baseline?: { count: number; days: number };
   beforeSummaries?: string[];
   afterSummaries?: string[];
+  /** Overrides the metric wording (the eval's non-customer cases). */
+  metric?: { description: string; category_label_en: string };
 }
 
 export function makeInputs(opts: FixtureOptions = {}): ReviewAgentInputs {
@@ -44,9 +46,9 @@ export function makeInputs(opts: FixtureOptions = {}): ReviewAgentInputs {
       rationale: "Customers asked staff when items were baked.",
       metric: {
         category,
-        category_label_en: "Customer service",
+        category_label_en: opts.metric?.category_label_en ?? "Customer service",
         direction,
-        description: "Customers asking when an item was baked",
+        description: opts.metric?.description ?? "Customers asking when an item was baked",
         baseline_count: baseline.count,
         baseline_days: baseline.days,
       },
