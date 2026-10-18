@@ -52,10 +52,10 @@ describe("enforceDemoCapsForRoute", () => {
     expect(f.calls).toEqual([]);
   });
 
-  it("a sandbox outlet: one outlet read, then the caps (the 151st segment is 429 with Retry-After)", async () => {
+  it("a sandbox outlet: one outlet read, then the caps (the 251st segment is 429 with Retry-After)", async () => {
     f.sandboxes.set(SBX, sandboxOutlet());
-    for (let i = 0; i < 150; i++) await enforceDemoCapsForRoute("segment", { outlet_id: SBX, role: "device" });
-    expect(f.calls.filter((c) => c === "getOutlet")).toHaveLength(150);
+    for (let i = 0; i < 250; i++) await enforceDemoCapsForRoute("segment", { outlet_id: SBX, role: "device" });
+    expect(f.calls.filter((c) => c === "getOutlet")).toHaveLength(250);
     const err = await enforceDemoCapsForRoute("segment", { outlet_id: SBX, role: "device" }).then(() => null, (e) => e);
     expect(err).toBeInstanceOf(LockedError);
     expect((err as LockedError).code).toBe("demo_segment_cap");

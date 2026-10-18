@@ -229,7 +229,7 @@ describe("capture page: the End and Cancel panels in the sandbox (R-18)", () => 
       max_ms: 600_000,
       script_id: "bakery-v2",
       day: 1,
-      days_total: 3,
+      days_total: 5,
       days_done: 0,
       closing_reached: false,
       open_session: null,
@@ -262,14 +262,14 @@ describe("capture page: the End and Cancel panels in the sandbox (R-18)", () => 
     await openRunning("en", SANDBOX, "Start");
     const end = screen.getByRole("button", { name: "End · available at closing time (22:00)" }) as HTMLButtonElement;
     expect(end.disabled).toBe(true);
-    expect(screen.getByText("Day 1 of 3 · Mon 12 Oct")).toBeTruthy();
+    expect(screen.getByText("Day 1 of 5 · Mon 12 Oct")).toBeTruthy();
   });
 
   it("ID sandbox, End locked: the Bahasa label and the Bahasa day line", async () => {
     await openRunning("id", SANDBOX, "Mulai");
     const end = screen.getByRole("button", { name: "Selesai · tersedia saat jam tutup (22:00)" }) as HTMLButtonElement;
     expect(end.disabled).toBe(true);
-    expect(screen.getByText("Hari 1 dari 3 · Sen 12 Okt")).toBeTruthy();
+    expect(screen.getByText("Hari 1 dari 5 · Sen 12 Okt")).toBeTruthy();
   });
 
   it("EN sandbox, End: 'The 1-hour debrief starts now. This cannot be undone.' and no restart date", async () => {

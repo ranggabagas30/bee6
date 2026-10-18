@@ -46,6 +46,7 @@ function wire(store: Partial<ProgressStore> = {}) {
       { has_content: false, supervisor_decision: null, owner_decision: null },
     ],
     listDeviceLastEnded: async () => [],
+    listReviewStatuses: async () => [],
     ...store,
   };
   return vi.mocked(progressStoreModule.firestoreProgressStore).mockReturnValue(full);
@@ -117,7 +118,7 @@ describe("GET /api/v1/demo/progress on the demo (DEMO_MODE=true)", () => {
       const res = await GET(req());
       expect(res.status).toBe(200);
       expect(res.headers.get("Cache-Control")).toBe("private, no-store");
-      expect(await res.json()).toEqual({ data: { day: 2, days_done: 1, proposals_with_content: 1, feasible: 1, owner_decided: 0 } });
+      expect(await res.json()).toEqual({ data: { day: 2, days_done: 1, proposals_with_content: 1, feasible: 1, owner_decided: 0, approved: 0, reviews_open: 0, reviews_confirmed: 0 } });
       expect(built).toHaveBeenCalledTimes(1);
       vi.clearAllMocks();
     }

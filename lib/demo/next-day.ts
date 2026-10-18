@@ -2,7 +2,7 @@ import { addDays, businessDateOf } from "@/lib/capture/calendar";
 import { COLLECTIONS, type CollectionName } from "@/lib/firestore/collections";
 import type { LastEnded, Outlet } from "@/lib/firestore/schema";
 import { CLONE_DATE_KEYS, CLONE_UNTOUCHED_KEYS, shiftDeep } from "@/lib/demo/clone";
-import { NEXT_DAY_MAX, TEMPLATE_DOC_MAX } from "@/lib/demo/constants";
+import { AFTER_DAYS_FROM_COUNT, NEXT_DAY_MAX, TEMPLATE_DOC_MAX } from "@/lib/demo/constants";
 import { isPreparing } from "@/lib/debrief/preparing";
 import { demoDayOf, demoDaysDone, type DemoDay } from "@/lib/capture/contract";
 import { DemoNextDayResponseSchema, type DemoNextDayBody, type DemoNextDayResponse, type DemoNextDayStatus, type DemoOpenSession, type NextDayRefusal } from "@/lib/demo/contract";
@@ -23,6 +23,15 @@ import type { DemoStore } from "@/lib/demo/store-types";
  * `runNextDay` below (injected `NextDayStore`, Firestore implementation in lib/firestore/demo-store.ts).
  * The shift moves time only: no label, summary, line text, category, confidence, gate decision or fact status
  * changes (hard rule #10); no audio is touched (#2); no name is read (#7).
+ *
+ * Review-agent plan Part 1 (18 Oct, docs/tasks/review-agent-18oct.md): the journey has two optional "after" days
+ * (days 4 and 5, jumps with `next_day_count >= AFTER_DAYS_FROM_COUNT`).
+ *  - D2: the shift also moves `sop_versions` (and the date key `review_date`), so the shipped change and its review
+ *    date keep their place relative to the shifted sessions. A side effect, demo only: the SOP page shows the
+ *    version's dates one day earlier per jump; the approval's audit entry keeps the original date. `reviews`,
+ *    `outcomes` and `audit_log` are never shifted (a jump is refused once a review exists, D4).
+ *  - D3: the first two jumps keep G6 exactly (`proposal_exists`). An after jump is unlocked by the owner's approval
+ *    instead: it needs a shipped change and no proposal still open (`approve_first`), see `proposalGuard`.
  */
 
 /** A marker older than this belongs to a crashed shift (G7): later calls get `shift_incomplete`; newer ones `busy`. */
@@ -44,6 +53,12 @@ export interface NextDayGuardInput {
   pending_unlabelled_lines: number;
   /** G6: any proposal of the outlet with `content !== null`, whatever its status. */
   proposal_with_content: boolean;
+  /** D3: `sop_versions` of the outlet with `source === "proposal"` (a change the owner approved and shipped). */
+  shipped_change_count: number;
+  /** D3: any proposal with `content !== null` whose status is `awaiting_supervisor` or `awaiting_owner`. */
+  open_proposal_with_content: boolean;
+  /** D4: `reviews` docs of the outlet (0 or 1 is enough for the guard). */
+  review_count: number;
   /** G6: `proposal_locks/{outlet}` exists with `expires_at_ms > now`. */
   proposal_lock_live: boolean;
   /** `outlet.sandbox.shift_started_at_ms ?? null`: the G7 marker. Judged before G3-G6 (a half-done shift has moved `last_ended`). */
@@ -51,6 +66,19 @@ export interface NextDayGuardInput {
 }
 
 const refused = (reason: NextDayRefusal): DemoNextDayStatus => ({ allowed: false, reason });
+
+/**
+ * D3/D4, pure. The first two jumps (`next_day_count < AFTER_DAYS_FROM_COUNT`) keep G6 byte for byte: any proposal with
+ * content refuses. The after jumps need an approved change and no open proposal, and end for good once a review exists.
+ */
+export function proposalGuard(
+  input: Pick<NextDayGuardInput, "next_day_count" | "proposal_with_content" | "shipped_change_count" | "open_proposal_with_content" | "review_count">,
+): NextDayRefusal | null {
+  if (input.next_day_count < AFTER_DAYS_FROM_COUNT) return input.proposal_with_content ? "proposal_exists" : null;
+  if (input.review_count > 0) return "review_exists";
+  if (input.shipped_change_count === 0 || input.open_proposal_with_content) return "approve_first";
+  return null;
+}
 
 /**
  * The G7 marker as a refusal: a fresh marker is a shift in flight (`busy`), one older than SHIFT_MARKER_STALE_MS is a
@@ -78,13 +106,14 @@ export function nextDayEligibility(input: NextDayGuardInput): DemoNextDayStatus 
     return refused("preparing");
   }
   if (input.next_day_count >= NEXT_DAY_MAX) return refused("max_days"); // G5
-  if (input.proposal_with_content) return refused("proposal_exists"); // G6
+  const pg = proposalGuard(input); // G6 (jumps 1-2); approve_first / review_exists (after jumps)
+  if (pg !== null) return refused(pg);
   if (input.proposal_lock_live) return refused("busy");
   return { allowed: true, reason: null };
 }
 
 export interface NextDayRequestInput extends NextDayGuardInput {
-  expected_day: 1 | 2;
+  expected_day: 1 | 2 | 3 | 4;
   confirm_unanswered: boolean;
   /** The device's `open` questions (count only). */
   open_questions: number;
@@ -92,7 +121,7 @@ export interface NextDayRequestInput extends NextDayGuardInput {
 
 export type NextDayDecision =
   /** The phone is behind the server (a double tap after a finished shift): answer with the current day. */
-  | { kind: "stale"; day: 2 | 3 }
+  | { kind: "stale"; day: 2 | 3 | 4 | 5 }
   /** The phone is ahead of the server: a client bug, never a shift. */
   | { kind: "ahead"; day: DemoDay }
   | { kind: "refuse"; reason: NextDayRefusal; unanswered?: number }
@@ -102,16 +131,16 @@ export type NextDayDecision =
  * The full decision the route takes before G7 writes anything. The stale and ahead checks run BEFORE G3-G6:
  * after a finished shift `last_ended` sits on yesterday, so G4 would otherwise refuse the second tap of a
  * double tap with `day_not_ended` instead of the idempotent 200 the plan asks for. Stale also comes BEFORE
- * `max_days`: on day 3 every `expected_day` the contract allows (1 | 2) is stale, so a lost 200 on the 2nd
- * jump, retried with `expected_day` 2, gets `{day:3}` and the phone shows day 3 instead of "all done".
+ * `max_days`: on day 5 every `expected_day` the contract allows (1 to 4) is stale, so a lost 200 on the last
+ * jump, retried with `expected_day` 4, gets `{day:5}` and the phone shows day 5 instead of "all done".
  * `max_days` is only a defence for a count/expected_day pair the contract cannot produce.
  */
 export function nextDayDecision(input: NextDayRequestInput): NextDayDecision {
   const day = demoDayOf(input.next_day_count);
-  if (input.expected_day < day) return { kind: "stale", day: day as 2 | 3 };
+  if (input.expected_day < day) return { kind: "stale", day: day as 2 | 3 | 4 | 5 };
   if (input.expected_day > day) return { kind: "ahead", day };
-  // PR-5 note: `max_days` is UNREACHABLE through the route's `expected_day: 1 | 2` body contract: on day 3 every
-  // allowed value is stale (answered above with 200 {day:3}). This line is a defence for a pair the contract cannot
+  // PR-5 note: `max_days` is UNREACHABLE through the route's `expected_day: 1 | 2 | 3 | 4` body contract: on day 5 every
+  // allowed value is stale (answered above with 200 {day:5}). This line is a defence for a pair the contract cannot
   // produce. The phone must therefore read `demo_session.next_day.reason === "max_days"` from the capture config and
   // never call the route in that state.
   if (input.next_day_count >= NEXT_DAY_MAX) return { kind: "refuse", reason: "max_days" };
@@ -135,7 +164,7 @@ export const NEXT_DAY_DELTA_MS = -DAY_MS;
 export const NEXT_DAY_DAYS = -1;
 
 /** The clone's date keys plus the three `YYYY-MM-DD` fields the clone never meets. */
-export const NEXT_DAY_DATE_KEYS: ReadonlySet<string> = new Set([...CLONE_DATE_KEYS, "debrief_business_date", "from_date", "to_date"]);
+export const NEXT_DAY_DATE_KEYS: ReadonlySet<string> = new Set([...CLONE_DATE_KEYS, "debrief_business_date", "from_date", "to_date", "review_date"]);
 /**
  * The clone's untouched keys plus every TTL and record-of-real-time field: `expires_at` (a native Timestamp on
  * segments and corrections; the TTL must not move), `expires_at_ms`, the whole `sandbox` object, `ts`,
@@ -161,6 +190,7 @@ export const NEXT_DAY_SHIFT_COLLECTIONS: readonly CollectionName[] = [
   COLLECTIONS.corrections,
   COLLECTIONS.labelUnits,
   COLLECTIONS.proposals,
+  COLLECTIONS.sopVersions,
 ];
 
 const isoOf = (ms: number) => new Date(ms).toISOString();
@@ -207,11 +237,16 @@ export interface ShiftDoc {
   data: Record<string, unknown>;
 }
 
+export type JumpBlockers = Pick<NextDayGuardInput, "proposal_with_content" | "shipped_change_count" | "open_proposal_with_content" | "review_count">;
+
 export interface NextDayGuardState {
   session_open: boolean;
   last_ended: LastEnded | null;
   pending_unlabelled_lines: number;
   proposal_with_content: boolean;
+  shipped_change_count: number;
+  open_proposal_with_content: boolean;
+  review_count: number;
   proposal_lock_live: boolean;
   open_questions: number;
   /**
@@ -230,8 +265,11 @@ export interface NextDayStore {
   readCounter: DemoStore["readCounter"];
   /** Read-only inputs of G3-G6 and the unanswered check, for this outlet and device only. */
   readGuardState(outletId: string, deviceId: string, nowMs: number): Promise<NextDayGuardState>;
-  /** Any proposal of the outlet with `content !== null` (G6, re-checked after the marker is taken). */
-  proposalWithContent(outletId: string): Promise<boolean>;
+  /**
+   * The four facts of `proposalGuard` (G6 and the after-day rules), for this outlet only. Re-read after the marker is
+   * taken; `readGuardState` carries the same facts for the first decision.
+   */
+  readJumpBlockers(outletId: string): Promise<JumpBlockers>;
   /**
    * G7 transaction: sets `sandbox.shift_started_at_ms = nowMs` only if `next_day_count` is still `expectedCount` (the
    * count the caller's decision was made under) AND the marker is null/absent. A moved count means another request
@@ -279,6 +317,8 @@ const REFUSAL_MESSAGES: Record<NextDayRefusal, string> = {
   unanswered_questions: "Open questions need an answer or a confirmation",
   max_days: "All demo days are done",
   proposal_exists: "A proposal already exists for these days",
+  approve_first: "Approve a proposal first",
+  review_exists: "A review already exists",
   shift_incomplete: "The demo could not move to the next day",
   busy: "The demo is busy, try again shortly",
 };
@@ -337,13 +377,14 @@ export async function runNextDay(store: NextDayStore, input: NextDayInput): Prom
     throw refuse(markerRefusal(marker.started_at_ms, input.now_ms) ?? "busy");
   }
 
-  // With our marker held: G6 once more (a proposal can appear between the guard read and the marker), then the lease.
+  // With our marker held: the proposal guard once more (a proposal, an approval or a review can appear between the guard
+  // read and the marker), then the lease.
   // Any throw here, or a refusal, clears OUR marker first (count unchanged).
   let lease: number | null = null;
   let blocked: NextDayRefusal | null = null;
   try {
-    if (await store.proposalWithContent(input.outlet_id)) blocked = "proposal_exists";
-    else {
+    blocked = proposalGuard({ ...(await store.readJumpBlockers(input.outlet_id)), next_day_count: nextDayCount });
+    if (blocked === null) {
       lease = await store.acquireLease(input.outlet_id, input.device_id, input.now_ms, SHIFT_LEASE_MS);
       if (lease === null) blocked = "busy";
     }

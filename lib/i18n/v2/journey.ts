@@ -17,7 +17,9 @@
 export const journeyID = {
   "C-journey-next-day-proposal_exists":
     "Bee6 sudah membuat usulan dari hari-hari ini, jadi jam toko tidak bisa maju ke hari lain. Untuk mengulang, masuk sebagai Pemilik dan atur ulang demo.", // PROVISIONAL
-  "C-journey-next-day-max_days": "Ketiga hari demo sudah selesai. Keluar, lalu lanjut sebagai Supervisor.", // PROVISIONAL
+  "C-journey-next-day-max_days": "Kelima hari demo sudah selesai. Keluar, lalu lanjut sebagai Supervisor.", // PROVISIONAL
+  "C-journey-next-day-approve_first": "Hari 4 dan 5 terbuka setelah Pemilik menyetujui satu perubahan. Keluar dan lanjut sebagai Supervisor.", // PROVISIONAL
+  "C-journey-next-day-review_exists": "Tinjauan sudah ada, jadi hari demo selesai. Keluar dan buka Tinjauan.", // PROVISIONAL
   "C-journey-next-day-session_open": "Akhiri sesi hari ini dulu.", // PROVISIONAL
   "C-journey-next-day-day_not_ended": "Jalankan hari ini dulu: ketuk Mulai, bacakan kartu, lalu Selesai.", // PROVISIONAL
   "C-journey-next-day-preparing": "Bee6 masih menyiapkan pertanyaan hari ini. Coba lagi sebentar lagi.", // PROVISIONAL
@@ -101,7 +103,9 @@ export const journeyID = {
 export const journeyEN: Record<keyof typeof journeyID, string> = {
   "C-journey-next-day-proposal_exists":
     "Bee6 has already written a proposal from these days, so the shop clock can't move to another day. To run the days again, sign in as Owner and reset the demo.",
-  "C-journey-next-day-max_days": "All 3 demo days are done. Sign out and continue as Supervisor.",
+  "C-journey-next-day-max_days": "All 5 demo days are done. Sign out and continue as Supervisor.",
+  "C-journey-next-day-approve_first": "Days 4 and 5 open after the Owner approves a change. Sign out and continue as Supervisor.",
+  "C-journey-next-day-review_exists": "A review already exists, so the demo days are finished. Sign out and open Reviews.",
   "C-journey-next-day-session_open": "End today's session first.",
   "C-journey-next-day-day_not_ended": "Run today first: tap Start, speak the cards, then End.",
   "C-journey-next-day-preparing": "Bee6 is still preparing today's questions. Try again in a minute.",

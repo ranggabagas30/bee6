@@ -21,9 +21,14 @@ export const CLEANUP_GRACE_MS = 24 * 60 * 60_000;
 export const CARRY_OVER_MAX = 0;
 /** R-19 Q4: the hard stop of a sandbox demo day (started_at + this): 20 min, the escape hatch for a stuck judge (was 5 min in R-18, 10 min in R-20). */
 export const DEMO_SESSION_MAX_MS = 1_200_000;
-/** R-19: the judge journey is 3 demo days; the sandbox clock jumps at most NEXT_DAY_MAX = DEMO_DAYS_TOTAL - 1 times. */
-export const DEMO_DAYS_TOTAL = 3;
-export const NEXT_DAY_MAX = 2;
+/**
+ * R-19: the judge journey is 3 demo days; the review-agent plan (18 Oct, Part 1) adds two optional "after" days with the
+ * approved SOP, so 5. The sandbox clock jumps at most NEXT_DAY_MAX = DEMO_DAYS_TOTAL - 1 times.
+ */
+export const DEMO_DAYS_TOTAL = 5;
+export const NEXT_DAY_MAX = 4;
+/** Jumps with `next_day_count >= this` are "after" jumps (day 3 -> 4 and 4 -> 5): unlocked by an approved change, not by a proposal (D3). */
+export const AFTER_DAYS_FROM_COUNT = 2;
 
 /** The template must stay under this many docs; over it the clone refuses (503 template_too_large). */
 export const TEMPLATE_DOC_MAX = 400;
@@ -41,8 +46,8 @@ export const SWITCH_IP_DAILY = 60;
 export const GENERATE_PER_SANDBOX = 8;
 export const GENERATE_DAILY = 300;
 /** Segment uploads (Gemini transcription + Sensitive Data Protection) per judge sandbox, and per day across all of them. */
-/** R-19: 150 (was 60): 3 days x up to 20 min. */
-export const SEGMENT_PER_SANDBOX = 150;
+/** R-19: 150 (was 60): 3 days x up to 20 min. Review-agent plan Part 1: 250 for 5 days (same ratio). */
+export const SEGMENT_PER_SANDBOX = 250;
 export const SEGMENT_DAILY = 3000;
 /**
  * R-23: the demo caps count SEGMENTS, not attempts. The first PUT of a seg_id charges the three segment counters; the
@@ -71,9 +76,10 @@ export const PROCESS_NOW_MIN_INTERVAL_MS = 20_000;
 export const PROCESS_NOW_PER_SANDBOX = 40;
 /**
  * R-19 PR-2: calls to POST /api/v1/demo/next-day per sandbox (counter `next_day_sandbox`), stale taps included. A judge
- * needs 2 jumps; the rest is room for double taps and retries. It bounds the Firestore reads a looping client costs.
+ * needs 4 jumps (2 on the 3-day path, 2 "after" jumps); the rest is room for double taps and retries. It bounds the
+ * Firestore reads a looping client costs.
  */
-export const NEXT_DAY_PER_SANDBOX = 20;
+export const NEXT_DAY_PER_SANDBOX = 30;
 
 /** Lazy cleanup: at most this many expired sandboxes are deleted per new-sandbox request. */
 export const CLEANUP_PER_CREATE = 2;

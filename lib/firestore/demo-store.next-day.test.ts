@@ -47,6 +47,7 @@ function fakeDb(seed: Record<string, Record<string, Doc>> = {}) {
   function query(c: string, filters: [string, string, unknown][], lim?: number) {
     return {
       where: (f: string, o: string, v: unknown) => query(c, [...filters, [f, o, v]], lim),
+      select: (..._fields: string[]) => query(c, filters, lim),
       limit: (n: number) => query(c, filters, n),
       async get() {
         queries.push({ col: c, filters, limit: lim });
@@ -135,6 +136,9 @@ describe("firestoreNextDayStore.readGuardState (read-only, scoped to the outlet 
       last_ended: last,
       pending_unlabelled_lines: 1, // seg1#2 "Oke." is only pending (not done/failed); seg1#1 is blank
       proposal_with_content: false,
+      open_proposal_with_content: false,
+      shipped_change_count: 0,
+      review_count: 0,
       proposal_lock_live: false,
       open_questions: 1,
       open_session: null,
@@ -146,10 +150,10 @@ describe("firestoreNextDayStore.readGuardState (read-only, scoped to the outlet 
   it("session_open, proposal_with_content and a live proposal lock are seen; an expired lock is not", async () => {
     const seed = seedSandbox();
     seed[COLLECTIONS.captureSessions]![`${JDG}:22222222-2222-4222-8222-222222222222`] = session(null, SBX, JDG, "22222222-2222-4222-8222-222222222222");
-    seed[COLLECTIONS.proposals]!.p1 = { outlet_id: SBX, content: { change_title: "y" } };
+    seed[COLLECTIONS.proposals]!.p1 = { outlet_id: SBX, content: { change_title: "y" }, status: "awaiting_supervisor" };
     const withLock = { ...seed, [COLLECTIONS.proposalLocks]: { [SBX]: { outlet_id: SBX, lease_token: S1, acquired_at_ms: T0 - 1, expires_at_ms: T0 + 1 } } };
     const live = await firestoreNextDayStore(fakeDb(withLock).db).readGuardState(SBX, JDG, T0);
-    expect(live).toMatchObject({ session_open: true, proposal_with_content: true, proposal_lock_live: true });
+    expect(live).toMatchObject({ session_open: true, proposal_with_content: true, open_proposal_with_content: true, proposal_lock_live: true });
     withLock[COLLECTIONS.proposalLocks]![SBX]!.expires_at_ms = T0;
     expect((await firestoreNextDayStore(fakeDb(withLock).db).readGuardState(SBX, JDG, T0)).proposal_lock_live).toBe(false);
   });
@@ -241,12 +245,58 @@ describe("firestoreNextDayStore.readGuardState pending lines (one rule, same as 
   });
 });
 
-describe("firestoreNextDayStore.proposalWithContent", () => {
-  it("is true only for a proposal of THIS outlet with content, whatever its status", async () => {
+describe("firestoreNextDayStore.readJumpBlockers (D3/D4: the four facts of the proposal guard, this outlet only)", () => {
+  it("proposal_with_content is true only for a proposal of THIS outlet with content, whatever its status", async () => {
     const seed = seedSandbox();
-    expect(await firestoreNextDayStore(fakeDb(seed).db).proposalWithContent(SBX)).toBe(false); // p2 (other outlet) has content
+    expect((await firestoreNextDayStore(fakeDb(seed).db).readJumpBlockers(SBX)).proposal_with_content).toBe(false); // p2 (other outlet) has content
     seed[COLLECTIONS.proposals]!.p1 = { outlet_id: SBX, content: { change_title: "y" }, status: "suppressed" };
-    expect(await firestoreNextDayStore(fakeDb(seed).db).proposalWithContent(SBX)).toBe(true);
+    const b = await firestoreNextDayStore(fakeDb(seed).db).readJumpBlockers(SBX);
+    expect(b).toEqual({ proposal_with_content: true, open_proposal_with_content: false, shipped_change_count: 0, review_count: 0 });
+  });
+
+  it("open_proposal_with_content is true only while a proposal with content awaits the supervisor or the owner", async () => {
+    for (const [status, open] of [["awaiting_supervisor", true], ["awaiting_owner", true], ["approved", false], ["rejected", false], ["suppressed", false], ["blocked", false]] as const) {
+      const seed = seedSandbox();
+      seed[COLLECTIONS.proposals]!.p1 = { outlet_id: SBX, content: { change_title: "y" }, status };
+      expect((await firestoreNextDayStore(fakeDb(seed).db).readJumpBlockers(SBX)).open_proposal_with_content, status).toBe(open);
+    }
+    // A waiting proposal WITHOUT content (cannot be reviewed) does not block; another outlet's never does.
+    const seed = seedSandbox();
+    seed[COLLECTIONS.proposals]!.p1 = { outlet_id: SBX, content: null, status: "awaiting_supervisor" };
+    seed[COLLECTIONS.proposals]!.p2 = { outlet_id: OTHER, content: { x: 1 }, status: "awaiting_owner" };
+    expect((await firestoreNextDayStore(fakeDb(seed).db).readJumpBlockers(SBX)).open_proposal_with_content).toBe(false);
+  });
+
+  it("shipped_change_count counts this outlet's sop_versions with source proposal (the seed v1 and other outlets' versions do not count)", async () => {
+    const seed = seedSandbox();
+    seed[COLLECTIONS.sopVersions] = {
+      v1: { outlet_id: SBX, source: "seed" },
+      v2: { outlet_id: SBX, source: "proposal" },
+      v3: { outlet_id: SBX, source: "proposal" },
+      x2: { outlet_id: OTHER, source: "proposal" },
+    };
+    expect((await firestoreNextDayStore(fakeDb(seed).db).readJumpBlockers(SBX)).shipped_change_count).toBe(2);
+  });
+
+  it("review_count is 0 without a review and at least 1 with one of THIS outlet (the guard needs only >0)", async () => {
+    const seed = seedSandbox();
+    seed[COLLECTIONS.reviews] = { r1: { outlet_id: OTHER, status: "awaiting_supervisor" } };
+    expect((await firestoreNextDayStore(fakeDb(seed).db).readJumpBlockers(SBX)).review_count).toBe(0);
+    seed[COLLECTIONS.reviews]!.r2 = { outlet_id: SBX, status: "confirmed" };
+    expect((await firestoreNextDayStore(fakeDb(seed).db).readJumpBlockers(SBX)).review_count).toBe(1);
+  });
+
+  it("is read-only and every query is filtered by this outlet; the guard state carries the same facts", async () => {
+    const seed = seedSandbox();
+    seed[COLLECTIONS.proposals]!.p1 = { outlet_id: SBX, content: { change_title: "y" }, status: "approved" };
+    seed[COLLECTIONS.sopVersions] = { v2: { outlet_id: SBX, source: "proposal" } };
+    seed[COLLECTIONS.reviews] = { r1: { outlet_id: SBX, status: "awaiting_supervisor" } };
+    const f = fakeDb(seed);
+    const blockers = await firestoreNextDayStore(f.db).readJumpBlockers(SBX);
+    expect(f.writes).toEqual([]);
+    for (const q of f.queries) expect(q.filters.some(([field, , v]) => field === "outlet_id" && v === SBX)).toBe(true);
+    expect(f.queries.map((q) => q.col).sort()).toEqual(["proposals", "reviews", "sop_versions"]);
+    expect(await firestoreNextDayStore(fakeDb(seed).db).readGuardState(SBX, JDG, T0)).toMatchObject(blockers);
   });
 });
 
@@ -313,13 +363,13 @@ describe("firestoreNextDayStore marker (G7) and completion", () => {
 });
 
 describe("firestoreNextDayStore.readShiftDocs / writeShift", () => {
-  it("reads the seven collections for this outlet only, raw data with ids, each bounded by the limit", async () => {
+  it("reads the eight collections for this outlet only, raw data with ids, each bounded by the limit", async () => {
     const f = fakeDb(seedSandbox());
     const docs = await firestoreNextDayStore(f.db).readShiftDocs(SBX, 10);
     expect(docs.map((d) => `${d.collection}/${d.id}`).sort()).toEqual(["capture_sessions/jdg-0123456789ab:" + S1, "label_units/u1", "label_units/u2", "proposals/p1", "questions/q1", "segments/a"].sort());
     expect(docs.find((d) => d.collection === COLLECTIONS.segments)!.data).toBe(f.cols.get(COLLECTIONS.segments)!.get("a")); // raw, same object
     expect(f.queries.every((q) => q.limit === 10)).toBe(true);
-    expect(f.queries.map((q) => q.col).sort()).toEqual(["capture_sessions", "corrections", "label_units", "proposals", "questions", "segments", "threads"]);
+    expect(f.queries.map((q) => q.col).sort()).toEqual(["capture_sessions", "corrections", "label_units", "proposals", "questions", "segments", "sop_versions", "threads"]);
     expect((await firestoreNextDayStore(f.db).readShiftDocs(SBX, 1)).filter((d) => d.collection === COLLECTIONS.labelUnits)).toHaveLength(1);
   });
 
@@ -333,6 +383,20 @@ describe("firestoreNextDayStore.readShiftDocs / writeShift", () => {
     const dev = f.cols.get(COLLECTIONS.devices)!.get(deviceDocId(SBX, JDG))!;
     expect(dev.last_ended).toEqual(shiftedLast);
     expect(dev.label).toBe("Judge phone");
+  });
+
+  it("sop_versions: reads this sandbox's versions only, and writeShift accepts one of this outlet and refuses a foreign one (D2)", async () => {
+    const seed = seedSandbox();
+    seed[COLLECTIONS.sopVersions] = { [`${SBX}:v2`]: { outlet_id: SBX, source: "proposal" }, [`${OTHER}:v2`]: { outlet_id: OTHER, source: "proposal" } };
+    const f = fakeDb(seed);
+    const store = firestoreNextDayStore(f.db);
+    const docs = (await store.readShiftDocs(SBX, 10)).filter((d) => d.collection === COLLECTIONS.sopVersions);
+    expect(docs.map((d) => d.id)).toEqual([`${SBX}:v2`]);
+    await store.writeShift(SBX, { docs: [{ collection: COLLECTIONS.sopVersions, id: `${SBX}:v2`, data: { outlet_id: SBX, source: "proposal", effective_from_date: "2026-10-13" } }], last_ended: null });
+    expect(f.cols.get(COLLECTIONS.sopVersions)!.get(`${SBX}:v2`)).toMatchObject({ effective_from_date: "2026-10-13" });
+    const writesBefore = f.writes.length;
+    await expect(store.writeShift(SBX, { docs: [{ collection: COLLECTIONS.sopVersions, id: `${OTHER}:v2`, data: { outlet_id: OTHER } }], last_ended: null })).rejects.toThrow(/outside/);
+    expect(f.writes).toHaveLength(writesBefore);
   });
 
   it("refuses, before any write, a doc whose outlet_id is not this sandbox or a non-sbx outlet id", async () => {

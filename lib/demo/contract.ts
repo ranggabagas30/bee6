@@ -58,6 +58,10 @@ export const NEXT_DAY_REFUSALS = [
   "proposal_exists",
   "shift_incomplete",
   "busy",
+  /** After day 3 (review-agent plan D3): no approved change yet, or a proposal still open. */
+  "approve_first",
+  /** After day 3 (D4): a review already exists, so the after days are over. */
+  "review_exists",
 ] as const;
 export const NextDayRefusalSchema = z.enum(NEXT_DAY_REFUSALS);
 export type NextDayRefusal = z.infer<typeof NextDayRefusalSchema>;
@@ -104,12 +108,12 @@ export type ClosingRefusalDetails = z.infer<typeof ClosingRefusalDetailsSchema>;
 export const DemoNextDayBodySchema = z
   .object({
     /** The day the phone believes it is on (a stale value is answered idempotently by the server). */
-    expected_day: z.union([z.literal(1), z.literal(2)]),
+    expected_day: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
     confirm_unanswered: z.boolean(),
   })
   .strict();
 export type DemoNextDayBody = z.infer<typeof DemoNextDayBodySchema>;
-export const DemoNextDayResponseSchema = z.object({ day: z.union([z.literal(2), z.literal(3)]) }).strict();
+export const DemoNextDayResponseSchema = z.object({ day: z.union([z.literal(2), z.literal(3), z.literal(4), z.literal(5)]) }).strict();
 export type DemoNextDayResponse = z.infer<typeof DemoNextDayResponseSchema>;
 /**
  * The 409 refusal travels in the standard error envelope: `error.code` is a `NextDayRefusalSchema` value and
@@ -127,11 +131,17 @@ export type DemoProcessNowResponse = z.infer<typeof DemoProcessNowResponseSchema
 /** `GET /api/v1/demo/progress` (supervisor | owner, sandbox): counters that drive the judge guide. */
 export const DemoProgressResponseSchema = z
   .object({
-    day: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+    day: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]),
     days_done: z.number().int().min(0).max(DEMO_DAYS_TOTAL),
     proposals_with_content: z.number().int().min(0),
     feasible: z.number().int().min(0),
     owner_decided: z.number().int().min(0),
+    /** Proposals with content the owner approved (each ships as its own SOP version). */
+    approved: z.number().int().min(0),
+    /** Reviews waiting for a verdict (awaiting_supervisor | awaiting_owner). */
+    reviews_open: z.number().int().min(0),
+    /** Reviews the owner confirmed. */
+    reviews_confirmed: z.number().int().min(0),
   })
   .strict();
 export type DemoProgressResponse = z.infer<typeof DemoProgressResponseSchema>;

@@ -20,6 +20,12 @@ const ALLOWLIST = new Set([
   // `sandbox` object and an sbx- id (lib/firestore/demo-store.test.ts 5.S5).
   "lib/demo/clone.ts",
   "lib/firestore/demo-store.ts",
+  // Review-agent plan Part 1 (D2, 18 Oct): the sandbox's "Jump to tomorrow" data shift also moves the time fields of the
+  // sandbox's own sop_versions (dates and instants only, one day back; no step text, no new version, no other outlet:
+  // `writeShift` refuses any doc whose outlet_id is not the sbx-* outlet). next-day.ts only names the collection in its
+  // shift table; the write itself is demo-store.ts above. fake-next-day-store.ts is the test-only in-memory twin.
+  "lib/demo/next-day.ts",
+  "lib/demo/testing/fake-next-day-store.ts",
 ]);
 
 const ROOT = process.cwd();

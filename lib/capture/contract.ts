@@ -202,7 +202,7 @@ export function resolveWeeklyHours(
 export const CaptureModeSchema = z.enum(["none", "room", "wearable"]);
 
 /**
- * R-19 (plan section 2.3): the 3-day judge journey profile of a sandbox device. PR-0 fixes the contract;
+ * R-19 (plan section 2.3): the judge journey profile of a sandbox device (3 days, plus 2 optional "after" days). PR-0 fixes the contract;
  * `day`, `days_done` and `next_day` are filled by PR-2 and `closing_reached` and `open_session` by PR-4.
  */
 export const DemoSessionProfileSchema = z
@@ -211,7 +211,7 @@ export const DemoSessionProfileSchema = z
     max_ms: z.number().int().min(60_000).max(3_600_000),
     // R-19 PR-5: the 3-day judge script (lib/demo/script.ts); v1 is gone.
     script_id: z.literal("bakery-v2"),
-    day: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+    day: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]),
     days_total: z.literal(DEMO_DAYS_TOTAL),
     days_done: z.number().int().min(0).max(DEMO_DAYS_TOTAL),
     closing_reached: z.boolean(),
@@ -222,7 +222,7 @@ export const DemoSessionProfileSchema = z
 export type DemoSessionProfile = z.infer<typeof DemoSessionProfileSchema>;
 
 /**
- * The profile of a fresh sandbox (day 1 of 3, nothing run yet, so the jump is locked with `day_not_ended`).
+ * The profile of a fresh sandbox (day 1 of 5, nothing run yet, so the jump is locked with `day_not_ended`).
  * Until PR-2 and PR-4 compute the live values, `toCaptureConfig` returns exactly this.
  */
 export const FRESH_DEMO_SESSION: DemoSessionProfile = Object.freeze({
@@ -281,7 +281,7 @@ export function hasDemoProfile(input: {
 // Defined HERE (not in lib/demo/next-day.ts) because this module is bundled into the browser capture client:
 // the next-day module reaches firebase-admin through the clone/store imports and must stay server-only.
 
-export type DemoDay = 1 | 2 | 3;
+export type DemoDay = 1 | 2 | 3 | 4 | 5;
 
 /** `day = next_day_count + 1`, capped at DEMO_DAYS_TOTAL. */
 export function demoDayOf(nextDayCount: number | undefined): DemoDay {

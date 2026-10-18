@@ -1,7 +1,7 @@
 import type { Firestore } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import { COLLECTIONS } from "@/lib/firestore/collections";
-import { LastEndedSchema, parseOutletDoc, type LastEnded } from "@/lib/firestore/schema";
+import { LastEndedSchema, REVIEW_STATUSES, parseOutletDoc, type LastEnded, type ReviewStatus } from "@/lib/firestore/schema";
 import type { ProgressStore, ProgressProposalRow } from "@/lib/demo/progress";
 
 /**
@@ -41,6 +41,18 @@ export function firestoreProgressStore(db: Firestore = adminDb()): ProgressStore
         });
       }
       return rows;
+    },
+
+    async listReviewStatuses(outletId) {
+      // `status` only: a review's counts, change title and verdict reasons are never read here.
+      const snap = await db.collection(COLLECTIONS.reviews).where("outlet_id", "==", outletId).select("status").get();
+      const out: ReviewStatus[] = [];
+      for (const doc of snap.docs) {
+        const status = (doc.data() as { status?: unknown }).status;
+        const known = REVIEW_STATUSES.find((s) => s === status);
+        if (known !== undefined) out.push(known);
+      }
+      return out;
     },
 
     async listDeviceLastEnded(outletId) {

@@ -54,7 +54,7 @@ const input = { outlet_id: OUTLET, device_id: DEVICE, session_id: SID, now_ms: N
 
 describe("jumpToClosing", () => {
   it("needs requiredLines(day) = 5 lines on every day (1 heard line per card, 5 cards per day; speech, never time)", async () => {
-    for (const day of [1, 2, 3] as const) {
+    for (const day of [1, 2, 3, 4, 5] as const) {
       expect(requiredLines(day)).toBe(5);
       const f = fakeStore({ session: openSession(), lines: 4 });
       await expect(jumpToClosing(f.store, { ...input, day })).rejects.toMatchObject({ details: { have: 4, need: 5 } });
