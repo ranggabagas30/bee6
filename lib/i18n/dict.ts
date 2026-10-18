@@ -493,7 +493,8 @@ export const ID_BASE = {
   // ReviewAgent (review-agent-18oct.md 5.12). The narrative itself is English-only (like the debrief heading); only this chrome is translated.
   "C-rev-ff-busy": "Bee6 sedang meninjau…", // PROVISIONAL (Tiffany)
   "C-rev-ff-estimate": "Bee6 membaca perubahan dan catatan dari sebelum dan sesudahnya. Biasanya {min} sampai {max} detik.", // PROVISIONAL (Tiffany)
-  "C-rev-ff-longer": "Lebih lama dari biasanya; masih diproses.", // PROVISIONAL (Tiffany)
+  "C-rev-ff-longer": "Lebih lama dari biasanya. Jika lebih dari sekitar {max} detik, hasilnya muncul tanpa penjelasan.", // PROVISIONAL (Tiffany)
+  "C-rev-agent-missing": "Bee6 tidak dapat menulis penjelasan kali ini (terlalu lama). Keputusan dan angka di atas tidak terpengaruh.", // PROVISIONAL (Tiffany)
   "C-rev-agent-kick": "Bee6 menjelaskan", // PROVISIONAL (Tiffany)
   "C-rev-agent-note": "Bee6 menulis penjelasan ini. Saran di atas berasal dari aturan tetap, dan keputusan ada di tangan Anda.", // PROVISIONAL (Tiffany)
   "C-rev-agent-cv-short_window": "Jangka pendek: hanya beberapa hari terekam di tiap sisi.", // PROVISIONAL (Tiffany)
@@ -1004,7 +1005,8 @@ export const EN_BASE: Record<keyof typeof ID_BASE, string> = {
   "C-rev-ff-none": "No SOP change left to review.", // PROVISIONAL
   "C-rev-ff-busy": "Bee6 is reviewing…", // PROVISIONAL
   "C-rev-ff-estimate": "Bee6 reads the change and the notes from before and after. Usually {min} to {max} seconds.", // PROVISIONAL
-  "C-rev-ff-longer": "Taking longer than usual; still working.", // PROVISIONAL
+  "C-rev-ff-longer": "Taking longer than usual. If it takes more than about {max} seconds, the result appears without the explanation.", // PROVISIONAL
+  "C-rev-agent-missing": "Bee6 could not write an explanation this time (it took too long). The verdict and the numbers above are not affected.", // PROVISIONAL
   "C-rev-agent-kick": "Bee6 explains", // PROVISIONAL
   "C-rev-agent-note": "Bee6 wrote this explanation. The suggestion above comes from a fixed rule, and the verdict is yours.", // PROVISIONAL
   "C-rev-agent-cv-short_window": "Short windows: only a few captured days on each side.", // PROVISIONAL

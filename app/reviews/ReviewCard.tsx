@@ -130,10 +130,17 @@ function WindowTile({
 export function ReviewCard({
   review,
   lang,
+  agentMissing = false,
   children,
 }: {
   review: ReviewView;
   lang: Lang;
+  /**
+   * Set by the Reviews page for the review a fast-forward tap just created while the ReviewAgent was on, when that
+   * review came back without an explanation (the agent timed out or fell back). Shows one fixed notice (no model
+   * text). Ignored when the review does carry an explanation.
+   */
+  agentMissing?: boolean;
   children?: ReactNode;
 }) {
   const { before, after, suggestion, notices, supervisor, owner } = review;
@@ -226,6 +233,12 @@ export function ReviewCard({
           )}
           <p className={cx("b6-note", styles.agentNote)}>{t(lang, "C-rev-agent-note")}</p>
         </div>
+      )}
+
+      {agentMissing && !review.agent && (
+        <p role="status" className="b6-alert">
+          {t(lang, "C-rev-agent-missing")}
+        </p>
       )}
 
       <p className={styles.line}>

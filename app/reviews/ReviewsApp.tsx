@@ -74,6 +74,9 @@ export function ReviewsApp({
   // Which fast-forward run has gone past `max_s`: "longer" is derived (run === overRun), so a new run never shows a stale line.
   const [ffRun, setFfRun] = useState(0);
   const [ffOverRun, setFfOverRun] = useState<number | null>(null);
+  // The review this run's tap created (flag on only). The notice is derived from it plus the reloaded list, so a
+  // stale list never shows it early; a new run, or a page reload, starts from null.
+  const [ffCreated, setFfCreated] = useState<number | null>(null);
   const ffInFlight = useRef(false);
   const bannerRef = useRef<HTMLParagraphElement>(null);
 
@@ -157,6 +160,8 @@ export function ReviewsApp({
     setFfRun((n) => n + 1);
     setFfBusy(true);
     setBanner(null);
+    setFfCreated(null);
+    const knownBefore = view.kind === "ok" ? new Set([...view.data.open, ...view.data.decided].map((r) => r.version)) : null;
     const result = await authedPostJson(auth, "/api/v1/reviews/fast-forward", {}, FastForwardResponseSchema);
     ffInFlight.current = false;
     setFfBusy(false);
@@ -167,6 +172,8 @@ export function ReviewsApp({
       return;
     }
     if (result.kind === "ok") {
+      // Only a review that is new because of this tap can be "without an explanation because of this tap".
+      if (reviewAgentEstimate && knownBefore && !knownBefore.has(result.data.version)) setFfCreated(result.data.version);
       handleSettled("C-rev-ff-done");
       return;
     }
@@ -213,6 +220,8 @@ export function ReviewsApp({
   // its focus and live region survive a failed reload, and the body swaps.
   const open = view.kind === "ok" ? view.data.open : [];
   const decided = view.kind === "ok" ? view.data.decided : [];
+  const missingFor = (review: { version: number; agent?: unknown }) =>
+    reviewAgentEstimate !== null && ffCreated === review.version && !review.agent;
   const fastForwardAvailable = view.kind === "ok" && view.data.fast_forward_available;
 
   return (
@@ -258,7 +267,7 @@ export function ReviewsApp({
               <p role="status" aria-live="polite" className={styles.ffWait}>
                 {ffBusy
                   ? ffOverRun === ffRun
-                    ? t(lang, "C-rev-ff-longer")
+                    ? t(lang, "C-rev-ff-longer", { max: reviewAgentEstimate.max_s })
                     : t(lang, "C-rev-ff-estimate", { min: reviewAgentEstimate.min_s, max: reviewAgentEstimate.max_s })
                   : ""}
               </p>
@@ -276,7 +285,7 @@ export function ReviewsApp({
               {t(lang, "C-rev-open")}
             </h2>
             {open.map((review) => (
-              <ReviewCard key={review.version} review={review} lang={lang}>
+              <ReviewCard key={review.version} review={review} lang={lang} agentMissing={missingFor(review)}>
                 <VerdictPanel auth={auth} role={role} review={review} lang={lang} onSettled={handleSettled} />
               </ReviewCard>
             ))}
@@ -289,7 +298,7 @@ export function ReviewsApp({
               {t(lang, "C-rev-decided")}
             </h2>
             {decided.map((review) => (
-              <ReviewCard key={review.version} review={review} lang={lang} />
+              <ReviewCard key={review.version} review={review} lang={lang} agentMissing={missingFor(review)} />
             ))}
           </section>
         )}
