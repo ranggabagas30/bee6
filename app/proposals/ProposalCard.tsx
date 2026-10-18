@@ -144,7 +144,7 @@ function ProposalContentView({
       <p style={LINE_STYLE}>
         {status === "awaiting_supervisor" || status === "awaiting_owner"
           ? t(lang, "C-prop-review-draft", { date: dayLabel(content.review_date, lang) })
-          : dayLabel(content.review_date, lang)}
+          : t(lang, "C-prop-review", { date: dayLabel(content.review_date, lang) })}
       </p>
       <p style={LINE_STYLE}>{t(lang, "C-prop-censored")}</p>
     </>

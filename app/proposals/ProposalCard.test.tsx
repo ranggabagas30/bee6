@@ -209,23 +209,33 @@ describe("ProposalCard — draft review date shows estimate wording (R-FB-15)", 
     expect(screen.getByText("Review about Sun 1 Nov (confirmed when approved)")).not.toBeNull();
   });
 
-  it("shows just the bare date for approved proposals (no estimate wording)", () => {
+  it("shows 'Review on {date}' for approved proposals", () => {
     render(<ProposalCard lang="en" proposal={{ ...awaitingProposal(), status: "approved" }} />);
-    expect(screen.getByText("Sun 1 Nov")).not.toBeNull();
+    expect(screen.getByText("Review on Sun 1 Nov")).not.toBeNull();
     expect(screen.queryByText(/confirmed when approved/)).toBeNull();
   });
 
-  it("shows just the bare date for rejected proposals (no estimate wording)", () => {
+  it("shows 'Ditinjau pada {date}' for approved proposals in Bahasa", () => {
+    render(<ProposalCard lang="id" proposal={{ ...awaitingProposal(), status: "approved" }} />);
+    expect(screen.getByText("Ditinjau pada Min 1 Nov")).not.toBeNull();
+    expect(screen.queryByText(/dikonfirmasi saat disetujui/)).toBeNull();
+  });
+
+  it("shows 'Review on {date}' for rejected proposals", () => {
     render(<ProposalCard lang="en" proposal={{ ...awaitingProposal(), status: "rejected" }} />);
-    expect(screen.getByText("Sun 1 Nov")).not.toBeNull();
+    expect(screen.getByText("Review on Sun 1 Nov")).not.toBeNull();
     expect(screen.queryByText(/confirmed when approved/)).toBeNull();
+  });
+
+  it("shows 'Ditinjau pada {date}' for rejected proposals in Bahasa", () => {
+    render(<ProposalCard lang="id" proposal={{ ...awaitingProposal(), status: "rejected" }} />);
+    expect(screen.getByText("Ditinjau pada Min 1 Nov")).not.toBeNull();
+    expect(screen.queryByText(/dikonfirmasi saat disetujui/)).toBeNull();
   });
 
   it("uses Bahasa estimate wording when lang is id and status is awaiting", () => {
     render(<ProposalCard lang="id" proposal={awaitingProposal()} />);
-    // Just check that the date appears with the estimate pattern
-    // In Bahasa: "Min 1 Nov" (Min = Minggu/Sunday)
-    expect(screen.getByText(/Min 1 Nov/)).not.toBeNull();
+    expect(screen.getByText("Ditinjau sekitar Min 1 Nov (dikonfirmasi saat disetujui)")).not.toBeNull();
   });
 });
 
