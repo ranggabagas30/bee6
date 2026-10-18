@@ -461,7 +461,7 @@ describe("ReviewCard: Bee6 explains panel (ReviewAgent, plan 5.12)", () => {
 
 describe("ReviewCard: explanation-missing notice (ReviewAgent, UI must inform the judge)", () => {
   const EN_COPY =
-    "Bee6 could not write an explanation this time (it took too long). The verdict and the numbers above are not affected.";
+    "Bee6 could not write an explanation this time. The suggestion and the numbers above are not affected.";
 
   it("shows nothing by default (today's card)", () => {
     render(<ReviewCard review={reviewView()} lang="en" />);

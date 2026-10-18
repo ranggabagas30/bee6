@@ -391,8 +391,8 @@ describe("ReviewsApp: a fast-forward result without an explanation", () => {
   const FF = { name: "Fast-forward to the review date (simulated)" };
   const EST = { min_s: 5, max_s: 15, cap_s: 20 };
   const MISSING =
-    "Bee6 could not write an explanation this time (it took too long). The verdict and the numbers above are not affected.";
-  const MISSING_ID = "Bee6 tidak dapat menulis penjelasan kali ini (terlalu lama). Putusan dan angka di atas tidak terpengaruh.";
+    "Bee6 could not write an explanation this time. The suggestion and the numbers above are not affected.";
+  const MISSING_ID = "Bee6 tidak dapat menulis penjelasan kali ini. Saran dan angka di atas tidak terpengaruh.";
   const old = reviewView({ version: 2, change_title: "Older change" });
   const created = (agent?: ReviewView["agent"]) =>
     reviewView({ version: 3, change_title: "Fresh change", simulated: true, ...(agent ? { agent } : {}) });

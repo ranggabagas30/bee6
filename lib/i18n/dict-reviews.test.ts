@@ -95,12 +95,12 @@ describe("R-11 review copy keys", () => {
     );
     expect(ID["C-rev-ff-longer" as DictKey]).toContain("{cap}");
     expect(EN["C-rev-agent-missing" as DictKey]).toBe(
-      "Bee6 could not write an explanation this time (it took too long). The verdict and the numbers above are not affected.",
+      "Bee6 could not write an explanation this time. The suggestion and the numbers above are not affected.",
     );
     expect(ID["C-rev-agent-missing" as DictKey]).not.toBe(EN["C-rev-agent-missing" as DictKey]);
-    // Bahasa uses "putusan" (the verdict) everywhere on this screen, never "keputusan"
+    // the notice says "saran" (the suggestion), as the card does
     expect(ID["C-rev-agent-missing" as DictKey]).toBe(
-      "Bee6 tidak dapat menulis penjelasan kali ini (terlalu lama). Putusan dan angka di atas tidak terpengaruh.",
+      "Bee6 tidak dapat menulis penjelasan kali ini. Saran dan angka di atas tidak terpengaruh.",
     );
     expect(ID["C-rev-agent-note" as DictKey]).toBe(
       "Bee6 menulis penjelasan ini. Saran di atas berasal dari aturan tetap, dan putusan ada di tangan Anda.",
