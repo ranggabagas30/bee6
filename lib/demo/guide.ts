@@ -1,11 +1,12 @@
 import { z } from "zod";
+import { DEMO_DAYS_TOTAL } from "@/lib/demo/constants";
 import { t } from "@/lib/i18n/dict";
 import type { Lang } from "@/lib/i18n/lang";
 
 /**
  * R-19 PR-5 judge guide data model (docs/tasks/R-19-demo-v2.md section 7.1). Pure, zod-validated at module load.
  * No tabs: ONE contextual card per screen and state (`guideKeyFor`), inside a guide collapsed by default. The
- * 5-stage journey (`currentStage`) comes from the sandbox counters (phone: `demo_session`; web:
+ * 7-stage journey (`currentStage`; the last two are the optional after days and the review, review-agent plan 3.6) comes from the sandbox counters (phone: `demo_session`; web:
  * GET /api/v1/demo/progress) plus the local "supervisor visited" flag.
  *
  * Where the demo facts live: ONLY here. The entry card says what Bee6 is, "about 20 minutes", and how to change
@@ -18,7 +19,7 @@ import type { Lang } from "@/lib/i18n/lang";
 const Bilingual = z.object({ en: z.string().min(1).max(400), id: z.string().min(1).max(400) }).strict();
 export type Bilingual = z.infer<typeof Bilingual>;
 
-export const STAGE_IDS = ["staff_day1", "supervisor_look", "staff_days23", "supervisor_decide", "owner_approve"] as const;
+export const STAGE_IDS = ["staff_day1", "supervisor_look", "staff_days23", "supervisor_decide", "owner_approve", "staff_after", "close_loop"] as const;
 export type StageId = (typeof STAGE_IDS)[number];
 
 export const STAGES: readonly { id: StageId; title: Bilingual }[] = z
@@ -30,6 +31,8 @@ export const STAGES: readonly { id: StageId; title: Bilingual }[] = z
     { id: "staff_days23", title: { en: "Staff · days 2-3", id: "Staf · hari 2-3" } },
     { id: "supervisor_decide", title: { en: "Supervisor · decide", id: "Supervisor · putuskan" } },
     { id: "owner_approve", title: { en: "Owner · approve", id: "Pemilik · setujui" } },
+    { id: "staff_after", title: { en: "Staff · days 4-5", id: "Staf · hari 4-5" } },
+    { id: "close_loop", title: { en: "Review · close the loop", id: "Tinjauan · tutup siklus" } },
   ]);
 
 /** Every screen/state that has its own guide card (page-2 boards in the plan's section 11a). */
@@ -55,6 +58,9 @@ export const GUIDE_KEYS = [
   "proposals_feasible",
   "sop",
   "reviews",
+  "reviews_ready",
+  "reviews_verdict",
+  "reviews_done",
   "devices",
   "home",
   "approvals",
@@ -131,8 +137,8 @@ export const GUIDE: Readonly<Record<GuideKey, GuideCard>> = z
       kicker: bi("WELCOME, JUDGE", "SELAMAT DATANG, JURI"),
       body: [
         bi(
-          "Bee6 listens to a shop's day on one phone and turns speech into short work notes. You will run three short days as staff, check what Bee6 found as supervisor, then approve a change as owner. About 20 minutes.",
-          "Bee6 mendengarkan hari kerja sebuah toko lewat satu ponsel dan mengubah ucapan menjadi catatan kerja singkat. Anda akan menjalankan tiga hari singkat sebagai staf, memeriksa temuan Bee6 sebagai supervisor, lalu menyetujui satu perubahan sebagai pemilik. Sekitar 20 menit.",
+          "Bee6 listens to a shop's day on one phone and turns speech into short work notes. You will run three short days as staff, check what Bee6 found as supervisor, then approve a change as owner. About 20 minutes. Optional: run two more days with the new SOP and watch Bee6 review the change (about 10 minutes more).",
+          "Bee6 mendengarkan hari kerja sebuah toko lewat satu ponsel dan mengubah ucapan menjadi catatan kerja singkat. Anda akan menjalankan tiga hari singkat sebagai staf, memeriksa temuan Bee6 sebagai supervisor, lalu menyetujui satu perubahan sebagai pemilik. Sekitar 20 menit. Opsional: jalankan dua hari lagi dengan SOP baru dan lihat Bee6 meninjau perubahan itu (sekitar 10 menit lagi).",
         ),
         bi(
           "Supervisor and Owner sign in with the email and password this guide shows on the sign-in page.",
@@ -357,7 +363,46 @@ export const GUIDE: Readonly<Record<GuideKey, GuideCard>> = z
     }),
     reviews: card({
       title: bi("Reviews", "Tinjauan"),
-      body: [bi("An approved change gets a review date. It appears here when that date comes.", "Perubahan yang disetujui mendapat tanggal tinjauan. Muncul di sini saat tanggalnya tiba.")],
+      body: [
+        bi(
+          "An approved change gets a review date. For a real before-and-after, run days 4 and 5 as Staff first; then come back here and fast-forward to the review date. Fast-forwarding earlier compares against empty days and fixes that review.",
+          "Perubahan yang disetujui mendapat tanggal tinjauan. Untuk perbandingan sebelum dan sesudah yang nyata, jalankan hari 4 dan 5 sebagai Staf dulu; lalu kembali ke sini dan percepat ke tanggal tinjauan. Mempercepat lebih awal membandingkan dengan hari kosong dan mengunci tinjauan itu.",
+        ),
+      ],
+    }),
+    // Review-agent plan 3.6: the three Reviews cards of the close-the-loop stage (`reviewsKey` picks one).
+    reviews_ready: card({
+      title: bi("Fast-forward to the review date", "Percepat ke tanggal tinjauan"),
+      todo: [
+        bi("Tap Fast-forward to the review date", "Ketuk Percepat ke tanggal tinjauan"),
+        bi("Read Bee6's review and the before/after counts", "Baca tinjauan Bee6 dan hitungan sebelum/sesudah"),
+        bi("Give the Supervisor verdict, then confirm as Owner", "Beri putusan Supervisor, lalu konfirmasi sebagai Pemilik"),
+      ],
+      body: [
+        bi(
+          "Days 4 and 5 are captured. Fast-forward to the review date: Bee6 compares the days before and after the change and suggests a verdict (about 20 seconds).",
+          "Hari 4 dan 5 sudah tertangkap. Percepat ke tanggal tinjauan: Bee6 membandingkan hari sebelum dan sesudah perubahan lalu menyarankan putusan (sekitar 20 detik).",
+        ),
+      ],
+    }),
+    reviews_verdict: card({
+      title: bi("Give your verdict", "Beri putusan Anda"),
+      body: [
+        bi(
+          "Read the before and after counts and Bee6's suggestion, then give your verdict. The Supervisor decides first; the Owner confirms, and the result is remembered.",
+          "Baca hitungan sebelum dan sesudah serta saran Bee6, lalu beri putusan Anda. Supervisor memutuskan dulu; Pemilik mengonfirmasi, dan hasilnya diingat.",
+        ),
+      ],
+      footnote: bi("A second change? Fast-forward again.", "Perubahan kedua? Percepat lagi."),
+    }),
+    reviews_done: card({
+      title: bi("The loop is closed", "Siklus selesai"),
+      body: [
+        bi(
+          "The loop is closed: the change shipped, was measured on real days, and the verdict is remembered. That is one full cycle of Bee6. Reset the demo from the Owner home to run it again.",
+          "Siklus selesai: perubahan terbit, diukur pada hari nyata, dan putusannya diingat. Itu satu siklus penuh Bee6. Atur ulang demo dari Beranda Pemilik untuk menjalankannya lagi.",
+        ),
+      ],
     }),
     devices: card({
       title: bi("Connected devices", "Perangkat terhubung"),
@@ -390,8 +435,8 @@ export const GUIDE: Readonly<Record<GuideKey, GuideCard>> = z
       title: bi("All decided", "Semua sudah diputuskan"),
       body: [
         bi(
-          "Each approved change is now its own SOP version. Open SOP to see the improved steps, and Reviews for their review dates.",
-          "Setiap perubahan yang disetujui kini menjadi versi SOP-nya sendiri. Buka SOP untuk melihat langkah yang diperbaiki, dan Tinjauan untuk tanggal tinjauannya.",
+          "Each approved change is now its own SOP version. Open SOP to see the improved steps. To see whether a change worked, sign out, pick Staff, and run days 4 and 5 with the new SOP; then open Reviews.",
+          "Setiap perubahan yang disetujui kini menjadi versi SOP-nya sendiri. Buka SOP untuk melihat langkah yang diperbaiki. Untuk melihat apakah perubahan berhasil, keluar, pilih Staf, dan jalankan hari 4 dan 5 dengan SOP baru; lalu buka Tinjauan.",
         ),
       ],
     }),
@@ -405,8 +450,9 @@ export interface GuideCardContext {
 
 /**
  * The card for a key on a given demo day. A few cards read differently by day: day 1 has no phone-order script
- * card, and after day 1 the stage list sends the judge to the Supervisor screens (stage 2) before day 2; day 3 is
- * the last day, so its debrief cards never offer "jump to tomorrow" (the guide shows the max_days line instead).
+ * card, and after day 1 the stage list sends the judge to the Supervisor screens (stage 2) before day 2. Day 3 hands
+ * over to the Supervisor (the jump waits for the Owner's approval, so its debrief cards never offer "jump to
+ * tomorrow"); day 4 jumps to day 5; day 5 is the last day and sends the judge to Reviews.
  * The open-session card follows the page's own view (`OpenSessionView`): End today when closing is reached,
  * Cancel today otherwise. Every other key, and an unknown day (`null`), returns the base `GUIDE` card.
  */
@@ -451,7 +497,7 @@ export function guideCard(key: GuideKey, day: number | null, ctx: GuideCardConte
       ],
     });
   }
-  if (day === 3 && key === "debrief_question") {
+  if ((day === 3 || day === 5) && key === "debrief_question") {
     return GuideCardSchema.parse({
       ...base,
       body: [
@@ -461,13 +507,26 @@ export function guideCard(key: GuideKey, day: number | null, ctx: GuideCardConte
       ],
     });
   }
+  if (day === 4 && key === "debrief_question") {
+    return GuideCardSchema.parse({
+      ...base,
+      body: [
+        bi(
+          "Answer what really happened in today's script. The phone order did happen and was read back, so answer Yes and type a few words, for example: I read the order back to the caller.",
+          "Jawab apa yang sebenarnya terjadi dalam naskah hari ini. Pesanan telepon memang terjadi dan dibacakan ulang, jadi jawab Ya dan ketik beberapa kata, misalnya: Saya membacakan ulang pesanan kepada penelepon.",
+        ),
+        base.body[1]!,
+        base.body[2]!,
+      ],
+    });
+  }
   if (day === 1 && key === "debrief_done") {
     return GuideCardSchema.parse({
       ...base,
       body: [
         bi(
-          "Day 1 of 3 is done. First sign out and look around as Supervisor (stage 2). Then come back for days 2 and 3. Asking Bee6 for proposals locks Jump to tomorrow, so finish day 3 first.",
-          "Hari 1 dari 3 selesai. Keluar dulu dan lihat-lihat sebagai Supervisor (tahap 2). Lalu kembali untuk hari 2 dan 3. Meminta usulan ke Bee6 mengunci Lompat ke besok, jadi selesaikan hari 3 dulu.",
+          "Day 1 of 5 is done. First sign out and look around as Supervisor (stage 2). Then come back for days 2 and 3. Asking Bee6 for proposals locks Jump to tomorrow, so finish day 3 first.",
+          "Hari 1 dari 5 selesai. Keluar dulu dan lihat-lihat sebagai Supervisor (tahap 2). Lalu kembali untuk hari 2 dan 3. Meminta usulan ke Bee6 mengunci Lompat ke besok, jadi selesaikan hari 3 dulu.",
         ),
       ],
     });
@@ -477,8 +536,8 @@ export function guideCard(key: GuideKey, day: number | null, ctx: GuideCardConte
       ...base,
       body: [
         bi(
-          "Day 2 of 3 is done. Jump to tomorrow to run day 3. After day 3, sign out and continue as Supervisor.",
-          "Hari 2 dari 3 selesai. Lompat ke besok untuk menjalankan hari 3. Setelah hari 3, keluar dan lanjut sebagai Supervisor.",
+          "Day 2 of 5 is done. Jump to tomorrow to run day 3. After day 3, sign out and continue as Supervisor.",
+          "Hari 2 dari 5 selesai. Lompat ke besok untuk menjalankan hari 3. Setelah hari 3, keluar dan lanjut sebagai Supervisor.",
         ),
       ],
     });
@@ -489,8 +548,31 @@ export function guideCard(key: GuideKey, day: number | null, ctx: GuideCardConte
       handle: bi("Sign out and continue as Supervisor", "Keluar dan lanjut sebagai Supervisor"),
       body: [
         bi(
-          "That was the last of the 3 demo days. Next, sign out and continue as Supervisor.",
-          "Itu hari terakhir dari 3 hari demo. Selanjutnya, keluar dan lanjut sebagai Supervisor.",
+          "That was day 3 of 5. Next, sign out and continue as Supervisor. Days 4 and 5 unlock after the Owner approves a change.",
+          "Itu hari 3 dari 5. Selanjutnya, keluar dan lanjut sebagai Supervisor. Hari 4 dan 5 terbuka setelah Pemilik menyetujui satu perubahan.",
+        ),
+      ],
+    });
+  }
+  if (day === 4 && key === "debrief_done") {
+    return GuideCardSchema.parse({
+      ...base,
+      body: [
+        bi(
+          "Day 4 of 5 is done. Jump to tomorrow to run day 5. After day 5, sign out and continue as Supervisor.",
+          "Hari 4 dari 5 selesai. Lompat ke besok untuk menjalankan hari 5. Setelah hari 5, keluar dan lanjut sebagai Supervisor.",
+        ),
+      ],
+    });
+  }
+  if (day === 5 && key === "debrief_done") {
+    return GuideCardSchema.parse({
+      ...base,
+      handle: bi("Sign out and open Reviews", "Keluar dan buka Tinjauan"),
+      body: [
+        bi(
+          "That was the last demo day. Sign out, continue as Supervisor, and open Reviews.",
+          "Itu hari demo terakhir. Keluar, lanjut sebagai Supervisor, dan buka Tinjauan.",
         ),
       ],
     });
@@ -512,6 +594,8 @@ export function todoDoneCount(key: GuideKey, p: JourneyProgress | null): number 
       return p !== null && p.feasible >= 2 ? 1 : 0;
     case "approvals":
       return p === null ? 0 : Math.min(2, p.owner_decided);
+    case "reviews_ready":
+      return p !== null && p.reviews_open + p.reviews_confirmed > 0 ? 1 : 0;
     default:
       return 0;
   }
@@ -547,7 +631,32 @@ export function currentStage(p: JourneyProgress, ctx: StageContext = { onSupervi
   if (p.days_done === 1 && (ctx.onSupervisorWeb || !p.supervisor_visited)) return "supervisor_look";
   if (p.days_done < 3 && p.proposals_with_content === 0) return "staff_days23";
   if (p.proposals_with_content === 0 || p.feasible < p.proposals_with_content) return "supervisor_decide";
-  return "owner_approve";
+  if (p.owner_decided < p.proposals_with_content) return "owner_approve";
+  // Review-agent plan 3.6: every proposal decided. An approved change with no review yet and the after days to run
+  // is stage 6 (the 3-day path may stop here: it is optional); otherwise the loop is being closed (or nothing shipped).
+  if (p.approved > 0 && p.days_done < DEMO_DAYS_TOTAL && p.reviews_open + p.reviews_confirmed === 0) return "staff_after";
+  return "close_loop";
+}
+
+/**
+ * The staff phone reports `JourneyProgress` without the web counters (it reads only its own session profile). From
+ * day 4 on it can still tell the change was approved: the `approve_first` guard only lets the jump through once a
+ * change shipped, so days 4 and 5 imply one approved, decided, feasible proposal. Before day 4 the counters stay 0
+ * (stage 4 after day 3, as before the after days existed). Pure; display only.
+ */
+export function phoneJourney(profile: { day: JourneyProgress["day"]; days_done: number }, visited: boolean): JourneyProgress {
+  const afterDays = profile.day >= 4;
+  return {
+    day: profile.day,
+    days_done: profile.days_done,
+    proposals_with_content: afterDays ? 1 : 0,
+    feasible: afterDays ? 1 : 0,
+    owner_decided: afterDays ? 1 : 0,
+    approved: afterDays ? 1 : 0,
+    reviews_open: 0,
+    reviews_confirmed: 0,
+    supervisor_visited: visited,
+  };
 }
 
 export function stageIndex(stage: StageId): number {
@@ -628,6 +737,16 @@ function proposalsKey(state: WebGuideState): GuideKey {
   return p.days_done >= 2 ? "proposals_ready" : "proposals_waiting";
 }
 
+/** Review-agent plan 3.6: which of the four Reviews cards, from the sandbox counters (both web roles read the same). */
+function reviewsKey(state: WebGuideState): GuideKey {
+  const p = state.progress;
+  if (p === null || p.approved === 0) return "reviews";
+  if (p.reviews_confirmed >= p.approved) return "reviews_done";
+  if (p.reviews_open > 0) return "reviews_verdict";
+  if (p.days_done >= DEMO_DAYS_TOTAL) return "reviews_ready";
+  return "reviews";
+}
+
 /** Pure, table-tested: the ONE card for a route and the page's reported state. */
 export function guideKeyFor(route: string, state: GuideState | null): GuideKey {
   const path = route.split("?")[0] ?? "";
@@ -649,7 +768,7 @@ export function guideKeyFor(route: string, state: GuideState | null): GuideKey {
     case "sop":
       return "sop";
     case "reviews":
-      return "reviews";
+      return web ? reviewsKey(web) : "reviews";
     case "devices":
       return "devices";
     case "home":
