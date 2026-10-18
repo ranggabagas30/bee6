@@ -36,6 +36,12 @@ import styles from "@/app/proposals/supervisor.module.css";
  * GENERATION_IN_PROGRESS keeps the asking look and re-reads the list every 5 s until a proposal appears or
  * two model timeouts pass (plan 9.5): no second paid call is ever made for it.
  *
+ * Demo sandbox only (`demo`, from the token's `demo_exp_ms`; demo feedback 2 item 18): one tap chains the same generate
+ * route, one round per ready problem (at most MAX_ASK_ROUNDS), with `another: true` after the first written proposal.
+ * Anything that is not a new proposal ends the chain; one reload and one status line follow. A chain cut short names
+ * what was written and points at "Ask for another" (no automatic retry: every round is a paid call). The pilot is
+ * always exactly one round.
+ *
  * `onBridge` is the one hook the judge guide (PR-5) will later subscribe to: which screen is shown, and
  * "progress" after an ask, a feasible mark or a rejection. Nothing in this file publishes anywhere else.
  *
@@ -48,6 +54,15 @@ export type ProposalsBridgeEvent = { type: "screen"; screen: ProposalsScreen } |
 
 type Screen = { kind: "list" } | { kind: "detail"; id: string } | { kind: "feasible"; id: string };
 type Asking = "idle" | "calling" | "waiting";
+/** What one generate call came to, as far as the chain is concerned (see `askRound`). */
+type RoundOutcome =
+  | { kind: "written" }
+  | { kind: "reused" }
+  | { kind: "proposal"; proposal: ProposalView }
+  | { kind: "waiting" }
+  | { kind: "signed_out" }
+  | { kind: "capped"; messageKey: DictKey }
+  | { kind: "failed"; messageKey: DictKey };
 type Notice =
   | { kind: "key"; key: DictKey; vars?: Record<string, string | number> }
   | { kind: "suppressed"; another: boolean; proposal: ProposalView };
@@ -60,6 +75,8 @@ const CONFLICT_KEY: Record<string, DictKey> = {
 /** How often the list is re-read while another generation holds the lease, and when to give up. */
 const WAIT_POLL_MS = 5_000;
 const WAIT_MAX_MS = MODEL_TIMEOUT_MS * 2;
+/** Item 18: the most generate calls one tap of Ask makes on a demo sandbox (each is a paid model call and its own cap charge). */
+const MAX_ASK_ROUNDS = 3;
 
 const STATUS_KEY: Record<ProposalView["status"], DictKey> = {
   suppressed: "C-prop-st-suppressed",
@@ -152,6 +169,7 @@ export function SupervisorProposals({
   const list = useProposalList(auth, reloadKey);
   const [screen, setScreen] = useState<Screen>({ kind: "list" });
   const [asking, setAsking] = useState<Asking>("idle");
+  const [round, setRound] = useState<{ n: number; total: number } | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const noticeRef = useRef<HTMLParagraphElement>(null);
   const askingRef = useRef(false);
@@ -249,23 +267,64 @@ export function SupervisorProposals({
     const panel = listRef.current?.nextElementSibling;
     holdTop.current = panel ? panel.getBoundingClientRect().top + window.scrollY : null;
     setReserveHeight(undefined);
+    // Item 18 (demo sandbox only): one tap asks once per ready problem, at most MAX_ASK_ROUNDS. The pilot is one round,
+    // exactly as before. The guard above stays held for the whole chain: a second tap never starts a second chain.
+    const readyAtTap = data.watch.categories.filter((r) => r.state === "ready").length;
+    const total = demo ? Math.min(Math.max(1, readyAtTap), MAX_ASK_ROUNDS) : 1;
+    setRound({ n: 1, total });
     setAsking("calling");
-    const body = another
-      ? { from_date: data.watch.from_date, to_date: data.watch.to_date, another: true }
-      : { from_date: data.watch.from_date, to_date: data.watch.to_date };
-    const result = await authedPostJson(auth, "/api/v1/proposals/generate", body, GenerateResponseSchema);
+    const range = { from_date: data.watch.from_date, to_date: data.watch.to_date };
+
+    let written = 0;
+    let reusedSeen = false;
+    let ended: Exclude<RoundOutcome, { kind: "written" }> | null = null;
+    let nextAnother = another;
+    for (let n = 1; n <= total; n++) {
+      if (n > 1) setRound({ n, total });
+      const result = await askRound(nextAnother ? { ...range, another: true } : range);
+      if (result.kind === "written") {
+        written++;
+        nextAnother = true;
+        continue;
+      }
+      if (result.kind === "reused") reusedSeen = true;
+      ended = result;
+      break;
+    }
     askingRef.current = false;
 
-    if (result.kind === "ok") {
-      const { proposal, reused } = result.data;
-      if (proposal.content !== null) {
-        // Still "Asking Bee6…" until the reloaded list is on screen (the data effect above settles it).
-        settleOnReload.current = { kind: "key", key: reused ? "C-prop-reused" : "C-propg-wrote" };
-        setReloadKey((k) => k + 1);
-        bridge.current?.({ type: "progress" });
-        return;
-      }
+    // A lost session ends everything, whatever was written before it.
+    if (ended?.kind === "signed_out") {
       setAsking("idle");
+      await signOut(auth);
+      router.replace("/sign-in");
+      return;
+    }
+
+    // At least one proposal is on the list: reload once, say so once. A chain cut short says what was written and how
+    // to ask again (the existing "Ask for another" control; no automatic retry, every round is a paid call).
+    if (written > 0 || reusedSeen) {
+      const cut = ended !== null && ended.kind !== "reused";
+      const capped = ended !== null && ended.kind === "capped";
+      settleOnReload.current =
+        written === 0
+          ? { kind: "key", key: "C-prop-reused" }
+          : cut
+            ? { kind: "key", key: capped ? "C-propg-wrote-cap" : "C-propg-wrote-partial", vars: { n: written, total } }
+            : written === 1
+              ? { kind: "key", key: "C-propg-wrote" }
+              : { kind: "key", key: "C-propg-wrote-n", vars: { n: written } };
+      setReloadKey((k) => k + 1);
+      bridge.current?.({ type: "progress" });
+      return;
+    }
+
+    // Nothing was written: today's answers, unchanged.
+    const result = ended;
+    if (!result || result.kind === "reused") return; // unreachable: `reused` was settled above and a chain has at least one round
+    if (result.kind === "proposal") {
+      setAsking("idle");
+      const { proposal } = result;
       if (proposal.status === "blocked") {
         setNotice({ kind: "key", key: "C-prop-blocked", vars: { rule: proposal.blocked_rule ?? "" } });
       } else {
@@ -273,21 +332,40 @@ export function SupervisorProposals({
       }
       return;
     }
-    if (result.kind === "conflict" && result.code === "GENERATION_IN_PROGRESS") {
+    if (result.kind === "waiting") {
       waitingSince.current = { openIds: data.open.map((i) => i.proposal.proposal_id) };
       setAsking("waiting");
       return;
     }
     setAsking("idle");
-    if (result.kind === "signed_out") {
-      await signOut(auth);
-      router.replace("/sign-in");
-      return;
+    setNotice({ kind: "key", key: result.messageKey });
+  }
+
+  /**
+   * One generate call, sorted into what the chain needs: a new proposal (`written`), an answer that is not one (`reused`, or
+   * `proposal` for a suppressed/blocked one), a 409 for a busy lease (`waiting`), a demo cap (`capped`), a lost session
+   * (`signed_out`), or any other failure with its message. Only `written` lets the chain go on.
+   */
+  async function askRound(body: { from_date: string; to_date: string; another?: true }): Promise<RoundOutcome> {
+    const result = await authedPostJson(auth, "/api/v1/proposals/generate", body, GenerateResponseSchema);
+    if (result.kind === "ok") {
+      const { proposal, reused } = result.data;
+      if (proposal.content === null) return { kind: "proposal", proposal };
+      return { kind: reused ? "reused" : "written" };
     }
-    if (result.kind === "conflict") setNotice({ kind: "key", key: CONFLICT_KEY[result.code] ?? "C-srv-generic" });
-    else if (result.kind === "invalid") setNotice({ kind: "key", key: "C-prop-err-range" });
-    else if (result.kind === "forbidden") setNotice({ kind: "key", key: "C-prop-err-forbidden" });
-    else setNotice({ kind: "key", key: "C-srv-generic" });
+    if (result.kind === "conflict" && result.code === "GENERATION_IN_PROGRESS") return { kind: "waiting" };
+    if (result.kind === "signed_out") return { kind: "signed_out" };
+    // A demo cap answers 429 with a `demo_*` code (lib/demo/caps.ts); nothing else on this route does.
+    if (result.kind === "error" && result.code?.startsWith("demo_")) return { kind: "capped", messageKey: "C-propg-cap" };
+    const messageKey: DictKey =
+      result.kind === "conflict"
+        ? (CONFLICT_KEY[result.code] ?? "C-srv-generic")
+        : result.kind === "invalid"
+          ? "C-prop-err-range"
+          : result.kind === "forbidden"
+            ? "C-prop-err-forbidden"
+            : "C-srv-generic";
+    return { kind: "failed", messageKey };
   }
 
   function handleSettled(outcome: { messageKey: DictKey }) {
@@ -369,7 +447,7 @@ export function SupervisorProposals({
       {generating ? (
         // A plain block around the asking state, so the hold can read the block's height and the panel right after it.
         <div ref={askingBlockRef}>
-          <GeneratingState lang={lang} minHeight={reserveHeight} estimate={asking === "calling" ? askEstimate : null} />
+          <GeneratingState lang={lang} minHeight={reserveHeight} estimate={asking === "calling" ? askEstimate : null} round={asking === "calling" ? round : null} />
         </div>
       ) : nothingYet ? (
         <Glass className={styles.noteCard}>
