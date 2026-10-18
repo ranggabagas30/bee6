@@ -369,23 +369,29 @@ export const GUIDE: Readonly<Record<GuideKey, GuideCard>> = z
       todo: [
         bi("Supervisor marked both proposals feasible", "Supervisor menandai kedua usulan layak"),
         bi("Open Approvals and review in order", "Buka Persetujuan dan tinjau berurutan"),
-        bi("Approve one, reject the other", "Setujui satu, tolak yang lain"),
+        bi("Approve or reject each proposal", "Setujui atau tolak setiap usulan"),
       ],
     }),
     approvals: card({
-      title: bi("Approve one, reject the other", "Setujui satu, tolak yang lain"),
+      title: bi("Approve or reject each proposal", "Setujui atau tolak setiap usulan"),
+      body: [
+        bi(
+          "Approve or reject each proposal; a rejection reason becomes a rule Bee6 respects.",
+          "Setujui atau tolak setiap usulan; alasan penolakan menjadi aturan yang dipatuhi Bee6.",
+        ),
+      ],
       todo: [
-        bi("Review #1, then approve it", "Tinjau #1, lalu setujui"),
-        bi("Reject #2 with a reason", "Tolak #2 dengan alasan"),
-        bi("Open SOP and see the new version", "Buka SOP dan lihat versi barunya"),
+        bi("Review #1, then approve or reject it", "Tinjau #1, lalu setujui atau tolak"),
+        bi("Review #2, then approve or reject it", "Tinjau #2, lalu setujui atau tolak"),
+        bi("Open SOP and see the new versions", "Buka SOP dan lihat versi barunya"),
       ],
     }),
     approvals_done: card({
       title: bi("All decided", "Semua sudah diputuskan"),
       body: [
         bi(
-          "The approved change is now a new SOP version. Open SOP to see the improved step, and Reviews for its review date.",
-          "Perubahan yang disetujui kini menjadi versi SOP baru. Buka SOP untuk melihat langkah yang diperbaiki, dan Tinjauan untuk tanggal tinjauannya.",
+          "Each approved change is now its own SOP version. Open SOP to see the improved steps, and Reviews for their review dates.",
+          "Setiap perubahan yang disetujui kini menjadi versi SOP-nya sendiri. Buka SOP untuk melihat langkah yang diperbaiki, dan Tinjauan untuk tanggal tinjauannya.",
         ),
       ],
     }),

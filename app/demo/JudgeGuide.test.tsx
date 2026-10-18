@@ -1003,7 +1003,7 @@ describe("web routes: progress and the supervisor-visited flag", () => {
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 2, feasible: 2, owner_decided: 0 } }), { status: 200 }));
     renderGuide();
     await waitFor(() => expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("STAGE 5 OF 5"));
-    expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("Approve one, reject the other");
+    expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("Approve or reject each proposal");
   });
 
   it("/home: the owner card carries PR-7's Reset control, mounted only while the guide is open (one trigger, no second notice); a supervisor's claims get no control", async () => {
@@ -1102,7 +1102,7 @@ describe("web routes: progress and the supervisor-visited flag", () => {
     seedWeb("owner");
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 2, feasible: 2, owner_decided: 1 } }), { status: 200 }));
     renderGuide();
-    await waitFor(() => expect(handle()).toContain("Approve one, reject the other"));
+    await waitFor(() => expect(handle()).toContain("Approve or reject each proposal"));
     act(() => publishProposalsScreen("all_decided"));
     expect(handle()).toContain("All decided");
   });
