@@ -50,19 +50,19 @@ Or the one-line commands (each is ONE line):
 1. Save the current list:
 
 ```
-gcloud services api-keys describe 0521292e-44ae-4525-be97-c385509af766 --project=bee6-playground --format="value(restrictions.browserKeyRestrictions.allowedReferrers)"
+gcloud services api-keys describe <DEMO_API_KEY_UID> --project=bee6-playground --format="value(restrictions.browserKeyRestrictions.allowedReferrers)"
 ```
 
 2. Add the 2 staging hosts:
 
 ```
-gcloud services api-keys update 0521292e-44ae-4525-be97-c385509af766 --project=bee6-playground --append --no-check-existing-usage --allowed-referrers="https://web-develop-33uzb53tza-et.a.run.app/*,https://web-develop-<DEMO_PROJECT_NUMBER>.asia-southeast2.run.app/*"
+gcloud services api-keys update <DEMO_API_KEY_UID> --project=bee6-playground --append --no-check-existing-usage --allowed-referrers="https://web-develop-33uzb53tza-et.a.run.app/*,https://web-develop-<DEMO_PROJECT_NUMBER>.asia-southeast2.run.app/*"
 ```
 
 3. Show the result (expect 9 referrers and apiTargets still identitytoolkit and securetoken):
 
 ```
-gcloud services api-keys describe 0521292e-44ae-4525-be97-c385509af766 --project=bee6-playground --format="yaml(restrictions)"
+gcloud services api-keys describe <DEMO_API_KEY_UID> --project=bee6-playground --format="yaml(restrictions)"
 ```
 
 Propagation takes up to about 5 minutes.
@@ -84,10 +84,10 @@ All three lines should print 200.
 Re-run the update WITHOUT `--append`, with the 7 original entries (one line):
 
 ```
-gcloud services api-keys update 0521292e-44ae-4525-be97-c385509af766 --project=bee6-playground --no-check-existing-usage --allowed-referrers="https://web-33uzb53tza-et.a.run.app/*,https://web-<DEMO_PROJECT_NUMBER>.asia-southeast2.run.app/*,https://bee6-playground.firebaseapp.com/*,https://bee6-playground.web.app/*,http://localhost:3000/*,http://localhost:3001/*,http://127.0.0.1:3000/*"
+gcloud services api-keys update <DEMO_API_KEY_UID> --project=bee6-playground --no-check-existing-usage --allowed-referrers="https://web-33uzb53tza-et.a.run.app/*,https://web-<DEMO_PROJECT_NUMBER>.asia-southeast2.run.app/*,https://bee6-playground.firebaseapp.com/*,https://bee6-playground.web.app/*,http://localhost:3000/*,http://localhost:3001/*,http://127.0.0.1:3000/*"
 ```
 
-Backups with no key string: the script saves the list to `~/bee6-api-key-referrers-before.txt`; dev-ops saved a pre-change copy in its scratchpad (`demo-key-before-staging-17oct.json`); the 12 Oct original is `~/bee6-backups/demo-key-0521292e-original-restrictions.json`.
+Backups with no key string: the script saves the list to `~/bee6-api-key-referrers-before.txt`; dev-ops saved a pre-change copy in its scratchpad (`demo-key-before-staging-17oct.json`); the 12 Oct original is `~/bee6-backups/demo-key-<DEMO_API_KEY_UID>-original-restrictions.json`.
 
 ### Alternative (not recommended)
 
