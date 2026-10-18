@@ -37,8 +37,8 @@ export const sessionID = {
   "C-sess-next-day-proposal_exists":
     "Bee6 sudah membuat usulan dari hari-hari ini, jadi jam toko tidak bisa maju ke hari lain. Untuk mengulang, masuk sebagai Pemilik dan atur ulang demo.", // PROVISIONAL
   "C-sess-next-day-max_days": "Kelima hari demo sudah selesai. Keluar, lalu lanjut sebagai Supervisor.", // PROVISIONAL
-  "C-sess-next-day-approve_first": "Days 4 and 5 open after the Owner approves a change. Sign out and continue as Supervisor.", // PROVISIONAL (= EN)
-  "C-sess-next-day-review_exists": "A review already exists, so the demo days are finished. Sign out and open Reviews.", // PROVISIONAL (= EN)
+  "C-sess-next-day-approve_first": "Hari 4 dan 5 terbuka setelah Pemilik menyetujui satu perubahan. Keluar dan lanjut sebagai Supervisor.", // PROVISIONAL
+  "C-sess-next-day-review_exists": "Tinjauan sudah ada, jadi hari demo selesai. Keluar dan buka Tinjauan.", // PROVISIONAL
   "C-sess-next-day-session_open": "Akhiri sesi hari ini dulu.", // PROVISIONAL
   "C-sess-next-day-day_not_ended": "Jalankan hari ini dulu: ketuk Mulai, bacakan kartu, lalu Selesai.", // PROVISIONAL
   "C-sess-next-day-preparing": "Bee6 masih menyiapkan pertanyaan hari ini. Coba lagi sebentar lagi.", // PROVISIONAL
