@@ -252,6 +252,83 @@ describe("wordGateQuestions", () => {
     });
   });
 
+  describe("negated notes pre-skip (M1 rework: a Yes on a moment whose notes are a negative fact must not be able to drop true evidence)", () => {
+    const skipLogs = () =>
+      logSpy.mock.calls
+        .map((c: unknown[]) => String(c[0]))
+        .filter((l: string) => l.includes("debrief_agent.call"));
+    const withText = (text: string, summary = "Phone order taken."): Partial<ThreadWrite> => ({
+      lines: [{ line_id: "t1#0", start_ms: T0, end_ms: T0 + 10_000, text }],
+      summary,
+    });
+
+    it("a negated line: the runner is never invoked, no agent on the question, one numbers-only skip line", async () => {
+      const run = vi.fn<DebriefAgent>(async () => accepted());
+      const { input, questionWrites } = setup(["t1"], run, {}, withText("I did not read the order back to the caller."));
+      await wordGateQuestions(input);
+      expect(run).not.toHaveBeenCalled();
+      expect("agent" in questionWrites[0]!).toBe(false);
+      const logs = skipLogs();
+      expect(logs).toHaveLength(1);
+      expect(JSON.parse(logs[0]!)).toEqual({
+        event: "debrief_agent.call",
+        outlet_id: "sbx-1",
+        unit_id: "u1",
+        outcome: "skipped",
+        reason: "negated_notes",
+      });
+      expect(logs[0]).not.toContain("order back");
+    });
+
+    it("a negated summary alone also skips", async () => {
+      const run = vi.fn<DebriefAgent>(async () => accepted());
+      const { input, questionWrites } = setup(["t1"], run, {}, withText("There was a phone order for twelve egg tarts.", "Phone order taken, not read back."));
+      await wordGateQuestions(input);
+      expect(run).not.toHaveBeenCalled();
+      expect(questionWrites[0]!.agent).toBeUndefined();
+      expect(skipLogs()[0]).toContain('"outcome":"skipped","reason":"negated_notes"');
+    });
+
+    it.each([
+      "Saya tidak membaca ulang pesanan itu.",
+      "Pesanan nggak dibacakan.",
+      "Belum dibacakan ke pelanggan.",
+      "Itu bukan pesanan.",
+      "Dilayani tanpa struk.",
+    ])("a Bahasa negation skips: %s", async (text) => {
+      const run = vi.fn<DebriefAgent>(async () => accepted());
+      const { input, questionWrites } = setup(["t1"], run, {}, withText(text));
+      await wordGateQuestions(input);
+      expect(run).not.toHaveBeenCalled();
+      expect(questionWrites[0]!.agent).toBeUndefined();
+    });
+
+    it("positive notes still run the agent", async () => {
+      const run = vi.fn<DebriefAgent>(async () => accepted());
+      const { input, questionWrites } = setup(["t1"], run, {}, withText("There was a phone order for twelve egg tarts."));
+      await wordGateQuestions(input);
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(questionWrites[0]!.agent?.question_en).toBe(GOOD);
+      expect(skipLogs().some((l: string) => l.includes("negated_notes"))).toBe(false);
+    });
+
+    it("only the negated moment is skipped; its positive sibling in the same unit is still worded", async () => {
+      const run = vi.fn<DebriefAgent>(async () => accepted());
+      const a = setup(["t1"], run, {}, withText("I did not read the order back."));
+      const b = setup(["t2"], run, {}, withText("There was a phone order for twelve egg tarts."));
+      const input: WordGateInput = {
+        ...a.input,
+        questionWrites: [...a.questionWrites, ...b.questionWrites],
+        threadWrites: [...a.threadWrites, ...b.threadWrites],
+        storedByThread: new Map([["t1", null], ["t2", null]]),
+      };
+      await wordGateQuestions(input);
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(input.questionWrites[0]!.agent).toBeUndefined();
+      expect(input.questionWrites[1]!.agent?.question_en).toBe(GOOD);
+    });
+  });
+
   describe("continuation skip (F3: an existing open question keeps its wording)", () => {
     it("stored open + same category: not called", async () => {
       const run = vi.fn<DebriefAgent>(async () => accepted());

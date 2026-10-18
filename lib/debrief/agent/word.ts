@@ -1,6 +1,6 @@
 import { getModelLocation } from "@/config/regions";
 import type { DebriefAgent, DebriefAgentResult } from "@/lib/agents/debrief-agent";
-import { checkQuestion, type CheckRule } from "@/lib/debrief/agent/check";
+import { checkQuestion, notesHaveNegation, type CheckRule } from "@/lib/debrief/agent/check";
 import {
   DEBRIEF_AGENT_MAX_PER_UNIT,
   DEBRIEF_AGENT_MODEL,
@@ -21,6 +21,7 @@ import type { QuestionWrite, StoredThread, ThreadWrite } from "@/lib/pipeline/ti
  * The gate decides which moments become questions (hard rule 10); this module only picks, among the questions the
  * gate already raised, the ones worth a model call:
  *  - the thread's own gate verdict must be `question` (never a `fact` thread, never an `unlabelled_unit` question);
+ *  - a moment whose own notes state a negative fact (English or Bahasa) keeps the template (`negated_notes`);
  *  - a continuation of an already-open thread with the same category keeps the wording its existing question has
  *    (the store never rewrites it, F3), so it is skipped;
  *  - at most `DEBRIEF_AGENT_MAX_PER_UNIT` per unit, run in parallel, so a unit pays one agent budget, not three;
@@ -65,7 +66,7 @@ export interface WordGateInput {
   deps?: DebriefAgentDeps;
 }
 
-type SkippedReason = "continuation_same_category" | "no_lines" | "unit_budget";
+type SkippedReason = "continuation_same_category" | "no_lines" | "unit_budget" | "negated_notes";
 
 function errorClassOf(error: unknown): string {
   if (error instanceof Error) return error.name || "Error";
@@ -144,6 +145,12 @@ async function wordGateQuestionsUnsafe(input: WordGateInput): Promise<void> {
     });
     if (!moment) {
       skip("no_lines");
+      continue;
+    }
+    // A moment whose notes are a negative fact ("I did not read the order back") is never worded: any positive
+    // yes/no about it gets an honest No, and a No on a gate question drops the true evidence (staff_rejected).
+    if (notesHaveNegation(moment.lines, moment.summary)) {
+      skip("negated_notes");
       continue;
     }
     work.push({ q, moment });
