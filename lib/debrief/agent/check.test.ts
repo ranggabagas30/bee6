@@ -122,7 +122,7 @@ describe("checkQuestion: rule table", () => {
   it("11. staff_name: a name, a clitic form; the shop word 'Demo' is not a staff hit", () => {
     expect(reasonsOf("Around 14:05, did Sari take a phone order for twelve egg tarts?")).toContain("staff_name");
     expect(reasonsOf("Around 14:05, did Sarinya take a phone order for twelve egg tarts?")).toContain("staff_name");
-    expect(reasonsOf("Around 14:05, was Demo's phone order for twelve egg tarts read back?")).not.toContain("staff_name");
+    expect(reasonsOf("Around 14:05, was there a phone order from Demo's shop for twelve egg tarts?")).not.toContain("staff_name");
   });
 
   it("12. role_word: supervisor, owner, and friends", () => {

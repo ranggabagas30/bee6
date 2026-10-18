@@ -430,7 +430,7 @@ describe("QuestionSchema: DebriefAgent optional `agent` text", () => {
     model: "gemini-3.5-flash-lite",
     category: "PHONE_CALL",
     start_hm: "14:05",
-    question_en: "Around 14:05, was there a phone order that was not read back?",
+    question_en: "Around 14:05, was there a phone order for twelve egg tarts?",
     rounds: 1,
     generated_at_ms: 1_700_000_000_000,
   };
@@ -491,7 +491,7 @@ describe("QuestionDocSchema: tolerant read of `agent` (step 3 risk review M5)", 
     model: "gemini-3.5-flash-lite",
     category: "PHONE_CALL",
     start_hm: "14:05",
-    question_en: "Around 14:05, was the phone order read back to the caller?",
+    question_en: "Around 14:05, was there a phone order for twelve egg tarts?",
     rounds: 1,
     generated_at_ms: 1,
   };
