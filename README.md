@@ -4,6 +4,9 @@ A phone listens to a small shop's day and helps the team improve how the shop ru
 
 - Live demo: [https://web-33uzb53tza-et.a.run.app](https://web-33uzb53tza-et.a.run.app)
 - Code: [https://github.com/ranggabagas30/bee6](https://github.com/ranggabagas30/bee6)
+- Brand guidelines: [Bee6 Brand Guidelines](https://claude.ai/artifact/XX2Q2kDXHLacsXwgFdm43t)
+
+![Bee6: Fix the chaos, little by little. One loop, round after round: listen, ask why, propose, approve, re-check.](docs/poster-landscape.png)
 
 Built for the GATI x Google Cloud AI Builder Cup 2026.
 
