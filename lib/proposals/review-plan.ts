@@ -2,6 +2,7 @@ import type { AuditLog, OwnerDecision, Proposal, ProposalStatus, SopVersion, Sup
 import { ProposalSchema } from "@/lib/firestore/schema";
 import { evidenceStillHolds, type FreshThread } from "@/lib/proposals/freshness";
 import type { DecisionConflictCode } from "@/lib/proposals/review-contract";
+import { sopConflict } from "@/lib/sop/rebase";
 
 /**
  * Pure decision logic for R-09 (supervisor Feasible / Reject, owner Approve /
@@ -29,6 +30,9 @@ export interface DecisionSnapshot {
   /** The outlet's latest sop_versions doc (R-10: planShip builds v{n+1} on it). null if none.
    *  Invariant: current_sop_version_id === (current_sop?.sop_version_id ?? null). */
   current_sop: SopVersion | null;
+  /** The sop_versions doc named by `proposal.generator.sop_version_id`, outlet-checked. null if missing or malformed.
+   *  Item 20: lets `sopConflict` compare the proposal's target step as drafted vs as it reads now. */
+  drafted_sop: SopVersion | null;
 }
 
 export type DecisionCheck =
@@ -136,7 +140,10 @@ export function classifyDecision(input: {
 
   // 6-8. Positive decisions only.
   if (!evidenceStillHolds(content.evidence, snap.fresh).holds) return { kind: "conflict", code: "EVIDENCE_STALE" };
-  if (snap.current_sop_version_id !== p.generator.sop_version_id) return { kind: "conflict", code: "SOP_CHANGED" };
+  // Item 20: a newer SOP only blocks when the step this proposal rewrites changed (or the inputs are missing).
+  if (sopConflict({ proposal: p, drafted: snap.drafted_sop, current: snap.current_sop }) === "SOP_CHANGED") {
+    return { kind: "conflict", code: "SOP_CHANGED" };
+  }
   const late = snap.constraint_ids.filter((id) => !content.constraint_ids_acknowledged.includes(id));
   const ack = new Set(input.acknowledged_constraint_ids);
   if (late.some((id) => !ack.has(id))) return { kind: "conflict", code: "CONSTRAINT_ADDED" };

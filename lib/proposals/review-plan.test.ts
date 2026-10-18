@@ -7,7 +7,7 @@ import {
   type DecisionSnapshot,
 } from "@/lib/proposals/review-plan";
 import type { FreshThread } from "@/lib/proposals/freshness";
-import { ProposalSchema, type Proposal } from "@/lib/firestore/schema";
+import { ProposalSchema, SopVersionSchema, type Proposal } from "@/lib/firestore/schema";
 import { seedV1 } from "@/lib/sop/testing/fixtures";
 
 const OUTLET = "demo-outlet";
@@ -111,8 +111,21 @@ function snap(p: Proposal | null, o: Partial<DecisionSnapshot> = {}): DecisionSn
     constraint_ids: [C1],
     current_sop_version_id: "o1:v1",
     current_sop: seedV1(),
+    drafted_sop: seedV1(),
     ...o,
   };
+}
+
+/** A newer SOP (v2) in which only `touchedStepId` was rewritten. */
+function newerSop(touchedStepId: string): Partial<DecisionSnapshot> {
+  const v1 = seedV1();
+  const v2 = SopVersionSchema.parse({
+    ...v1,
+    sop_version_id: "o1:v2",
+    version: 2,
+    steps: v1.steps.map((st) => (st.step_id === touchedStepId ? { ...st, text: "Rewritten by an approved change." } : st)),
+  });
+  return { current_sop_version_id: "o1:v2", current_sop: v2, drafted_sop: v1 };
 }
 
 function classify(
@@ -458,18 +471,27 @@ describe("classifyDecision", () => {
     expect(classify(s, "owner", "approved", [C2]).kind).toBe("proceed");
   });
 
-  it("4.T12 SOP changed or missing -> SOP_CHANGED; a reject is not blocked", () => {
-    expect(classify(snap(makeProposal(), { current_sop_version_id: "o1:v2" }), "supervisor", "feasible")).toEqual({
+  it("4.T12 newer SOP that rewrote the proposal's step -> SOP_CHANGED; missing SOP -> SOP_CHANGED; a reject is not blocked", () => {
+    expect(classify(snap(makeProposal(), newerSop("open-01")), "supervisor", "feasible")).toEqual({
       kind: "conflict",
       code: "SOP_CHANGED",
     });
-    expect(classify(snap(makeProposal(), { current_sop_version_id: null }), "supervisor", "feasible")).toEqual({
+    expect(
+      classify(snap(makeProposal(), { current_sop_version_id: null, current_sop: null }), "supervisor", "feasible"),
+    ).toEqual({ kind: "conflict", code: "SOP_CHANGED" });
+    expect(classify(snap(makeProposal(), newerSop("open-01")), "supervisor", "rejected").kind).toBe("proceed");
+  });
+
+  it("4.T12b newer SOP that touched another step -> proceed (step-level re-base)", () => {
+    expect(classify(snap(makeProposal(), newerSop("close-01")), "supervisor", "feasible").kind).toBe("proceed");
+    expect(classify(snap(awaitingOwner(), newerSop("close-01")), "owner", "approved").kind).toBe("proceed");
+  });
+
+  it("4.T12c a newer SOP with an unknown drafted version fails closed", () => {
+    expect(classify(snap(makeProposal(), { ...newerSop("close-01"), drafted_sop: null }), "supervisor", "feasible")).toEqual({
       kind: "conflict",
       code: "SOP_CHANGED",
     });
-    expect(classify(snap(makeProposal(), { current_sop_version_id: "o1:v2" }), "supervisor", "rejected").kind).toBe(
-      "proceed",
-    );
   });
 
   it("4.T14 precedence", () => {
@@ -478,14 +500,14 @@ describe("classifyDecision", () => {
     stale.set(evidence[1]!.thread_id, { status: "open" });
     expect(
       classify(
-        snap(makeProposal(), { fresh: stale, current_sop_version_id: "o1:v2", constraint_ids: [C1, C2] }),
+        snap(makeProposal(), { fresh: stale, ...newerSop("open-01"), constraint_ids: [C1, C2] }),
         "supervisor",
         "feasible",
       ),
     ).toEqual({ kind: "conflict", code: "EVIDENCE_STALE" });
     expect(
       classify(
-        snap(makeProposal(), { current_sop_version_id: "o1:v2", constraint_ids: [C1, C2] }),
+        snap(makeProposal(), { ...newerSop("open-01"), constraint_ids: [C1, C2] }),
         "supervisor",
         "feasible",
       ),
