@@ -4,7 +4,7 @@ import { useEffect, useId, useRef } from "react";
 import { canCommit, type DebriefView } from "@/lib/debrief/flow";
 import { reasonLength } from "@/lib/debrief/reason";
 import { REASON_MAX_CHARS } from "@/lib/debrief/constants";
-import { questionCategoryChip, questionLines, questionText, questionWhy } from "@/lib/i18n/category-labels";
+import { questionCategoryChip, questionLines, questionWhy } from "@/lib/i18n/category-labels";
 import { t } from "@/lib/i18n/dict";
 import { dayLabel } from "@/lib/i18n/format";
 import type { Lang } from "@/lib/i18n/lang";
@@ -75,8 +75,9 @@ export function QuestionScreen({
 
   if (!question) return null;
 
-  const qText = questionText(lang, question);
   const qLines = questionLines(lang, question);
+  // The radiogroup is named by the heading the worker sees (the agent wording or the template), joined as it reads.
+  const qText = qLines.join(" ");
   const chip = questionCategoryChip(lang, question);
   const quoted = question.lines && question.lines.length > 0 ? question.lines : null;
   const n = reasonLength(view.reason);

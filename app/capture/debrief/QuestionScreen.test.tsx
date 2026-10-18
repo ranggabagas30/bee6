@@ -488,9 +488,9 @@ describe("QuestionScreen: DebriefAgent question_text (sandbox only)", () => {
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(TEXT);
   });
 
-  it("the radiogroup aria-label stays the template (the quote and the wording are read once, in the card)", () => {
+  it("the radiogroup aria-label follows the visible heading (the agent's wording), so the group is named by what is on screen", () => {
     renderScreen(q({ question_text: TEXT }));
-    expect(screen.getByRole("radiogroup").getAttribute("aria-label")).toBe("Around 15:00 there was routine work. Is that right?");
+    expect(screen.getByRole("radiogroup").getAttribute("aria-label")).toBe(TEXT);
   });
 
   it("is a plain text node: markup, entities and braces render inertly and nothing is interpolated", () => {
