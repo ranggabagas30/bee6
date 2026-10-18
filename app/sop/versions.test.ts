@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SopChangeView, SopOverview, SopStepView } from "@/lib/sop/contract";
-import { buildVersions, shortDate, stepOrigins } from "@/app/sop/versions";
+import { buildVersions, shortDate, stepOrigins, tabNumberOf, tabVersions } from "@/app/sop/versions";
 
 /**
  * R-19 PR-9a (§9.1): the SOP book switches versions by date. The wire contract carries only the latest steps and
@@ -183,5 +183,63 @@ describe("stepOrigins (R-19 PR-9b §9.1)", () => {
     );
     expect(stepOrigins(versions, 3).get("stock-01")?.version).toBe(3);
     expect(stepOrigins(versions, 2).get("stock-01")?.version).toBe(2);
+  });
+});
+
+describe("tabVersions (item 20: versions sharing an effective date get ONE tab, the latest)", () => {
+  const sameDay = () =>
+    buildVersions(
+      overview({
+        latest: { version: 3, effective_from_date: "2026-10-16", steps: [step("open-01", "open v3"), step("stock-01", "new text v2")] },
+        in_force_version: 1,
+        changes: [
+          change(3, { effective_from_date: "2026-10-16", before: step("open-01"), after: step("open-01", "open v3") }),
+          change(2, { effective_from_date: "2026-10-16" }),
+        ],
+      }),
+    ).reverse(); // oldest first, as SopApp holds them
+
+  it("two versions on the same date -> one tab: v3 (v2 stays in the data), the seed keeps its own tab", () => {
+    const all = sameDay();
+    expect(all.map((v) => v.version)).toEqual([1, 2, 3]);
+    const tabs = tabVersions(all);
+    expect(tabs.map((v) => [v.version, v.effective_from_date])).toEqual([
+      [1, "2026-10-05"],
+      [3, "2026-10-16"],
+    ]);
+    // nothing is deleted or overwritten: the input list still has all three
+    expect(all.map((v) => v.version)).toEqual([1, 2, 3]);
+  });
+
+  it("the shown tab remembers the hidden version's change so its step can still be explained", () => {
+    const [, v3] = tabVersions(sameDay());
+    expect(v3!.change?.version).toBe(3);
+    expect(v3!.alsoChanges?.map((c) => c.version)).toEqual([2]);
+  });
+
+  it("different dates -> unchanged: every version keeps its tab and no extra changes are attached", () => {
+    const all = buildVersions(
+      overview({
+        latest: { version: 3, effective_from_date: "2026-10-13", steps: [step("open-01", "open v3"), step("stock-01", "new text v2")] },
+        in_force_version: 3,
+        changes: [change(3, { before: step("open-01"), after: step("open-01", "open v3") }), change(2)],
+      }),
+    ).reverse();
+    const tabs = tabVersions(all);
+    expect(tabs.map((v) => v.version)).toEqual([1, 2, 3]);
+    expect(tabs.every((v) => (v.alsoChanges ?? []).length === 0)).toBe(true);
+  });
+
+  it("an undated version (seed with no date) never merges with another", () => {
+    const all = buildVersions(overview({ first_version_date: null })).reverse();
+    expect(tabVersions(all).map((v) => v.version)).toEqual([1]);
+  });
+
+  it("tabNumberOf maps a hidden version to the tab that stands for it", () => {
+    const all = sameDay();
+    expect(tabNumberOf(all, 2)).toBe(3);
+    expect(tabNumberOf(all, 3)).toBe(3);
+    expect(tabNumberOf(all, 1)).toBe(1);
+    expect(tabNumberOf(all, 9)).toBe(9); // unknown: unchanged
   });
 });

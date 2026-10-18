@@ -18,7 +18,7 @@ import { useRoleClaim } from "@/app/web/useRoleClaim";
 import { EmptyState } from "@/app/web/EmptyState";
 import { SopBookSpread } from "@/app/sop/SopBookSpread";
 import { SopTable } from "@/app/sop/SopTable";
-import { buildVersions, shortDate, type SopVersionView } from "@/app/sop/versions";
+import { buildVersions, shortDate, tabNumberOf, tabVersions, type SopVersionView } from "@/app/sop/versions";
 import { cx } from "@/app/ui/cx";
 import styles from "@/app/sop/sop.module.css";
 
@@ -78,16 +78,20 @@ type ViewMode = "book" | "table";
 
 function SopBook({ data, lang, demo }: { data: SopOverview; lang: Lang; demo: boolean }) {
   // Oldest first, as the board reads left to right; the newest is selected until the reader picks another.
+  // `versions` is every version the data can show (the step origins and the table read it whole); `tabs` is what the
+  // switch lists: versions sharing an effective date (two proposals approved the same day) fold into the latest one.
   const versions = useMemo(() => buildVersions(data).reverse(), [data]);
-  const newest = versions[versions.length - 1]!;
+  const tabs = useMemo(() => tabVersions(versions), [versions]);
+  const newest = tabs[tabs.length - 1]!;
   const [selected, setSelected] = useState<number>(newest.version);
   // PR-9b: Book (the spread) or Table; the choice outlives a version switch. The open chapter lives here too, so a
   // Book -> Table -> Book round trip reopens the same page (the spread unmounts in Table view).
   const [mode, setMode] = useState<ViewMode>("book");
   const [chapter, setChapter] = useState(0);
-  const view = versions.find((v) => v.version === selected) ?? newest;
-  const options = versions.map((v) => ({ value: String(v.version), label: versionLabel(v, data.in_force_version, newest.version, lang) }));
-  const header = headerLine(data, versions.length > 1, lang);
+  const view = tabs.find((v) => v.version === selected) ?? newest;
+  const inForceTab = data.in_force_version === null ? null : tabNumberOf(versions, data.in_force_version);
+  const options = tabs.map((v) => ({ value: String(v.version), label: versionLabel(v, inForceTab, newest.version, lang) }));
+  const header = headerLine(data, tabs.length > 1, lang);
   const modeOptions = [
     { value: "book" as const, label: t(lang, "C-sop-book-view-book") },
     { value: "table" as const, label: t(lang, "C-sop-book-view-table") },
@@ -100,7 +104,7 @@ function SopBook({ data, lang, demo }: { data: SopOverview; lang: Lang; demo: bo
           <span className={cx("b6-kick", styles.versionKick)} aria-hidden="true">
             {t(lang, "C-sop-book-version-kick")}
           </span>
-          {versions.length > 1 ? (
+          {tabs.length > 1 ? (
             <Segmented
               label={t(lang, "C-sop-book-switch")}
               variant="plain"

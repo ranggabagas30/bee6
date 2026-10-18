@@ -481,3 +481,94 @@ describe("SopApp Book/Table toggle (R-19 PR-9b §9.1)", () => {
     expect(Array.from(group.querySelectorAll("button")).map((b) => b.textContent)).toEqual(["Buku", "Tabel"]);
   });
 });
+
+describe("SopApp: two versions on the same effective date (item 20, Rangga 18 Oct)", () => {
+  // v2 rewrote stock-01 and v3 rewrote serve-01; both start tomorrow (2026-10-16); the seed v1 is in force.
+  const twoSameDay = (): SopOverview =>
+    overview({
+      latest: {
+        version: 3,
+        effective_from_date: "2026-10-16",
+        steps: [step("open-01"), { ...step("stock-01"), text: "New text v2" }, { ...step("serve-01"), text: "New serve v3" }],
+      },
+      in_force_version: 1,
+      first_version_date: "2026-10-05",
+      changes: [
+        changeView(3, {
+          previous_version: 2,
+          before: step("serve-01"),
+          after: { ...step("serve-01"), text: "New serve v3" },
+          change_title: "Serve read-back v3",
+        }),
+        changeView(2, { change_title: "Stock check v2" }),
+      ],
+    });
+  const tabs = async () => {
+    const group = await screen.findByRole("group", { name: "SOP version" });
+    return Array.from(group.querySelectorAll("button"));
+  };
+
+  it("shows ONE tab for the two versions (the latest, v3) plus the seed; the pending line names v3 and the version in force", async () => {
+    authedGetJson.mockResolvedValue({ kind: "ok", data: twoSameDay() });
+    renderApp();
+    const buttons = await tabs();
+    expect(buttons.map((b) => b.textContent)).toEqual(["05/10/26 · current", "16/10/26"]);
+    expect(buttons.map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "true"]);
+    expect(screen.getByRole("heading", { name: "Steps in version 3" })).not.toBeNull();
+    expect(screen.getByText("Version 3 starts on Fri 16 Oct. Until then, version 1 applies.")).not.toBeNull();
+    expect(screen.queryByRole("heading", { name: "Steps in version 2" })).toBeNull();
+  });
+
+  it("the step v2 rewrote is still explained when v3 is shown: IMPROVED badge, the old wording and 'See why it changed' open v2's card", async () => {
+    authedGetJson.mockResolvedValue({ kind: "ok", data: twoSameDay() });
+    renderApp();
+    await tabs();
+    // Book opens on chapter 1 (opening); "Stock" holds the step v2 rewrote.
+    fireEvent.click(screen.getByRole("button", { name: "Stock 1 step" }));
+    expect(screen.getByText("IMPROVED · NEW ON 16/10/26")).not.toBeNull();
+    expect(document.querySelector("del")?.textContent).toBe("Text stock-01");
+    expect(screen.queryByText("Stock check v2")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "See why it changed and the result" }));
+    expect(screen.getByText("Stock check v2")).not.toBeNull();
+  });
+
+  it("v3's own step is explained with v3's card; the legend counts both improved steps", async () => {
+    authedGetJson.mockResolvedValue({ kind: "ok", data: twoSameDay() });
+    renderApp();
+    await tabs();
+    fireEvent.click(screen.getByRole("button", { name: /^Customer/ }));
+    fireEvent.click(screen.getByRole("button", { name: "See why it changed and the result" }));
+    expect(screen.getByText("Serve read-back v3")).not.toBeNull();
+    expect(screen.getByText("Improved with Bee6").parentElement!.textContent).toContain("2");
+  });
+
+  it("Table view of v3 shows both Bee6 origins (v2's step and v3's step)", async () => {
+    authedGetJson.mockResolvedValue({ kind: "ok", data: twoSameDay() });
+    renderApp();
+    await tabs();
+    fireEvent.click(screen.getByRole("button", { name: "Table" }));
+    const rows = Array.from(document.querySelectorAll("tbody tr")).map((tr) => Array.from(tr.querySelectorAll("td")).map((td) => td.textContent));
+    const origin = (id: string) => rows.find((r) => r[0] === id)![5];
+    expect(origin("stock-01")).toBe("Bee6 proposal, approved 15/10/26");
+    expect(origin("serve-01")).toBe("Bee6 proposal, approved 15/10/26");
+    expect(origin("open-01")).toBe("Your SOP");
+  });
+
+  it("the seed tab still shows the old wording of both steps, with no badge", async () => {
+    authedGetJson.mockResolvedValue({ kind: "ok", data: twoSameDay() });
+    renderApp();
+    fireEvent.click((await tabs())[0]!);
+    expect(screen.getByRole("heading", { name: "Steps in version 1" })).not.toBeNull();
+    expect(screen.queryByText(/NEW ON/)).toBeNull();
+    expect(document.querySelector("del")).toBeNull();
+  });
+
+  it("versions on different dates keep one tab each", async () => {
+    const o = twoSameDay();
+    o.changes = o.changes.map((c) => (c.version === 3 ? { ...c, effective_from_date: "2026-10-17" } : c));
+    o.latest = { ...o.latest!, effective_from_date: "2026-10-17" };
+    authedGetJson.mockResolvedValue({ kind: "ok", data: o });
+    renderApp();
+    expect((await tabs()).map((b) => b.textContent)).toEqual(["05/10/26 · current", "16/10/26", "17/10/26"]);
+  });
+});

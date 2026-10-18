@@ -33,8 +33,11 @@ function StepItem({
   view: SopVersionView;
   lang: Lang;
 }) {
-  const change = view.change;
-  const changed = change !== null && step.step_id === change.after.step_id;
+  // The version's own change, or (item 20) a change of an older version folded into this tab because it shares the
+  // effective date: either way the step it rewrote is explained here.
+  const change =
+    [view.change, ...(view.alsoChanges ?? [])].find((c) => c !== null && c.after.step_id === step.step_id) ?? null;
+  const changed = change !== null;
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const badge = change ? t(lang, change.kind === "add" ? "C-sop-book-new" : "C-sop-book-improved", { date: shortDate(change.effective_from_date) }) : "";
