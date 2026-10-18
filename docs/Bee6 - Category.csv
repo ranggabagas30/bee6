@@ -1,0 +1,54 @@
+SOP Enhancement & Training App,,,,
+Metodenya dengan data voice.,,,,
+,,,,
+Parent categories,,,,
+No,Category,Definition,Examples,
+1,Normal,Day-to-day operations that the standing SOP covers or should cover. Patterns here can change the permanent SOP.,"Opening prep, serving customers, restocking, training, closing",
+2,Eventual,"Planned, time-limited activities defined by a human on an event card, with their own cue words and a temporary SOP overlay. Patterns here are kept apart from the permanent SOP unless they recur outside the event.","Ramadan promo, New Year campaign, influencer visit, new menu launch, large wedding order",
+3,Incidental,Unplanned events that disrupt normal work and need attention now. They skip the evening debrief and alert a supervisor within minutes.,"Customer complaint, theft, equipment breakdown, flood, earthquake",
+,,,,
+Categories (final),,,,
+No,Category,Definition,Examples,Parent Category
+1,ROUTINE_OPS,"Everyday work tasks: SOP steps, stock, handoffs between people, shifts or branches, and content work. Type goes in ops_type.","""oven udah nyala?"" (is the oven on?); ""egg tart tinggal dua"" (only two egg tarts left); ""foto menu baru buat IG"" (take a photo of the new item for Instagram)",Normal
+2,CUSTOMER_SERVICE,Serving a customer or visitor who is not expressing dissatisfaction.,"""totalnya 85 ribu"" (85 thousand in total); ""ada matcha?"" ""habis"" ""oh oke"" (do you have matcha? / sold out / oh, okay) with unmet_request recorded; directions (sale: false)",Normal
+3,TRAINING,"Teaching initiated by a supervisor or senior staff, or a what-if discussion. Nothing live is being handled.","""misalnya egg tart habis, kita jual apa?"" (if egg tarts run out, what do we sell?)",Normal
+4,STAFF_CONSULT,Staff asking how to handle a situation happening right now.,"""Kak, customer minta box dipisah, boleh?"" (a customer wants separate boxes, is that okay?)",Normal
+5,CORRECTION,A supervisor correcting a mistake that was just made.,"""stikernya kebalik, ulang ya"" (the sticker's upside down, redo it)",Normal
+6,PHONE_CALL,"Staff on a phone call, whatever the topic.","""oke Kak, nanti disiapkan"" (okay, I'll get it ready)",Normal
+7,EVENT,"Work that exists only because of a planned event, either preparing for it or during it.",Decorating for Ramadan; an influencer filming; collecting a 200-box order,Eventual
+8,COMPLAINT,"A customer expressing dissatisfaction, for any reason or several reasons.","Your hair + missing item example; ""kok selalu habis sih"" (why is it always sold out?)",Incidental
+9,SAFETY_INCIDENT,"Someone is physically hurt or at immediate risk, or staff find a product hazard.","""aduh kena oven!"" (ouch, I touched the oven!); ""bau gas"" (it smells of gas); expired stock found in the chiller",Incidental
+10,SECURITY_INCIDENT,"Possible theft, fraud or threat. It is only flagged as possible, never names a suspect, and a human confirms it.","""uang laci kurang 50 ribu"" (the till is 50 thousand short); a fake transfer receipt",Incidental
+11,DISRUPTION,"Operations stopped by broken equipment, a utility failure or an outside event.","""printer struk mati"" (the receipt printer is dead); a power cut; ""banjir di depan"" (it's flooding out front)",Incidental
+—,NON_WORK,"Private talk. Deleted within seconds, never stored.",Weekend plans,— (deleted)
+,,,,
+,,,,
+"Fields (evidence, never categories)",,,,
+Field,On,Values,,
+ops_type,ROUTINE_OPS,"sop_step, stock, handoff, content",,
+unmet_request,"CUSTOMER_SERVICE, COMPLAINT","item + reason (sold out, not on menu, wrong time, wrong size)",,
+sale,CUSTOMER_SERVICE,true / false,,
+complaint_type,COMPLAINT,"list: missing_item, wrong_item, foreign_object, spoiled, taste_texture, wait_time, price, attitude, unavailable",,
+customer_request,COMPLAINT,"replacement, refund, apology, none",,
+hazard_type,SAFETY_INCIDENT,"burn, cut, slip, gas_fire, product",,
+cause,DISRUPTION,"equipment, utility, natural, external",,
+"event_id, phase",EVENT (event_id also on any category during an event),event card name; prep or live,,
+extracted_rules,"TRAINING, CORRECTION, STAFF_CONSULT",Rules stated out loud,,
+"Order for picking one category (first ""yes"" wins)",,,,
+,,,,
+Hypotheticals and retellings still can't answer yes to questions 2–5.,,,,
+,,,,
+Is it private and unrelated to work? → NON_WORK,,,,
+"Is someone hurt or at immediate risk, or has staff found a product hazard? → SAFETY_INCIDENT",,,,
+"Possible theft, fraud or threat? → SECURITY_INCIDENT",,,,
+"Have operations stopped because of equipment, a utility or an outside event? → DISRUPTION",,,,
+Is a customer expressing dissatisfaction? → COMPLAINT,,,,
+"Would this not happen on a normal day, because of a planned event? → EVENT",,,,
+Is a staff member on a phone call? → PHONE_CALL,,,,
+Is a supervisor correcting a mistake just made? → CORRECTION,,,,
+Is staff asking how to handle something happening right now? → STAFF_CONSULT,,,,
+"Is someone teaching, or discussing a what-if? → TRAINING",,,,
+Is a customer or visitor being served? → CUSTOMER_SERVICE,,,,
+Any other work task? → ROUTINE_OPS,,,,
+,,,,
+"Your example resolves as COMPLAINT at question 5. Nobody was hurt, so question 2 doesn't fire, and a customer raised it. If the same customer had bitten into a burning-hot tart and been hurt, question 2 would catch it first as SAFETY_INCIDENT.",,,,

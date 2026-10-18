@@ -37,8 +37,8 @@ work, latency and debrief timing in §5.1, and diagrams §7.3, §7.5, §7.6, §7
 > entity, §7.1 (one line), §7.2 and §7.8 diagrams. Rule detail: §8.3 rule 6,
 > §8.10–§8.11, §8.15.
 
-> **Updated 4 Oct 2026 (tech-lead, docs only): sign-in and consent (Rangga, 4 Oct, final; `docs/HANDOFF.md`).**
-> Owner and supervisor keep Google sign-in; staff need no sign-in. **Consent is not collected in the app:**
+> **Updated 4 Oct 2026 (tech-lead, docs only): sign-in and consent (Rangga, 4 Oct, final; `docs/HANDOFF.md`). Updated 9 Oct: auth method (Rangga, 9 Oct).**
+> Owner and supervisor use email + password (accounts created by an admin provisioning script; no self sign-up); staff need no sign-in. **Consent is not collected in the app:**
 > it is covered by the paper contract between bee6 and Proofed, and bee6 emails the consent, the updated
 > privacy policy and the TnC to all users. The in-app consent gate (the outlet's consent flag, the "no
 > consent" view, the staff-consent step) is **removed from MVP 1**. Revocation stays manual (within 7
@@ -67,7 +67,7 @@ work, latency and debrief timing in §5.1, and diagrams §7.3, §7.5, §7.6, §7
 >
 > **Doc precedence.** If this document disagrees with another one, the order in `CLAUDE.md` wins:
 > `CLAUDE.md` → `docs/plan.md` → `docs/backlog.md` → `docs/specs/web-backend-rbac.md` →
-> `docs/architecture.md` → `docs/specs/pipeline-and-agents.md` → `docs/product-spec.md`. This document
+> `docs/architecture.md` → `docs/specs/pipeline-and-agents.md` → `docs/specs/product-spec.md`. This document
 > summarises and explains. It does not add requirements.
 
 ---
@@ -226,7 +226,7 @@ All product dependencies are Google Cloud and Google AI (`CLAUDE.md` §2 #1).
 | Model access | Google Cloud's Gemini platform (Vertex mode) through a service account. Never consumer keys |
 | Hosting | Cloud Run, Jakarta (`asia-southeast2`) |
 | Database | Firestore (Native mode, Jakarta) |
-| Sign-in and identity | Firebase Authentication (Google sign-in for owner and supervisor, plus custom tokens for paired devices; staff PIN sessions are post-MVP 1) |
+| Sign-in and identity | Firebase Authentication (email + password for owner and supervisor with accounts created by an admin provisioning script; custom tokens for paired devices; staff PIN sessions are post-MVP 1) |
 | Scheduled work | Cloud Scheduler (pipeline tick, review dates; the debrief-end expiry only if R-07 picks a tick write). Capture start/stop and the debrief follow Mulai, Selesai and the auto-stop, not a schedule (§8.3). Cloud Tasks where a queued step is needed |
 | Redaction | Sensitive Data Protection |
 | Secrets | Secret Manager |
@@ -305,7 +305,7 @@ Every stored record carries its outlet. A request can only reach records of its 
 |---|---|---|
 | **Outlet** | One shop: its opening hours, time zone, settings (*the consent flag is removed from MVP 1, 4 Oct: consent is by contract; a legacy field may remain in old docs, unread*) | Fictional in the demo; real details never in the public repo |
 | **Staff** | The people who work there, with a role (and a hashed PIN, dormant in MVP 1). In MVP 1 their names are used only to scrub names from stored text and as transcription vocabulary; routing questions to a person and signing staff in are post-MVP 1 | **The only place staff names exist** (`CLAUDE.md` §2 #7) |
-| **User** | An owner or supervisor who signs in with Google, linked to one outlet and one role | Identity managed by the sign-in service |
+| **User** | An owner or supervisor who signs in with email + password (accounts created by an admin provisioning script), linked to one outlet and one role | Identity managed by the sign-in service |
 | **Device** | Any paired phone (the shop phone or a staff member's own phone; the system does not tell them apart) and its health heartbeats. Each device runs its own sessions and debrief. The number of active paired devices gives a display-only mode label (one = room mode, more = wearable mode) that no rule reads | Holds no speech content and no person's name or label. Its id is never shown next to an answer or thread to supervisors or owners, because in wearable mode a phone is usually one person's |
 | **Segment** | One short stretch of speech as redacted text lines, with the device's start and end times and which model and location produced it | Redacted before storage (§2 #3). Expires after 48 hours. Never contains audio. Non-work lines are deleted after labelling and only counted |
 | **Window** | A group of segments between long silences: the unit sent for labelling | Derived from segments and holds no extra content |
@@ -328,8 +328,8 @@ deliberate decision. **Names** live only in Staff.
 |---|---|---|---|
 | **Device-facing** | Any paired phone (device identity) | Pair once with a short-lived code, upload speech segments, send heartbeats, read its own capture settings, start/end/cancel its own sessions, and (MVP 1) read and answer the open debrief questions it heard, inside its own debrief window | Read any day record, another device's questions, any answer, name or proposal |
 | **Staff-facing (post-MVP 1)** | A staff member signed in with name and PIN, only on a paired phone, in a short session | Read and answer their own debrief questions, read the current SOP steps | See other answers, names, proposals or evidence |
-| **Supervisor-facing** | Google sign-in, supervisor role | Read the full day record with quoted redacted evidence and redacted staff reasons (Yes / No answers), confirm or override labels, generate and review proposals (feasible or reject with reason), record review verdicts | Edit the SOP directly; see who answered a question; answer a device's debrief question (4 Oct, final) |
-| **Owner-facing** | Google sign-in, owner role | Read summaries (no quoted lines), approve or reject proposals the supervisor marked feasible, record review verdicts, see SOP versions and diffs | Edit the SOP directly; approve before supervisor review |
+| **Supervisor-facing** | Email + password (admin-created account), supervisor role | Read the full day record with quoted redacted evidence and redacted staff reasons (Yes / No answers), confirm or override labels, generate and review proposals (feasible or reject with reason), record review verdicts | Edit the SOP directly; see who answered a question; answer a device's debrief question (4 Oct, final) |
+| **Owner-facing** | Email + password (admin-created account), owner role | Read summaries (no quoted lines), approve or reject proposals the supervisor marked feasible, record review verdicts, see SOP versions and diffs | Edit the SOP directly; approve before supervisor review |
 | **Demo** | A judge, via one-click "Try as…" sessions in the demo project | Exactly the permissions of the chosen role, on fictional data only, rate-limited | Reach the pilot project in any way |
 | **Internal scheduled pipeline** | Only the platform scheduler, carrying a verified service identity | Run the pipeline tick and review-date jobs (and the debrief-end expiry, if R-07 builds it as a tick write) | Be called by any browser or user |
 
@@ -1210,6 +1210,11 @@ drain until it succeeds.
   saved: **there is no draft store** in MVP 1 (no `localStorage`, IndexedDB or memory copy that outlives the
   screen), so it is gone at the end and on any reload. Skipping writes nothing.
 - Finishing every question does not end the debrief or release Mulai early.
+- **Quoted lines (sandbox only; Rangga 18 Oct, demo-feedback-2 item 10).** On the SANDBOX (demo) the phone shows up
+  to 2 already-redacted lines of the flagged thread under the question (`lines` on the question view, ≤ 160 code
+  points each; the device's own thread of its own outlet; read-time staff-name scrub; fail closed: no lines when the
+  staff read or the thread read fails); the pilot keeps the template-only question and its response is unchanged.
+  The lines live in React state only: never in the answer cache, the answer body or any log.
 
 ### 8.11 Answer cache
 
