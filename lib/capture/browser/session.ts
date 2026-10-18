@@ -147,7 +147,6 @@ export function hasPendingCaptureUploads(): boolean {
 export function waitForCaptureUploads(timeoutMs: number): Promise<void> {
   if (liveEngines.size === 0) return Promise.resolve();
   return new Promise<void>((resolve) => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
     const done = () => {
       clearTimeout(timer);
       idleWaiters.delete(check);
@@ -156,8 +155,8 @@ export function waitForCaptureUploads(timeoutMs: number): Promise<void> {
     const check = () => {
       if (liveEngines.size === 0) done();
     };
+    const timer = setTimeout(done, timeoutMs); // `done` only runs later, after `timer` is initialised
     idleWaiters.add(check);
-    timer = setTimeout(done, timeoutMs);
   });
 }
 

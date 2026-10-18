@@ -37,7 +37,13 @@ vi.mock("@/lib/capture/browser/client", async (importOriginal) => ({
 }));
 
 const abortAllCaptureUploads = vi.fn();
-vi.mock("@/lib/capture/browser/session", () => ({ abortAllCaptureUploads: () => abortAllCaptureUploads() }));
+const hasPendingCaptureUploads = vi.fn(() => false);
+const waitForCaptureUploads = vi.fn(async (_ms: number) => {});
+vi.mock("@/lib/capture/browser/session", () => ({
+  abortAllCaptureUploads: () => abortAllCaptureUploads(),
+  hasPendingCaptureUploads: () => hasPendingCaptureUploads(),
+  waitForCaptureUploads: (ms: number) => waitForCaptureUploads(ms),
+}));
 
 const getIdToken = vi.fn(async () => "id-token");
 const FAKE_AUTH = { currentUser: { getIdToken } };
@@ -867,16 +873,83 @@ describe("/capture: the debrief cards and Jump to tomorrow (plan 4.4, 7.2)", () 
   });
 
   // Fb22: a day-1 note still retrying after End must not land after the next-day shift (it would be filed under day 2).
-  it("Jump to tomorrow aborts every capture upload before it posts the next-day shift", async () => {
-    pathname = "/capture";
-    postDemoNextDay.mockResolvedValueOnce({ ok: true, data: { day: 2 } });
-    act(() => publishCaptureBridge(debrief({ allowed: true, reason: null })));
-    renderGuide();
-    openGuide();
-    fireEvent.click(screen.getByRole("button", { name: "Jump to tomorrow" }));
-    await waitFor(() => expect(postDemoNextDay).toHaveBeenCalledTimes(1));
-    expect(abortAllCaptureUploads).toHaveBeenCalledTimes(1);
-    expect(abortAllCaptureUploads.mock.invocationCallOrder[0]!).toBeLessThan(postDemoNextDay.mock.invocationCallOrder[0]!);
+  // Jump waits (bounded) for it to finish first, then hard-aborts whatever is left, then shifts the day.
+  describe("Jump to tomorrow and day-1 uploads still finishing", () => {
+    beforeEach(() => {
+      hasPendingCaptureUploads.mockReset();
+      hasPendingCaptureUploads.mockReturnValue(false);
+      waitForCaptureUploads.mockReset();
+      waitForCaptureUploads.mockResolvedValue(undefined);
+    });
+
+    afterEach(() => {
+      hasPendingCaptureUploads.mockReturnValue(false); // the mocks are module-level; leave nothing pending for later tests
+      waitForCaptureUploads.mockReset();
+      waitForCaptureUploads.mockResolvedValue(undefined);
+    });
+
+    function openJump() {
+      pathname = "/capture";
+      postDemoNextDay.mockResolvedValueOnce({ ok: true, data: { day: 2 } });
+      act(() => publishCaptureBridge(debrief({ allowed: true, reason: null })));
+      renderGuide();
+      openGuide();
+    }
+
+    it("nothing pending: aborts and posts straight away, without waiting", async () => {
+      openJump();
+      fireEvent.click(screen.getByRole("button", { name: "Jump to tomorrow" }));
+      await waitFor(() => expect(postDemoNextDay).toHaveBeenCalledTimes(1));
+      expect(waitForCaptureUploads).not.toHaveBeenCalled();
+      expect(abortAllCaptureUploads).toHaveBeenCalledTimes(1);
+      expect(abortAllCaptureUploads.mock.invocationCallOrder[0]!).toBeLessThan(postDemoNextDay.mock.invocationCallOrder[0]!);
+    });
+
+    it("pending: waits up to 25 s, shows the busy label, and only then aborts and posts", async () => {
+      let release!: () => void;
+      hasPendingCaptureUploads.mockReturnValue(true);
+      waitForCaptureUploads.mockImplementation(() => new Promise<void>((resolve) => (release = resolve)));
+      openJump();
+      fireEvent.click(screen.getByRole("button", { name: "Jump to tomorrow" }));
+      const busyButton = await screen.findByRole("button", { name: "Finishing uploads…" });
+      expect((busyButton as HTMLButtonElement).disabled).toBe(true);
+      expect(waitForCaptureUploads).toHaveBeenCalledWith(25_000);
+      expect(abortAllCaptureUploads).not.toHaveBeenCalled();
+      expect(postDemoNextDay).not.toHaveBeenCalled();
+
+      release();
+      await waitFor(() => expect(postDemoNextDay).toHaveBeenCalledTimes(1));
+      expect(abortAllCaptureUploads).toHaveBeenCalledTimes(1);
+      expect(waitForCaptureUploads.mock.invocationCallOrder[0]!).toBeLessThan(abortAllCaptureUploads.mock.invocationCallOrder[0]!);
+      expect(abortAllCaptureUploads.mock.invocationCallOrder[0]!).toBeLessThan(postDemoNextDay.mock.invocationCallOrder[0]!);
+      expect(screen.queryByRole("button", { name: "Finishing uploads…" })).toBeNull();
+    });
+
+    it("a double tap while waiting sends one POST", async () => {
+      let release!: () => void;
+      hasPendingCaptureUploads.mockReturnValue(true);
+      waitForCaptureUploads.mockImplementation(() => new Promise<void>((resolve) => (release = resolve)));
+      openJump();
+      const button = screen.getByRole("button", { name: "Jump to tomorrow" });
+      fireEvent.click(button);
+      fireEvent.click(button);
+      fireEvent.click(button);
+      await screen.findByRole("button", { name: "Finishing uploads…" });
+      release();
+      await waitFor(() => expect(postDemoNextDay).toHaveBeenCalledTimes(1));
+      expect(waitForCaptureUploads).toHaveBeenCalledTimes(1);
+      expect(abortAllCaptureUploads).toHaveBeenCalledTimes(1);
+    });
+
+    it("a wait that throws still aborts, posts, and does not strand the button", async () => {
+      hasPendingCaptureUploads.mockReturnValue(true);
+      waitForCaptureUploads.mockRejectedValue(new Error("boom"));
+      openJump();
+      fireEvent.click(screen.getByRole("button", { name: "Jump to tomorrow" }));
+      await waitFor(() => expect(postDemoNextDay).toHaveBeenCalledTimes(1));
+      expect(abortAllCaptureUploads.mock.invocationCallOrder[0]!).toBeLessThan(postDemoNextDay.mock.invocationCallOrder[0]!);
+      await waitFor(() => expect(screen.queryByRole("button", { name: "Finishing uploads…" })).toBeNull());
+    });
   });
 
   it("409 unanswered_questions: an inline confirm (no modal) with the count; Jump anyway retries with confirm_unanswered: true; Answer them first closes it", async () => {
