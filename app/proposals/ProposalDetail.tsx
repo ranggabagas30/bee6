@@ -15,7 +15,7 @@ import {
 } from "@/lib/proposals/review-contract";
 import type { ProposalView } from "@/lib/proposals/contract";
 import { Button, Card, Chip, Glass, Pill } from "@/app/ui";
-import { FeasibleActions, FeasibleHandover } from "@/app/proposals/FeasibleHandover";
+import { FeasibleHandover } from "@/app/proposals/FeasibleHandover";
 import styles from "@/app/proposals/supervisor.module.css";
 
 /**
@@ -246,8 +246,6 @@ export function ProposalDetail({ auth, lang, item, feasible, onBack, onFeasible,
       )}
 
       {!feasible && <p className={styles.note}>{t(lang, "C-propd-note")}</p>}
-
-      {feasible && <FeasibleActions lang={lang} auth={auth} />}
 
       {canAct && !rejecting && (
         <div className={styles.actions}>

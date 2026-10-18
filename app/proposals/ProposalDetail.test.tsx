@@ -274,8 +274,7 @@ describe("ProposalDetail — read-only and hand-over", () => {
     expect(screen.queryByRole("button", { name: "Mark feasible" })).toBeNull();
   });
 
-  it("feasible: the banner sits under the title, the buttons close the page, and Sign out · pick Owner signs out to the Owner tab (D2-03g)", async () => {
-    signOut.mockResolvedValue(undefined);
+  it("feasible: the banner sits under the title; no action buttons are shown (R-19 PR-A, D2-03g)", () => {
     renderDetail(item("awaiting_owner"), { feasible: true });
     const banner = screen.getByRole("status");
     expect(banner.textContent).toBe("Marked feasible. The owner decides next. Sign out and pick Owner to approve or reject.");
@@ -283,15 +282,12 @@ describe("ProposalDetail — read-only and hand-over", () => {
     expect(title.compareDocumentPosition(banner) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Mark feasible" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Reject… (reason required)" })).toBeNull();
-    // The banner already says the owner decides next, so the note is gone; the two buttons close the page.
+    // The banner already says the owner decides next, so the note is gone; no buttons appear.
     expect(screen.queryByText("Feasible means staff can do this in the shop. The owner approves or rejects after you.")).toBeNull();
-    const done = screen.getByRole("button", { name: "Marked feasible ✓" }) as HTMLButtonElement;
-    expect(done.disabled).toBe(true);
-    const out = screen.getByRole("button", { name: "Sign out · pick Owner" });
-    expect(done.compareDocumentPosition(out) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    fireEvent.click(out);
-    await waitFor(() => expect(signOut).toHaveBeenCalledWith(AUTH));
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/sign-in?as=owner"));
+    expect(screen.queryByRole("button", { name: "Marked feasible ✓" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /sign out.*pick owner/i })).toBeNull();
+    // The back button remains above the banner
+    expect(screen.getByRole("button", { name: "‹ Proposals" })).not.toBeNull();
   });
 
   it("no device id, name or thread key appears anywhere on the screen", () => {

@@ -61,7 +61,6 @@ export const proposalsID = {
   "C-propd-reject-send": "Tolak usulan", // PROVISIONAL
   "C-propd-feasible-h": "Ditandai layak.", // PROVISIONAL
   "C-propd-feasible-p": "Pemilik yang memutuskan berikutnya.", // PROVISIONAL
-  "C-propd-feasible-done": "Ditandai layak ✓", // PROVISIONAL
   "C-propd-back-list": "Kembali ke usulan", // PROVISIONAL
   "C-propd-rejected": "Ditolak. Alasan Anda kini menjadi aturan yang dipatuhi Bee6.", // PROVISIONAL
   // ── Change-label dialog ─────────────────────────────────────────────────────────────────────────────────
@@ -79,7 +78,6 @@ export const proposalsID = {
   "C-propd-st-yours-list": "Menunggu Anda", // PROVISIONAL
   "C-propd-reject-h": "Tolak usulan ini?", // PROVISIONAL
   "C-propd-feasible-owner": "Keluar lalu pilih Pemilik untuk menyetujui atau menolak.", // PROVISIONAL
-  "C-propd-signout-owner": "Keluar · pilih Pemilik", // PROVISIONAL
   "C-propd-rules": "Aturan untuk Bee6 (opsional)", // PROVISIONAL
   // ── Owner approvals = page-1 W8 "Review in order" (PR-12b; boards D2-08, D2-08c, D2-08d, D2-08e) ──────────
   "C-propa-back-home": "‹ Kembali ke beranda", // PROVISIONAL
@@ -173,7 +171,6 @@ export const proposalsEN: Record<keyof typeof proposalsID, string> = {
   "C-propd-reject-send": "Reject proposal",
   "C-propd-feasible-h": "Marked feasible.",
   "C-propd-feasible-p": "The owner decides next.",
-  "C-propd-feasible-done": "Marked feasible ✓",
   "C-propd-back-list": "Back to proposals",
   "C-propd-rejected": "Rejected. Your reason is now a rule Bee6 will respect.",
   "C-lbl-title": "Change label",
@@ -189,7 +186,6 @@ export const proposalsEN: Record<keyof typeof proposalsID, string> = {
   "C-propd-st-yours-list": "Waiting for you",
   "C-propd-reject-h": "Reject this proposal?",
   "C-propd-feasible-owner": "Sign out and pick Owner to approve or reject.",
-  "C-propd-signout-owner": "Sign out · pick Owner",
   "C-propd-rules": "Rules for Bee6 (optional)",
   "C-propa-back-home": "‹ Back to home",
   "C-propa-sub": "One proposal at a time, in the recommended order. The supervisor already checked that each one is workable.",
