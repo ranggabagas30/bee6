@@ -166,6 +166,14 @@ class FakeTickStore implements TickStore {
     return this.staffNamesByOutlet.get(outletId) ?? [];
   }
 
+  /** DebriefAgent: the outlet tz (the real store falls back to Asia/Jakarta, so does the fake). */
+  tzByOutlet = new Map<string, string>();
+  getOutletTzCalls = 0;
+  async getOutletTz(outletId: string): Promise<string> {
+    this.getOutletTzCalls += 1;
+    return this.tzByOutlet.get(outletId) ?? "Asia/Jakarta";
+  }
+
   async listSegmentsForDevice(outletId: string, deviceId: string): Promise<SegmentForTick[]> {
     this.callLog.push("listSegmentsForDevice");
     return this.segmentsByDevice.get(this.key(outletId, deviceId)) ?? [];

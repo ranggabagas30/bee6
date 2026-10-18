@@ -159,6 +159,11 @@ export interface TickStore {
    * "Budi Santoso".
    */
   listStaffScrubNames(outletId: string): Promise<string[]>;
+  /**
+   * The outlet's timezone, the same one the debrief read path uses (DebriefAgent: the `HH:MM` it words must equal the
+   * one the phone shows). NEVER throws and never returns empty: a missing or malformed outlet doc is `"Asia/Jakarta"`.
+   */
+  getOutletTz(outletId: string): Promise<string>;
   /** Every non-expired segment for a device (windowing recomputes from these each tick). */
   listSegmentsForDevice(outletId: string, deviceId: string): Promise<SegmentForTick[]>;
   /** Every line_id already labelled (ledger status "done" OR "failed" — both terminal). */
