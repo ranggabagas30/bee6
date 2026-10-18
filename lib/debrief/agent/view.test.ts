@@ -3,7 +3,7 @@ import { agentTextFor } from "@/lib/debrief/agent/view";
 
 const TZ = "Asia/Jakarta";
 const T0 = Date.UTC(2026, 9, 14, 7, 5, 0); // 14:05 Jakarta
-const TEXT = "Around 14:05, was the phone order read back to the caller?";
+const TEXT = "Around 14:05, was there a phone order for twelve egg tarts?";
 
 function agent(over: Record<string, unknown> = {}): unknown {
   return {

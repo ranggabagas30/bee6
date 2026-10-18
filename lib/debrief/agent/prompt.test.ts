@@ -27,6 +27,17 @@ describe("prompt", () => {
     expect(DEBRIEF_SYSTEM_INSTRUCTION).toContain('"and" / "or"');
   });
 
+  it("system instruction asks whether there WAS the moment as the notes describe it, never whether a step was or was not done (M1 rework)", () => {
+    const flat = DEBRIEF_SYSTEM_INSTRUCTION.replace(/\s+/g, " ").toLowerCase();
+    expect(flat).toContain("was there a phone order for twelve egg tarts?");
+    expect(flat).toContain("whether there was the moment, as the notes describe it");
+    expect(flat).toContain("never ask whether a step was or was not done");
+    expect(flat).toContain("never ask the opposite of the notes");
+    // the steering that made the model flip a negative fact is gone
+    expect(DEBRIEF_SYSTEM_INSTRUCTION).not.toContain("a Yes must");
+    expect(DEBRIEF_SYSTEM_INSTRUCTION).not.toContain("always mean");
+  });
+
   it("user content for the fixture", () => {
     expect(buildUserContent(moment)).toMatchSnapshot();
   });
