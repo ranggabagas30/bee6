@@ -12,6 +12,7 @@ import {
 } from "@/lib/reviews/contract";
 import { reviewView } from "@/app/reviews/review-fixtures";
 import { ReviewsApp } from "@/app/reviews/ReviewsApp";
+import { axeViolations } from "@/lib/testing/axe";
 
 const CONFIG: FirebaseWebConfig = {
   apiKey: "key-1",
@@ -64,10 +65,10 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function renderApp() {
+function renderApp(reviewAgentEstimate?: { min_s: number; max_s: number; cap_s: number } | null, lang: "en" | "id" = "en") {
   return render(
-    <LangProvider initial="en">
-      <ReviewsApp config={CONFIG} />
+    <LangProvider initial={lang}>
+      <ReviewsApp config={CONFIG} {...(reviewAgentEstimate !== undefined ? { reviewAgentEstimate } : {})} />
     </LangProvider>,
   );
 }
@@ -287,6 +288,254 @@ describe("ReviewsApp: fast-forward (demo only)", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Fast-forward/ }));
     await waitFor(() => expect(signOut).toHaveBeenCalledWith(FAKE_AUTH));
     expect(replace).toHaveBeenCalledWith("/sign-in");
+  });
+});
+
+describe("ReviewsApp: fast-forward while the ReviewAgent runs (plan 5.12)", () => {
+  const FF = { name: "Fast-forward to the review date (simulated)" };
+  const EST = { min_s: 5, max_s: 15, cap_s: 20 };
+
+  it("without an estimate the busy button keeps today's label and no estimate line appears", async () => {
+    let resolve!: (v: unknown) => void;
+    authedGetJson.mockResolvedValue(ok(list({ fast_forward_available: true })));
+    authedPostJson.mockReturnValue(new Promise((r) => (resolve = r)));
+    renderApp(null);
+    fireEvent.click(await screen.findByRole("button", FF));
+    expect((screen.getByRole("button", FF) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByText(/Bee6 is reviewing/)).toBeNull();
+    expect(screen.queryByText(/Usually/)).toBeNull();
+    await act(async () => resolve({ kind: "error" }));
+  });
+
+  it("with an estimate the busy button reads 'Bee6 is reviewing...' and a line gives the range", async () => {
+    let resolve!: (v: unknown) => void;
+    authedGetJson.mockResolvedValue(ok(list({ fast_forward_available: true })));
+    authedPostJson.mockReturnValue(new Promise((r) => (resolve = r)));
+    renderApp(EST);
+    const idle = await screen.findByRole("button", FF);
+    expect(screen.queryByText(/Usually/)).toBeNull(); // idle: the status slot is there but empty
+    fireEvent.click(idle);
+    const busy = screen.getByRole("button", { name: "Bee6 is reviewing…" }) as HTMLButtonElement;
+    expect(busy.disabled).toBe(true);
+    const line = screen.getByText("Bee6 reads the change and the notes from before and after. Usually 5 to 15 seconds.");
+    // one polite live region carries the estimate, mounted before the tap so the change is announced
+    expect(line.closest("[role='status']")).not.toBeNull();
+    await act(async () => resolve({ kind: "error" }));
+    await screen.findByRole("button", FF);
+    expect(screen.queryByText(/Usually/)).toBeNull();
+  });
+
+  it("switches once to 'Taking longer than usual' after max_s and names the cap, and the next run starts the clock again", async () => {
+    const resolvers: Array<(v: unknown) => void> = [];
+    authedGetJson.mockResolvedValue(ok(list({ fast_forward_available: true })));
+    authedPostJson.mockImplementation(() => new Promise((r) => resolvers.push(r)));
+    renderApp({ min_s: 0, max_s: 0.05, cap_s: 20 });
+    fireEvent.click(await screen.findByRole("button", FF));
+    await screen.findByText(
+      "Taking longer than usual. If it takes more than about 20 seconds, the result appears without the explanation.",
+    );
+    await act(async () => resolvers[0]!({ kind: "error" }));
+    await screen.findByRole("button", FF);
+    expect(screen.queryByText(/Taking longer/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", FF));
+    screen.getByText(/Usually 0 to 0\.05 seconds/); // fresh run: the estimate again, not the stale overrun line
+    await act(async () => resolvers[1]!({ kind: "error" }));
+  });
+
+  it("the busy copy is Bahasa on a Bahasa screen", async () => {
+    let resolve!: (v: unknown) => void;
+    authedGetJson.mockResolvedValue(ok(list({ fast_forward_available: true })));
+    authedPostJson.mockReturnValue(new Promise((r) => (resolve = r)));
+    renderApp(EST, "id");
+    fireEvent.click(await screen.findByRole("button", { name: "Lompat ke tanggal tinjauan (simulasi)" }));
+    expect((screen.getByRole("button", { name: "Bee6 sedang meninjau…" }) as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => resolve({ kind: "error" }));
+  });
+
+  it("has no axe violations while busy with the estimate line, in English and Bahasa", async () => {
+    for (const lang of ["en", "id"] as const) {
+      let resolve!: (v: unknown) => void;
+      authedGetJson.mockResolvedValue(
+        ok(
+          list({
+            fast_forward_available: true,
+            open: [reviewView({ agent: { narrative_en: "Sold-out requests fell; read it with care.", caveats: ["short_window"] } })],
+          }),
+        ),
+      );
+      authedPostJson.mockReturnValue(new Promise((r) => (resolve = r)));
+      const { container } = renderApp(EST, lang);
+      fireEvent.click(await screen.findByRole("button", { name: lang === "en" ? FF.name : "Lompat ke tanggal tinjauan (simulasi)" }));
+      expect(await axeViolations(container)).toEqual([]);
+      await act(async () => resolve({ kind: "error" }));
+      cleanup();
+    }
+  });
+
+  it("shows the explanation panel on the owner's card as well as the supervisor's", async () => {
+    const withAgent = reviewView({
+      agent: { narrative_en: "Sold-out requests fell after the change; read it with care.", caveats: ["short_window"] },
+    });
+    for (const role of ["supervisor", "owner"] as const) {
+      getIdTokenResult.mockResolvedValue({ claims: { role } });
+      authedGetJson.mockResolvedValue(ok(list({ open: [withAgent] })));
+      renderApp();
+      await screen.findByText("Sold-out requests fell after the change; read it with care.");
+      screen.getByText("Bee6 explains");
+      cleanup();
+    }
+  });
+});
+
+describe("ReviewsApp: a fast-forward result without an explanation", () => {
+  const FF = { name: "Fast-forward to the review date (simulated)" };
+  const EST = { min_s: 5, max_s: 15, cap_s: 20 };
+  const MISSING =
+    "Bee6 could not write an explanation this time. The suggestion and the numbers above are not affected.";
+  const MISSING_ID = "Bee6 tidak dapat menulis penjelasan kali ini. Saran dan angka di atas tidak terpengaruh.";
+  const old = reviewView({ version: 2, change_title: "Older change" });
+  const created = (agent?: ReviewView["agent"]) =>
+    reviewView({ version: 3, change_title: "Fresh change", simulated: true, ...(agent ? { agent } : {}) });
+  const AGENT = { narrative_en: "Sold-out requests fell after the change; read it with care.", caveats: [] };
+
+  /** First list: button + one older review. After the tap the server returns `version`, and the reload lists `after`. */
+  function arrange(version: number, after: ReviewView[]) {
+    authedGetJson
+      .mockResolvedValueOnce(ok(list({ fast_forward_available: true, open: [old] })))
+      .mockResolvedValue(ok(list({ fast_forward_available: true, open: after })));
+    authedPostJson.mockResolvedValue({ kind: "ok", data: { version } });
+  }
+  async function tap(lang: "en" | "id" = "en") {
+    fireEvent.click(await screen.findByRole("button", { name: lang === "en" ? FF.name : "Lompat ke tanggal tinjauan (simulasi)" }));
+  }
+
+  it("flag on and the new review has no explanation: one notice, on that review only, as a status", async () => {
+    arrange(3, [created(), old]);
+    renderApp(EST);
+    await tap();
+    const notice = await screen.findByText(MISSING);
+    expect(screen.getAllByText(MISSING)).toHaveLength(1);
+    expect(notice.getAttribute("role")).toBe("status");
+    const card = notice.closest("article")!;
+    expect(card.textContent).toContain("Fresh change");
+    expect(screen.getByText("Older change").closest("article")!.textContent).not.toContain("could not write");
+  });
+
+  it("is fixed Bahasa copy on a Bahasa screen", async () => {
+    arrange(3, [created(), old]);
+    renderApp(EST, "id");
+    await tap("id");
+    await screen.findByText(MISSING_ID);
+  });
+
+  it("flag on and the new review has an explanation: no notice", async () => {
+    arrange(3, [created(AGENT), old]);
+    renderApp(EST);
+    await tap();
+    await screen.findByText(AGENT.narrative_en);
+    expect(screen.queryByText(/could not write an explanation/)).toBeNull();
+  });
+
+  it("flag off: no notice and nothing else changes (null and absent estimate)", async () => {
+    for (const estimate of [null, undefined]) {
+      arrange(3, [created(), old]);
+      const { container } = renderApp(estimate);
+      await tap();
+      await screen.findByText("Fresh change");
+      expect(screen.queryByText(/could not write an explanation/)).toBeNull();
+      expect(container.querySelectorAll("[role='status']").length).toBeGreaterThan(0); // the banner and the like stay as today
+      expect(screen.queryByText(/Bee6 is reviewing/)).toBeNull();
+      cleanup();
+      vi.clearAllMocks();
+      getClientAuth.mockReturnValue(FAKE_AUTH);
+      getIdTokenResult.mockResolvedValue({ claims: { role: "supervisor" } });
+    }
+  });
+
+  it("flag off renders the same markup as before the notice existed (no explanation block, no extra status)", async () => {
+    arrange(3, [created(), old]);
+    const { container } = renderApp(null);
+    await tap();
+    await screen.findByText("Fresh change");
+    expect(container.textContent).not.toContain("Bee6 could not write");
+    expect(container.querySelectorAll("article [role='status']")).toHaveLength(0);
+  });
+
+  it("a review that already existed before the tap gets no notice", async () => {
+    arrange(2, [old]); // the server answers a version the list already had
+    renderApp(EST);
+    await tap();
+    await waitFor(() => expect(authedGetJson).toHaveBeenCalledTimes(2)); // the list reloaded after the tap
+    await waitFor(() => expect(screen.queryByText(/Bee6 is reviewing/)).toBeNull());
+    expect(screen.queryByText(/could not write an explanation/)).toBeNull();
+  });
+
+  it("does not show a notice for a failed or empty fast-forward", async () => {
+    for (const result of [{ kind: "error" }, { kind: "conflict", code: "NOTHING_TO_REVIEW" }]) {
+      authedGetJson.mockResolvedValue(ok(list({ fast_forward_available: true, open: [old] })));
+      authedPostJson.mockResolvedValue(result);
+      renderApp(EST);
+      await tap();
+      await waitFor(() => expect(screen.queryByText(/Bee6 is reviewing/)).toBeNull());
+      expect(screen.queryByText(/could not write an explanation/)).toBeNull();
+      cleanup();
+    }
+  });
+
+  it("is per run: a page reload (a fresh mount) shows no notice, and a later run with an explanation clears it", async () => {
+    arrange(3, [created(), old]);
+    const first = renderApp(EST);
+    await tap();
+    await screen.findByText(MISSING);
+    first.unmount();
+    authedGetJson.mockResolvedValue(ok(list({ fast_forward_available: true, open: [created(), old] })));
+    renderApp(EST);
+    await screen.findByText("Fresh change");
+    expect(screen.queryByText(/could not write an explanation/)).toBeNull();
+  });
+
+  it("a second run that explains clears the first run's notice", async () => {
+    const second = reviewView({ version: 4, change_title: "Newest change", agent: AGENT });
+    authedGetJson
+      .mockResolvedValueOnce(ok(list({ fast_forward_available: true, open: [old] })))
+      .mockResolvedValueOnce(ok(list({ fast_forward_available: true, open: [created(), old] })))
+      .mockResolvedValue(ok(list({ fast_forward_available: true, open: [second, created(), old] })));
+    authedPostJson
+      .mockResolvedValueOnce({ kind: "ok", data: { version: 3 } })
+      .mockResolvedValueOnce({ kind: "ok", data: { version: 4 } });
+    renderApp(EST);
+    await tap();
+    await screen.findByText(MISSING);
+    await tap();
+    await screen.findByText(AGENT.narrative_en);
+    expect(screen.queryByText(MISSING)).toBeNull();
+  });
+
+  it("has no axe violations with the notice on the page, in English and Bahasa", async () => {
+    for (const lang of ["en", "id"] as const) {
+      arrange(3, [created(), old]);
+      const { container } = renderApp(EST, lang);
+      await tap(lang);
+      await screen.findByText(lang === "en" ? MISSING : MISSING_ID);
+      expect(await axeViolations(container)).toEqual([]);
+      cleanup();
+      vi.clearAllMocks();
+      getClientAuth.mockReturnValue(FAKE_AUTH);
+      getIdTokenResult.mockResolvedValue({ claims: { role: "supervisor" } });
+    }
+  });
+
+  it("says the same to the owner as to the supervisor", async () => {
+    for (const role of ["owner", "supervisor"] as const) {
+      getIdTokenResult.mockResolvedValue({ claims: { role } });
+      arrange(3, [created(), old]);
+      renderApp(EST);
+      await tap();
+      await screen.findByText(MISSING);
+      cleanup();
+      authedGetJson.mockReset();
+      authedPostJson.mockReset();
+    }
   });
 });
 

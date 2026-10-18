@@ -2,6 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { DELETE, GET, OPTIONS, PATCH, POST, PUT } from "./route";
 import { ConflictError, NotFoundError } from "@/lib/http/errors";
+import { readFileSync } from "node:fs";
+import { getModelLocation } from "@/config/regions";
+import { adkReviewAgent } from "@/lib/agents/review-agent";
+import { REVIEW_AGENT_MODEL } from "@/lib/reviews/agent/constants";
 
 const verifyIdToken = vi.fn();
 vi.mock("@/lib/firebase/admin", () => ({ verifyIdToken: (...a: unknown[]) => verifyIdToken(...a) }));
@@ -91,6 +95,36 @@ describe("POST /api/v1/reviews/fast-forward in demo mode", () => {
     noStore(res);
     expect(fastForwardReview.mock.calls[0]![0]).toEqual({ store: "demo" });
     expect(fastForwardReview.mock.calls[0]![1]).toMatchObject({ demoMode: true, claims: { outlet_id: "demo", role: "supervisor" } });
+  });
+
+  it("passes the ReviewAgent deps: the ADK runner, the process env, the project and a location read from regions.yaml", async () => {
+    process.env.DEMO_MODE = "true";
+    const prev = process.env.GOOGLE_CLOUD_PROJECT;
+    process.env.GOOGLE_CLOUD_PROJECT = "bee6-playground";
+    try {
+      asSupervisor();
+      fastForwardReview.mockResolvedValueOnce({ version: 2 });
+      const before = Date.now();
+      await POST(req());
+      const input = fastForwardReview.mock.calls[0]![1] as { reviewAgent: Record<string, unknown> };
+      const deps = input.reviewAgent as {
+        run: unknown; env: unknown; project: string; now_ms: number; resolveLocation: (m: string) => string;
+      };
+      expect(deps.run).toBe(adkReviewAgent);
+      expect(deps.env).toBe(process.env);
+      expect(deps.project).toBe("bee6-playground");
+      expect(deps.now_ms).toBeGreaterThanOrEqual(before);
+      expect(deps.resolveLocation(REVIEW_AGENT_MODEL)).toBe(getModelLocation(REVIEW_AGENT_MODEL).location);
+    } finally {
+      if (prev === undefined) delete process.env.GOOGLE_CLOUD_PROJECT;
+      else process.env.GOOGLE_CLOUD_PROJECT = prev;
+    }
+  });
+
+  it("the route source names no model location (hard rule 5)", () => {
+    const src = readFileSync(new URL("./route.ts", import.meta.url), "utf8");
+    expect(src).not.toMatch(/asia-southeast|["']global["']|us-central/);
+    expect(src).toContain("getModelLocation(m).location");
   });
 
   it("5.R4 a non-demo outlet with DEMO_MODE on: the service's 404 passes through", async () => {

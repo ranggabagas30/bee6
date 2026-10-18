@@ -11,6 +11,7 @@ import {
 import { GateDecisionSchema } from "@/lib/pipeline/gate";
 import { CORRECTION_TEXT_MAX_CHARS } from "@/lib/debrief/constants";
 import { NEXT_DAY_MAX } from "@/lib/demo/constants";
+import { ReviewAgentStoredSchema } from "@/lib/reviews/agent/schema";
 
 /**
  * Firestore schema v0 (web spec §6.4). zod schemas + inferred TS types for every
@@ -1152,10 +1153,24 @@ export const ReviewSchema = z
     owner_verdict: VerdictEntrySchema.nullable(),
     created_at_ms: z.number().int().min(0),
     updated_at_ms: z.number().int().min(0),
+    /**
+     * ReviewAgent (docs/tasks/review-agent-18oct.md): a checked, plain-English explanation of the counts. Demo
+     * sandboxes only, written once by the fast-forward. Never a name, id, date, time, line text or model reasoning.
+     * Its verdict must equal the rule's suggestion (hard rule 10: the agent never decides).
+     *
+     * ROLLBACK CAVEAT: `ReviewSchema` is `.strict()`, so a revision built BEFORE this field existed skips a review
+     * doc that carries `agent` (the review store logs and drops it) and the review vanishes from the list. The field
+     * is written only while `REVIEW_AGENT=true` on a `sbx-` outlet, so the only safe kill is removing the env var,
+     * never a traffic rollback to an older revision.
+     */
+    agent: ReviewAgentStoredSchema.optional(),
   })
   .strict()
   .superRefine((r, ctx) => {
     const issue = (path: (string | number)[], message: string) => ctx.addIssue({ code: "custom", path, message });
+    if (r.agent && r.agent.suggested_verdict !== (r.suggestion.verdict ?? "none")) {
+      issue(["agent", "suggested_verdict"], "agent verdict must equal the rule's suggestion");
+    }
     if (r.review_id !== r.sop_version_id) issue(["review_id"], "review_id must equal sop_version_id");
     if (r.sop_version_id !== `${r.outlet_id}:v${r.version}`) issue(["sop_version_id"], `must equal "${r.outlet_id}:v${r.version}"`);
     if (!(r.review_date > r.effective_from_date)) issue(["review_date"], "review_date must be after effective_from_date");

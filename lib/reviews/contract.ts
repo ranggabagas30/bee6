@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { dateString } from "@/lib/day/contract";
 import { REVIEW_STATUSES, REVIEW_VERDICTS, SUGGESTION_REASONS, SopChangeMetricSchema } from "@/lib/firestore/schema";
+import { REVIEW_NARRATIVE_MAX_CHARS } from "@/lib/reviews/agent/constants";
+import { ReviewCaveatSchema } from "@/lib/reviews/agent/schema";
 import { LIST_DECIDED_MAX, LIST_OPEN_MAX } from "@/lib/reviews/constants";
 
 /**
@@ -59,6 +61,18 @@ export const ReviewViewSchema = z
     status: z.enum(REVIEW_STATUSES),
     supervisor: DecidedView.nullable(),
     owner: DecidedView.nullable(),
+    /**
+     * ReviewAgent panel (docs/tasks/review-agent-18oct.md §5.6): the checked narrative and the caveats the code
+     * COMPUTED (never the model's list). Present only on a review the agent explained. Nothing else of the run
+     * (rounds, calls, model, verdict) reaches the wire. Render the narrative as a text node, never as HTML.
+     */
+    agent: z
+      .object({
+        narrative_en: z.string().min(1).max(REVIEW_NARRATIVE_MAX_CHARS * 2),
+        caveats: z.array(ReviewCaveatSchema),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type ReviewView = z.infer<typeof ReviewViewSchema>;

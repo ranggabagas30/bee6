@@ -376,7 +376,7 @@ export const GUIDE: Readonly<Record<GuideKey, GuideCard>> = z
       title: bi("Fast-forward to the review date", "Percepat ke tanggal tinjauan"),
       todo: [
         bi("Tap Fast-forward to the review date", "Ketuk Percepat ke tanggal tinjauan"),
-        bi("Read Bee6's review and the before/after counts", "Baca tinjauan Bee6 dan hitungan sebelum/sesudah"),
+        bi("Read Bee6's explanation and the before/after counts", "Baca penjelasan Bee6 dan hitungan sebelum/sesudah"),
         bi("Give the Supervisor verdict, then confirm as Owner", "Beri putusan Supervisor, lalu konfirmasi sebagai Pemilik"),
       ],
       body: [
@@ -390,8 +390,8 @@ export const GUIDE: Readonly<Record<GuideKey, GuideCard>> = z
       title: bi("Give your verdict", "Beri putusan Anda"),
       body: [
         bi(
-          "Read the before and after counts and Bee6's suggestion, then give your verdict. The Supervisor decides first; the Owner confirms, and the result is remembered.",
-          "Baca hitungan sebelum dan sesudah serta saran Bee6, lalu beri putusan Anda. Supervisor memutuskan dulu; Pemilik mengonfirmasi, dan hasilnya diingat.",
+          "Read the before and after counts, Bee6's suggestion and its explanation if shown, then give your verdict. The Supervisor decides first; the Owner confirms, and the result is remembered.",
+          "Baca hitungan sebelum dan sesudah, saran Bee6 dan penjelasannya jika ada, lalu beri putusan Anda. Supervisor memutuskan dulu; Pemilik mengonfirmasi, dan hasilnya diingat.",
         ),
       ],
       footnote: bi("A second change? Fast-forward again.", "Perubahan kedua? Percepat lagi."),

@@ -65,6 +65,15 @@
   gap: 8px;
 }
 
+.ffWait {
+  margin: 0;
+  max-width: 100%;
+  color: var(--b6-ink-soft);
+  font-size: var(--b6-fs-ui);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 /* ---- the card ---- */
 .card {
   box-sizing: border-box;
@@ -147,6 +156,43 @@
 .suggestNone {
   background: var(--b6-surface-soft);
   color: var(--b6-ink-soft);
+}
+
+/* ---- ReviewAgent panel: one column inside the card, wraps on a 360 px phone, never a fixed width ---- */
+.agent {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--b6-line-soft);
+  border-radius: var(--b6-r-control);
+  background: var(--b6-surface-soft);
+}
+
+.agentText {
+  font-size: var(--b6-fs-ui);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.agentCaveats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0 0 0 18px;
+  color: var(--b6-ink-soft);
+  font-size: var(--b6-fs-ui);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* ink-soft, not the muted note colour: the panel sits on the soft surface and must keep AA contrast. */
+.card .agentNote {
+  color: var(--b6-ink-soft);
+  text-align: left;
 }
 
 .line {

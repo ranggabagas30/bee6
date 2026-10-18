@@ -104,6 +104,18 @@ describe("kill switch: DEMO_*_CAP=0 refuses everything for the model ceiling and
   });
 });
 
+describe("capSpec fast_forward: a model call only while the ReviewAgent is on (D20)", () => {
+  it("model follows REVIEW_AGENT === 'true' exactly", () => {
+    expect(capSpec("fast_forward", { REVIEW_AGENT: "true" }).model).toBe(true);
+    for (const v of [undefined, "false", "TRUE", "1", ""]) expect(capSpec("fast_forward", { REVIEW_AGENT: v }).model).toBe(false);
+    expect(capSpec("fast_forward", {}).model).toBe(false);
+  });
+  it("the other keys are untouched by the flag", () => {
+    expect(capSpec("next_day", { REVIEW_AGENT: "true" }).model).toBe(false);
+    expect(capSpec("segment", { REVIEW_AGENT: "false" }).model).toBe(true);
+  });
+});
+
 describe("capSpec / modelDailyLimit: defaults and env overrides", () => {
   it("defaults: 250 segments per sandbox, 3000 a day; 3 fast-forwards; 8 generations, 300 a day; model ceiling", () => {
     expect(capSpec("segment", {})).toMatchObject({ sandboxKind: "segment_sandbox", sandboxLimit: 250, daily: { kind: "segment_day", limit: 3000 }, model: true });

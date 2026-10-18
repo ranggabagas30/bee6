@@ -12,7 +12,8 @@ import { describe, expect, it } from "vitest";
  *    directly (static or dynamic `require`);
  *  - `@google/adk` itself is imported only by `lib/agents/proposal-agent.ts`
  *    (R-24) `lib/agents/proposal-agent-v4.ts` and the DebriefAgent runner
- *    `lib/agents/debrief-agent.ts`, plus their tests, which mock it;
+ *    `lib/agents/debrief-agent.ts` and the ReviewAgent runner `lib/agents/review-agent.ts`, plus their tests,
+ *    which mock it;
  *  - (R-24) nothing under `lib/proposals/v4/` imports `@google/adk`: the
  *    check, tools and prompt stay pure and testable without ADK.
  */
@@ -62,7 +63,7 @@ describe("R-08 Task 4.0: no direct @google-cloud/vertexai import; @google/adk sc
     expect(offenders).toEqual([]);
   });
 
-  it("@google/adk is imported only by the agent runners (Proposal v3, v4; DebriefAgent) and their tests", () => {
+  it("@google/adk is imported only by the agent runners (Proposal v3, v4; DebriefAgent; ReviewAgent) and their tests", () => {
     const allowed = new Set([
       "lib/agents/proposal-agent.ts",
       "lib/agents/proposal-agent.test.ts",
@@ -70,6 +71,8 @@ describe("R-08 Task 4.0: no direct @google-cloud/vertexai import; @google/adk sc
       "lib/agents/proposal-agent-v4.test.ts",
       "lib/agents/debrief-agent.ts",
       "lib/agents/debrief-agent.test.ts",
+      "lib/agents/review-agent.ts",
+      "lib/agents/review-agent.test.ts",
       SELF,
     ]);
     const offenders: string[] = [];
@@ -102,6 +105,34 @@ describe("R-08 Task 4.0: no direct @google-cloud/vertexai import; @google/adk sc
       if (ADK_IMPORT_RE.test(readFileSync(file, "utf8"))) offenders.push(rel);
     }
     expect(seen).toBeGreaterThan(0);
+    expect(offenders).toEqual([]);
+  });
+
+  it("nothing under lib/reviews/agent/ imports @google/adk (checker, tools, prompt, inputs stay pure and ADK-free)", () => {
+    const offenders: string[] = [];
+    let seen = 0;
+    for (const file of ALL_FILES) {
+      const rel = relPath(file);
+      if (!rel.startsWith("lib/reviews/agent/")) continue;
+      seen += 1;
+      if (ADK_IMPORT_RE.test(readFileSync(file, "utf8"))) offenders.push(rel);
+    }
+    expect(seen).toBeGreaterThan(0);
+    expect(offenders).toEqual([]);
+  });
+
+  it("hard rule 5: no model location literal in lib/reviews/agent/** or the ReviewAgent runner (non-test code)", () => {
+    const LOCATION_LITERAL = /asia-southeast\d?|["']global["']|us-central\d?|europe-[a-z]+\d?|us-east\d?/;
+    const offenders: string[] = [];
+    let seen = 0;
+    for (const file of ALL_FILES) {
+      const rel = relPath(file);
+      if (!(rel.startsWith("lib/reviews/agent/") || rel === "lib/agents/review-agent.ts")) continue;
+      if (rel.endsWith(".test.ts")) continue;
+      seen += 1;
+      if (LOCATION_LITERAL.test(readFileSync(file, "utf8"))) offenders.push(rel);
+    }
+    expect(seen).toBeGreaterThan(5);
     expect(offenders).toEqual([]);
   });
 

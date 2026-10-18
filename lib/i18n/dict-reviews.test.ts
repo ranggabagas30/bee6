@@ -57,6 +57,19 @@ const REVIEW_KEYS = [
   "C-rev-retry",
   "C-sop-outcome",
   "C-sop-outcome-unknown",
+  "C-rev-ff-busy",
+  "C-rev-ff-estimate",
+  "C-rev-ff-longer",
+  "C-rev-agent-missing",
+  "C-rev-agent-kick",
+  "C-rev-agent-note",
+  "C-rev-agent-cv-short_window",
+  "C-rev-agent-cv-category_count_not_problem_count",
+  "C-rev-agent-cv-staff_answers_affect_count",
+  "C-rev-agent-cv-overlapping_change",
+  "C-rev-agent-cv-threads_truncated",
+  "C-rev-agent-cv-not_enough_days",
+  "C-rev-agent-cv-no_baseline",
 ] as const;
 
 describe("R-11 review copy keys", () => {
@@ -74,6 +87,24 @@ describe("R-11 review copy keys", () => {
     expect(ID["C-rev-window-after-none" as DictKey]).toBe("Sesudah ({from} s.d. {to}): tidak ada hari terekam");
     expect("C-rev-rate-none" in EN).toBe(false);
     expect("C-rev-rate-none" in ID).toBe(false);
+  });
+
+  it("tells the judge about the cap and about a missing explanation, with the cap taken from {cap}", () => {
+    expect(EN["C-rev-ff-longer" as DictKey]).toBe(
+      "Taking longer than usual. If it takes more than about {cap} seconds, the result appears without the explanation.",
+    );
+    expect(ID["C-rev-ff-longer" as DictKey]).toContain("{cap}");
+    expect(EN["C-rev-agent-missing" as DictKey]).toBe(
+      "Bee6 could not write an explanation this time. The suggestion and the numbers above are not affected.",
+    );
+    expect(ID["C-rev-agent-missing" as DictKey]).not.toBe(EN["C-rev-agent-missing" as DictKey]);
+    // the notice says "saran" (the suggestion), as the card does
+    expect(ID["C-rev-agent-missing" as DictKey]).toBe(
+      "Bee6 tidak dapat menulis penjelasan kali ini. Saran dan angka di atas tidak terpengaruh.",
+    );
+    expect(ID["C-rev-agent-note" as DictKey]).toBe(
+      "Bee6 menulis penjelasan ini. Saran di atas berasal dari aturan tetap, dan putusan ada di tangan Anda.",
+    );
   });
 
   it("uses the generic overlap notice, with no claim about which days", () => {

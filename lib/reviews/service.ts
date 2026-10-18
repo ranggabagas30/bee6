@@ -3,20 +3,24 @@ import { assertOutlet, assertPermission } from "@/lib/auth/rbac";
 import type { CustomClaims } from "@/lib/auth/roles";
 import { addDays, localDateOf, zonedTimeToEpochMs } from "@/lib/capture/calendar";
 import type { AttributionSession } from "@/lib/day/attribution";
-import type {
-  AuditLog,
-  Outcome,
-  Outlet,
-  Proposal,
-  Review,
-  ReviewStatus,
-  ReviewWindow,
-  SopVersion,
+import {
+  ReviewSchema,
+  type AuditLog,
+  type Outcome,
+  type Outlet,
+  type Proposal,
+  type Review,
+  type ReviewStatus,
+  type SopVersion,
 } from "@/lib/firestore/schema";
 import { ConflictError, ForbiddenError, NotFoundError } from "@/lib/http/errors";
 import type { WorkCategory } from "@/lib/pipeline/categories";
-import type { ProposalThreadRow } from "@/lib/proposals/candidates";
+import { selectCandidates, type ProposalThreadRow } from "@/lib/proposals/candidates";
 import { redactUserText } from "@/lib/redact/user-text";
+import { caveatContextOfReview, requiredCaveats } from "@/lib/reviews/agent/check";
+import { isReviewAgentEnabled } from "@/lib/reviews/agent/flag";
+import { generateReviewAgent, type ReviewAgentDeps } from "@/lib/reviews/agent/generate";
+import type { MeasuredWindow } from "@/lib/reviews/agent/inputs";
 import { LIST_DECIDED_MAX, LIST_OPEN_MAX } from "@/lib/reviews/constants";
 import {
   FastForwardResponseSchema,
@@ -83,19 +87,33 @@ const DECIDED_STATUSES: readonly ReviewStatus[] = ["confirmed", "unknown"];
 
 const errorClass = (e: unknown): string => (e instanceof Error ? e.constructor.name : "unknown");
 
-/** Counts one window: sessions for the days around it, threads for the exact bounds R-08 step 8a uses. */
+/**
+ * Counts one window: sessions for the days around it, threads for the exact bounds R-08 step 8a uses.
+ * `withCandidates` (ReviewAgent only) also returns the metric-category candidates that were counted; without it the
+ * function does exactly what it did before the agent existed.
+ */
 async function measureWindow(
   store: ReviewStore,
   tz: string,
   window: DateWindow,
   category: WorkCategory,
-): Promise<{ window: ReviewWindow; truncated: boolean }> {
+  withCandidates = false,
+): Promise<MeasuredWindow & { truncated: boolean }> {
   const dates: string[] = [];
   for (let d = addDays(window.from_date, -1); d <= addDays(window.to_date, 1); d = addDays(d, 1)) dates.push(d);
   const fromMs = zonedTimeToEpochMs(window.from_date, "01:00", tz);
   const toMs = zonedTimeToEpochMs(addDays(window.to_date, 1), "03:00", tz);
   const [sessions, threads] = await Promise.all([store.listSessions(dates), store.listThreadsInRange(fromMs, toMs)]);
-  return { window: countWindow({ window, rows: threads.rows, sessions, tz, category }), truncated: threads.truncated };
+  const counted = countWindow({ window, rows: threads.rows, sessions, tz, category });
+  const candidates = withCandidates
+    ? selectCandidates(threads.rows, sessions, tz, window).filter((c) => c.category === category)
+    : [];
+  return { window: counted, candidates, truncated: threads.truncated };
+}
+
+/** What the ReviewAgent needs from the service; absent = today's behaviour exactly (the daily run passes nothing). */
+export interface CreateReviewDeps {
+  reviewAgent?: ReviewAgentDeps;
 }
 
 /**
@@ -113,6 +131,7 @@ export async function createReview(
     now_ms: number;
     actor_role: AuditLog["actor_role"];
   },
+  deps: CreateReviewDeps = {},
 ): Promise<"created" | "exists"> {
   const { outlet, sop, versions, simulated, now_ms, actor_role } = input;
   const change = sop.change;
@@ -126,10 +145,12 @@ export async function createReview(
     review_date: change.review_date,
   });
   const category = change.metric.category;
-  const before = await measureWindow(store, outlet.timezone, windows.before, category);
-  const after = await measureWindow(store, outlet.timezone, windows.after, category);
+  // The agent runs only when the caller supplied it AND the flag/scope check passes (D17); otherwise nothing below differs.
+  const agentDeps = deps.reviewAgent && isReviewAgentEnabled(deps.reviewAgent.env, outlet) ? deps.reviewAgent : null;
+  const before = await measureWindow(store, outlet.timezone, windows.before, category, agentDeps !== null);
+  const after = await measureWindow(store, outlet.timezone, windows.after, category, agentDeps !== null);
 
-  const review = buildReview({
+  const built = buildReview({
     sop,
     versions,
     before: before.window,
@@ -139,6 +160,37 @@ export async function createReview(
     now_ms,
     today: localDateOf(now_ms, outlet.timezone),
   });
+
+  // `suggestVerdict` stays the stored `suggestion` (hard rule 10); the agent only explains it. Any failure here is
+  // the plain-code card, written exactly as without the agent.
+  let review = built;
+  let agentOutcome: "accepted" | "fallback" | null = null;
+  if (agentDeps) {
+    // Without the scrub names the notes cannot be scrubbed: fail closed to the plain card, never read them unscrubbed.
+    const staffNames = await store.listStaffScrubNames().catch(() => null);
+    const agent =
+      staffNames === null
+        ? null
+        : await generateReviewAgent({
+            deps: agentDeps,
+            outlet_id: outlet.outlet_id,
+            sop,
+            rationale: proposal.content?.rationale ?? "",
+            before,
+            after,
+            notices: built.notices,
+            suggestion: built.suggestion,
+            staffNames,
+          });
+    // The stored schema enforces agent.suggested_verdict === suggestion.verdict; a doc that fails it is not written with `agent`.
+    const withAgent = agent ? ReviewSchema.safeParse({ ...built, agent }) : null;
+    if (withAgent?.success) {
+      review = withAgent.data;
+      agentOutcome = "accepted";
+    } else {
+      agentOutcome = "fallback";
+    }
+  }
   const audit: AuditLog = {
     outlet_id: review.outlet_id,
     ts: new Date(now_ms).toISOString(),
@@ -147,7 +199,14 @@ export async function createReview(
     target_type: "review",
     target_id: review.review_id,
     // `reason` is the suggestion enum, never free text.
-    details: { version: review.version, suggested: review.suggestion.verdict, reason: review.suggestion.reason, simulated },
+    details: {
+      version: review.version,
+      suggested: review.suggestion.verdict,
+      reason: review.suggestion.reason,
+      simulated,
+      // An enum, only when the agent was attempted: with the flag off the audit entry is what it always was.
+      ...(agentOutcome ? { agent: agentOutcome } : {}),
+    },
   };
   const result = await store.createReview(review, audit);
   console.info("[review] created", { outlet_id: review.outlet_id, version: review.version, result });
@@ -238,6 +297,8 @@ function viewOf(r: Review, tz: string): ReviewView {
     status: r.status,
     supervisor: decided(r.supervisor_verdict),
     owner: decided(r.owner_verdict),
+    // Only the narrative and the caveats the CODE computes; rounds, calls, model and the stored list stay server-side.
+    ...(r.agent ? { agent: { narrative_en: r.agent.narrative_en, caveats: requiredCaveats(caveatContextOfReview(r)) } } : {}),
   };
 }
 
@@ -362,9 +423,11 @@ export async function fastForwardReview(
     demoMode: boolean;
     beforeCreate?: () => Promise<void>;
     afterCreate?: () => Promise<void>;
+    /** ReviewAgent (docs/tasks/review-agent-18oct.md §5.11). Sandbox + flag gated inside `createReview`; the daily run has none. */
+    reviewAgent?: ReviewAgentDeps;
   },
 ): Promise<FastForwardResponse> {
-  const { claims, now_ms, demoMode, beforeCreate, afterCreate } = input;
+  const { claims, now_ms, demoMode, beforeCreate, afterCreate, reviewAgent } = input;
   if (!demoMode) throw new NotFoundError("route", "route");
   const outlet = await store.getOutlet();
   if (!outlet || outlet.project_kind !== "demo") throw new NotFoundError("route", "route");
@@ -380,7 +443,11 @@ export async function fastForwardReview(
   if (!next) throw new ConflictError("Nothing to review", "NOTHING_TO_REVIEW");
 
   if (beforeCreate) await beforeCreate();
-  const result = await createReview(store, { outlet, sop: next, versions, simulated: true, now_ms, actor_role: claims.role });
+  const result = await createReview(
+    store,
+    { outlet, sop: next, versions, simulated: true, now_ms, actor_role: claims.role },
+    reviewAgent ? { reviewAgent } : {},
+  );
   if (result === "exists") throw new ConflictError("Nothing to review", "NOTHING_TO_REVIEW");
   if (afterCreate) {
     try {

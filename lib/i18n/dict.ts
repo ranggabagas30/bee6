@@ -490,6 +490,20 @@ export const ID_BASE = {
   "C-rev-ff": "Lompat ke tanggal tinjauan (simulasi)", // PROVISIONAL
   "C-rev-ff-done": "Tinjauan simulasi dibuat.", // PROVISIONAL
   "C-rev-ff-none": "Tidak ada perubahan SOP yang tersisa untuk ditinjau.", // PROVISIONAL
+  // ReviewAgent (review-agent-18oct.md 5.12). The narrative itself is English-only (like the debrief heading); only this chrome is translated.
+  "C-rev-ff-busy": "Bee6 sedang meninjau…", // PROVISIONAL (Tiffany)
+  "C-rev-ff-estimate": "Bee6 membaca perubahan dan catatan dari sebelum dan sesudahnya. Biasanya {min} sampai {max} detik.", // PROVISIONAL (Tiffany)
+  "C-rev-ff-longer": "Lebih lama dari biasanya. Jika lebih dari sekitar {cap} detik, hasilnya muncul tanpa penjelasan.", // PROVISIONAL (Tiffany)
+  "C-rev-agent-missing": "Bee6 tidak dapat menulis penjelasan kali ini. Saran dan angka di atas tidak terpengaruh.", // PROVISIONAL (Tiffany)
+  "C-rev-agent-kick": "Bee6 menjelaskan", // PROVISIONAL (Tiffany)
+  "C-rev-agent-note": "Bee6 menulis penjelasan ini. Saran di atas berasal dari aturan tetap, dan putusan ada di tangan Anda.", // PROVISIONAL (Tiffany)
+  "C-rev-agent-cv-short_window": "Jangka pendek: hanya beberapa hari terekam di tiap sisi.", // PROVISIONAL (Tiffany)
+  "C-rev-agent-cv-category_count_not_problem_count": "Angkanya adalah kejadian dari satu jenis (misalnya pertanyaan pelanggan), bukan bukti sebab.", // PROVISIONAL (Tiffany)
+  "C-rev-agent-cv-staff_answers_affect_count": "Sebagian kejadian ini baru dihitung setelah staf mengonfirmasinya di debrief.", // PROVISIONAL (Tiffany)
+  "C-rev-agent-cv-overlapping_change": "Perubahan SOP lain juga berlaku pada periode yang sama.", // PROVISIONAL (Tiffany)
+  "C-rev-agent-cv-threads_truncated": "Tidak semua catatan bisa dibaca; jumlahnya mungkin kurang.", // PROVISIONAL (Tiffany)
+  "C-rev-agent-cv-not_enough_days": "Kurang dari 2 hari terekam di salah satu periode.", // PROVISIONAL (Tiffany)
+  "C-rev-agent-cv-no_baseline": "Tidak ada kejadian jenis ini yang tercatat sebelum perubahan.", // PROVISIONAL (Tiffany)
   "C-rev-err-forbidden": "Hanya pemilik atau supervisor yang bisa melihat tinjauan.", // PROVISIONAL
   "C-rev-retry": "Coba lagi", // PROVISIONAL
   "C-sop-outcome": "Hasil: {verdict}", // PROVISIONAL
@@ -989,6 +1003,19 @@ export const EN_BASE: Record<keyof typeof ID_BASE, string> = {
   "C-rev-ff": "Fast-forward to the review date (simulated)", // PROVISIONAL
   "C-rev-ff-done": "Simulated review created.", // PROVISIONAL
   "C-rev-ff-none": "No SOP change left to review.", // PROVISIONAL
+  "C-rev-ff-busy": "Bee6 is reviewing…", // PROVISIONAL
+  "C-rev-ff-estimate": "Bee6 reads the change and the notes from before and after. Usually {min} to {max} seconds.", // PROVISIONAL
+  "C-rev-ff-longer": "Taking longer than usual. If it takes more than about {cap} seconds, the result appears without the explanation.", // PROVISIONAL
+  "C-rev-agent-missing": "Bee6 could not write an explanation this time. The suggestion and the numbers above are not affected.", // PROVISIONAL
+  "C-rev-agent-kick": "Bee6 explains", // PROVISIONAL
+  "C-rev-agent-note": "Bee6 wrote this explanation. The suggestion above comes from a fixed rule, and the verdict is yours.", // PROVISIONAL
+  "C-rev-agent-cv-short_window": "Short windows: only a few captured days on each side.", // PROVISIONAL
+  "C-rev-agent-cv-category_count_not_problem_count": "The counts are moments of one kind (for example customer questions), not proof of cause.", // PROVISIONAL
+  "C-rev-agent-cv-staff_answers_affect_count": "Some of these moments count only after staff confirmed them in the debrief.", // PROVISIONAL
+  "C-rev-agent-cv-overlapping_change": "Another SOP change was in force in the same period.", // PROVISIONAL
+  "C-rev-agent-cv-threads_truncated": "Not every note could be read; the counts may be low.", // PROVISIONAL
+  "C-rev-agent-cv-not_enough_days": "Fewer than 2 captured days in one of the windows.", // PROVISIONAL
+  "C-rev-agent-cv-no_baseline": "No moments of this kind were noted before the change.", // PROVISIONAL
   "C-rev-err-forbidden": "Only the owner or a supervisor can see reviews.", // PROVISIONAL
   "C-rev-retry": "Try again", // PROVISIONAL
   "C-sop-outcome": "Outcome: {verdict}", // PROVISIONAL

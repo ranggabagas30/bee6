@@ -1829,7 +1829,7 @@ describe("after days: stages 6-7, the phone cards and the Reviews cards", () => 
     const rows = within(screen.getByRole("list", { name: "Do this now" })).getAllByRole("listitem");
     expect(rows.map((r) => r.textContent)).toEqual([
       expect.stringContaining("Tap Fast-forward to the review date"),
-      expect.stringContaining("Read Bee6's review and the before/after counts"),
+      expect.stringContaining("Read Bee6's explanation and the before/after counts"),
       expect.stringContaining("Give the Supervisor verdict, then confirm as Owner"),
     ]);
     expect(rows[0]!.getAttribute("aria-current")).toBe("step");

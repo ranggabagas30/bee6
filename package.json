@@ -26,6 +26,7 @@
     "eval:label": "tsx scripts/eval-label.ts",
     "eval:scenario": "tsx scripts/eval-scenario.ts",
     "eval:proposal": "tsx scripts/eval-proposal.ts",
+    "eval:review-agent": "tsx scripts/eval-review-agent.ts",
     "eval:export": "tsx scripts/eval-export.ts",
     "eval:transcribe": "tsx scripts/eval-transcribe.ts",
     "probe:label-schema": "tsx scripts/probe-label-schema.ts"

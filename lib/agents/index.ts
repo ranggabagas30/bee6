@@ -7,6 +7,10 @@
  *     (Gemini 3.5 Flash, ADK `LlmAgent` + `InMemoryRunner`).
  *   - R-11: ReviewAgent — on the review date, decides worked / revise /
  *     revert (Gemini 3.5 Flash + Cloud Scheduler).
+ *   - ReviewAgent (review-agent.ts, sandbox only, flag REVIEW_AGENT, built; nothing calls it until the service
+ *     wiring ships): explains the before/after counts of one shipped SOP change in plain English. Read-only tools
+ *     plus the plain-code checker `check_review`; the verdict stays `suggestVerdict`'s (Gemini 3.5 Flash-Lite, ADK
+ *     `LlmAgent` + `InMemoryRunner`). See docs/tasks/review-agent-18oct.md.
  *   - R-15: CriticAgent — checks proposals using the evidence gate
  *     (lib/pipeline) as a tool (Gemini 3.5 Flash).
  *   - R-16: voice debrief (agent speaks first, tap fallback, Live API model) — not built; "if time".
