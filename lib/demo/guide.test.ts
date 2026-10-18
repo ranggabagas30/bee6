@@ -408,14 +408,18 @@ describe("STAGES and GUIDE data", () => {
     const ready = GUIDE.reviews_ready;
     expect(ready.todo?.map((r) => r.en)).toEqual([
       "Tap Fast-forward to the review date",
-      "Read Bee6's review and the before/after counts",
+      "Read Bee6's explanation and the before/after counts",
       "Give the Supervisor verdict, then confirm as Owner",
     ]);
     expect(ready.body.map((b) => b.en)).toEqual([
       "Days 4 and 5 are captured. Fast-forward to the review date: Bee6 compares the days before and after the change and suggests a verdict.",
     ]);
     expect(GUIDE.reviews_verdict.body.map((b) => b.en)).toEqual([
-      "Read the before and after counts and Bee6's suggestion, then give your verdict. The Supervisor decides first; the Owner confirms, and the result is remembered.",
+      "Read the before and after counts, Bee6's suggestion and its explanation if shown, then give your verdict. The Supervisor decides first; the Owner confirms, and the result is remembered.",
+    ]);
+    expect(ready.todo?.[1]?.id).toBe("Baca penjelasan Bee6 dan hitungan sebelum/sesudah");
+    expect(GUIDE.reviews_verdict.body.map((b) => b.id)).toEqual([
+      "Baca hitungan sebelum dan sesudah, saran Bee6 dan penjelasannya jika ada, lalu beri putusan Anda. Supervisor memutuskan dulu; Pemilik mengonfirmasi, dan hasilnya diingat.",
     ]);
     expect(GUIDE.reviews_verdict.footnote?.en).toBe("A second change? Fast-forward again.");
     expect(GUIDE.reviews_done.body.map((b) => b.en)).toEqual([
