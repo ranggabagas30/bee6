@@ -91,8 +91,8 @@ const MOMENT: DebriefQuestionMoment = {
   summary: "Phone order taken, not read back.",
 };
 
-const GOOD = "Around 14:05, was there a phone order that was not read back?";
-const BAD_LONG = `Around 14:05, was there a phone order ${"that was not read back to the caller ".repeat(5)}?`;
+const GOOD = "Around 14:05, was the phone order read back to the caller?";
+const BAD_LONG = `Around 14:05, was there a phone order ${"that was read back to the caller ".repeat(5)}?`;
 
 const CTX = { project: "bee6-playground", location: "loc-from-config", timeoutMs: 1000 };
 
@@ -256,6 +256,44 @@ describe("adkDebriefAgent: the run", () => {
     expect(r).toMatchObject({ kind: "accepted", rounds: 2, model_calls: 2 });
     expect(capturedToolResults[0]).toEqual({ accepted: false, round: 1, rounds_left: 1, reasons: ["too_long"] });
     expect(capturedToolResults[1]).toEqual({ accepted: true });
+  });
+
+  it("2b. a negated round-1 draft is fed back with the negation reason AND a fixed revision hint; the positive round 2 is accepted", async () => {
+    const { adkDebriefAgent } = await load();
+    runEphemeralImpl.mockImplementation(
+      () =>
+        trackedEvents([
+          toolStep({ question_en: "Around 14:05, was the phone order not read back?" }, "c1"),
+          toolStep({ question_en: GOOD }, "c2"),
+        ]).gen,
+    );
+    const r = await adkDebriefAgent(input(), CTX);
+    expect(r).toMatchObject({ kind: "accepted", rounds: 2 });
+    expect(capturedToolResults[0]).toMatchObject({ accepted: false, round: 1, rounds_left: 1, reasons: ["negation"] });
+    const hints = (capturedToolResults[0] as { hints?: string[] }).hints;
+    expect(hints).toHaveLength(1);
+    expect(hints?.[0]).toContain("positive");
+    expect(hints?.[0]).not.toContain("LINE-SENTINEL-7");
+  });
+
+  it("2c. a compound round-1 draft gets the compound hint; a failure with no hinted rule carries no hints key", async () => {
+    const { adkDebriefAgent } = await load();
+    runEphemeralImpl.mockImplementation(
+      () =>
+        trackedEvents([
+          toolStep({ question_en: "Around 14:05, was there a phone order and was it read back?" }, "c1"),
+          toolStep({ question_en: GOOD }, "c2"),
+        ]).gen,
+    );
+    await adkDebriefAgent(input(), CTX);
+    expect(capturedToolResults[0]).toMatchObject({ reasons: ["compound"] });
+    expect((capturedToolResults[0] as { hints: string[] }).hints[0]).toContain("ONE yes/no");
+    runEphemeralImpl.mockImplementation(
+      () => trackedEvents([toolStep({ question_en: BAD_LONG }, "c1"), toolStep({ question_en: GOOD }, "c2")]).gen,
+    );
+    capturedToolResults.length = 0;
+    await adkDebriefAgent(input(), CTX);
+    expect(capturedToolResults[0]).not.toHaveProperty("hints");
   });
 
   it("3. two failed rounds -> rejected with the LAST reasons; the tool sets the outcome and the loop breaks", async () => {

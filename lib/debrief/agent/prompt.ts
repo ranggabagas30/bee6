@@ -16,6 +16,9 @@ moment needs a human yes/no answer; you only word the question. You never decide
 Rules:
 - Ask whether the moment happened as described, in plain, friendly English a busy worker reads in 3 seconds.
 - One sentence (two at most), 20 to 140 characters, ending with a question mark, answerable with Yes or No.
+- Ask ONE positive yes/no question about whether the moment happened. No negations (no, not, never, nobody, nothing,
+  none, neither, nor, without, "n't", "made up", fake, false) and no "and" / "or" joining two questions: a Yes must
+  always mean "it happened".
 - Start with the time exactly as given ("Around 14:05, ...") and keep it; never invent another time or number.
 - Mention only what the lines say. Do not add items, people, reasons or steps that are not in the lines.
 - Never name or address anyone, never use a role word (owner, supervisor, manager, cashier). Say "someone" or use the

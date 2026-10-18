@@ -8,7 +8,7 @@ import {
   DEBRIEF_AGENT_MAX_ROUNDS,
   DEBRIEF_AGENT_MODEL,
 } from "@/lib/debrief/agent/constants";
-import { CHECK_RULES, checkQuestion, type CheckRule } from "@/lib/debrief/agent/check";
+import { CHECK_RULES, checkQuestion, hintsFor, type CheckRule } from "@/lib/debrief/agent/check";
 import { buildUserContent, DEBRIEF_SYSTEM_INSTRUCTION } from "@/lib/debrief/agent/prompt";
 import {
   DebriefQuestionArgsSchema,
@@ -71,7 +71,8 @@ const RUN_DECIDED_ERROR = "run already decided";
 const CHECK_QUESTION_DESCRIPTION =
   "Submit the question to the plain-code checker. It answers accepted, or a list of failed rule codes to fix: " +
   CHECK_RULES.filter((rule) => rule !== "schema_invalid").join(", ") +
-  ". Fix exactly those reasons and submit again. At most " +
+  ". Fix exactly those reasons and submit again (negation: ask one positive question, no no/not/never/without/n't; " +
+  "compound: ask one yes/no question, no and/or second clause). At most " +
   DEBRIEF_AGENT_MAX_ROUNDS +
   " submissions count.";
 
@@ -165,11 +166,14 @@ function buildCheckQuestionTool(input: DebriefAgentInput, session: Session): Fun
         session.outcome = { kind: "rejected", reasons: result.reasons };
         return { accepted: false, final: true, reasons: result.reasons };
       }
+      const hints = hintsFor(result.reasons);
       return {
         accepted: false,
         round: session.rounds,
         rounds_left: DEBRIEF_AGENT_MAX_ROUNDS - session.rounds,
         reasons: result.reasons,
+        // Fixed literals for the rules whose code alone does not say how to repair the wording (negation, compound).
+        ...(hints.length > 0 ? { hints } : {}),
       };
     },
   });

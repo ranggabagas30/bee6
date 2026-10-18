@@ -30,8 +30,25 @@ export const CHECK_RULES = [
   "staff_name",
   "role_word",
   "instruction_word",
+  "negation",
+  "compound",
 ] as const;
 export type CheckRule = (typeof CHECK_RULES)[number];
+
+/**
+ * Fixed revision hints for the rules whose code alone does not tell the model HOW to fix the wording. Literals, never
+ * shop text. The runner hands these back with the reasons so round 2 can repair the question.
+ */
+export const RULE_HINTS: Partial<Record<CheckRule, string>> = {
+  negation:
+    "Ask ONE positive question about whether the moment happened. Do not use no, not, never, nobody, nothing, none, neither, nor, without, any n't form, made up, fake or false.",
+  compound:
+    "Ask ONE yes/no question. Do not join two questions with and/or, and do not write yes or no in the question.",
+};
+
+export function hintsFor(reasons: readonly CheckRule[]): string[] {
+  return reasons.flatMap((r) => (RULE_HINTS[r] ? [RULE_HINTS[r] as string] : []));
+}
 
 export interface CheckContext {
   moment: DebriefQuestionMoment;
@@ -57,7 +74,7 @@ export const QUESTION_ALLOW_WORDS: readonly string[] = [
   "please", "could", "would", "should", "little", "shortly", "later", "again", "maybe",
   "roughly", "thing", "things", "place", "taken", "taking", "given", "going", "being", "doing", "having", "making",
   "asked", "asking", "answer", "called", "calling", "talked", "talking", "spoke", "speaking", "between",
-  "without", "something", "anything",
+  "something", "anything",
 ];
 
 const YES_NO_STARTERS = new Set(["did", "was", "were", "is", "are", "do", "does", "has", "have", "had"]);
@@ -79,6 +96,15 @@ const CONTROL_LIKE = /[\p{Cc}\p{Cf}\p{Co}\p{Cs}\p{Cn}\p{Zl}\p{Zp}\p{M}]/u;
 const NON_PRINTABLE_ASCII = /[^\x20-\x7E]/;
 const ROLE_WORD = /\b(supervisor|owner|manager|boss|cashier|barista|chef|cook|staff member|the staff)\b/i;
 const INSTRUCTION_WORD = /\b(ignore|system prompt|instruction|assistant|as an ai|developer|override)\b/i;
+/**
+ * A negated or inverted wording makes a correct Yes/No mean the opposite ("was there no complaint?" - "No" - the
+ * complaint is dropped as `staff_rejected`). Word-boundary, so it also fires inside hyphenated forms ("no-show");
+ * `\b` never matches inside a word, so "notice" / "know" / "another" are fine.
+ */
+const NEGATION =
+  /\b(?:no|not|never|nobody|nothing|none|neither|nor|without|cannot|untrue|fake|false|made up)\b|n['\u2019]t\b/i;
+/** A second yes/no clause ("... cold and was a new one made?") or an explicit "yes or no": a partial-truth No drops evidence. */
+const COMPOUND = /\b(?:and|or)\s+(?:did|was|were|is|are|had|has|do|does)\b|\byes or no\b/i;
 const LETTERS_5 = /\p{L}{5,}/gu;
 const LETTER_RUNS = /\p{L}+/gu;
 const PREFIX_LEN = 5;
@@ -165,6 +191,8 @@ export function checkQuestion(draft: unknown, ctx: CheckContext): CheckResult {
   if (scrubQuestionLine(q, ctx.staffNames, ctx.outletName) !== q) fail("staff_name");
   if (ROLE_WORD.test(q)) fail("role_word");
   if (INSTRUCTION_WORD.test(q)) fail("instruction_word");
+  if (NEGATION.test(q)) fail("negation");
+  if (COMPOUND.test(q)) fail("compound");
 
   const reasons = CHECK_RULES.filter((rule) => failed.has(rule));
   return { passed: reasons.length === 0, reasons };

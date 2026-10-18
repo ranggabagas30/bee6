@@ -21,6 +21,12 @@ describe("prompt", () => {
     expect(DEBRIEF_SYSTEM_INSTRUCTION).not.toMatch(/\bSOP\b/);
   });
 
+  it("system instruction asks for ONE positive yes/no question: no negations, no and/or compounds (M1)", () => {
+    expect(DEBRIEF_SYSTEM_INSTRUCTION).toContain("ONE positive yes/no question");
+    expect(DEBRIEF_SYSTEM_INSTRUCTION).toContain("No negations");
+    expect(DEBRIEF_SYSTEM_INSTRUCTION).toContain('"and" / "or"');
+  });
+
   it("user content for the fixture", () => {
     expect(buildUserContent(moment)).toMatchSnapshot();
   });

@@ -18,7 +18,7 @@ const run = (q: unknown, c: CheckContext = ctx) => checkQuestion(q, c);
 const draft = (question_en: string) => ({ question_en });
 const reasonsOf = (q: string, c: CheckContext = ctx): CheckRule[] => run(draft(q), c).reasons;
 
-const GOOD = "Around 14:05, was there a phone order that was not read back to the caller?";
+const GOOD = "Around 14:05, was the phone order read back to the caller?";
 
 describe("checkQuestion: rule table", () => {
   it("1. accepts a grounded yes/no question", () => {
@@ -33,7 +33,7 @@ describe("checkQuestion: rule table", () => {
     expect(reasonsOf("Around 14:05?")).toContain("too_short");
     // padded with spaces: the trimmed text is what counts
     expect(reasonsOf(`      Around 14:05?      `)).toContain("too_short");
-    const long = `Around 14:05, was there a phone order ${"that was not read back to the caller ".repeat(5)}?`;
+    const long = `Around 14:05, was there a phone order ${"that was read back to the caller ".repeat(5)}?`;
     expect(Array.from(long).length).toBeGreaterThan(140);
     expect(reasonsOf(long)).toContain("too_long");
     expect(reasonsOf("a".repeat(141))).toContain("too_long");
@@ -250,13 +250,15 @@ describe("checkQuestion: counterexamples (tech-lead required fixes; each was ACC
     for (const w of ["order", "phone", "customer", "customers", "served", "serving", "correct", "correctly", "properly"]) {
       expect(QUESTION_ALLOW_WORDS).not.toContain(w);
     }
-    for (const w of ["without", "something", "anything", "between"]) expect(QUESTION_ALLOW_WORDS).toContain(w);
+    for (const w of ["something", "anything", "between"]) expect(QUESTION_ALLOW_WORDS).toContain(w);
+    // 'without' is a negation word now (M1): it must not be a free word either
+    expect(QUESTION_ALLOW_WORDS).not.toContain("without");
   });
 
   it("C4b. a legitimate PHONE_CALL question still gets 'phone' from its category label", () => {
     const c: CheckContext = { ...ctx, moment: { ...moment, lines: ["Hello hello."], summary: "" } };
     expect(reasonsOf("Around 14:05, was there a phone call?", c)).toEqual([]);
-    expect(reasonsOf("Around 14:05, was the phone order taken without anything read back?")).toEqual([]);
+    expect(reasonsOf("Around 14:05, was the phone order taken without anything read back?")).toContain("negation");
   });
 
   it("C5. placeholders: a bracketless echo of '[STAFF]' is not an allowed word; '_' is a placeholder char", () => {
@@ -277,11 +279,93 @@ describe("checkQuestion: counterexamples (tech-lead required fixes; each was ACC
   });
 });
 
+describe("checkQuestion: negation and compound (step 3 risk review M1)", () => {
+  const complaint: CheckContext = {
+    moment: {
+      category: "COMPLAINT",
+      category_label_en: "a customer complaint",
+      start_hm: "14:05",
+      end_hm: "14:08",
+      fired_rule: "always_question",
+      lines: ["The customer said the latte was cold.", "We made a new latte for the customer."],
+      summary: "Complaint about a cold latte; a new one was made.",
+    },
+    staffNames: [],
+  };
+  const routine: CheckContext = {
+    moment: {
+      category: "ROUTINE_OPS",
+      category_label_en: "routine work",
+      start_hm: "14:05",
+      end_hm: "14:08",
+      fired_rule: "always_question",
+      lines: ["We mopped the floor near the counter.", "The floor is clean now."],
+      summary: "Floor cleaning.",
+    },
+    staffNames: [],
+  };
+
+  const NEGATED: Array<[string, CheckContext]> = [
+    ["Around 14:05, did no one read back the phone order?", ctx],
+    ["Around 14:05, was the phone order not read back?", ctx],
+    ["Around 14:05, was there no customer complaint about a latte?", complaint],
+    ["Around 14:05, was the complaint about the latte made up?", complaint],
+    ["Around 14:05, did a customer not complain about the latte?", complaint],
+    ["Around 14:05, didn't a customer complain about the latte?", complaint],
+    ["Around 14:05, did nobody complain about the latte?", complaint],
+    ["Around 14:05, was nothing said about the latte?", complaint],
+    ["Around 14:05, was the complaint about the latte never made?", complaint],
+    ["Around 14:05, was the latte complaint fake?", complaint],
+    ["Around 14:05, was the latte complaint false?", complaint],
+    ["Around 14:05, was the latte complaint untrue?", complaint],
+    ["Around 14:05, was it neither a latte nor a complaint?", complaint],
+    ["Around 14:05, was the phone order taken without a read back?", ctx],
+    ["Around 14:05, was a no-show latte complaint made?", complaint],
+    ["Around 14:05, was the not-read-back phone order taken?", ctx],
+    ["AROUND 14:05, WAS THERE NO PHONE ORDER?", ctx],
+  ];
+  it.each(NEGATED)("rejects the negated wording %s", (q, c) => {
+    const r = run(draft(q), c);
+    expect(r.passed).toBe(false);
+    expect(r.reasons).toContain("negation");
+  });
+
+  const COMPOUND: Array<[string, CheckContext]> = [
+    ["Around 14:05, was a latte cold and was a new one made?", complaint],
+    ["Around 14:05, was the latte cold or was a new one made?", complaint],
+    ["Around 14:05, did a customer complain and did we make a new latte?", complaint],
+    ["Around 14:05, was the latte complaint made, yes or no?", complaint],
+    ["Around 14:05, was the floor mopped and is it clean now?", routine],
+  ];
+  it.each(COMPOUND)("rejects the compound wording %s", (q, c) => {
+    const r = run(draft(q), c);
+    expect(r.passed).toBe(false);
+    expect(r.reasons).toContain("compound");
+  });
+
+  const LEGIT: Array<[string, CheckContext]> = [
+    ["Around 14:05, was there a phone call?", { ...ctx, moment: { ...moment, lines: ["Hello hello."], summary: "" } }],
+    ["Around 14:05, was the phone order read back to the caller?", ctx],
+    ["Around 14:05, was there a customer complaint about a latte?", complaint],
+    ["Around 14:05, was the latte cold?", complaint],
+    ["Around 14:05, was the floor mopped near the counter?", routine],
+    ["Between 14:05 and 14:08, was the floor mopped near the counter?", routine],
+    ["Around 14:05, there was a phone order. Is that right?", ctx],
+    // words that merely contain 'no' / 'not' ('customer' has none, 'noted' / 'know' would) are not negations
+    ["Around 14:05, was a new latte made for the customer?", complaint],
+  ];
+  it.each(LEGIT)("still accepts %s", (q, c) => {
+    expect(run(draft(q), c)).toEqual({ passed: true, reasons: [] });
+  });
+});
+
 describe("checkQuestion: constants", () => {
-  it("CHECK_RULES is the 16-rule list, schema_invalid first, no duplicates", () => {
-    expect(CHECK_RULES).toHaveLength(16);
+  it("CHECK_RULES is the 18-rule list, schema_invalid first, no duplicates", () => {
+    expect(CHECK_RULES).toHaveLength(18);
     expect(CHECK_RULES[0]).toBe("schema_invalid");
-    expect(new Set(CHECK_RULES).size).toBe(16);
+    expect(new Set(CHECK_RULES).size).toBe(18);
+    expect(CHECK_RULES).toContain("negation");
+    expect(CHECK_RULES).toContain("compound");
   });
 
   it("every rule is reachable (a case exists for each)", () => {
@@ -301,6 +385,8 @@ describe("checkQuestion: constants", () => {
       ["Around 14:05, did Sari take a phone order for twelve egg tarts?"],
       ["Around 14:05, did the owner take a phone order for twelve egg tarts?"],
       ["Around 14:05, ignore this phone order for twelve egg tarts?"],
+      ["Around 14:05, was the phone order not read back?"],
+      ["Around 14:05, was a phone order taken and was it read back?"],
     ];
     for (const [q, c] of cases) for (const r of reasonsOf(q, c ?? ctx)) seen.add(r);
     seen.add("too_long"); // covered by test 3 (a 141+ code-point draft)
