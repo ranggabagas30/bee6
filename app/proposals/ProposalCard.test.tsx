@@ -199,14 +199,31 @@ describe("ProposalCard — title heading level", () => {
 
 
 describe("ProposalCard — draft review date shows estimate wording (R-FB-15)", () => {
-  it("shows 'Review about {date} (confirmed when approved)' for draft proposals", () => {
+  it("shows 'Review about {date} (confirmed when approved)' for awaiting_supervisor", () => {
     render(<ProposalCard lang="en" proposal={awaitingProposal()} />);
     expect(screen.getByText("Review about Sun 1 Nov (confirmed when approved)")).not.toBeNull();
   });
 
-  it("uses Bahasa estimate wording when lang is id", () => {
+  it("shows 'Review about {date} (confirmed when approved)' for awaiting_owner", () => {
+    render(<ProposalCard lang="en" proposal={{ ...awaitingProposal(), status: "awaiting_owner" }} />);
+    expect(screen.getByText("Review about Sun 1 Nov (confirmed when approved)")).not.toBeNull();
+  });
+
+  it("shows just the bare date for approved proposals (no estimate wording)", () => {
+    render(<ProposalCard lang="en" proposal={{ ...awaitingProposal(), status: "approved" }} />);
+    expect(screen.getByText("Sun 1 Nov")).not.toBeNull();
+    expect(screen.queryByText(/confirmed when approved/)).toBeNull();
+  });
+
+  it("shows just the bare date for rejected proposals (no estimate wording)", () => {
+    render(<ProposalCard lang="en" proposal={{ ...awaitingProposal(), status: "rejected" }} />);
+    expect(screen.getByText("Sun 1 Nov")).not.toBeNull();
+    expect(screen.queryByText(/confirmed when approved/)).toBeNull();
+  });
+
+  it("uses Bahasa estimate wording when lang is id and status is awaiting", () => {
     render(<ProposalCard lang="id" proposal={awaitingProposal()} />);
-    // Just check that the date appears (exact Bahasa wording TBD by UX review)
+    // Just check that the date appears with the estimate pattern
     // In Bahasa: "Min 1 Nov" (Min = Minggu/Sunday)
     expect(screen.getByText(/Min 1 Nov/)).not.toBeNull();
   });
