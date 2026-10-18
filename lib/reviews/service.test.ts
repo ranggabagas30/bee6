@@ -376,6 +376,36 @@ describe("listReviews", () => {
     expect((await list(fakeStore({ ...unreviewed, reviews: [reviewDoc()] }), "owner", true)).fast_forward_available).toBe(false);
   });
 
+  describe("agent panel (docs/tasks/review-agent-18oct.md §5.6)", () => {
+    const stored = {
+      version: "review-v1", model: "gemini-3.5-flash-lite", suggested_verdict: "worked",
+      narrative_en: "Fewer moments of this kind were noted after the change than before it, so the rule suggests it worked.",
+      // Deliberately NOT the computed list: the view must ignore the model's caveats.
+      caveats: ["no_baseline"], rounds: 2, model_calls: 7, generated_at_ms: 1_700_000_000_000,
+    };
+
+    it("a review without agent has no agent key in its view", async () => {
+      const r = await list(fakeStore({ reviews: [reviewDoc()] }), "owner");
+      expect("agent" in r.open[0]!).toBe(false);
+    });
+
+    it("emits only the narrative and the COMPUTED caveats, never rounds, calls, model or the stored list", async () => {
+      const doc = reviewDoc({ agent: stored, notices: { overlapping_change: true, threads_truncated: false } });
+      const r = await list(fakeStore({ reviews: [doc] }), "supervisor");
+      expect(r.open[0]!.agent).toEqual({
+        narrative_en: stored.narrative_en,
+        caveats: ["short_window", "category_count_not_problem_count", "overlapping_change"],
+      });
+      const json = JSON.stringify(r);
+      for (const k of ["rounds", "model_calls", "generated_at_ms", "gemini", "review-v1"]) expect(json).not.toContain(k);
+    });
+
+    it("owner and supervisor get the identical panel", async () => {
+      const f = fakeStore({ reviews: [reviewDoc({ agent: stored })] });
+      expect(await list(f, "owner")).toEqual(await list(f, "supervisor"));
+    });
+  });
+
   it("a cross-outlet caller is forbidden", async () => {
     const f = fakeStore({});
     await expect(listReviews(f.store, { claims: claims("owner", "o2"), now_ms: 1, demoMode: false })).rejects.toBeInstanceOf(ForbiddenError);

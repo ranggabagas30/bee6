@@ -17,6 +17,7 @@ import { ConflictError, ForbiddenError, NotFoundError } from "@/lib/http/errors"
 import type { WorkCategory } from "@/lib/pipeline/categories";
 import type { ProposalThreadRow } from "@/lib/proposals/candidates";
 import { redactUserText } from "@/lib/redact/user-text";
+import { caveatContextOfReview, requiredCaveats } from "@/lib/reviews/agent/check";
 import { LIST_DECIDED_MAX, LIST_OPEN_MAX } from "@/lib/reviews/constants";
 import {
   FastForwardResponseSchema,
@@ -238,6 +239,8 @@ function viewOf(r: Review, tz: string): ReviewView {
     status: r.status,
     supervisor: decided(r.supervisor_verdict),
     owner: decided(r.owner_verdict),
+    // Only the narrative and the caveats the CODE computes; rounds, calls, model and the stored list stay server-side.
+    ...(r.agent ? { agent: { narrative_en: r.agent.narrative_en, caveats: requiredCaveats(caveatContextOfReview(r)) } } : {}),
   };
 }
 
