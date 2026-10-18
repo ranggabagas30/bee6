@@ -6,6 +6,8 @@ import {
   DEBRIEF_AGENT_MODEL,
   DEBRIEF_AGENT_TIMEOUT_MS,
   DEBRIEF_AGENT_UNIT_BUDGET_MS,
+  DEBRIEF_AGENT_UNIT_GUARD_MS,
+  DEBRIEF_AGENT_COLD_START_MARGIN_MS,
   DEBRIEF_AGENT_VERSION,
 } from "@/lib/debrief/agent/constants";
 import type { DebriefAgent, DebriefAgentResult } from "@/lib/agents/debrief-agent";
@@ -354,20 +356,26 @@ describe("wordGateQuestions", () => {
   describe("unit time budget (the lease arithmetic stays true)", () => {
     it("is skipped when the unit has less than one agent budget left", async () => {
       const run = vi.fn<DebriefAgent>(async () => accepted());
-      const { input } = setup(["t1"], run, { unit_budget_left_ms: DEBRIEF_AGENT_UNIT_BUDGET_MS - 1 });
+      const { input } = setup(["t1"], run, { unit_budget_left_ms: DEBRIEF_AGENT_UNIT_GUARD_MS - 1 });
       await wordGateQuestions(input);
       expect(run).not.toHaveBeenCalled();
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('"outcome":"skipped","reason":"unit_budget"'));
     });
 
     it("runs when exactly one agent budget is left", async () => {
       const run = vi.fn<DebriefAgent>(async () => accepted());
-      const { input } = setup(["t1"], run, { unit_budget_left_ms: DEBRIEF_AGENT_UNIT_BUDGET_MS });
+      const { input } = setup(["t1"], run, { unit_budget_left_ms: DEBRIEF_AGENT_UNIT_GUARD_MS });
       await wordGateQuestions(input);
       expect(run).toHaveBeenCalledTimes(1);
     });
 
     it("the agent's per-unit budget is the timeout plus the backstop margin (parallel questions share it)", () => {
       expect(DEBRIEF_AGENT_UNIT_BUDGET_MS).toBe(DEBRIEF_AGENT_TIMEOUT_MS + DEBRIEF_AGENT_BACKSTOP_MARGIN_MS);
+    });
+
+    it("the guard adds the one-off cold ADK import margin on top of the per-unit budget", () => {
+      expect(DEBRIEF_AGENT_COLD_START_MARGIN_MS).toBe(2_000);
+      expect(DEBRIEF_AGENT_UNIT_GUARD_MS).toBe(DEBRIEF_AGENT_UNIT_BUDGET_MS + DEBRIEF_AGENT_COLD_START_MARGIN_MS);
     });
   });
 

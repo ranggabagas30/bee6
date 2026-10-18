@@ -66,7 +66,7 @@ export const DEFAULT_LABEL_MAX_ATTEMPTS = 3;
  * The most wall time ONE unit may take: `DEFAULT_LABEL_MAX_ATTEMPTS` label calls at their 30 s timeout. The 30 min lease
  * above is exactly `DEFAULT_MAX_UNITS_PER_DEVICE` x this, with no margin. Anything optional a unit adds (the
  * DebriefAgent's wording step) must therefore come OUT of this budget, never on top of it: the agent runs only while
- * the unit has at least one agent budget left (`DEBRIEF_AGENT_UNIT_BUDGET_MS`, ~11 s), so a unit never exceeds this.
+ * the unit has at least the agent guard left (`DEBRIEF_AGENT_UNIT_GUARD_MS`, 13 s: the ~11 s agent budget plus the cold ADK import), so a unit never exceeds this.
  */
 export const UNIT_BUDGET_MS = DEFAULT_LABEL_MAX_ATTEMPTS * 30_000;
 /** Covers every category's GRACE_MS (max 600s, TRAINING) with margin. */

@@ -16,6 +16,7 @@ import {
   DEBRIEF_AGENT_MAX_PER_UNIT,
   DEBRIEF_AGENT_TIMEOUT_MS,
   DEBRIEF_AGENT_UNIT_BUDGET_MS,
+  DEBRIEF_AGENT_UNIT_GUARD_MS,
 } from "@/lib/debrief/agent/constants";
 import type {
   ActiveDevice,
@@ -1752,13 +1753,16 @@ describe("runTick: DebriefAgent wording", () => {
       // Every unit may add its agent budget ONLY out of its own: 20 x (label time that still leaves room + agent) <= 20 x unit budget.
       const worstLabelThatStillWordsMs = UNIT_BUDGET_MS - DEBRIEF_AGENT_UNIT_BUDGET_MS;
       expect(DEFAULT_MAX_UNITS_PER_DEVICE * (worstLabelThatStillWordsMs + DEBRIEF_AGENT_UNIT_BUDGET_MS)).toBeLessThanOrEqual(DEFAULT_LEASE_TTL_MS);
+      // The guard also covers the one-off cold ADK import (1-3 s): label time + guard still fits one unit's budget.
+      expect(DEBRIEF_AGENT_UNIT_GUARD_MS).toBe(13_000);
+      expect(DEFAULT_MAX_UNITS_PER_DEVICE * (UNIT_BUDGET_MS - DEBRIEF_AGENT_UNIT_GUARD_MS + DEBRIEF_AGENT_UNIT_GUARD_MS)).toBeLessThanOrEqual(DEFAULT_LEASE_TTL_MS);
     });
 
     it("a unit whose label step already used the budget keeps the template and never calls the agent", async () => {
       let clock = 1_000_000;
       vi.spyOn(Date, "now").mockImplementation(() => clock);
       const store = storeFor("sbx-1");
-      // The label call "takes" 85 s of the 90 s unit budget: less than one agent budget (11 s) is left.
+      // The label call "takes" 85 s of the 90 s unit budget: less than the agent guard (13 s) is left.
       const slow = async () => {
         clock += 85_000;
         return lowConfidenceWire();
@@ -1769,16 +1773,28 @@ describe("runTick: DebriefAgent wording", () => {
       expect("agent" in store.writes[0]!.batch.questions[0]!).toBe(false);
     });
 
-    it("a unit that used less than (budget - agent budget) still gets its wording", async () => {
+    it("a unit that used at most (budget - agent guard) = 77 s still gets its wording", async () => {
       let clock = 1_000_000;
       vi.spyOn(Date, "now").mockImplementation(() => clock);
       const store = storeFor("sbx-1");
       const quick = async () => {
-        clock += 78_000;
+        clock += 77_000;
         return lowConfidenceWire();
       };
       const { run } = await tick(store, { env: { DEBRIEF_AGENT: "true" }, generate: quick });
       expect(run).toHaveBeenCalledTimes(1);
+    });
+
+    it("78 s used leaves 12 s: under the 13 s guard (11 s agent + 2 s cold ADK import), so the template stays", async () => {
+      let clock = 1_000_000;
+      vi.spyOn(Date, "now").mockImplementation(() => clock);
+      const store = storeFor("sbx-1");
+      const justSlow = async () => {
+        clock += 78_000;
+        return lowConfidenceWire();
+      };
+      const { run } = await tick(store, { env: { DEBRIEF_AGENT: "true" }, generate: justSlow });
+      expect(run).not.toHaveBeenCalled();
     });
   });
 });

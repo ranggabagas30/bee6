@@ -30,6 +30,10 @@ export const DEBRIEF_AGENT_BACKSTOP_MARGIN_MS = 3_000;
  * exceeds the per-unit budget the 30 min lease is sized on (service.ts `UNIT_BUDGET_MS`).
  */
 export const DEBRIEF_AGENT_UNIT_BUDGET_MS = DEBRIEF_AGENT_TIMEOUT_MS + DEBRIEF_AGENT_BACKSTOP_MARGIN_MS;
+/** The one-off cold start of the ADK import (1-3 s, first question of an instance), not covered by the timeout. */
+export const DEBRIEF_AGENT_COLD_START_MARGIN_MS = 2_000;
+/** The unit time the tick must still have before it runs the agent: the budget plus the cold import margin. */
+export const DEBRIEF_AGENT_UNIT_GUARD_MS = DEBRIEF_AGENT_UNIT_BUDGET_MS + DEBRIEF_AGENT_COLD_START_MARGIN_MS;
 export const DEBRIEF_AGENT_MAX_PER_UNIT = 3;
 export const DEBRIEF_AGENT_MAX_LINES = 6;
 /** === the quoted-line cap of the read path: imported, never redefined. */

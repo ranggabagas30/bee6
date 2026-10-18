@@ -5,7 +5,7 @@ import {
   DEBRIEF_AGENT_MAX_PER_UNIT,
   DEBRIEF_AGENT_MODEL,
   DEBRIEF_AGENT_TIMEOUT_MS,
-  DEBRIEF_AGENT_UNIT_BUDGET_MS,
+  DEBRIEF_AGENT_UNIT_GUARD_MS,
   DEBRIEF_AGENT_VERSION,
 } from "@/lib/debrief/agent/constants";
 import { buildMoment } from "@/lib/debrief/agent/moment";
@@ -59,7 +59,7 @@ export interface WordGateInput {
   /** The outlet tz, the SAME one the read path uses, so `start_hm` matches the phone byte for byte. */
   tz: string;
   now_ms: number;
-  /** Time the unit still has in its own budget; below one agent budget the agent is skipped. Absent = unlimited. */
+  /** Time the unit still has in its own budget; below the agent guard (budget + cold import margin) the agent is skipped. Absent = unlimited. */
   unit_budget_left_ms?: number;
   deps?: DebriefAgentDeps;
 }
@@ -120,7 +120,7 @@ async function wordGateQuestionsUnsafe(input: WordGateInput): Promise<void> {
   const capped = candidates.slice(0, DEBRIEF_AGENT_MAX_PER_UNIT);
   if (capped.length === 0) return;
 
-  if (input.unit_budget_left_ms !== undefined && input.unit_budget_left_ms < DEBRIEF_AGENT_UNIT_BUDGET_MS) {
+  if (input.unit_budget_left_ms !== undefined && input.unit_budget_left_ms < DEBRIEF_AGENT_UNIT_GUARD_MS) {
     for (let i = 0; i < capped.length; i += 1) skip("unit_budget");
     return;
   }
