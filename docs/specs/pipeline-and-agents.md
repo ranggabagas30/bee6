@@ -56,7 +56,7 @@ T-403 wording.
 > **Updated 3 Oct 2026 (aligned with `docs/plan.md` v5):** dates re-dated to the Mon 12 Oct pilot go-live (one-step go-live after internal testing Tue 6 – Sun 11 and Rangga's written sign-off Sun 11 18:00; real evidence Mon 12 – Wed 14; first real insight run Thu 15, Fri 16 fallback; submit Fri 16; pilot review Wed 21 Oct, after submission, so the closed loop is shown on the demo outlet only). Capture is staff-tapped Mulai/Selesai with a hard auto-stop 60 min after closing, not unattended; the tap debrief opens after Selesai / auto-stop; R-16 is "if time".
 
 **What this doc is:** Part A is the MVP-level PRD. Part B specs each epic with acceptance criteria.
-**How it fits:** web app, capture, backend, login and roles are specced in `docs/specs/web-backend-rbac.md`; this doc covers the rest (pipeline, debrief, agents, approvals, demo outlet, evidence, consent). Dates and hours: `docs/plan.md`. Steps per task: `docs/backlog.md`. Product behaviour source: `docs/product-spec.md`. Engineering-level detail for the pipeline as built (exact algorithms, edge cases, leak boundaries, file:line citations): `docs/specs/technical-specification.md`.
+**How it fits:** web app, capture, backend, login and roles are specced in `docs/specs/web-backend-rbac.md`; this doc covers the rest (pipeline, debrief, agents, approvals, demo outlet, evidence, consent). Dates and hours: `docs/plan.md`. Steps per task: `docs/backlog.md`. Product behaviour source: `docs/specs/product-spec.md`. Engineering-level detail for the pipeline as built (exact algorithms, edge cases, leak boundaries, file:line citations): `docs/specs/technical-specification.md`.
 **v2 changes (30 Sept):** web app instead of Android · Gemini 3.5 Transcribe for all speech (no Flash-Lite first pass, no escalation) · one Cloud Run service · demo outlet inside the same app (no separate playground site) · weekday demo story · new dates (go-live Mon 5, SOP v2 Sat 10, review Wed 14; superseded by plan v5: go-live Mon 12, SOP v2 Thu 15, pilot review Wed 21 Oct) · task IDs mapped to R-xx. Items marked **(P1)** are built only if time allows. Decision history: `docs/adr/ADR-001-lean-gemini-architecture.md`.
 
 ---
@@ -204,7 +204,7 @@ Specced in the web spec §6.2–§6.3. Additional AC:
 
 **Goal:** turn segments into labelled threads, drop private talk, and let only well-evidenced labels become facts. **Non-goal:** auto-accept (no category graduates before the gold set exists).
 
-**T-301 `categories.yaml` v1:** 11 categories + NON_WORK as `docs/product-spec.md` §5, decision order, parents, fields, **one contrastive pair per category** (real vs hypothetical/retold; Tiffany). AC: the file validates against a schema; the label prompt and JSON schema are generated from it.
+**T-301 `categories.yaml` v1:** 11 categories + NON_WORK as `docs/specs/product-spec.md` §5, decision order, parents, fields, **one contrastive pair per category** (real vs hypothetical/retold; Tiffany). AC: the file validates against a schema; the label prompt and JSON schema are generated from it.
 
 **T-302 Windowing:** a window closes on ≥ 90 s of silence or at 6 min (cut at the nearest pause); windows < 10 s are batched every 3 min; windows with no text make no call. AC: replaying a recorded day produces the same windows every time.
 

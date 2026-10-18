@@ -335,7 +335,7 @@ first untouched. (Merge tests: next MVP, with `mergeDevices`.)
 | E5 | Session from d 10:00, Selesai d+1 01:10 | disabled, note 02:10, enabled 02:10 |
 | E6 | Session from d 10:00, reload d+1 00:40, not resumed | Lanjutkan and Selesai shown, no Mulai; closed `auto_stop` at 02:00, debrief to 03:00, Mulai at 03:00 |
 | E7 | Mulai d 10:00, cancel | Mulai disabled until d+1 01:00 though the window is open; no opening banner; the cancel confirm showed that time |
-| E8 | Seed d+1 = `null`, Selesai d | d+1 `closed_day` note with d+2 01:00; enabled d+2 01:00 |
+| E8 | Seed d+1 = `null`, Selesai d (repeat with auto_stop and cancel) | through closed d+1 the headline keeps the ended state ("Ended" / "Ended automatically at HH:MM" / "Session cancelled"), never "Not started", with the `day_ended` note "… d+2 01:00" (UX-03 §5.2 wins, Rangga 7 Oct); enabled d+2 01:00 |
 | E9 | After E1, clear localStorage (token re-paired by script), reload d 23:00 | still disabled (server `last_ended` incl. debrief end) |
 | E10 | Disabled Mulai + each note at 360 px | no overflow; readable; visibly disabled; button keeps size and place |
 | S1 | Fake now d 01:00, Mulai | enabled at 01:00:00, `local_date` d; no Selesai at 04:59:30 (note 05:00); Selesai at 05:00 with no reload; auto-stop d+1 02:00 |
@@ -476,15 +476,16 @@ label and the `/pair` post-success line + button. The old "Staff (opens automati
 "starts automatically at the next opening" stopgap are dropped: capture is manual (technical spec §8.3). Full list in
 `docs/tasks/R-07-ux-notes.md` §6.
 
-### R-08 ProposalAgent · 5 h · Thu 8 – Fri 9
-- **Steps:** ADK (TypeScript) agent inside `web` on Gemini 3.5 Flash · picks one intervention from the library · cites ≥ 1 rubric criterion + ≥ 2 dated evidence items (thread IDs) · states metric, failure condition, review date, and that unmet demand is a censored floor · reads all stored constraints · too little evidence → no proposal + a debrief question + logged suppression (T-503, T-504) · a "Generate proposal" button for supervisors.
+### R-08 ProposalAgent · 11.5 h · Thu 8 – Fri 9 (revised 10 Oct: v2, 3.0 h added: owner+supervisor generate 0.55h, constraint provenance 0.1h, constraint-aware reuse 0.1h, SOP separation tests 0.25h, manual constraints via text field 2.0h)
+- **Steps:** ADK (TypeScript) agent inside `web` on Gemini 3.5 Flash · picks one intervention from the library · cites ≥ 1 rubric criterion + ≥ 2 dated evidence items (thread IDs) · states metric, failure condition, review date, and that unmet demand is a censored floor · reads all stored constraints · too little evidence → no proposal + a follow-up note + logged suppression (T-503, T-504) · a "Generate proposal" button for both owner and supervisor (v2, not supervisor-only) · supervisors can add a manual constraint text independently of rejecting a proposal.
 - **Depends on:** R-06 data, Tiffany's SOP v1 spec + rubric + library (Wed 7).
 - **Fallback if ADK blocks > 2 h:** a plain state machine calling Gemini (already agreed).
-- **Done when:** a seeded case with 1 evidence item produces no proposal and a logged reason; the first real proposal on Thu 15 (fallback Fri 16) cites dated evidence.
+- **Done when:** a seeded case with 1 evidence item produces no proposal and a logged reason; the first real proposal on Thu 15 (fallback Fri 16) cites ≥ 2 dated evidence items on ≥ 2 dates.
+- **RBAC note (v2):** owner gains `proposals:generate` and `constraints:read`; supervisor gains `constraints:read` and `constraints:write` (for manual constraints) (planned, R-08 v2, not yet built).
 
 ### R-09 Approval screens · 4 h · Fri 9 – Sat 10
-- **Steps:** supervisor *Feasible* / *Reject* (reason required) → reason saved as a permanent outlet constraint (T-506, T-507) · owner *Approve* / *Reject* (reason required), shown only after the supervisor says feasible · everything written to `audit_log`.
-- **Depends on:** R-08.
+- **Steps:** supervisor *Feasible* / *Reject* (reason required) → rejection reason saved as a permanent outlet constraint via `createConstraint` (already built by R-08 for manual constraints) (T-506, T-507) · owner *Approve* / *Reject* (reason required), shown only after the supervisor says feasible · everything written to `audit_log`.
+- **Depends on:** R-08 (inherits `createConstraint` write path and constraint schema). R-08 v2 lists 9 requirements R-09 must pick up: reuse schema without redesign, same page, approval sequence unchanged, owner view via summaries, freshness check on Feasible/Approve, constraints from rejections via `createConstraint`, new constraint after generation notice, owner Reject reason handling (not yet decided), known limit on outlets with no supervisor (R-08.md §9 "For R-09", items 1-9).
 - **Done when:** after a rejection like "the oven only holds 2.5 kg", the revised proposal respects it; nothing ships without both approvals.
 
 ### R-10 SOP versions + before/after list · 1 h · Sat 10 (diff view cut 4 Oct, `docs/plan.md` §10 #51)
