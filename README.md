@@ -44,7 +44,7 @@ EN / ID button. Use a phone or laptop with a microphone.
 ## Want the details?
 
 - [How it is built](docs/architecture.md)
-- [Technical specification](docs/specs/technical-specification.md) (rules, privacy, retention and the full list of gaps)
+- [Technical specification](docs/specs/technical-specification.md) (rules, privacy, retention and open items)
 - [Project rules](CLAUDE.md)
 - [Deploy setup](cloudbuild.yaml)
 - [Model locations](config/regions.yaml)
