@@ -37,14 +37,14 @@ describe("R-19 OutletSchema.sandbox additions", () => {
     expect(r.sandbox).toEqual(sandbox);
   });
 
-  it("next_day_count's ceiling is NEXT_DAY_MAX, which is 2", () => {
-    expect(NEXT_DAY_MAX).toBe(2);
+  it("next_day_count's ceiling is NEXT_DAY_MAX, which is 4", () => {
+    expect(NEXT_DAY_MAX).toBe(4);
     expect(parse({ next_day_count: NEXT_DAY_MAX }).success).toBe(true);
     expect(parse({ next_day_count: NEXT_DAY_MAX + 1 }).success).toBe(false);
   });
-  it("next_day_count accepts 0, 1, 2 and rejects 3, -1 and a fraction", () => {
-    for (const n of [0, 1, 2]) expect(parse({ next_day_count: n }).success).toBe(true);
-    for (const n of [3, -1, 1.5]) expect(parse({ next_day_count: n }).success).toBe(false);
+  it("next_day_count accepts 0 to 4 and rejects 5, -1 and a fraction", () => {
+    for (const n of [0, 1, 2, 3, 4]) expect(parse({ next_day_count: n }).success).toBe(true);
+    for (const n of [5, -1, 1.5]) expect(parse({ next_day_count: n }).success).toBe(false);
   });
 
   it("shift_started_at_ms accepts null and a non-negative integer, rejects a negative or a string", () => {

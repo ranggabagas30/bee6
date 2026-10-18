@@ -207,12 +207,12 @@ describe("CaptureConfigResponseSchema", () => {
       expect(toCaptureConfig(sbxOutlet, null, 1, true, {})).not.toHaveProperty("demo_session");
       expect(toCaptureConfig(sbxOutlet, null, 1, true)).not.toHaveProperty("demo_session");
     });
-    it("7.T4 / R-19 present as the full journey profile (a fresh sandbox: day 1 of 3, nothing run yet) only when all three hold", () => {
+    it("7.T4 / R-19 present as the full journey profile (a fresh sandbox: day 1 of 5, nothing run yet) only when all three hold", () => {
       expect(toCaptureConfig(sbxOutlet, null, 1, true, expiring).demo_session).toEqual({
         max_ms: 1_200_000,
         script_id: "bakery-v2",
         day: 1,
-        days_total: 3,
+        days_total: 5,
         days_done: 0,
         closing_reached: false,
         open_session: null,
@@ -228,7 +228,7 @@ describe("CaptureConfigResponseSchema", () => {
         max_ms: 1_200_000,
         script_id: "bakery-v2",
         day: 2,
-        days_total: 3,
+        days_total: 5,
         days_done: 1,
         closing_reached: true,
         open_session: { session_id: "11111111-1111-4111-8111-111111111111", started_at_ms: 1, closing_reached: true, auto_stop_at_ms: 600_001 },
@@ -259,12 +259,13 @@ describe("CaptureConfigResponseSchema", () => {
         expect(parse({ extra: 1 }).success).toBe(false);
         expect(CaptureConfigResponseSchema.safeParse({ ...base, demo_session: { max_ms: 1_200_000, script_id: "bakery-v2" } }).success).toBe(false);
       });
-      it("day is 1, 2 or 3; days_total is exactly 3; days_done is 0 to 3", () => {
-        for (const day of [1, 2, 3]) expect(parse({ day }).success).toBe(true);
-        for (const day of [0, 4, 1.5]) expect(parse({ day }).success).toBe(false);
+      it("day is 1 to 5; days_total is exactly 5; days_done is 0 to 5", () => {
+        for (const day of [1, 2, 3, 4, 5]) expect(parse({ day }).success).toBe(true);
+        for (const day of [0, 6, 1.5]) expect(parse({ day }).success).toBe(false);
+        expect(parse({ days_total: 3 }).success).toBe(false);
         expect(parse({ days_total: 2 }).success).toBe(false);
-        for (const days_done of [0, 3]) expect(parse({ days_done }).success).toBe(true);
-        for (const days_done of [-1, 4]) expect(parse({ days_done }).success).toBe(false);
+        for (const days_done of [0, 3, 5]) expect(parse({ days_done }).success).toBe(true);
+        for (const days_done of [-1, 6]) expect(parse({ days_done }).success).toBe(false);
       });
       it("open_session is strict and needs a uuid session id", () => {
         const os = profile.open_session;
@@ -345,10 +346,11 @@ describe("projectDemoSessionProfile", () => {
 
   it("day = next_day_count + 1, days_done counts today's ended day, next_day is the guard's verdict; script is bakery-v2", () => {
     expect(projectDemoSessionProfile({ next_day_count: 0, last_ended: last, today: "2026-10-14", open_session: null, next_day: { allowed: true, reason: null } })).toEqual({
-      max_ms: DEMO_SESSION_MAX_MS, script_id: "bakery-v2", day: 1, days_total: 3, days_done: 1, closing_reached: false, open_session: null, next_day: { allowed: true, reason: null },
+      max_ms: DEMO_SESSION_MAX_MS, script_id: "bakery-v2", day: 1, days_total: 5, days_done: 1, closing_reached: false, open_session: null, next_day: { allowed: true, reason: null },
     });
     expect(projectDemoSessionProfile({ next_day_count: 1, last_ended: { ...last, business_date: "2026-10-13" }, today: "2026-10-14", open_session: null, next_day: { allowed: false, reason: "day_not_ended" } })).toMatchObject({ day: 2, days_done: 1 });
-    expect(projectDemoSessionProfile({ next_day_count: 2, last_ended: last, today: "2026-10-14", open_session: null, next_day: { allowed: false, reason: "max_days" } })).toMatchObject({ day: 3, days_done: 3, next_day: { allowed: false, reason: "max_days" } });
+    expect(projectDemoSessionProfile({ next_day_count: 2, last_ended: last, today: "2026-10-14", open_session: null, next_day: { allowed: false, reason: "approve_first" } })).toMatchObject({ day: 3, days_done: 3, next_day: { allowed: false, reason: "approve_first" } });
+    expect(projectDemoSessionProfile({ next_day_count: 4, last_ended: last, today: "2026-10-14", open_session: null, next_day: { allowed: false, reason: "max_days" } })).toMatchObject({ day: 5, days_done: 5, next_day: { allowed: false, reason: "max_days" } });
   });
 
   describe("R-19 PR-4b: open_session and closing_reached (one source of truth)", () => {

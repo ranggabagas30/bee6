@@ -35,17 +35,20 @@ describe("demo constants (R-12 Task 4.1)", () => {
   it("R-19 journey constants (plan section 2.2)", () => {
     expect(C.CARRY_OVER_MAX).toBe(0);
     expect(C.DEMO_SESSION_MAX_MS).toBe(1_200_000);
-    expect(C.DEMO_DAYS_TOTAL).toBe(3);
-    expect(C.NEXT_DAY_MAX).toBe(2);
-    expect(C.SEGMENT_PER_SANDBOX).toBe(150);
+    expect(C.DEMO_DAYS_TOTAL).toBe(5);
+    expect(C.NEXT_DAY_MAX).toBe(4);
+    expect(C.AFTER_DAYS_FROM_COUNT).toBe(2);
+    expect(C.SEGMENT_PER_SANDBOX).toBe(250);
+    expect(C.FAST_FORWARD_PER_SANDBOX).toBe(3);
     expect(C.RESET_PER_SANDBOX).toBe(3);
     expect(C.PREPARING_MAX_MS).toBe(6 * 60_000);
     expect(C.PROCESS_NOW_MIN_INTERVAL_MS).toBe(20_000);
     expect(C.PROCESS_NOW_PER_SANDBOX).toBe(40);
-    expect(C.NEXT_DAY_PER_SANDBOX).toBe(20);
+    expect(C.NEXT_DAY_PER_SANDBOX).toBe(30);
   });
 
-  it("R-19: three days means at most two jumps", () => {
+  it("five days means at most four jumps; the last two are the 'after' jumps (D1)", () => {
     expect(C.NEXT_DAY_MAX).toBe(C.DEMO_DAYS_TOTAL - 1);
+    expect(C.AFTER_DAYS_FROM_COUNT).toBe(C.NEXT_DAY_MAX - 2);
   });
 });

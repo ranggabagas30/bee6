@@ -75,18 +75,18 @@ function put(over: { headers?: Record<string, string> } = {}, segId = "seg-1") {
 }
 
 describe("PUT /api/v1/segments: sandbox segment caps", () => {
-  it("the 151st upload from one sandbox is 429 demo_segment_cap with Retry-After, and nothing is transcribed, redacted or stored", async () => {
+  it("the 251st upload from one sandbox is 429 demo_segment_cap with Retry-After, and nothing is transcribed, redacted or stored", async () => {
     deviceIn(SBX);
     f.sandboxes.set(SBX, sandboxOutlet());
-    for (let i = 0; i < 150; i++) expect((await put({}, `seg-${i}`)).status).toBe(200);
-    expect(transcribe).toHaveBeenCalledTimes(150);
+    for (let i = 0; i < 250; i++) expect((await put({}, `seg-${i}`)).status).toBe(200);
+    expect(transcribe).toHaveBeenCalledTimes(250);
     storeGet.mockClear();
 
-    const res = await put({}, "seg-150");
+    const res = await put({}, "seg-250");
     expect(res.status).toBe(429);
     expect((await res.json()).error.code).toBe("demo_segment_cap");
     expect(Number(res.headers.get("Retry-After"))).toBeGreaterThanOrEqual(1);
-    expect(transcribe).toHaveBeenCalledTimes(150);
+    expect(transcribe).toHaveBeenCalledTimes(250);
     expect(storeGet).not.toHaveBeenCalled(); // not even the idempotency read
   });
 
