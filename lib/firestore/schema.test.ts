@@ -411,6 +411,67 @@ describe("QuestionSchema", () => {
   });
 });
 
+describe("QuestionSchema: DebriefAgent optional `agent` text", () => {
+  const gateQuestion = {
+    outlet_id: "sbx-0123456789ab",
+    question_id: "q_thread_unit_d1_w1:T1",
+    device_id: "d1",
+    thread_id: "unit_d1_w1:T1",
+    kind: "gate",
+    status: "open",
+    category: "PHONE_CALL",
+    window_start_ms: 0,
+    window_end_ms: 1000,
+    created_at_ms: 1_700_000_000_000,
+  };
+  const agent = {
+    version: "debrief-q-v1",
+    model: "gemini-3.5-flash-lite",
+    category: "PHONE_CALL",
+    start_hm: "14:05",
+    question_en: "Around 14:05, was there a phone order that was not read back?",
+    rounds: 1,
+    generated_at_ms: 1_700_000_000_000,
+  };
+
+  it("a question doc written before the feature (no `agent`) still parses", () => {
+    expect(QuestionSchema.safeParse(gateQuestion).success).toBe(true);
+    expect(QuestionDocSchema.safeParse(gateQuestion).success).toBe(true);
+  });
+
+  it("accepts a valid `agent`", () => {
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent }).success).toBe(true);
+    expect(QuestionDocSchema.safeParse({ ...gateQuestion, agent }).success).toBe(true);
+  });
+
+  it("accepts the reserved `question_id_text`, optional", () => {
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent: { ...agent, question_id_text: "Sekitar 14:05, apakah ada pesanan?" } }).success).toBe(true);
+  });
+
+  it("rejects an extra key inside `agent` (no name, no device id, no line text can ride along)", () => {
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent: { ...agent, device_id: "d1" } }).success).toBe(false);
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent: { ...agent, lines: ["x"] } }).success).toBe(false);
+  });
+
+  it("rejects a wrong version, an unknown model, a NON_WORK category, a bad start_hm, rounds out of 1..2", () => {
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent: { ...agent, version: "debrief-q-v2" } }).success).toBe(false);
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent: { ...agent, model: "gemini-9" } }).success).toBe(false);
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent: { ...agent, category: "NON_WORK" } }).success).toBe(false);
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent: { ...agent, start_hm: "2:05" } }).success).toBe(false);
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent: { ...agent, rounds: 3 } }).success).toBe(false);
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent: { ...agent, rounds: 0 } }).success).toBe(false);
+  });
+
+  it("the flash model is also a valid stored model (the single-constant switch must not break writes)", () => {
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent: { ...agent, model: "gemini-3.5-flash" } }).success).toBe(true);
+  });
+
+  it("question_en has a storage bound (20..280 code points)", () => {
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent: { ...agent, question_en: "x".repeat(19) } }).success).toBe(false);
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent: { ...agent, question_en: "x".repeat(281) } }).success).toBe(false);
+  });
+});
+
 describe("QuestionDocSchema", () => {
   const openQuestion = {
     outlet_id: "proofed",

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { WorkCategorySchema } from "@/lib/pipeline/categories";
+import { DEBRIEF_QUESTION_MAX_CHARS, DEBRIEF_QUESTION_MIN_CHARS } from "@/lib/debrief/agent/constants";
 import {
   DEBRIEF_LIST_SERVER_CAP,
   QUESTION_LINE_MAX_CHARS,
@@ -65,6 +66,24 @@ export const DebriefQuestionViewSchema = z
           .refine((line) => Array.from(line).length <= QUESTION_LINE_MAX_CHARS, { message: "line too long" }),
       )
       .max(QUESTION_LINES_MAX)
+      .optional(),
+    /**
+     * DebriefAgent (docs/tasks/debrief-agent-18oct.md §3.4), sandbox only: the agent-worded heading, 20..140 code
+     * points, plain text. Absent on every pilot question, on `unlabelled_unit`, when the flag is off, when the agent
+     * fell back, or when the stored wording no longer matches the question's category/time (D9). The phone renders
+     * it as a text node and never stores it. BUNDLE SKEW: an older phone bundle's strict parse fails on this key
+     * (`LOAD_FAILED` until reload), the same accepted risk as `lines`/`preparing`; it is only ever emitted on a
+     * sandbox outlet.
+     */
+    question_text: z
+      .string()
+      .refine(
+        (s) => {
+          const n = Array.from(s).length;
+          return n >= DEBRIEF_QUESTION_MIN_CHARS && n <= DEBRIEF_QUESTION_MAX_CHARS;
+        },
+        { message: "question_text length" },
+      )
       .optional(),
   })
   .strict();

@@ -1,6 +1,6 @@
 import type { Category, WorkCategory } from "@/lib/pipeline/categories";
 import type { GateDecision } from "@/lib/pipeline/gate";
-import type { LastEnded } from "@/lib/firestore/schema";
+import type { LastEnded, QuestionAgentText } from "@/lib/firestore/schema";
 
 /**
  * Store interfaces for the pipeline tick (R-05b, Task 6). Pure interfaces
@@ -88,6 +88,12 @@ export interface QuestionWrite {
   window_start_ms: number;
   window_end_ms: number;
   created_at_ms: number;
+  /**
+   * DebriefAgent wording (sandbox only, flag-gated; docs/tasks/debrief-agent-18oct.md §3.3). ABSENT unless the agent
+   * produced an accepted heading, so with the flag off a write is byte-identical to before. Rollback caveat: see
+   * `QuestionSchema.agent` in lib/firestore/schema.ts.
+   */
+  agent?: QuestionAgentText;
 }
 
 export interface LedgerWrite {
