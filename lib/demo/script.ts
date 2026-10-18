@@ -9,6 +9,8 @@ import { z } from "zod";
  * (fresh egg tarts, the staff member is not sure when they were baked) is cards d1-c3 and d2-c2; problem B (a
  * phone order not read back to the caller) is cards d2-c3 and d3-c2. Every other card is routine.
  *
+ * Days 4 and 5 are the optional "after" days (staff narration with the approved SOP, see DAY_4 below).
+ *
  * `problem` is a QA/guide reference only. It is never shown and no server code reads it: the evidence gate stays
  * the only judge of what becomes a fact (hard rule #10).
  *
@@ -19,6 +21,12 @@ import { z } from "zod";
  * stripped); `lib/demo/script.test.ts` asserts the two are equal.
  */
 
+/**
+ * Longest spoken line of a card. 240 until the after days: the day-4 read-back order (d4-c3, 363 characters) is ONE line
+ * on purpose (no pause inside it, review-agent plan 3.4), so the cap is 400.
+ */
+export const SCRIPT_LINE_MAX = 400;
+
 const Bilingual = (max: number) => z.object({ en: z.string().min(1).max(max), id: z.string().min(1).max(max) }).strict();
 
 export const ScriptSpeakerSchema = z.enum(["staff", "customer", "caller"]);
@@ -26,15 +34,16 @@ export type ScriptSpeaker = z.infer<typeof ScriptSpeakerSchema>;
 
 export const ScriptCardV2Schema = z
   .object({
-    id: z.string().regex(/^d[1-3]-[a-z0-9-]{1,24}$/),
+    id: z.string().regex(/^d[1-5]-[a-z0-9-]{1,24}$/),
     title: Bilingual(60),
-    lines: z.array(z.object({ speaker: ScriptSpeakerSchema, text: Bilingual(240) }).strict()).min(1).max(6),
-    problem: z.enum(["A", "B"]).nullable(),
+    lines: z.array(z.object({ speaker: ScriptSpeakerSchema, text: Bilingual(SCRIPT_LINE_MAX) }).strict()).min(1).max(6),
+    // QA/guide reference only (never read by server code). `*_after` marks the same problem moment on the after days 4-5.
+    problem: z.enum(["A", "B", "A_after", "B_after"]).nullable(),
   })
   .strict();
 export type ScriptCardV2 = z.infer<typeof ScriptCardV2Schema>;
 
-export type ScriptDay = 1 | 2 | 3;
+export type ScriptDay = 1 | 2 | 3 | 4 | 5;
 
 /** Every day has exactly this many cards (schema refine below). */
 export const CARDS_PER_DAY = 5;
@@ -169,7 +178,95 @@ const DAY_3: readonly ScriptCardV2[] = DaySchema.parse([
   },
 ]);
 
-export const SCRIPT_V2: Readonly<Record<ScriptDay, readonly ScriptCardV2[]>> = Object.freeze({ 1: DAY_1, 2: DAY_2, 3: DAY_3 });
+/**
+ * The after days (review-agent plan 3.4, D6): staff narration only. No customer dialogue (any served customer would
+ * count as a CUSTOMER_SERVICE moment and move the review metric the wrong way); ONE read-back phone order on day 4,
+ * nothing on the phone on day 5. No digit in any line: the sanitizer masks digit runs.
+ * Mirrored 1:1 in `scripts/eval-fixtures/scenario-v2.ts` (`exact` variant) by the eval slice (PR-2).
+ */
+const DAY_4: readonly ScriptCardV2[] = DaySchema.parse([
+  {
+    id: "d4-c1",
+    title: same("Opening"),
+    lines: [
+      staff(
+        "Good morning. I am opening the shop now. The oven is on and the display lights are on. The float in the till is correct. I read the updated SOP before opening.",
+      ),
+    ],
+    problem: null,
+  },
+  {
+    id: "d4-c2",
+    title: same("First bake, labelled"),
+    lines: [
+      staff(
+        "The first tray of egg tarts is out of the oven. Before it goes on the display I am writing the baking time on the tray label, as the new step says. The croissants go in next.",
+      ),
+    ],
+    problem: "A_after",
+  },
+  {
+    id: "d4-c3",
+    title: same("A phone order, read back"),
+    lines: [
+      staff(
+        "Hello, Demo Bakery, thanks for calling. Thirty croissants for Friday morning, pickup at nine. Let me read that back to you: thirty croissants, Friday, pickup at nine o'clock. Yes? Great, thank you, bye. That was a phone order for Friday, and this time I read the whole order back to the caller before hanging up, so the quantity and the pickup time are confirmed.",
+      ),
+    ],
+    problem: "B_after",
+  },
+  {
+    id: "d4-c4",
+    title: same("Display check"),
+    lines: [
+      staff(
+        "Display check. The egg tart tray has its baking time on the label now, so nobody has had to ask me when they were baked. The cinnamon rolls are running low, I am refilling them.",
+      ),
+    ],
+    problem: "A_after",
+  },
+  {
+    id: "d4-c5",
+    title: same("Closing"),
+    lines: [staff("We are closing now. Till counted, oven cleaned, leftover bread logged. The tray labels worked well today.")],
+    problem: null,
+  },
+]);
+
+const DAY_5: readonly ScriptCardV2[] = DaySchema.parse([
+  {
+    id: "d5-c1",
+    title: same("Opening"),
+    lines: [staff("Morning. Oven on, display lights on. The cash in the till is counted and correct.")],
+    problem: null,
+  },
+  {
+    id: "d5-c2",
+    title: same("First bake, labelled"),
+    lines: [staff("The first tray of egg tarts is out. The baking time is written on the tray label and the tray is on the display. Croissants go in next.")],
+    problem: "A_after",
+  },
+  {
+    id: "d5-c3",
+    title: same("Display check"),
+    lines: [staff("Display check. Everything is full. The baking-time labels are on every tray, and again nobody asked when the egg tarts were baked.")],
+    problem: "A_after",
+  },
+  {
+    id: "d5-c4",
+    title: same("Second bake"),
+    lines: [staff("The second tray of croissants is out. Label written, tray on the display.")],
+    problem: null,
+  },
+  {
+    id: "d5-c5",
+    title: same("Closing"),
+    lines: [staff("We are closed. I counted the till, cleaned the oven and logged the leftovers. Second day with the new steps, and it went smoothly.")],
+    problem: null,
+  },
+]);
+
+export const SCRIPT_V2: Readonly<Record<ScriptDay, readonly ScriptCardV2[]>> = Object.freeze({ 1: DAY_1, 2: DAY_2, 3: DAY_3, 4: DAY_4, 5: DAY_5 });
 
 /** Heard lines the closing route needs for a day: 5 cards x CARD_MIN_LINES = 5 (plan section 5.4). */
 export function requiredLines(day: ScriptDay): number {

@@ -20,7 +20,7 @@ import { DEMO_SEED } from "../../scripts/seed";
 const DAYS: readonly ScriptDay[] = [1, 2, 3];
 
 function scriptCard(id: string) {
-  for (const day of DAYS) {
+  for (const day of [1, 2, 3, 4, 5] as const) {
     const found = SCRIPT_V2[day].find((c) => c.id === id);
     if (found) return found;
   }
@@ -118,13 +118,64 @@ describe("bakery-v2 script (R-19)", () => {
     expect(scriptFor("nope")).toBeNull();
   });
 
-  it("the schema refuses a bad id, a 4th day, a non-A/B problem, 0 or 7 lines, and an extra key", () => {
+  it("the schema refuses a bad id, a 6th day, an unknown problem tag, 0 or 7 lines, and an extra key", () => {
     const ok = SCRIPT_V2[1][0]!;
-    expect(ScriptCardV2Schema.safeParse({ ...ok, id: "d4-c1" }).success).toBe(false);
+    expect(ScriptCardV2Schema.safeParse({ ...ok, id: "d4-c1" }).success).toBe(true);
+    expect(ScriptCardV2Schema.safeParse({ ...ok, id: "d5-c1" }).success).toBe(true);
+    expect(ScriptCardV2Schema.safeParse({ ...ok, id: "d6-c1" }).success).toBe(false);
+    expect(ScriptCardV2Schema.safeParse({ ...ok, id: "d0-c1" }).success).toBe(false);
+    for (const problem of ["A", "B", "A_after", "B_after", null]) expect(ScriptCardV2Schema.safeParse({ ...ok, problem }).success).toBe(true);
     expect(ScriptCardV2Schema.safeParse({ ...ok, problem: "C" }).success).toBe(false);
     expect(ScriptCardV2Schema.safeParse({ ...ok, lines: [] }).success).toBe(false);
     expect(ScriptCardV2Schema.safeParse({ ...ok, lines: Array(7).fill(ok.lines[0]) }).success).toBe(false);
     expect(ScriptCardV2Schema.safeParse({ ...ok, extra: 1 }).success).toBe(false);
+  });
+
+  describe("the after days 4 and 5 (review-agent plan 3.4, D6)", () => {
+    const AFTER: readonly ScriptDay[] = [4, 5];
+
+    it("have exactly 5 valid cards each, ids d4-c1..c5 and d5-c1..c5, and requiredLines is 5", () => {
+      for (const day of AFTER) {
+        expect(SCRIPT_V2[day]).toHaveLength(5);
+        SCRIPT_V2[day].forEach((c, i) => {
+          expect(c.id).toBe(`d${day}-c${i + 1}`);
+          expect(() => ScriptCardV2Schema.parse(c)).not.toThrow();
+        });
+        expect(requiredLines(day)).toBe(5);
+      }
+    });
+
+    it("tags the after cards for QA only: A_after on d4-c2, d4-c4, d5-c2, d5-c3; B_after on d4-c3 (the read-back order); the rest null", () => {
+      const tagged = AFTER.flatMap((day) => SCRIPT_V2[day].filter((c) => c.problem !== null).map((c) => [c.id, c.problem]));
+      expect(tagged).toEqual([
+        ["d4-c2", "A_after"],
+        ["d4-c3", "B_after"],
+        ["d4-c4", "A_after"],
+        ["d5-c2", "A_after"],
+        ["d5-c3", "A_after"],
+      ]);
+    });
+
+    it("are staff voice only (no customer, no caller), carry no digit, no person and no id, and the read-back card is ONE line with no pause inside it", () => {
+      for (const day of AFTER) {
+        for (const c of SCRIPT_V2[day]) {
+          expect(c.lines.every((l) => l.speaker === "staff"), c.id).toBe(true);
+          for (const l of c.lines) {
+            expect(l.text.en, c.id).not.toMatch(/\d/);
+            expect(l.text.id.trim().length, c.id).toBeGreaterThan(0);
+          }
+        }
+      }
+      expect(scriptCard("d4-c3").lines).toHaveLength(1);
+      expect(scriptCard("d4-c3").lines[0]!.text.en).toMatch(/^Hello, Demo Bakery, thanks for calling\./);
+      const all = JSON.stringify([SCRIPT_V2[4], SCRIPT_V2[5]]).toLowerCase();
+      for (const s of DEMO_SEED.staff) expect(all, s.name).not.toMatch(new RegExp(`\\b${s.name.split(/\s+/)[0]!.toLowerCase()}\\b`));
+    });
+
+    it("day 5 has no phone moment at all (the B metric's after window is the day-4 read-back only)", () => {
+      const text = SCRIPT_V2[5].flatMap((c) => c.lines.map((l) => l.text.en)).join(" ").toLowerCase();
+      expect(text).not.toMatch(/phone|call|caller|order/);
+    });
   });
 
   it("problem A and B cards have substantive lines (≥ 20 words for non-final lines to ensure ≥ 6 s at say rate)", () => {
