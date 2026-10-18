@@ -217,7 +217,11 @@ export function ProposalDetail({ auth, lang, item, feasible, onBack, onFeasible,
         </Glass>
         <Glass className="b6-tile">
           <span className="b6-kick">{t(lang, "C-propd-review")}</span>
-          <span className={styles.tileText}>{t(lang, "C-prop-review-draft", { date: dayLabel(content.review_date, lang) })}</span>
+          <span className={styles.tileText}>
+            {proposal.status === "awaiting_supervisor" || proposal.status === "awaiting_owner"
+              ? t(lang, "C-prop-review-draft", { date: dayLabel(content.review_date, lang) })
+              : dayLabel(content.review_date, lang)}
+          </span>
         </Glass>
       </div>
 
