@@ -24,6 +24,7 @@ export const REVIEW_CHECK_RULES = [
   "counts_not_inspected",
   "sample_not_inspected",
   "verdict_mismatch",
+  "verdict_text_mismatch",
   "number_not_allowed",
   "quoted_numbers_mismatch",
   "caveat_missing",
@@ -140,6 +141,12 @@ const ROLE_OR_PERSON = /\b(supervisor|owner|manager|boss|cashier|barista|chef|co
 const INSTRUCTION_WORD = /\b(ignore|system prompt|instruction|assistant|as an ai|developer|override)\b/i;
 const CAUSAL_CLAIM =
   /\b(caused|because of the change|thanks to the change|proves|proof that|due to the change|as a result of the change)\b/i;
+/** A verdict the narrative states in words ("points to Worked", "suggests revise", "gives no suggestion"). */
+const VERDICT_WORDING = /\b(?:points to|suggests?|suggesting)\s+["\u201C]?(worked|revise|revert)\b|\b(gives no suggestion)\b/gi;
+
+function verdictsWritten(text: string): string[] {
+  return [...text.matchAll(VERDICT_WORDING)].map((m) => (m[1] ? m[1].toLowerCase() : "none"));
+}
 
 /** Every digit run in `text` as a number (comma decimal read as a decimal point). */
 export function extractNumbers(text: string): number[] {
@@ -189,6 +196,7 @@ export function checkReview(
   add(!session.inspected.has("counts"), "counts_not_inspected");
   add(!(session.inspected.has("before") && session.inspected.has("after")), "sample_not_inspected");
   add(d.suggested_verdict !== (inputs.suggestion.verdict ?? "none"), "verdict_mismatch");
+  add(verdictsWritten(q).some((v) => v !== (inputs.suggestion.verdict ?? "none")), "verdict_text_mismatch");
 
   const found = extractNumbers(q);
   const allowed = allowedNumbers(inputs);

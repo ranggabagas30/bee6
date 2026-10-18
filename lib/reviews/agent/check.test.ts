@@ -18,26 +18,56 @@ const withNarrative = (narrative_en: string, extra: Record<string, unknown> = {}
 const reasonsOf = (draft: unknown, c = ctx()): ReviewCheckRule[] => checkReview(draft, c).reasons;
 
 describe("checkReview", () => {
-  it("lists exactly the 19 rules of the plan", () => {
-    expect(REVIEW_CHECK_RULES).toHaveLength(19);
+  it("lists exactly the 20 rules (the plan's 19 plus verdict_text_mismatch)", () => {
+    expect(REVIEW_CHECK_RULES).toHaveLength(20);
+    expect(REVIEW_CHECK_RULES.indexOf("verdict_text_mismatch")).toBe(REVIEW_CHECK_RULES.indexOf("verdict_mismatch") + 1);
   });
 
   it("passes a correct draft", () => {
     expect(checkReview(goodDraft(), ctx())).toEqual({ passed: true, reasons: [] });
   });
 
-  it("the four fixed closing sentences of the prompt trip no rule", () => {
+  describe("verdict_text_mismatch (the verdict the narrative states in words)", () => {
     const body =
       "The change added baking times to the tray labels. Before it, 2 moments of this kind were noted over 3 captured days, 0.67 per day, and after it 0 over 2 captured days, 0 per day, 100 percent fewer. ";
-    for (const [closing, verdict] of [
-      ["By the rule, this points to Worked.", "worked"],
-      ["By the rule, this points to Revise.", "worked"],
-      ["By the rule, this points to Revert.", "worked"],
-      ["The rule gives no suggestion.", "worked"],
-    ] as const) {
-      const reasons = reasonsOf({ ...goodDraft(), suggested_verdict: verdict, quoted_numbers: [2, 3, 0.67, 0, 2, 0, 100], narrative_en: body + closing });
-      expect(reasons).toEqual([]);
-    }
+    const quoted = [2, 3, 0.67, 0, 2, 0, 100];
+    const aWorked = (closing: string) => reasonsOf({ ...goodDraft(), quoted_numbers: quoted, narrative_en: body + closing });
+
+    it("the Worked closing on A-worked trips no rule", () => {
+      expect(aWorked("By the rule, this points to Worked.")).toEqual([]);
+    });
+
+    it.each([
+      "By the rule, this points to Revise.",
+      "By the rule, this points to Revert.",
+      "The rule gives no suggestion.",
+    ])("%s on A-worked gives verdict_text_mismatch", (closing) => {
+      expect(aWorked(closing)).toEqual(["verdict_text_mismatch"]);
+    });
+
+    it("a none-suggestion input: the no-suggestion closing passes, a Worked closing fails", () => {
+      const none = makeInputs({ after: { days: 1, count: 0 } });
+      const base = { ...goodDraft(), suggested_verdict: "none" as const, quoted_numbers: [2, 3, 0, 1], caveats: ["short_window", "category_count_not_problem_count", "not_enough_days"] };
+      const lead = "Only 1 captured day was noted after the change against 3 before it, with 2 moments before and 0 after. ";
+      expect(reasonsOf({ ...base, narrative_en: lead + "The rule gives no suggestion." }, ctx({ inputs: none }))).toEqual([]);
+      expect(reasonsOf({ ...base, narrative_en: lead + "By the rule, this points to Worked." }, ctx({ inputs: none }))).toEqual(["verdict_text_mismatch"]);
+    });
+
+    it('"This suggests worked." passes on A-worked and fails on a revise fixture', () => {
+      const sentence = "Fewer moments were noted. This suggests worked.";
+      expect(reasonsOf(withNarrative(`${GOOD_NARRATIVE.replace(/ Fewer moments.*$/, "")} ${sentence}`))).toEqual([]);
+      const revise = makeInputs({ before: { days: 3, count: 3 }, after: { days: 2, count: 2 } });
+      expect(revise.suggestion.verdict).toBe("revise");
+      const reasons = reasonsOf(
+        { ...goodDraft(), suggested_verdict: "revise" as const, quoted_numbers: [3, 3, 2, 2], narrative_en: "The change added baking times. Before it, 3 moments were noted over 3 captured days and after it 2 over 2 captured days. This suggests worked." },
+        ctx({ inputs: revise }),
+      );
+      expect(reasons).toContain("verdict_text_mismatch");
+    });
+
+    it('does not fire on "Staff worked the counter" (no false positive)', () => {
+      expect(reasonsOf(withNarrative(GOOD_NARRATIVE + " Staff worked the counter."))).not.toContain("verdict_text_mismatch");
+    });
   });
 
   it("schema_invalid short-circuits and nothing else is reported", () => {
