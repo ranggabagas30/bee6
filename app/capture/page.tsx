@@ -707,6 +707,7 @@ export default function CapturePage() {
   const micTrouble = status !== null && (status.state === "mic_error" || status.micError !== null);
   // R-23: the queue head is being retried (server refusal or network failure): the guide says "Bee6 is catching up".
   const uploadBusy = status !== null && status.headFailedAttempts > 0;
+  const droppedCount = status?.droppedCount ?? 0;
   // R-23 L-3: the sticky "not captured" notice (until Dismiss or the next Start), read from the running engine, or
   // from the last one's retained status after a stop.
   const uploadSource = sessionRunning ? status : lastUploadStatus;
@@ -734,10 +735,10 @@ export default function CapturePage() {
       startOffered,
     });
     publishCaptureBridge({
-      state: { profile: demoSession, phase, sessionId, linesThisSession, closingBusy, closingError, micTrouble, uploadBusy },
+      state: { profile: demoSession, phase, sessionId, linesThisSession, closingBusy, closingError, micTrouble, uploadBusy, droppedCount },
       actions: bridgeActions,
     });
-  }, [view, demoSession, nowMs, sessionClosingReached, lastEnded, debriefDoneFlag, debriefView, startOffered, sessionId, linesThisSession, closingBusy, closingError, micTrouble, uploadBusy, bridgeActions]);
+  }, [view, demoSession, nowMs, sessionClosingReached, lastEnded, debriefDoneFlag, debriefView, startOffered, sessionId, linesThisSession, closingBusy, closingError, micTrouble, uploadBusy, droppedCount, bridgeActions]);
   useEffect(() => () => publishCaptureBridge(null), []);
 
   // ── Batalkan (§5.6, web spec §6.6.5) ────────────────────────────────────────

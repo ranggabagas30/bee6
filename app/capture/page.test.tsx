@@ -927,7 +927,7 @@ describe("CapturePage judge-guide bridge (R-19 PR-5, sandbox only)", () => {
     cleanup();
     await renderDemoIdle();
     await waitFor(() => expect(readCaptureBridge()).not.toBeNull());
-    expect(bridge().state).toMatchObject({ profile: DEMO_PROFILE, phase: "ready", sessionId: null, linesThisSession: 0, closingBusy: false, closingError: null, micTrouble: false, uploadBusy: false });
+    expect(bridge().state).toMatchObject({ profile: DEMO_PROFILE, phase: "ready", sessionId: null, linesThisSession: 0, closingBusy: false, closingError: null, micTrouble: false, uploadBusy: false, droppedCount: 0 });
     expect(typeof bridge().actions.jumpToClosing).toBe("function");
     expect(typeof bridge().actions.refetchConfig).toBe("function");
   });
@@ -976,6 +976,14 @@ describe("CapturePage judge-guide bridge (R-19 PR-5, sandbox only)", () => {
     expect(bridge().state.micTrouble).toBe(false);
     act(() => lastCallbacks?.onStatus?.(ok));
     await waitFor(() => expect(bridge().state.uploadBusy).toBe(false));
+  });
+
+  it("the engine's droppedCount is published to the guide bridge (stuck-upload hint)", async () => {
+    await renderDemoRunning();
+    await waitFor(() => expect(bridge().state.droppedCount).toBe(0));
+    const dropped = { state: "listening", queuedCount: 0, droppedCount: 1, micError: null, lastUploadHttpStatus: 503, lostSinceSuccess: true, headFailedAttempts: 0 };
+    act(() => lastCallbacks?.onStatus?.(dropped));
+    await waitFor(() => expect(bridge().state.droppedCount).toBe(1));
   });
 
   it("a stalled upload (headFailedAttempts 1, healthy mic) publishes uploadBusy and no micTrouble (R-23)", async () => {
