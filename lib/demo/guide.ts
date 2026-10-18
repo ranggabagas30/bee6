@@ -256,8 +256,8 @@ export const GUIDE: Readonly<Record<GuideKey, GuideCard>> = z
       kicker: bi("PLEASE WAIT", "MOHON TUNGGU"),
       body: [
         bi(
-          "Bee6 is reading today's notes to decide what to ask. Your questions appear in about 2 to 4 minutes. Keep this page open.",
-          "Bee6 membaca catatan hari ini untuk menentukan apa yang ditanyakan. Pertanyaan muncul sekitar 2 sampai 4 menit lagi. Biarkan halaman ini terbuka.",
+          "Bee6 is reading today's notes and writing your questions. They appear in about 2 to 4 minutes, sometimes a little longer. Keep this page open.",
+          "Bee6 membaca catatan hari ini dan menyusun pertanyaan Anda. Pertanyaan muncul sekitar 2 sampai 4 menit lagi, kadang sedikit lebih lama. Biarkan halaman ini terbuka.",
         ),
       ],
     }),

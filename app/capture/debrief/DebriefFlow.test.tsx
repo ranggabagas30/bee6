@@ -582,7 +582,7 @@ describe("DebriefFlow: R-19 demo debrief (sandbox only)", () => {
     const status = screen.getByRole("status");
     expect(status.textContent).toContain("Please keep this page open and the screen on.");
     expect(status.textContent).toContain("If you close the page they will wait for you, but the 60-minute debrief clock keeps running.");
-    expect(screen.getByText("Bee6 is reading today's notes to decide what to ask. Please wait.")).toBeTruthy();
+    expect(screen.getByText("Bee6 is reading today's notes and writing your questions. This can take a little longer.")).toBeTruthy();
     expect(screen.getByText("Debrief window 60 min")).toBeTruthy();
     const locked = screen.getByRole("button", { name: "Start is locked until the debrief is done" }) as HTMLButtonElement;
     expect(locked.disabled).toBe(true);
