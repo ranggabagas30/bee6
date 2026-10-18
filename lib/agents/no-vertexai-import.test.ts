@@ -11,8 +11,8 @@ import { describe, expect, it } from "vitest";
  *  - no file under `lib/**` or `app/**` imports `@google-cloud/vertexai`
  *    directly (static or dynamic `require`);
  *  - `@google/adk` itself is imported only by `lib/agents/proposal-agent.ts`
- *    and (R-24) `lib/agents/proposal-agent-v4.ts`, plus their tests, which
- *    mock it;
+ *    (R-24) `lib/agents/proposal-agent-v4.ts` and the DebriefAgent runner
+ *    `lib/agents/debrief-agent.ts`, plus their tests, which mock it;
  *  - (R-24) nothing under `lib/proposals/v4/` imports `@google/adk`: the
  *    check, tools and prompt stay pure and testable without ADK.
  */
@@ -62,12 +62,14 @@ describe("R-08 Task 4.0: no direct @google-cloud/vertexai import; @google/adk sc
     expect(offenders).toEqual([]);
   });
 
-  it("@google/adk is imported only by the two proposal agent runners (v3, v4) and their tests", () => {
+  it("@google/adk is imported only by the agent runners (Proposal v3, v4; DebriefAgent) and their tests", () => {
     const allowed = new Set([
       "lib/agents/proposal-agent.ts",
       "lib/agents/proposal-agent.test.ts",
       "lib/agents/proposal-agent-v4.ts",
       "lib/agents/proposal-agent-v4.test.ts",
+      "lib/agents/debrief-agent.ts",
+      "lib/agents/debrief-agent.test.ts",
       SELF,
     ]);
     const offenders: string[] = [];
@@ -87,6 +89,19 @@ describe("R-08 Task 4.0: no direct @google-cloud/vertexai import; @google/adk sc
       if (!rel.startsWith("lib/proposals/v4/")) continue;
       if (ADK_IMPORT_RE.test(readFileSync(file, "utf8"))) offenders.push(rel);
     }
+    expect(offenders).toEqual([]);
+  });
+
+  it("nothing under lib/debrief/agent/ imports @google/adk (checker, prompt, moment stay pure and ADK-free)", () => {
+    const offenders: string[] = [];
+    let seen = 0;
+    for (const file of ALL_FILES) {
+      const rel = relPath(file);
+      if (!rel.startsWith("lib/debrief/agent/")) continue;
+      seen += 1;
+      if (ADK_IMPORT_RE.test(readFileSync(file, "utf8"))) offenders.push(rel);
+    }
+    expect(seen).toBeGreaterThan(0);
     expect(offenders).toEqual([]);
   });
 

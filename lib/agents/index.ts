@@ -9,8 +9,11 @@
  *     revert (Gemini 3.5 Flash + Cloud Scheduler).
  *   - R-15: CriticAgent — checks proposals using the evidence gate
  *     (lib/pipeline) as a tool (Gemini 3.5 Flash).
- *   - R-16: DebriefAgent — evening voice debrief, agent speaks first,
- *     tap fallback (Live API model).
+ *   - R-16: voice debrief (agent speaks first, tap fallback, Live API model) — not built; "if time".
+ *   - DebriefAgent (debrief-agent.ts, sandbox only, flag DEBRIEF_AGENT): question WORDING only, no voice. It words
+ *     the heading of a debrief question the plain-code evidence gate already created; its one tool is the plain-code
+ *     checker `check_question` (Gemini 3.5 Flash-Lite, ADK `LlmAgent` + `InMemoryRunner`). See
+ *     docs/tasks/debrief-agent-18oct.md. It never picks moments, never sees the SOP, never writes an SOP change.
  */
 
 export {
