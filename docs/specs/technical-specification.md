@@ -3,9 +3,22 @@
 **Sources of truth:** `docs/plan.md` for sprints; `docs/specs/technical-specification.md` (§8) for
 capture and session rules; `docs/specs/web-backend-rbac.md` (§6.6) for routes and data;
 `docs/tasks/UX-03-journey-design.md` for screens and copy.
-Precedence: `CLAUDE.md` → `docs/plan.md` → `docs/backlog.md` → this document.
+Precedence: `CLAUDE.md` → this document → `docs/plan.md` → `docs/backlog.md` (the order in `CLAUDE.md` §1).
 Reconciled 4 Oct 2026 (tech-lead): debrief timing wording, answer storage, the off-day cut-off, scheduled
 work, latency and debrief timing in §5.1, and diagrams §7.3, §7.5, §7.6, §7.7 and §7.10.
+
+> **Updated 18 Oct 2026 (tech-lead, docs only): as built at the release on `main`.** This document now
+> describes the system that runs on the demo service `web`. New: **§9 As built** (the three agents and their
+> plain-code checkers, the per-visitor demo sandboxes and their 5-day journey, capture and transcription
+> resilience, late-line continuation, flags and environment, scheduled jobs, the model and region table) and
+> **§10 Known gaps and limitations** (the honest list; it replaces the short §6.5). Corrected in place: sign-in
+> is email + password for owner and supervisor (admin-provisioned, no self sign-up; the Google sign-in plan was
+> replaced on 9 Oct); there is **no Critic agent** (dropped 16 Oct; the plain-code `check_proposal` tool plays
+> that role, §3.1 step 6, §3.3, §4.1, §5.2 and the diagrams); the pipeline runs on a Cloud Scheduler tick and
+> uses no Cloud Tasks (§3.3, §6.4); the phone's upload retry is a 4-minute budget per segment, not 6 tries
+> (§7.3, §8.8). The pilot shop has not gone live (go-live postponed by Rangga on 9 Oct, no new date); nothing
+> here reports real-shop results. Hard rules (`CLAUDE.md` §2) and the privacy rules of §8 are unchanged and
+> were re-checked against the code (§9.8).
 
 > **Updated 4 Oct 2026, MVP 1 answer shape (tech-lead, docs only; Rangga, 4 Oct, final; `docs/HANDOFF.md`
 > "Debrief answer shape for MVP 1"). Supersedes the free-text-only answer in the note below.** Each debrief
@@ -65,10 +78,10 @@ work, latency and debrief timing in §5.1, and diagrams §7.3, §7.5, §7.6, §7
 > written today. It does not name files, functions or library internals. That detail lives in
 > `docs/tasks/R-xx.md` and in the code itself.
 >
-> **Doc precedence.** If this document disagrees with another one, the order in `CLAUDE.md` wins:
-> `CLAUDE.md` → `docs/plan.md` → `docs/backlog.md` → `docs/specs/web-backend-rbac.md` →
-> `docs/architecture.md` → `docs/specs/pipeline-and-agents.md` → `docs/specs/product-spec.md`. This document
-> summarises and explains. It does not add requirements.
+> **Doc precedence.** If this document disagrees with another one, the order in `CLAUDE.md` §1 wins:
+> `CLAUDE.md` → this document → `docs/plan.md` → `docs/backlog.md` → `docs/specs/web-backend-rbac.md` →
+> `docs/architecture.md` → `docs/specs/pipeline-and-agents.md` → `docs/specs/product-spec.md` → `docs/adr/`.
+> §1 to §7 summarise and explain; §8 is normative; §9 records what is built and §10 what is not.
 
 ---
 
@@ -81,7 +94,7 @@ work, latency and debrief timing in §5.1, and diagrams §7.3, §7.5, §7.6, §7
 | **Author / Owner** | Rangga Bagas (the sole engineer) |
 | **Reviewers** | GATI (product), Tiffany (prompts, categories, pilot coordination); the tech-lead agent for technical review |
 | **Linked tickets** | Plan and calendar: `docs/plan.md`. Tasks R-01 to R-16 with "done when" checks: `docs/backlog.md`. Acceptance criteria (T-xxx): `docs/specs/pipeline-and-agents.md` and `docs/specs/web-backend-rbac.md` |
-| **Status / Release** | Draft. Targets the v1.0 hackathon submission (GATI × Google Cloud AI Builder Cup 2026) |
+| **Status / Release** | As built on 18 Oct 2026 (release on `main`, served by the demo service `web`). Hackathon submission (GATI × Google Cloud AI Builder Cup 2026). The pilot is not live |
 
 **In one sentence.** One phone listens to a small food-and-drink shop's day, turns speech into short
 redacted work notes (the audio is never kept), asks staff *why* gaps happened in a short debrief after Selesai,
@@ -128,7 +141,7 @@ Goals are set in `docs/specs/pipeline-and-agents.md` §A2. In short:
 - **Real-time SOP editing.** No one edits the SOP directly. Every change goes through a proposal
   (`CLAUDE.md` §2 #9).
 - **Streaming transcription or live captions.** Not a product need, and far more expensive. The only
-  real-time part is the voice debrief.
+  real-time part would be the voice debrief, which is not built (R-16, "if time").
 - **A cheaper "first-pass" transcription path.** It is modelled for the deck but not built.
 - **A separate demo architecture**, a native Android app, and the photo, reminder, second-mic and
   event-card features.
@@ -182,9 +195,10 @@ humans hold the final say.
 6. **Proposal.** An agent reads the facts, confirmed answers, the current SOP and every past rejection
    reason. It proposes one change picked from a fixed library of interventions. Each proposal must cite at
    least one rubric criterion and at least two dated pieces of evidence, and must state a metric, a failure
-   condition and a review date. If the evidence is too thin, it makes no proposal, logs why, and asks a
-   question instead. A second agent (the critic) checks each proposal against the same evidence gate before
-   any human sees it.
+   condition and a review date. If the evidence is too thin, it makes no proposal and logs why. Before any
+   human sees a proposal, plain code checks it: the proposal gate (`pgate-v1`) and, with the tool-using agent
+   (§9.1), its `check_proposal` tool. *(A separate Critic agent was planned and dropped on 16 Oct: the
+   plain-code check is the critic, so no model judges another model.)*
 7. **Supervisor.** Marks a proposal *feasible* or *rejects it with a reason*. Every rejection reason
    becomes a permanent rule for that outlet, and all later proposals must respect it.
 8. **Owner.** Approves or rejects, and only after the supervisor has said feasible. Nothing ships without
@@ -192,8 +206,10 @@ humans hold the final say.
 9. **New SOP version.** An approved change creates a new, unchangeable SOP version, with a diff against
    the previous one. The pipeline uses the new version from the next morning.
 10. **Outcome review.** On the review date, a scheduled job compares the metric before and after the
-    change and suggests *worked*, *revise* or *revert*. Supervisor and owner confirm it. An outcome nobody
-    confirms is stored as "unknown" and is kept out of the system's memory.
+    change and plain code (rule `rev-v1`) suggests *worked*, *revise* or *revert*. Supervisor and owner
+    confirm it. An outcome nobody confirms is stored as "unknown" and is kept out of the system's memory. On
+    the demo sandbox fast-forward, a Review agent may add a plain-English explanation of that suggestion; it
+    never changes it (§9.1).
 
 The idea that runs through every step: **AI suggests, plain code filters, humans decide.** Anything
 uncertain becomes a question for a person, never a silent fact.
@@ -220,14 +236,15 @@ All product dependencies are Google Cloud and Google AI (`CLAUDE.md` §2 #1).
 |---|---|
 | A speech-to-text model (verbatim mode, custom vocabulary, Indonesian) | Gemini 3.5 Transcribe (preview) |
 | A fast labelling model with structured output | Gemini 3.5 Flash-Lite |
-| A reasoning model for the proposal, critic and review agents | Gemini 3.5 Flash |
-| A real-time voice model for the spoken debrief | A Gemini Live API model (which one is set by the region probe) |
-| An agent framework | Google Agent Development Kit (ADK). The fallback is a plain state machine that calls Gemini |
+| A reasoning model for the Proposal agent | Gemini 3.5 Flash |
+| A small model for the Debrief and Review agents (wording and explanation only) | Gemini 3.5 Flash-Lite (one constant each; switchable to Flash) |
+| A real-time voice model for the spoken debrief | Not built (R-16, "if time"). The region probe found no Live API model id it could reach |
+| An agent framework | Google Agent Development Kit (ADK) for TypeScript (`@google/adk`, pinned), `LlmAgent` + `InMemoryRunner`, on Vertex AI |
 | Model access | Google Cloud's Gemini platform (Vertex mode) through a service account. Never consumer keys |
 | Hosting | Cloud Run, Jakarta (`asia-southeast2`) |
 | Database | Firestore (Native mode, Jakarta) |
 | Sign-in and identity | Firebase Authentication (email + password for owner and supervisor with accounts created by an admin provisioning script; custom tokens for paired devices; staff PIN sessions are post-MVP 1) |
-| Scheduled work | Cloud Scheduler (pipeline tick, review dates; the debrief-end expiry only if R-07 picks a tick write). Capture start/stop and the debrief follow Mulai, Selesai and the auto-stop, not a schedule (§8.3). Cloud Tasks where a queued step is needed |
+| Scheduled work | Cloud Scheduler: the pipeline tick and the daily review run (§9.7), both OIDC-signed. Capture start/stop and the debrief follow Mulai, Selesai and the auto-stop, not a schedule (§8.3). Cloud Tasks is not used by the built system |
 | Redaction | Sensitive Data Protection |
 | Secrets | Secret Manager |
 | On-device speech detection | An open-source voice-activity detector running in the browser (licence checked) |
@@ -247,7 +264,7 @@ only on the global endpoint, which is stated as a known gap.
 | **Capture (shop phone browser)** | Microphone, on-device speech detection, cutting speech into segments, compression, an in-memory upload queue with retry, a heartbeat, keeping the screen awake, starting only on Mulai and stopping on Selesai or the hard auto-stop (opening hours drive reminders and the auto-stop time only), showing the privacy line as an in-app notice (not consent collection). *~~Respecting the outlet's consent flag~~: removed 4 Oct, no in-app consent gate in MVP 1* |
 | **Ingest (segment interface)** | Checks the device identity, transcribes in memory, redacts, stores the text with timestamps, drops the audio. A repeated upload of the same segment is accepted without being transcribed twice |
 | **Understanding pipeline (scheduled)** | Groups lines into windows, calls the labelling model, builds threads that can span windows, applies the evidence gate, writes facts and questions. Runs one device at a time, oldest first, so no two runs fight over the same thread |
-| **Agents** | Debrief (voice, with tap as fallback), Proposal, Critic and Review. They read stored facts and write proposals or verdict suggestions, never SOP changes |
+| **Agents** | Proposal (tool-using, behind a flag), Debrief (question wording only, demo sandboxes) and Review (explains the plain-code verdict, demo sandbox fast-forward). Each one's output passes a plain-code checker; none writes an SOP change (§9.1). The tap debrief is plain code; the voice debrief is not built |
 | **Screens** | Capture status, staff debrief, the supervisor's day record and approvals, the owner's summaries and approvals, the demo "Try as…" landing page |
 | **Data** | Firestore. Every record belongs to exactly one outlet |
 | **Platform** | Identity, scheduling, secrets, redaction, model access, all on Google Cloud in Jakarta |
@@ -285,7 +302,7 @@ sequenceDiagram
     API->>API: evidence gate (plain code) → fact or question
     API->>DB: threads (facts) + questions; non-work lines deleted
     Staff->>API: debrief answers: yes / no + reason, reason scrubbed + redacted (device id, no name)
-    API->>API: Proposal agent + Critic (gate as a tool)
+    API->>API: Proposal agent, checked by plain code (pgate-v1, check_proposal)
     API-->>Sup: proposal with dated evidence
     Sup->>API: feasible, or reject + reason (reason becomes a rule)
     API-->>Own: feasible proposal
@@ -371,9 +388,9 @@ proposal chain (§2 #9). Endpoint-level contracts: `docs/specs/web-backend-rbac.
 | Data leaves the region | Services and data in Jakarta. Model locations come from configuration, never hard-coded | §2 #5 |
 | A forged call to the scheduled pipeline | Internal interfaces accept only a verified service identity with an expected audience | §2 #6 |
 | A stolen paired phone (or, post-MVP 1, a guessed PIN) | Device tokens can be revoked. A device can answer only its own questions, only with timestamps inside a real debrief window, and at a bounded rate. (Post-MVP 1: PIN sign-in works only on a paired phone; repeated wrong PINs lock it for a while; staff sessions are short) | — |
-| An AI-invented SOP change | Changes only through proposals with cited evidence, the gate, the critic, and two human approvals | §2 #9, #10 |
+| An AI-invented SOP change | Changes only through proposals with cited evidence, the plain-code proposal checks (`pgate-v1`, `check_proposal`), and two human approvals. No agent has a write tool | §2 #9, #10 |
 | Real data in the public repo | Demo data is fictional. The real SOP, transcripts and staff data never enter the repo, and neither do keys | §2 #8 |
-| Demo abuse | A separate project, per-visitor rate limits, a daily cap on model use, and refusal of inputs that try to change instructions | — |
+| Demo abuse | A separate project, a private sandbox per visitor, per-IP and per-sandbox caps, daily caps on model-calling paths (§9.2), and plain-code checkers that refuse instruction-like or off-input wording from the agents | — |
 
 ### 5.3 Error handling and logging
 - **Failures become questions, never silent facts.** A model output that fails validation, a missing or
@@ -430,10 +447,13 @@ What is measured, in concept:
   shop. Pilot go-live is one step (capture, transcription, labels, day record and tap debrief together),
   after an internal testing window on a separate test outlet in the pilot project and the engineer's
   written sign-off. The pilot shop being "informed" is a verbal acknowledgement, not sign-off.
-- **Continuous deployment:** a merge to the main branch builds and deploys to Cloud Run in Jakarta. The
-  task's acceptance checks are then run on the live URL.
-- **The demo's clock.** The demo can "fast-forward to the review date" by calling the same review job the
-  scheduler calls. It is always labelled as simulated time.
+- **Continuous deployment:** a push to `main` builds the image (Cloud Build) and deploys a new revision of
+  `web`; a push to `develop` does the same for the staging service `web-develop` (§9.6). Traffic on `web` is
+  pinned to a named revision, so a new revision goes live only on an explicit traffic switch. As built, only
+  the demo project runs services; the pilot project has no deployed service yet.
+- **The demo's clock.** The demo can "fast-forward to the review date" by calling the same review code the
+  daily scheduler job calls, and a sandbox can "jump to tomorrow" by shifting its own stored timestamps
+  (§9.2). Both are labelled as simulated time.
 
 ### 6.3 Milestones and timeline
 The dates, sprints and milestones live in **`docs/plan.md`** (§3 Calendar) and the critical path in
@@ -445,17 +465,12 @@ The dates, sprints and milestones live in **`docs/plan.md`** (§3 Calendar) and 
 | 1 | Which weekday problem is the demo story? | `docs/plan.md` §10 #6 |
 | 2 | Is transcription good enough on the pilot's speech in rush-hour noise? Which language setting works best? | `docs/specs/pipeline-and-agents.md` §A7 Q3 |
 | 3 | Does the Live API understand and speak Indonesian well enough for the voice debrief? (The tap debrief is the fallback.) | `docs/specs/pipeline-and-agents.md` §A7 Q4 |
-| 4 | A staff-name scrub over retained thread text (kept 14 days once capture phase plan P4 ships, long-lived before that): planned as a follow-up, scope not yet scheduled | `CLAUDE.md` §2 #7a; `docs/tasks/R-05a.md` Decision 3 |
-| 5 | Enforcing the daily cost ceiling, and the incident fast path: stated as known gaps, not scheduled | `docs/tasks/R-05b.md` Decision 5 |
-| 6 | Whether queued background tasks (Cloud Tasks) are still needed anywhere now that the understanding pipeline runs on a scheduled tick. Older docs still describe per-step tasks | `docs/tasks/R-05b.md` Decision 3; `docs/specs/web-backend-rbac.md` §6.1 |
+| 4 | ~~A staff-name scrub over retained thread text~~ *Closed (as built): the tick scrubs staff names from a unit's lines before the label prompt is built and before threads copy the line text, so stored thread lines carry `[STAFF]`, never a name (§9.8)* | `CLAUDE.md` §2 #7a; `docs/tasks/R-05a.md` Decision 3 |
+| 5 | Enforcing the daily cost ceiling, and the incident fast path: stated as known gaps (§10), not scheduled | `docs/tasks/R-05b.md` Decision 5 |
+| 6 | ~~Whether Cloud Tasks is still needed~~ *Closed (as built): nothing uses Cloud Tasks. The pipeline is the Scheduler tick; `CLOUD_TASKS_QUEUE` is an unused reserved name, and `TASKS_INVOKER_SA` is now the service account the internal routes require as the OIDC token's issuer (the Scheduler jobs sign with it)* | `docs/tasks/R-05b.md` Decision 3 |
 
 ### 6.5 Known gaps (stated honestly)
-DPIA is the next priority after submission. Transcribe is in preview. Some models may run on the global
-endpoint. Browser capture needs the phone plugged in with the page open and the screen on. The cheaper
-transcription path is modelled, not built. Consent revocation is a manual procedure (stop capture,
-remove the outlet's text for the affected dates), not an in-app action. Consent itself is collected
-outside the app (the bee6–Proofed paper contract plus an emailed notice, 4 Oct), and the app has no
-consent or revoked-consent state. Full list: `CLAUDE.md` §8.
+Moved and extended: **§10 Known gaps and limitations**.
 
 ---
 
@@ -540,7 +555,7 @@ sequenceDiagram
     alt not sufficient
         Ins-->>Sup: missing days and reasons, no model call
     else sufficient
-        Ins->>Ins: Proposal agent, then Critic agent
+        Ins->>Ins: Proposal agent, then plain-code proposal checks
         Ins->>DB: proposal with dated evidence
         Sup->>API: feasible, or reject with a reason
         Own->>API: approve, new SOP version with a review date
@@ -592,7 +607,7 @@ flowchart TD
     B9 --> B10{"Upload result"}
     B10 -->|confirmed| B11["Deleted from the phone. Line: Upload succeeded"]
     B10 -->|"network error"| B12["Kept, retried with backoff. Line: Upload failed, retrying (Nx)"]
-    B10 -->|"server busy or server error"| B12b["Kept, up to 6 tries, then skipped. Line: retrying (Nx), then Upload failed, skipped"]
+    B10 -->|"server busy or server error"| B12b["Kept, retried for up to 4 min per segment, then skipped. Line: retrying (Nx), then Upload failed, skipped"]
     B12b --> B9
     B12 --> B9
     B10 -->|"identity rejected"| B13["Kept, retried slowly. Hint: contact supervisor"]
@@ -758,7 +773,7 @@ flowchart TD
     H6 -->|"new, or insufficient before, or failed fewer than 3 times"| H9["Plain-code sufficiency check"]
     H9 --> H10{"Valid range, data settled, 3 qualifying days, 60 percent coverage, 2 facts on 2 dates, answers on 1 day if any questions?"}
     H10 -->|no| H11["Insufficient: lists missing days and why, no model call"]
-    H10 -->|yes| H12["Proposal agent, then critic"]
+    H10 -->|yes| H12["Proposal agent, then plain-code proposal checks"]
     H12 --> H13{"Evidence strong enough for one change?"}
     H13 -->|yes| H14["Proposal to supervisor, then owner"]
     H13 -->|no| H15["No proposal, reason logged, a question asked instead"]
@@ -1126,7 +1141,7 @@ cancel, with the server-removal line). There is no amber queue-full state and no
 |---|---|---|---|
 | 200/201 | deleted (P3: record, and the key once the session has no records) | `uploading` while more queued, else `succeeded` | closes any open upload gap |
 | network error | kept, retried forever, backoff to 30 s | `retrying` | `network_offline` open |
-| 429 / 5xx | kept, up to 6 server errors per segment, then dropped | `retrying` + server hint; after the drop: next head, or `skipped` | `server_error` open; drop → `segment_dropped` |
+| 429 / 5xx | kept and retried with jittered backoff (0.5 s doubling, 30 s cap) until the head has been refused for 4 min (`HEAD_BUDGET_MS`, 18 Oct: also after Selesai, §9.3), then dropped | `retrying` + server hint; after the drop: next head, or `skipped` | `server_error` open; drop → `segment_dropped` |
 | 401 / 403 (`blocked`) | kept, retried every 60 s, never counted toward the attempt limit | `retrying` + supervisor hint from N ≥ 3 | `auth_rejected` open |
 | other 4xx (400, 413) | dropped | next head, or `skipped` | `segment_dropped` |
 | in-memory cap prune (P1/P2) | oldest dropped | lost line | `queue_full` + `segment_dropped` |
@@ -1450,3 +1465,222 @@ copy; none is built) · Q29 the emailed notice (who sends it, to which addresses
 Sun 11 sign-off) · Q-U23 Bahasa debrief category labels (until both exist a question uses the unlabelled
 template) · copy sign-off of UX-03 §6 (Q14 upload line, Q26 cancel copy, the Mulai notes, confirm sentences and
 banners) · UX-03 C10 the one-time "upload working again" toast.
+
+---
+
+## 9. As built (18 Oct 2026)
+
+What the released code (`main`, served by the demo service `web`) actually does where it differs from, or
+adds to, §1 to §8. Read with the code; names below are the ones in the code.
+
+### 9.1 Agents and their plain-code checkers
+
+**AI suggests, plain code filters, humans decide** applies to every agent: each agent's only way to produce
+an output is to submit it to a plain-code checker as tool arguments (no free-form answer is used), the checker
+is pure code (hard rule #10), every agent has read-only tools and **no write tool**, and every failure falls
+back to a plain-code path. All three run on Vertex AI through the Google ADK for TypeScript (`LlmAgent` +
+`InMemoryRunner`), with the model location read from `config/regions.yaml`. No Critic agent exists (dropped
+16 Oct): a model never judges another model; plain code does.
+
+| | Proposal agent v4 | Debrief agent | Review agent |
+|---|---|---|---|
+| Job | Proposes one SOP change from a range of facts | Words the heading of a debrief question the gate already raised | Explains in plain English the before/after counts of one shipped change |
+| Decides anything? | Picks among offered interventions, facts and SOP steps; the plain-code checks decide whether a proposal reaches the supervisor | No. Never picks moments, never sees the SOP | No. The verdict is `suggestVerdict` (rule `rev-v1`); the agent only explains it |
+| Model | Gemini 3.5 Flash | Gemini 3.5 Flash-Lite | Gemini 3.5 Flash-Lite |
+| Read tools | `list_sop_sections`, `get_sop_section`, `get_evidence` (aliases E1..En), `get_intervention`, `get_rubric` | none | `get_change`, `get_counts`, `get_evidence_sample` |
+| Checker tool | `check_proposal` (`pcheck-v4`): the 8 `pgate-v1` checks, then 10 rules (`section_not_fetched`, `step_not_in_section`, `evidence_not_inspected`, `intervention_not_inspected`, `quote_alias_not_cited`, `quotes_insufficient`, `quote_not_in_evidence`, `scope_unsupported`, `change_is_noop`, `text_rule_violation`) | `check_question`: 18 rules (length 20 to 140, one yes/no question, the moment's time present, no number or content word that is not in the input, no URL, placeholder, control character, staff name, role word, instruction word, negation or compound question) | `check_review`: 20 rules, among them `verdict_mismatch` (the stated verdict must equal the rule's), `verdict_text_mismatch` (the verdict the narrative states must agree), `number_not_allowed`, `quoted_numbers_mismatch`, required and not-applicable caveats, `staff_name`, `role_or_person`, `instruction_word`, `causal_claim` |
+| Other exits | `decline` | none | `decline` |
+| Bounds | up to 3 checker rounds, 14 model calls, 45 s | 2 rounds, 4 model calls, 8 s (+3 s backstop) per question; at most 3 questions per unit, in parallel | 2 rounds, 10 model calls, 20 s (+5 s backstop) |
+| Fallback | Any run error: one attempt of the v3 path (one structured JSON call, checked by `pgate-v1`); a proposal that fails the checks is stored as blocked, never shown as valid | The template heading (the deterministic question text) | The plain-code review card, with a notice that the explanation is missing |
+| Where it runs | Every Ask (`POST /api/v1/proposals/generate`) on a service where the flag is on | Inside the pipeline tick, demo sandboxes only (`sbx-` outlet prefix); the phone shows the stored wording only while its category and start time still match the question and the flag is still on | Only inside the demo sandbox fast-forward (`project_kind: "demo"`, a `sandbox` block and the `sbx-` prefix). The daily review run (`runDueReviews`) never calls it |
+| Flag (exactly `"true"`) | `PROPOSAL_AGENT_V4` | `DEBRIEF_AGENT` | `REVIEW_AGENT` |
+| Stored | Proposal plus a tool-call trace (names and ok flags only); the agent's evidence quotes are checked, never stored | `agent` on the question (English wording, the category and start time it was worded for, model, version, rounds) | `agent` on the review; the stored schema refuses a doc whose `agent.suggested_verdict` differs from the stored `suggestion.verdict` |
+
+Notes:
+- **Language.** The Debrief and Review agents write English only. In a Bahasa UI the agent heading is shown in
+  English and marked `lang="en"`; all other copy follows the language switch.
+- **Kill switch.** Removing a flag stops that agent for every new run (for the Debrief agent the phone also
+  stops showing stored wording, because the read path checks the flag too). A traffic
+  rollback to an older revision is not the kill: revisions older than the agent release reject stored docs that
+  carry `agent` (strict schemas).
+- **Logging.** Agent runs log counts, enums, rule codes and token usage only; never a prompt, a draft, a line
+  or a name.
+
+### 9.2 The demo model (demo project `bee6-playground` only)
+
+- **`DEMO_MODE`.** Every demo route answers 404 unless `DEMO_MODE` is exactly `"true"`; it must stay unset on
+  the pilot.
+- **A private sandbox per visitor.** "Try as…" creates a sandbox outlet `sbx-<12 hex>` cloned from a fictional
+  template outlet (`demo-tpl-outlet`), with a judge device `jdg-<12 hex>`. A sandbox lives 2 h; the visitor
+  switches role inside it with a sandbox key. Expired sandboxes are deleted lazily, at most 2 per new sandbox,
+  after a 24 h grace. A standalone sweeper script exists outside the released code (not merged).
+- **The 5-day journey.** Days 1 to 3 are live, scripted shop days (the judge reads fictional script cards aloud
+  into the paired phone, ends the day, answers the debrief, then asks for a proposal and decides it as
+  supervisor and owner). Days 4 and 5 are optional "after" days
+  that unlock only once the Owner has approved a change; they feed the review.
+- **Jump to closing / jump to tomorrow.** Closing unlocks once the day's required lines have been heard (5).
+  "Jump to tomorrow" shifts the sandbox's own stored timestamps back 24 h (time only: no label, text, category
+  or gate decision changes). Guards, in order: a shift already in flight or crashed (`busy`,
+  `shift_incomplete`), `session_open`, `day_not_ended`, `preparing`, `max_days` (4 jumps), then: jumps 1 and 2
+  are refused once any proposal exists (`proposal_exists`); the after-day jumps need an approved, shipped change
+  and no open proposal (`approve_first`) and stop for good once a review exists (`review_exists`). Unanswered
+  debrief questions need an explicit "jump anyway". After-day jumps also move the SOP version dates and review
+  date with the data (§10).
+- **Fast-forward.** The review can be fast-forwarded on a demo outlet; it runs the same `createReview` as the
+  daily job, labelled simulated, at most 3 times per sandbox.
+- **Caps** (defaults in code; some are raised by environment on `web` for judging). Per network per UTC day:
+  sandboxes created (30) and role switches (60); IPs are never stored, only an HMAC keyed by `DEMO_IP_SALT`.
+  Per sandbox: segment uploads 250 (a retry of the same segment is free up to 30 times), proposal Asks 8,
+  fast-forwards 3, redaction calls 60, owner resets 3, jump calls 30. Across all sandboxes per UTC day: 300
+  sandboxes, 3000 segments, 300 Asks and an interim ceiling of 5000 model-calling requests. Day counters reset
+  at 00:00 UTC (07:00 in Jakarta). An override above a sanity bound is ignored.
+- **Staging.** The service `web-develop` runs the `develop` branch in the same demo project against a named
+  Firestore database `staging` (`FIRESTORE_DATABASE_ID=staging`), so tests never touch `web`'s `(default)`
+  database. `FIRESTORE_DATABASE_ID` is never set on `web` or the pilot.
+
+### 9.3 Capture and transcription resilience
+
+- **Two ways to stop the engine.** *Finish* (Selesai, auto-stop, sign-out after closing): the open segment is
+  flushed and uploads continue in the background; a segment the server refuses (429/5xx) keeps its backoff
+  until its own 4-minute budget is spent or 4 minutes have passed since the stop, whichever is first, then it
+  is dropped and the "not captured" notice shows. *Abort* (cancel, sign-out during a session, leaving the page):
+  no new upload starts.
+- **Jump to tomorrow waits for uploads.** On the demo, the jump waits up to 25 s for day-1 uploads still
+  retrying, then aborts what is left, so a late note cannot land after the shift.
+- **Transcription inside the request.** At most 2 attempts within a 30 s budget: each attempt is aborted
+  after 10 s, and a 429/500/502/503/504 or an attempt timeout is retried once after a short jittered wait. Any
+  other failure, or a second failure, answers 503 and the phone retries (§8.8). Audio stays in memory in all
+  cases.
+- **Shared preview capacity.** `gemini-3.5-transcribe-preview` runs on shared capacity with no raisable
+  quota. When several phones start in the same second Vertex answers 429, the route answers 503, and the phone's
+  retry budget usually rides it out (§10).
+
+### 9.4 Pipeline
+
+- **Tick.** Cloud Scheduler calls the tick every minute on `web` and every 2 minutes on `web-develop`. The
+  tick works one device at a time under a per-device lease.
+- **Late lines.** Lines the labeller files under a thread that is still open (for example a note delivered
+  late by the retry after Selesai) are kept as continuations of that thread, not dropped (fix of 18 Oct).
+- **Insight runs as built.** The "insight run" of §7.9 and §8.15 is the proposal Ask over a date range: the
+  plain-code `suff-v1` range check (`range_valid`) and a plain-code evidence floor run before any model call.
+  Separate insight-run records, the weekly reminder and the cross-device merge are not built (§10).
+
+### 9.5 Flags and environment (names only; values live in Secret Manager or the service config)
+
+| Name | Where | Effect |
+|---|---|---|
+| `DEMO_MODE` | demo services only | exactly `"true"` turns the demo routes on |
+| `PROPOSAL_AGENT_V4` | `web`, `web-develop` | exactly `"true"`: the Proposal agent v4 (§9.1) |
+| `DEBRIEF_AGENT` | `web`, `web-develop` | exactly `"true"`: the Debrief agent, sandboxes only |
+| `REVIEW_AGENT` | `web`, `web-develop` | exactly `"true"`: the Review agent, sandbox fast-forward only |
+| `FIRESTORE_DATABASE_ID` | `web-develop` only (`staging`) | named Firestore database; unset = `(default)` |
+| `PIPELINE_TICK_AUDIENCE`, `REVIEW_RUN_AUDIENCE`, `TASKS_INVOKER_SA` | every service | the expected OIDC audience of each internal route (its own URL) and the required token issuer |
+| `DEMO_IP_SALT` (secret), `DEMO_*_CAP`, `DEMO_XFF_FROM_END` | demo services | the per-IP hash salt and cap overrides (§9.2) |
+| `THREAD_HANDLE_KEY` (secret) | every service | keys the opaque thread handles the supervisor's day-record actions use |
+| `NEXT_PUBLIC_DEV_CONTROLS` | developer builds only | the `/capture` developer panel; never `"true"` in a real build |
+| `NEXT_PUBLIC_DEVICE_AUDIO_QUEUE` | — | reserved for P3; P3 is not built and nothing reads it |
+
+On 18 Oct the three agent flags were switched on for `web` with the release (Rangga's go); `DEMO_MODE` is on
+for both demo services.
+
+### 9.6 Deployment (as of 18 Oct)
+
+| Piece | As built |
+|---|---|
+| Cloud Run `web` | demo project, `asia-southeast2`; built from `main`; the judges' service; database `(default)` |
+| Cloud Run `web-develop` | demo project, `asia-southeast2`; built from `develop`; staging; database `staging` |
+| Firestore | Native, `asia-southeast2`: `(default)` and `staging`, same indexes; TTL policies on `segments`, `corrections` and `demo_counters` |
+| Secret Manager | runtime secrets (for example `DEMO_IP_SALT`, `THREAD_HANDLE_KEY`); no key in the repo |
+| Identity | Firebase Authentication: email + password for owner and supervisor (accounts made by an admin provisioning script, no self sign-up), custom tokens for paired devices and demo role sessions; one runtime service account for every Google call (no API keys) |
+| Pilot project | separate project; no service, scheduler job or build trigger deployed yet |
+
+### 9.7 Scheduled jobs
+
+| Job | Target | Schedule |
+|---|---|---|
+| `pipeline-tick` | `web` `/api/internal/pipeline/tick` | every minute |
+| `review-run` | `web` `/api/internal/reviews/run` | daily 09:00 Asia/Jakarta |
+| `pipeline-tick-staging` | `web-develop` tick | every 2 minutes |
+| `review-run-staging` | `web-develop` review run | paused |
+
+Both internal routes accept only an OIDC token from the configured service account with the route's own URL
+as audience. The debrief and capture follow the phone (Mulai, Selesai, auto-stop), never a schedule.
+
+### 9.8 Models, regions and privacy re-check
+
+| Model or service | Used for | Location (from `config/regions.yaml`, probed 1 Oct) |
+|---|---|---|
+| `gemini-3.5-transcribe-preview` | all transcription | `global` |
+| `gemini-3.5-flash-lite` | labels; Debrief and Review agents | `global` |
+| `gemini-3.5-flash` | Proposal agent (v3 and v4) | `asia-southeast1` |
+| Sensitive Data Protection | redaction | `asia-southeast2` |
+| Live API model | voice debrief | not built; not reachable at the probe |
+
+Cloud Run, Firestore and secrets are in `asia-southeast2`. Re-checked against the code on 18 Oct, unchanged:
+audio is transcribed in memory and never written; segment text expires 48 h after it is stored; transcript
+lines and debrief reasons are redacted before any write, and a redaction failure stores nothing; staff names
+are scrubbed from a unit's lines before labelling and before threads copy the text; a debrief answer stores
+the answering device id and timestamps only, and supervisor and owner views never return a device id; every
+model location is read from `config/regions.yaml`; browsers reach Firestore only through the API.
+
+---
+
+## 10. Known gaps and limitations (18 Oct 2026)
+
+The honest list. Product-facing wording for each lives in the README; this is the full technical list.
+
+**Models and capacity**
+- Transcription uses a **preview** model on **shared capacity** with no raisable quota. Several phones starting
+  in the same second can get Vertex 429s; the segment route answers 503 and the phone retries. A note still
+  failing after the 4-minute retry (or after the demo's 25 s jump wait) is lost and shown as not captured.
+  The preview model also sometimes hangs; the per-attempt 10 s abort and one retry mitigate it.
+- Transcription and Flash-Lite run on the **`global`** endpoint and Flash in **Singapore**, not Jakarta (§9.8).
+- **Review agent quality.** In the 18 Oct evaluation the agreement bar (at least 90 % of runs accepted with
+  the rule's verdict) was met on **5 of 8** core cases (the worked, worked-marginal and revert cases scored
+  60 %, 60 % and 80 %). On core cases **12.5 %** of runs fell back to the plain card (5.6 % overall); the
+  screen says when the explanation is missing. Narratives can still read awkwardly (for example "1 moments").
+  Improvement is planned after submission.
+- **Debrief agent** has **no circuit breaker** (risk item M4, not built): if Vertex fails repeatedly, each
+  eligible question still calls the agent (bounded by the 8 s timeout and the unit's time budget) before the
+  template is used, which slows the tick; the kill is removing `DEBRIEF_AGENT`. Its wording is English only.
+- **Proposal agent v4** uses about 3.6 times the tokens of v3 and is slower (an Ask usually takes 10 to 30 s;
+  two chained Asks take longer).
+- After the agent release, rolling traffic back to an older revision breaks reads of docs that carry
+  `agent`; only the flags are a safe kill (§9.1).
+
+**Demo**
+- After "Jump to tomorrow" aborts a still-retrying upload, the new day's screen can keep a stale "Not sent
+  yet · retrying" row and does not show the "not captured" notice.
+- Each after-day jump moves the SOP version dates and the review date back one day **by design**, so a
+  screen read before the jumps can show a different review date than one read after.
+- Day-3 and day-5 guide copy repeats the unlock lines, and after a review exists a lock line still says days 4
+  and 5 unlock.
+- A console preload hint can appear after the sign-out redirect (accepted noise).
+- Expired sandboxes are only cleaned lazily; the standalone sweeper is not merged.
+
+**Capture phases and data**
+- **P2** (offline outbox and gap ledger) is not built: coverage counts capture-gap minutes as 0, and session
+  start/end calls are direct with retries.
+- **P3** (encrypted on-device audio queue) is not built: the queue is in memory only (about 10 minutes), so a
+  reload or a long outage loses queued speech.
+- **P4** (14-day thread text retention) is not built: threads have no expiry yet; debrief corrections expire
+  after the outlet's `retention_days`.
+- Separate insight-run records, the weekly reminder and the cross-device merge are not built; with two or
+  more paired devices, counts are inflated (pass/fail unchanged).
+- The per-outlet daily token ceiling (`DAILY_TOKEN_CEILING`) is not enforced; the demo has an interim daily
+  count of model-calling requests only.
+- Only the phone enforces the auto-stop; the server refuses only discarded sessions.
+- Name-scrub limits: Indonesian clitics beyond -nya/-ku/-mu/-lah/-kah, rare invisible characters, a one-word
+  staff name equal to the outlet's own word; the quoted lines on the sandbox debrief get no second redaction pass.
+- Firestore TTL deletion lags, so retention copy says "after", never "within".
+
+**Product and compliance**
+- The **pilot has not gone live** (postponed 9 Oct, no new date): no real-shop results, no real gold set, no
+  pilot review. The closed loop is shown on the demo only, labelled simulated.
+- **DPIA** under PP 33/2026 is the next priority after submission.
+- **Consent is outside the app** (contract plus emailed notice); revocation is manual within 7 working days,
+  with no in-app revoke and no deletion script.
+- **Bahasa copy is provisional** until Tiffany's review.
+- Browser capture needs the page open, the screen on and the phone plugged in; a forgotten Mulai looks like a
+  day off.
+- The voice debrief (R-16) and the cheaper transcription path are not built (the latter is modelled only).

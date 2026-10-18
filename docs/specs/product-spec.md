@@ -1,5 +1,14 @@
 # Product spec: SOP Improvement Agent
 
+> **Updated 18 Oct 2026 (tech-lead, docs only): as built.** The supervisor and owner side is built and
+> released: the day record with confirm / override / reject, the runner-up block, unlabelled rows and the
+> questions queue (R-06), owner home, proposals and approvals with constraints (R-08, R-09), SOP versions
+> (R-10) and the review on its date with the demo fast-forward (R-11). Three agents sit on top, each behind a
+> flag and a plain-code checker: the Proposal agent (tool-using v4), the Debrief agent (words question
+> headings, demo sandboxes only) and the Review agent (explains the plain-code verdict, demo sandbox
+> fast-forward only). No Critic agent (dropped 16 Oct). The pilot has not gone live; the loop is shown on the
+> demo. Detail: `docs/specs/technical-specification.md` §9 and §10. §2, §5, §6 and §9 below are updated.
+>
 > **Reconciled 9 Oct 2026 (tech-lead).** Marked what is shipped versus planned against `docs/tasks/R-06.md` v3
 > (day record, confirm / override, runner-up, unlabelled rows, questions queue, owner home: all planned, none built),
 > made the debrief bilingual (English default), and aligned §9 with the owner facts-only decision (Rangga, 9 Oct)
@@ -17,7 +26,7 @@ A system that holds a small F&B outlet's SOP as a machine-checkable spec, listen
 It is not a transcription tool, not a checklist app, and not an SOP writer. It is a **closed improvement loop**: the model stays frozen; the outlet's procedure improves.
 
 ## 2. The loop
-Listen (staff tap Mulai, then ambient until Selesai or the auto-stop) → **Day record** (one timeline) → **Ask why** (1-hour debrief after Selesai or the auto-stop, ≤ 5 questions per device, English by default with a Bahasa Indonesia toggle) → **Pattern + cause** (an insight run a supervisor or owner starts over a date range; plain-code sufficiency check first; technical spec §7.9) → **Propose** (intervention from the library + rubric criterion + ≥ 2 dated evidence items + known constraints) → **Supervisor check** (feasible? reason required on rejection) → **Owner approves** (cost and brand) → **Ship SOP vN+1** (metric, failure condition, review date) → **Review on date** (worked / revise / revert) → **Outcome memory**.
+Listen (staff tap Mulai, then ambient until Selesai or the auto-stop) → **Day record** (one timeline) → **Ask why** (1-hour debrief after Selesai or the auto-stop, ≤ 5 questions per device, English by default with a Bahasa Indonesia toggle) → **Pattern + cause** (as built: a supervisor or owner asks for a proposal over a date range; a plain-code range check and evidence floor run first; technical spec §9.4) → **Propose** (the Proposal agent picks an intervention from the library + rubric criterion + ≥ 2 dated evidence items + known constraints; plain-code checks decide whether it reaches the supervisor) → **Supervisor check** (feasible? reason required on rejection) → **Owner approves** (cost and brand) → **Ship SOP vN+1** (metric, failure condition, review date) → **Review on date** (worked / revise / revert, suggested by plain code; on the demo the Review agent explains it) → **Outcome memory**.
 - The new SOP version is the spec the next day is judged against.
 - Outcome memory and rejection reasons feed future proposals.
 
@@ -66,7 +75,7 @@ Rule: the category is **what is happening**, not what is being talked about. Hyp
 
 **Fields (evidence, not categories):** `ops_type` (sop_step/stock/handoff/content) · `unmet_request` (item + reason: sold_out/not_on_menu/wrong_time/wrong_size) · `sale` · `complaint_type` (missing_item, wrong_item, foreign_object, spoiled, taste_texture, wait_time, price, attitude, unavailable) · `customer_request` (replacement/refund/apology/none) · `hazard_type` (burn/cut/slip/gas_fire/product) · `cause` (equipment/utility/natural/external) · `event_id` + `phase` · `extracted_rules` (TRAINING, CORRECTION, STAFF_CONSULT).
 
-Every label also carries `confidence` and a `runner_up` category with the reason it lost (`why_not`, name-scrubbed and redacted before storage). Both are stored today (R-05b). **Planned, not yet built (R-06 Task 11):** the supervisor's day record shows the runner-up as a closed-by-default "Second choice" block on the thread card, hidden when it equals the thread's current category (after any staff or supervisor change). Owners never see it. R-06 marks it the first item to drop if its PR runs late.
+Every label also carries `confidence` and a `runner_up` category with the reason it lost (`why_not`, name-scrubbed and redacted before storage). Both are stored (R-05b). **Built (R-06 Task 11):** the supervisor's day record shows the runner-up as a closed-by-default block on the thread card. Owners never see it.
 
 Example:
 ```json
@@ -79,31 +88,25 @@ Example:
 ## 6. Review cadence
 | What | Who | When | If skipped |
 |---|---|---|---|
-| Uncertain labels (debrief questions) | Whoever holds the paired device answers that device's questions (*Yes* / *No* + a required reason, or *Skip*); supervisors do not answer, they confirm or override on the thread side (planned, R-06 Task 10) | In the 1-hour debrief after Selesai or the auto-stop, ≤ 5 questions | Expire "unverified" at that device's debrief end; never become facts (technical spec §8.10) |
-| Proposals (planned: R-08, R-09; insight runs P5) | Supervisor, then owner | After an insight run produces one (target: reviewed within a day) | Stay pending; archived after ~14 days |
-| Shipped change at review date (planned: R-11) | Supervisor + owner | On the date (Cloud Scheduler) | Change stays; outcome "unknown", excluded from memory |
+| Uncertain labels (debrief questions) | Whoever holds the paired device answers that device's questions (*Yes* / *No* + a required reason, or *Skip*); supervisors do not answer, they confirm, override or reject on the thread side (built, R-06) | In the 1-hour debrief after Selesai or the auto-stop, ≤ 5 questions | Expire "unverified" at that device's debrief end; never become facts (technical spec §8.10) |
+| Proposals (built: R-08, R-09) | Supervisor, then owner | After a supervisor or owner asks for one over a date range (target: reviewed within a day) | Stay pending |
+| Shipped change at review date (built: R-11) | Supervisor + owner | On the date (Cloud Scheduler, daily 09:00 Jakarta; the demo can fast-forward) | Change stays; outcome "unknown", excluded from memory |
 
-**Shipped today:** the debrief (questions, Yes / No + reason, Skip, per-device expiry) and the gate rule that
-keeps staff answers on sensitive threads out of the facts. **Everything a supervisor or owner does is planned,
-not yet built:** the day record, confirm / override and the queue (R-06), proposals and approvals (R-08, R-09).
+**Built (18 Oct):** the debrief (questions, Yes / No + reason, Skip, per-device expiry), the gate rule that
+keeps staff answers on sensitive threads out of the facts, and the supervisor and owner side: the day record,
+confirm / override / reject and the questions queue (R-06), proposals and approvals (R-08, R-09).
 
 - Staff answers on COMPLAINT, CORRECTION and all Incidental threads become facts **only after a supervisor
-  confirms**. Today such a thread never becomes a fact (the gate never waives the supervisor check). **Planned
-  (R-06 Task 10):** supervisor confirm / override, as a new gate input in plain code (hard rule #10). Proposed
-  rule, awaiting Rangga (R-06 §12 Q-B): a supervisor can act only after the staff answered the thread's question,
-  so a moment nobody answered in the debrief can never become a fact.
+  confirms**. The supervisor's confirm / override / reject is a plain-code gate input (hard rule #10), offered
+  only once the staff answered the thread's question and the question is not unverified, so a moment nobody
+  answered in the debrief can never become a fact.
 - Moments the labeller could not label at all become a debrief question about a time block ("Between HH:MM and
-  HH:MM there was work. Is that right?"); that question is shipped. An answer is stored as a reason only and
-  never becomes a fact. **Planned (R-06 Task 12):** these show as read-only rows on the supervisor's day record,
-  never on the owner's.
-- **Planned (R-06 Task 13):** a supervisor questions queue listing every answered debrief question of the last
-  14 days whose thread is still open: *waiting for supervisor* (a complaint, correction or incident the staff
-  confirmed), *answered*, and *rejected by staff* (staff said No to the model's label). The supervisor acts on
-  them with confirm / override; overriding a staff answer is the supervisor-vs-staff case. There is **no
-  supervisor reject action** in the plan (open, R-06 §12 Q-C): a row the supervisor thinks is wrong stays
-  waiting, is never a fact, and sits in the queue until it ages out after 14 days. A separate count of
-  disagreements is not in any current plan.
-- Tech-lead recommends building Tasks 12 and 13 after submission (R-06 §10; Rangga to decide, R-06 §12 Q-E).
+  HH:MM there was work. Is that right?"). An answer is stored as a reason only and never becomes a fact. They
+  show as read-only rows on the supervisor's day record, never on the owner's.
+- The supervisor questions queue lists every answered debrief question of the last 14 days whose thread is
+  still open and not supervisor-confirmed, with the same confirm / override / reject controls as the day record.
+- On the demo sandbox the Debrief agent may word a question's heading (English); the gate still decides which
+  moments become questions and the answer rules do not change.
 
 ## 7. Confidence and learning
 - Models are usually **over**-confident. No category auto-accepts until a gold set exists and measured accuracy supports it.
@@ -118,13 +121,11 @@ Own canonical `SalesEvent` schema; adapters convert any POS export into it (CSV 
   and the transcription vocabulary (CLAUDE.md §2 #7), never to work out who spoke.
 - **Staff (shipped):** there is no staff sign-in; the paired phone shows only that device's debrief questions,
   which are role-agnostic. An answer stores the device id and timestamps only.
-- **Supervisors (planned, R-06):** see the redacted evidence lines, "a staff member answered" (never who) and the
+- **Supervisors (built, R-06):** see the redacted evidence lines, "a staff member answered" (never who) and the
   runner-up; never a device id.
-- **Owner (planned, R-06; decided by Rangga 9 Oct):** sees **confirmed facts only**, as summaries: no quoted
-  lines, no question, answered, waiting, rejected or unverified rows, and no question count. A planned owner home
-  (R-06 Task 14a, `/home`) shows "today in 5 lines" built from the same facts-only view. Tech-lead recommends it
-  after submission and, until then, landing the owner on the R-09 approvals list (Rangga to decide, R-06 §12 Q-E
-  and Q-G). Its proposals and review-date tiles depend on R-09 and R-11; a cost tile needs a usage ledger that
-  does not exist yet (Q-F).
+- **Owner (built, R-06; decided by Rangga 9 Oct):** sees **confirmed facts only**, as summaries: no quoted
+  lines, no question, answered, waiting, rejected or unverified rows, and no question count. The owner home
+  (`/home`) builds "today" from the same facts-only view and adds plain-code tallies, the proposals awaiting the
+  owner and the next review date. A cost tile is not built.
 - Never claim "fully safe". Wording: "Built on Google Cloud's enterprise data terms: paid tier, no training on customer data, audio discarded after transcription."
 - DPIA under Indonesia's PP 33/2026 is the next priority after the hackathon.
