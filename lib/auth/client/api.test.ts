@@ -175,6 +175,17 @@ describe("authedGetJson", () => {
 });
 
 describe("authedPostJson", () => {
+  // Demo feedback 2 item 18: a 429 (a demo cap, a lockout) is still `error`, but now carries the server's code so a
+  // caller that cares (the chained Ask) can say "limit reached"; every other error stays exactly `{ kind: "error" }`.
+  it("429 yields error carrying the server's error code; a 429 without one is the plain error", async () => {
+    const getIdToken = vi.fn().mockResolvedValue("tok");
+    const auth = fakeAuth(fakeUser({ getIdToken }));
+    const capped = vi.fn().mockResolvedValue(jsonResponse({ error: { code: "demo_generate_cap" } }, 429));
+    expect(await authedPostJson(auth, "/api/v1/proposals/generate", {}, DataSchema, capped)).toEqual({ kind: "error", code: "demo_generate_cap" });
+    const bare = vi.fn().mockResolvedValue(new Response("slow down", { status: 429 }));
+    expect(await authedPostJson(auth, "/api/v1/proposals/generate", {}, DataSchema, bare)).toEqual({ kind: "error" });
+  });
+
   it("sends method POST, JSON content type and a stringified body", async () => {
     const getIdToken = vi.fn().mockResolvedValue("tok-1");
     const auth = fakeAuth(fakeUser({ getIdToken }));
