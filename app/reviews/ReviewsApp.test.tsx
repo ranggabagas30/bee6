@@ -12,6 +12,7 @@ import {
 } from "@/lib/reviews/contract";
 import { reviewView } from "@/app/reviews/review-fixtures";
 import { ReviewsApp } from "@/app/reviews/ReviewsApp";
+import { axeViolations } from "@/lib/testing/axe";
 
 const CONFIG: FirebaseWebConfig = {
   apiKey: "key-1",
@@ -64,10 +65,10 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function renderApp() {
+function renderApp(reviewAgentEstimate?: { min_s: number; max_s: number } | null, lang: "en" | "id" = "en") {
   return render(
-    <LangProvider initial="en">
-      <ReviewsApp config={CONFIG} />
+    <LangProvider initial={lang}>
+      <ReviewsApp config={CONFIG} {...(reviewAgentEstimate !== undefined ? { reviewAgentEstimate } : {})} />
     </LangProvider>,
   );
 }
@@ -287,6 +288,100 @@ describe("ReviewsApp: fast-forward (demo only)", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Fast-forward/ }));
     await waitFor(() => expect(signOut).toHaveBeenCalledWith(FAKE_AUTH));
     expect(replace).toHaveBeenCalledWith("/sign-in");
+  });
+});
+
+describe("ReviewsApp: fast-forward while the ReviewAgent runs (plan 5.12)", () => {
+  const FF = { name: "Fast-forward to the review date (simulated)" };
+  const EST = { min_s: 10, max_s: 25 };
+
+  it("without an estimate the busy button keeps today's label and no estimate line appears", async () => {
+    let resolve!: (v: unknown) => void;
+    authedGetJson.mockResolvedValue(ok(list({ fast_forward_available: true })));
+    authedPostJson.mockReturnValue(new Promise((r) => (resolve = r)));
+    renderApp(null);
+    fireEvent.click(await screen.findByRole("button", FF));
+    expect((screen.getByRole("button", FF) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByText(/Bee6 is reviewing/)).toBeNull();
+    expect(screen.queryByText(/Usually/)).toBeNull();
+    await act(async () => resolve({ kind: "error" }));
+  });
+
+  it("with an estimate the busy button reads 'Bee6 is reviewing...' and a line gives the range", async () => {
+    let resolve!: (v: unknown) => void;
+    authedGetJson.mockResolvedValue(ok(list({ fast_forward_available: true })));
+    authedPostJson.mockReturnValue(new Promise((r) => (resolve = r)));
+    renderApp(EST);
+    const idle = await screen.findByRole("button", FF);
+    expect(screen.queryByText(/Usually/)).toBeNull(); // idle: the status slot is there but empty
+    fireEvent.click(idle);
+    const busy = screen.getByRole("button", { name: "Bee6 is reviewing…" }) as HTMLButtonElement;
+    expect(busy.disabled).toBe(true);
+    const line = screen.getByText("Bee6 reads the change and the notes from before and after. Usually 10 to 25 seconds.");
+    // one polite live region carries the estimate, mounted before the tap so the change is announced
+    expect(line.closest("[role='status']")).not.toBeNull();
+    await act(async () => resolve({ kind: "error" }));
+    await screen.findByRole("button", FF);
+    expect(screen.queryByText(/Usually/)).toBeNull();
+  });
+
+  it("switches once to 'Taking longer than usual' after max_s, and the next run starts the clock again", async () => {
+    const resolvers: Array<(v: unknown) => void> = [];
+    authedGetJson.mockResolvedValue(ok(list({ fast_forward_available: true })));
+    authedPostJson.mockImplementation(() => new Promise((r) => resolvers.push(r)));
+    renderApp({ min_s: 0, max_s: 0.05 });
+    fireEvent.click(await screen.findByRole("button", FF));
+    await screen.findByText("Taking longer than usual; still working.");
+    await act(async () => resolvers[0]!({ kind: "error" }));
+    await screen.findByRole("button", FF);
+    expect(screen.queryByText(/Taking longer/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", FF));
+    screen.getByText(/Usually 0 to 0\.05 seconds/); // fresh run: the estimate again, not the stale overrun line
+    await act(async () => resolvers[1]!({ kind: "error" }));
+  });
+
+  it("the busy copy is Bahasa on a Bahasa screen", async () => {
+    let resolve!: (v: unknown) => void;
+    authedGetJson.mockResolvedValue(ok(list({ fast_forward_available: true })));
+    authedPostJson.mockReturnValue(new Promise((r) => (resolve = r)));
+    renderApp(EST, "id");
+    fireEvent.click(await screen.findByRole("button", { name: "Lompat ke tanggal tinjauan (simulasi)" }));
+    expect((screen.getByRole("button", { name: "Bee6 sedang meninjau…" }) as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => resolve({ kind: "error" }));
+  });
+
+  it("has no axe violations while busy with the estimate line, in English and Bahasa", async () => {
+    for (const lang of ["en", "id"] as const) {
+      let resolve!: (v: unknown) => void;
+      authedGetJson.mockResolvedValue(
+        ok(
+          list({
+            fast_forward_available: true,
+            open: [reviewView({ agent: { narrative_en: "Sold-out requests fell; read it with care.", caveats: ["short_window"] } })],
+          }),
+        ),
+      );
+      authedPostJson.mockReturnValue(new Promise((r) => (resolve = r)));
+      const { container } = renderApp(EST, lang);
+      fireEvent.click(await screen.findByRole("button", { name: lang === "en" ? FF.name : "Lompat ke tanggal tinjauan (simulasi)" }));
+      expect(await axeViolations(container)).toEqual([]);
+      await act(async () => resolve({ kind: "error" }));
+      cleanup();
+    }
+  });
+
+  it("shows the explanation panel on the owner's card as well as the supervisor's", async () => {
+    const withAgent = reviewView({
+      agent: { narrative_en: "Sold-out requests fell after the change; read it with care.", caveats: ["short_window"] },
+    });
+    for (const role of ["supervisor", "owner"] as const) {
+      getIdTokenResult.mockResolvedValue({ claims: { role } });
+      authedGetJson.mockResolvedValue(ok(list({ open: [withAgent] })));
+      renderApp();
+      await screen.findByText("Sold-out requests fell after the change; read it with care.");
+      screen.getByText("Bee6 explains");
+      cleanup();
+    }
   });
 });
 

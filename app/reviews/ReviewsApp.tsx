@@ -46,7 +46,22 @@ type View =
   | { kind: "forbidden" }
   | { kind: "error" };
 
-export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
+/** The ReviewAgent's expected wait in whole seconds (`readReviewAgentEstimate`, set by the page only while the flag is on). */
+export type ReviewAgentEstimate = { min_s: number; max_s: number };
+
+export function ReviewsApp({
+  config,
+  reviewAgentEstimate = null,
+}: {
+  config: FirebaseWebConfig | null;
+  /**
+   * ReviewAgent plan 5.12: present only while `REVIEW_AGENT` is on for this deployment. While the fast-forward runs
+   * the button then reads "Bee6 is reviewing…" and one polite line gives the range, and says "taking longer than
+   * usual" once after `max_s`. Absent or `null`: today's button, no extra line. The flag is the server's: this
+   * screen never guesses it, and the estimate carries no verdict.
+   */
+  reviewAgentEstimate?: ReviewAgentEstimate | null;
+}) {
   const { lang } = useLang();
   const router = useRouter();
   const auth: Auth | null = config ? getClientAuth(config) : null;
@@ -56,6 +71,9 @@ export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
   const [listKey, setListKey] = useState(0);
   const [banner, setBanner] = useState<DictKey | null>(null);
   const [ffBusy, setFfBusy] = useState(false);
+  // Which fast-forward run has gone past `max_s`: "longer" is derived (run === overRun), so a new run never shows a stale line.
+  const [ffRun, setFfRun] = useState(0);
+  const [ffOverRun, setFfOverRun] = useState<number | null>(null);
   const ffInFlight = useRef(false);
   const bannerRef = useRef<HTMLParagraphElement>(null);
 
@@ -111,6 +129,14 @@ export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reload per signed-in user and per listKey
   }, [uid, allowed, listKey]);
 
+  const estimateMaxS = reviewAgentEstimate ? reviewAgentEstimate.max_s : null;
+  useEffect(() => {
+    if (!ffBusy || estimateMaxS === null) return;
+    const run = ffRun;
+    const timer = setTimeout(() => setFfOverRun(run), estimateMaxS * 1000);
+    return () => clearTimeout(timer);
+  }, [ffBusy, ffRun, estimateMaxS]);
+
   /** A verdict got an answer: show it, reload the list, and keep keyboard focus on the answer (the tapped button is about to unmount). */
   function handleSettled(messageKey: DictKey) {
     setBanner(messageKey);
@@ -128,6 +154,7 @@ export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
   async function fastForward() {
     if (!auth || ffInFlight.current) return; // double-tap guard
     ffInFlight.current = true;
+    setFfRun((n) => n + 1);
     setFfBusy(true);
     setBanner(null);
     const result = await authedPostJson(auth, "/api/v1/reviews/fast-forward", {}, FastForwardResponseSchema);
@@ -224,8 +251,18 @@ export function ReviewsApp({ config }: { config: FirebaseWebConfig | null }) {
           <div className={styles.ff}>
             <p className="b6-kick">{t(lang, "C-rev-simulated")}</p>
             <Button variant="secondary" disabled={ffBusy} onClick={() => void fastForward()}>
-              {t(lang, "C-rev-ff")}
+              {t(lang, ffBusy && reviewAgentEstimate ? "C-rev-ff-busy" : "C-rev-ff")}
             </Button>
+            {/* Mounted before the tap so its text change is announced once; empty (zero height) until a run is on. */}
+            {reviewAgentEstimate && (
+              <p role="status" aria-live="polite" className={styles.ffWait}>
+                {ffBusy
+                  ? ffOverRun === ffRun
+                    ? t(lang, "C-rev-ff-longer")
+                    : t(lang, "C-rev-ff-estimate", { min: reviewAgentEstimate.min_s, max: reviewAgentEstimate.max_s })
+                  : ""}
+              </p>
+            )}
           </div>
         )}
 

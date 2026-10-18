@@ -3,8 +3,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { t } from "@/lib/i18n/dict";
 import { CATEGORY_KEY } from "@/lib/day/view-model";
-import { ReviewCard, VERDICT_KEY, suggestionDomId } from "@/app/reviews/ReviewCard";
+import { ReviewCard, VERDICT_KEY, agentDomId, suggestionDomId } from "@/app/reviews/ReviewCard";
 import { reviewView } from "@/app/reviews/review-fixtures";
+import { REVIEW_CAVEATS } from "@/lib/reviews/agent/schema";
+import { axeViolations } from "@/lib/testing/axe";
 
 afterEach(() => cleanup());
 
@@ -337,5 +339,122 @@ describe("ReviewCard", () => {
 
   it("maps every verdict to a copy key", () => {
     expect(Object.keys(VERDICT_KEY).sort()).toEqual(["revert", "revise", "worked"]);
+  });
+});
+
+const NARRATIVE =
+  "The display check went up and sold-out requests fell from 2.0 to 1.0 per day. Read it with care: these are only a few days.";
+
+const CAVEAT_COPY_EN: Record<(typeof REVIEW_CAVEATS)[number], string> = {
+  short_window: "Short windows: only a few captured days on each side.",
+  category_count_not_problem_count:
+    "The counts are moments of one kind (for example customer questions), not proof of cause.",
+  staff_answers_affect_count: "Some of these moments count only after staff confirmed them in the debrief.",
+  overlapping_change: "Another SOP change was in force in the same period.",
+  threads_truncated: "Not every note could be read; the counts may be low.",
+  not_enough_days: "Fewer than 2 captured days in one of the windows.",
+  no_baseline: "No moments of this kind were noted before the change.",
+};
+
+describe("ReviewCard: Bee6 explains panel (ReviewAgent, plan 5.12)", () => {
+  const withAgent = (caveats: (typeof REVIEW_CAVEATS)[number][] = ["short_window", "category_count_not_problem_count"]) =>
+    reviewView({ agent: { narrative_en: NARRATIVE, caveats } });
+
+  it("shows no panel when the review has no agent block (today's card, byte for byte)", () => {
+    const { container } = render(<ReviewCard review={reviewView()} lang="en" />);
+    expect(screen.queryByText("Bee6 explains")).toBeNull();
+    expect(container.querySelector("ul")).toBeNull();
+    expect(screen.queryByText(/Bee6 wrote this explanation/)).toBeNull();
+  });
+
+  it("shows the narrative, the fixed framing line and a kick, between the suggestion and the failure line", () => {
+    const { container } = render(<ReviewCard review={withAgent()} lang="en" />);
+    const kick = screen.getByText("Bee6 explains");
+    expect(kick.className).toContain("b6-kick");
+    const narrative = screen.getByText(NARRATIVE);
+    screen.getByText(
+      "Bee6 wrote this explanation. The suggestion above comes from a fixed rule, and the verdict is yours.",
+    );
+    const suggestion = document.getElementById(suggestionDomId(2))!;
+    const failure = screen.getByText(/Sold-out requests do not fall\./);
+    expect(suggestion.compareDocumentPosition(narrative) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(narrative.compareDocumentPosition(failure) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(container.querySelector("[role=group][aria-labelledby]")!.getAttribute("aria-labelledby")).toBe(agentDomId(2));
+    expect(document.getElementById(agentDomId(2))).toBe(kick);
+  });
+
+  it("renders the narrative as a text node: tags are shown as text, never parsed", () => {
+    const literal = "<b>x</b> sold-out requests fell <img src=x onerror=alert(1)> in the after window, a good sign.";
+    const { container } = render(
+      <ReviewCard review={reviewView({ agent: { narrative_en: literal, caveats: [] } })} lang="en" />,
+    );
+    screen.getByText(literal);
+    expect(container.querySelector("b")).toBeNull();
+    expect(container.querySelector("img")).toBeNull();
+  });
+
+  it("marks the narrative as English inside a Bahasa screen, and does not translate it", () => {
+    render(<ReviewCard review={withAgent()} lang="id" />);
+    const narrative = screen.getByText(NARRATIVE);
+    expect(narrative.getAttribute("lang")).toBe("en");
+    // the rest of the panel is Bahasa (provisional copy), not the English strings
+    expect(screen.queryByText("Bee6 explains")).toBeNull();
+    expect(screen.queryByText(/Bee6 wrote this explanation/)).toBeNull();
+    screen.getByText(t("id", "C-rev-agent-kick"));
+    screen.getByText(t("id", "C-rev-agent-note"));
+  });
+
+  it.each(REVIEW_CAVEATS)("shows the fixed line for the caveat %s, from the copy table", (caveat) => {
+    render(<ReviewCard review={withAgent([caveat])} lang="en" />);
+    const items = screen.getAllByRole("listitem");
+    expect(items.map((li) => li.textContent)).toEqual([CAVEAT_COPY_EN[caveat]]);
+    expect(t("id", `C-rev-agent-cv-${caveat}`)).not.toBe(CAVEAT_COPY_EN[caveat]);
+  });
+
+  it("lists the caveats in the order given, and renders no list when there are none", () => {
+    const { rerender, container } = render(
+      <ReviewCard review={withAgent(["overlapping_change", "short_window"])} lang="en" />,
+    );
+    expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      CAVEAT_COPY_EN.overlapping_change,
+      CAVEAT_COPY_EN.short_window,
+    ]);
+    rerender(<ReviewCard review={withAgent([])} lang="en" />);
+    expect(container.querySelector("ul")).toBeNull();
+    screen.getByText(NARRATIVE);
+  });
+
+  it("does not change the verdict line, the suggestion or the verdict buttons' description target", () => {
+    const { container: without } = render(<ReviewCard review={reviewView()} lang="en" />);
+    const before = without.querySelector(`#${suggestionDomId(2)}`)!.textContent;
+    cleanup();
+    const { container: withIt } = render(<ReviewCard review={withAgent()} lang="en" />);
+    expect(withIt.querySelector(`#${suggestionDomId(2)}`)!.textContent).toBe(before);
+    expect(before).toBe("Bee6 suggests: Worked");
+  });
+
+  it("keeps a 600-code-point narrative inside the card on a narrow screen (wraps, never a fixed width)", () => {
+    const long = "word ".repeat(120).trim().slice(0, 300);
+    const unbroken = "x".repeat(300);
+    const { container } = render(
+      <ReviewCard review={reviewView({ agent: { narrative_en: `${long} ${unbroken}`, caveats: [] } })} lang="en" />,
+    );
+    const p = screen.getByText(/^word word/);
+    expect(container.querySelector("article")!.contains(p)).toBe(true);
+    expect(p.className).toContain("agentText");
+    expect(p.getAttribute("style")).toBeNull();
+  });
+
+  it("has no axe violations with the panel, in English and Bahasa, and with two cards on the page", async () => {
+    for (const lang of ["en", "id"] as const) {
+      const { container } = render(
+        <main>
+          <ReviewCard review={withAgent([...REVIEW_CAVEATS])} lang={lang} />
+          <ReviewCard review={{ ...withAgent(["short_window"]), version: 3 }} lang={lang} />
+        </main>,
+      );
+      expect(await axeViolations(container)).toEqual([]);
+      cleanup();
+    }
   });
 });
