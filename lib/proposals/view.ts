@@ -18,6 +18,27 @@ function labelFor(id: string, entries: readonly LibraryEntry[]): { id: string; l
   return entry ? { id, label_en: entry.label_en, label_id: entry.label_id } : { id, label_en: id, label_id: id };
 }
 
+/**
+ * CHK-1: counts and enums read from `gate.checks` and the generator (never a rule, tool or fact name). A suppressed doc ran
+ * no check (`checks` is empty), so it reads `null`. A v4 run that fell back produced a v3 doc: it reads as v3.
+ */
+function checkedOf(stored: Proposal): ProposalView["checked"] {
+  const { checks } = stored.gate;
+  if (checks.length === 0) return null;
+  const { generator } = stored;
+  const v4 = generator.v4 && !generator.v4.fell_back ? generator.v4 : null;
+  const agent = v4 ? generator.agent_version : generator.agent_version === "proposal-v4" ? "proposal-v3" : generator.agent_version;
+  return {
+    checks_total: checks.length,
+    checks_passed: checks.filter((c) => c.passed).length,
+    rule_set: v4 && generator.check_version === "pcheck-v4" ? "pcheck-v4" : "pgate-v1",
+    agent: agent === "proposal-v4" ? "proposal-v4" : agent === "proposal-v3" ? "proposal-v3" : "other",
+    revisions: v4 ? Math.max(0, v4.check_rounds - 1) : Math.min(2, Math.max(0, generator.attempts - 1)),
+    read_sections: v4 ? v4.tool_calls.filter((t) => t.name === "get_sop_section" && t.ok).length : null,
+    read_facts: v4 ? v4.tool_calls.filter((t) => t.name === "get_evidence" && t.ok).length : null,
+  };
+}
+
 export function toProposalView(
   stored: Proposal,
   summariesByThreadId: ReadonlyMap<string, string | null>,
@@ -45,6 +66,7 @@ export function toProposalView(
         }
       : null,
     blocked_rule: stored.status === "blocked" ? stored.gate.fired_rule : null,
+    checked: checkedOf(stored),
     content: stored.content
       ? {
           intervention: labelFor(stored.content.intervention_id, library.interventions.entries),

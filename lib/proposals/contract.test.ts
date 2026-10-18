@@ -146,3 +146,56 @@ describe("GenerateResponseSchema", () => {
     expect(GenerateResponseSchema.safeParse(response).success).toBe(false);
   });
 });
+
+// CHK-1: the optional `checked` block on the view (counts and enums only; strict).
+describe("ProposalViewSchema: checked (CHK-1)", () => {
+  const BASE = {
+    proposal_id: "33333333-3333-4333-8333-333333333333",
+    status: "suppressed",
+    created_at_ms: 1,
+    range: { from_date: "2026-10-01", to_date: "2026-10-07" },
+    focus_category: null,
+    suppression: {
+      reason: "insufficient_evidence",
+      model_reason: null,
+      followup: { categories: [], have_facts: 1, have_dates: 1, need_facts: 2, need_dates: 2 },
+    },
+    blocked_rule: null,
+    content: null,
+  };
+  const CHECKED = {
+    checks_total: 18,
+    checks_passed: 18,
+    rule_set: "pcheck-v4",
+    agent: "proposal-v4",
+    revisions: 1,
+    read_sections: 1,
+    read_facts: 2,
+  };
+
+  it("a view without `checked` still parses (a response from a server that predates CHK-1)", () => {
+    expect(ProposalViewSchema.safeParse(BASE).success).toBe(true);
+  });
+
+  it("accepts null and a full block; read counts may be null (v3)", () => {
+    expect(ProposalViewSchema.safeParse({ ...BASE, checked: null }).success).toBe(true);
+    expect(ProposalViewSchema.safeParse({ ...BASE, checked: CHECKED }).success).toBe(true);
+    expect(
+      ProposalViewSchema.safeParse({
+        ...BASE,
+        checked: { ...CHECKED, rule_set: "pgate-v1", agent: "proposal-v3", read_sections: null, read_facts: null },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects an unknown key inside `checked` (strict)", () => {
+    expect(ProposalViewSchema.safeParse({ ...BASE, checked: { ...CHECKED, tool_names: ["get_evidence"] } }).success).toBe(false);
+  });
+
+  it("rejects an unknown rule set or agent, negative counts and more than two revisions", () => {
+    expect(ProposalViewSchema.safeParse({ ...BASE, checked: { ...CHECKED, rule_set: "pcheck-v9" } }).success).toBe(false);
+    expect(ProposalViewSchema.safeParse({ ...BASE, checked: { ...CHECKED, agent: "gpt" } }).success).toBe(false);
+    expect(ProposalViewSchema.safeParse({ ...BASE, checked: { ...CHECKED, checks_total: -1 } }).success).toBe(false);
+    expect(ProposalViewSchema.safeParse({ ...BASE, checked: { ...CHECKED, revisions: 3 } }).success).toBe(false);
+  });
+});
