@@ -1,4 +1,4 @@
-import { FunctionTool, Gemini, InMemoryRunner, LlmAgent } from "@google/adk";
+import { FunctionTool, Gemini, InMemoryRunner, LlmAgent, LogLevel, setLogLevel } from "@google/adk";
 import { ThinkingLevel } from "@google/genai";
 import { classifyAdkErrorEvent } from "@/lib/agents/adk-errors";
 import { classifyError, type ProposalModelUsage } from "@/lib/agents/proposal-agent";
@@ -36,6 +36,9 @@ import type { DebriefQuestionMoment } from "@/lib/debrief/agent/types";
  * `config/regions.yaml` via `getModelLocation(DEBRIEF_AGENT_MODEL)` (5); no staff name, role or id in the prompt or
  * the result (7). This module logs NOTHING: the result carries counts and enums only.
  */
+
+/** Explicit (idempotent) in addition to the import side effect of the proposal module: ADK stays quiet at ERROR. */
+setLogLevel(LogLevel.ERROR);
 
 /** Same cap as the Proposal agent: LOW thinking, thought text never comes back (`includeThoughts: false`). */
 export const DEBRIEF_THINKING_CONFIG = { thinkingLevel: ThinkingLevel.LOW, includeThoughts: false } as const;
