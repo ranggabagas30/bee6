@@ -34,7 +34,7 @@ export const proposalsID = {
   // ── Generating state and ask results ────────────────────────────────────────────────────────────────────
   "C-propg-title": "Bee6 sedang menulis usulan", // PROVISIONAL
   "C-propg-body": "Ini bisa memakan waktu sampai satu menit. Mohon biarkan halaman ini terbuka.", // PROVISIONAL
-  "C-propg-est": "Biasanya {min}–{max} detik: Bee6 membaca SOP dan buktinya dulu sebelum menulis. Biarkan halaman ini terbuka.", // PROVISIONAL (R-24: shown only while the v4 flag is on)
+  "C-propg-est": "Bee6 menulis dan memeriksa setiap usulan. Biasanya {min}–{max} detik, kadang sampai satu menit. Biarkan halaman ini terbuka.", // PROVISIONAL (R-24: shown only while the v4 flag is on)
   "C-propg-over": "Lebih lama dari biasanya. Bee6 masih bekerja. Biarkan halaman ini terbuka.", // PROVISIONAL (R-24: after the range has passed)
   "C-propg-wrote": "Bee6 menulis sebuah usulan. Buka untuk membaca buktinya.", // PROVISIONAL
   "C-propg-none-other": "Belum ada masalah lain yang siap.", // PROVISIONAL
@@ -61,7 +61,6 @@ export const proposalsID = {
   "C-propd-reject-send": "Tolak usulan", // PROVISIONAL
   "C-propd-feasible-h": "Ditandai layak.", // PROVISIONAL
   "C-propd-feasible-p": "Pemilik yang memutuskan berikutnya.", // PROVISIONAL
-  "C-propd-feasible-done": "Ditandai layak ✓", // PROVISIONAL
   "C-propd-back-list": "Kembali ke usulan", // PROVISIONAL
   "C-propd-rejected": "Ditolak. Alasan Anda kini menjadi aturan yang dipatuhi Bee6.", // PROVISIONAL
   // ── Change-label dialog ─────────────────────────────────────────────────────────────────────────────────
@@ -79,7 +78,6 @@ export const proposalsID = {
   "C-propd-st-yours-list": "Menunggu Anda", // PROVISIONAL
   "C-propd-reject-h": "Tolak usulan ini?", // PROVISIONAL
   "C-propd-feasible-owner": "Keluar lalu pilih Pemilik untuk menyetujui atau menolak.", // PROVISIONAL
-  "C-propd-signout-owner": "Keluar · pilih Pemilik", // PROVISIONAL
   "C-propd-rules": "Aturan untuk Bee6 (opsional)", // PROVISIONAL
   // ── Owner approvals = page-1 W8 "Review in order" (PR-12b; boards D2-08, D2-08c, D2-08d, D2-08e) ──────────
   "C-propa-back-home": "‹ Kembali ke beranda", // PROVISIONAL
@@ -101,7 +99,7 @@ export const proposalsID = {
   "C-propa-decision": "Keputusan Anda", // PROVISIONAL
   "C-propa-approve": "Setujui", // PROVISIONAL
   "C-propa-approve-na": "Setujui · tidak tersedia", // PROVISIONAL
-  "C-propa-sop-changed": "SOP berubah setelah usulan ini dibuat. Anda masih bisa menolaknya dengan alasan.", // PROVISIONAL
+  "C-propa-sop-changed": "Langkah yang diubah usulan ini berubah setelah usulan dibuat. Anda masih bisa menolaknya dengan alasan.", // PROVISIONAL
   "C-propa-reject-label": "Tolak — mengapa?", // PROVISIONAL
   "C-propa-reject-hint": "Tulis alasan singkat dulu. Alasan itu menjadi aturan yang dipatuhi Bee6.", // PROVISIONAL
   "C-propa-reject-send": "Tolak dengan alasan", // PROVISIONAL
@@ -112,7 +110,7 @@ export const proposalsID = {
   "C-propa-rule": "Kini menjadi aturan: {reason}", // PROVISIONAL
   "C-propa-rule-none": "Kini menjadi aturan yang dipatuhi Bee6.", // PROVISIONAL
   "C-propa-next-h": "APA SELANJUTNYA", // PROVISIONAL
-  "C-propa-next-p": "Perubahan yang disetujui masuk ke SOP sejak tanggal mulainya. Bee6 memantau ukurannya sampai tanggal tinjauan, lalu tinjauan menunjukkan apakah perubahan itu berhasil. Setiap alasan yang Anda tulis menjadi aturan yang dipatuhi Bee6 pada usulan berikutnya.", // PROVISIONAL
+  "C-propa-next-p": "Setiap perubahan yang disetujui masuk ke SOP sejak tanggal mulainya. Bee6 memantau ukurannya sampai tanggal tinjauan, lalu tinjauan menunjukkan apakah perubahan itu berhasil. Setiap alasan yang Anda tulis menjadi aturan yang dipatuhi Bee6 pada usulan berikutnya.", // PROVISIONAL
   "C-propa-home": "Kembali ke beranda", // PROVISIONAL
   "C-propa-see-sop": "Lihat SOP", // PROVISIONAL
   // ── R-25 T11 (G4b): page-2 owner approvals (boards D2-08, 08c, 08d, 08e). Append-only. ──────────────────────
@@ -121,14 +119,26 @@ export const proposalsID = {
   "C-propa-meta": "#{n} · supervisor: layak dijalankan {date}", // PROVISIONAL
   "C-propa-evidence-h": "Mengapa Bee6 menyarankan ini", // PROVISIONAL
   "C-propa-pace-why": "Persetujuan membuat versi SOP baru. Versi lama tetap ada di buku SOP.", // PROVISIONAL
-  "C-propa-pace-one": "Setelah Anda menyetujui satu perubahan, yang lain hanya bisa ditolak.", // PROVISIONAL
-  "C-propa-na-h": "Tidak tersedia: SOP berubah", // PROVISIONAL
-  "C-propa-na-why": "Usulan ini dibuat pada versi SOP yang lama, jadi hanya bisa ditolak. Alasan penolakan menjadi aturan yang dipatuhi Bee6.", // PROVISIONAL
+  "C-propa-pace-one": "Setiap perubahan yang disetujui menjadi versi SOP-nya sendiri.", // PROVISIONAL
+  "C-propa-na-h": "Tidak tersedia: langkah ini baru saja berubah", // PROVISIONAL
+  "C-propa-na-why": "Usulan yang sudah disetujui telah mengubah langkah yang ditulis ulang usulan ini, jadi usulan ini hanya bisa ditolak. Alasan penolakan menjadi aturan yang dipatuhi Bee6.", // PROVISIONAL
   "C-propa-reject-ph": "Mengapa ini tidak bisa dijalankan?", // PROVISIONAL
   "C-propa-all-counts": "{approved} disetujui, {rejected} ditolak.", // PROVISIONAL
   "C-propa-all-starts": "Perubahan yang disetujui mulai {starts} dan ditinjau pada {review}.", // PROVISIONAL
   "C-propa-st-approved-starts": "Disetujui · mulai {date}", // PROVISIONAL
   "C-propa-st-rejected-rule": "Ditolak · kini menjadi aturan", // PROVISIONAL
+  // ── Demo feedback 2, item 18: one tap asks for every proposal the evidence allows (demo sandbox only). Append-only. ──
+  "C-propw-ask-all": "Minta semua usulan dari Bee6", // PROVISIONAL
+  "C-propg-round": "Menulis usulan {n} dari {total}…", // PROVISIONAL
+  "C-propg-wrote-n": "Bee6 menulis {n} usulan. Buka satu per satu untuk membaca buktinya.", // PROVISIONAL
+  "C-propg-wrote-partial": "Bee6 menulis {n} dari {total} usulan, tetapi sisanya belum bisa ditulis sekarang. Ketuk Minta usulan lain untuk mencoba lagi.", // PROVISIONAL
+  "C-propg-cap": "Demo ini sudah mencapai batas usulan, jadi Bee6 tidak bisa menulis usulan lagi sekarang.", // PROVISIONAL
+  "C-propg-wrote-cap": "Bee6 menulis {n} dari {total} usulan. Batas usulan demo tercapai, jadi berhenti di situ.", // PROVISIONAL
+  // ── CHK-1: "Checked by Bee6" on the proposal detail and the owner card. Counts only. Append-only. ──
+  "C-propd-checked": "DIPERIKSA BEE6 · {passed} DARI {total} PEMERIKSAAN", // PROVISIONAL
+  "C-propd-checked-code": "Setiap pemeriksaan adalah aturan tetap dalam kode, bukan pendapat model.", // PROVISIONAL
+  "C-propd-checked-v4": "Agen membaca {sections} bagian SOP dan {facts} fakta sebelum menulis.", // PROVISIONAL
+  "C-propd-checked-rev": "Direvisi {n} kali sampai semua pemeriksaan lolos.", // PROVISIONAL
 } as const satisfies Record<string, string>;
 
 export const proposalsEN: Record<keyof typeof proposalsID, string> = {
@@ -148,7 +158,7 @@ export const proposalsEN: Record<keyof typeof proposalsID, string> = {
   "C-propw-days": "Days seen",
   "C-propg-title": "Bee6 is writing a proposal",
   "C-propg-body": "This can take up to a minute. Please keep this page open.",
-  "C-propg-est": "Usually {min}–{max} seconds: Bee6 reads the SOP and the evidence before it writes. Keep this page open.",
+  "C-propg-est": "Bee6 is writing and checking each proposal. Usually {min}–{max} seconds, sometimes up to a minute. Keep this page open.",
   "C-propg-over": "Taking longer than usual. Bee6 is still working. Keep this page open.",
   "C-propg-wrote": "Bee6 wrote a proposal. Open it to read the evidence.",
   "C-propg-none-other": "No other problem is ready yet.",
@@ -173,7 +183,6 @@ export const proposalsEN: Record<keyof typeof proposalsID, string> = {
   "C-propd-reject-send": "Reject proposal",
   "C-propd-feasible-h": "Marked feasible.",
   "C-propd-feasible-p": "The owner decides next.",
-  "C-propd-feasible-done": "Marked feasible ✓",
   "C-propd-back-list": "Back to proposals",
   "C-propd-rejected": "Rejected. Your reason is now a rule Bee6 will respect.",
   "C-lbl-title": "Change label",
@@ -189,7 +198,6 @@ export const proposalsEN: Record<keyof typeof proposalsID, string> = {
   "C-propd-st-yours-list": "Waiting for you",
   "C-propd-reject-h": "Reject this proposal?",
   "C-propd-feasible-owner": "Sign out and pick Owner to approve or reject.",
-  "C-propd-signout-owner": "Sign out · pick Owner",
   "C-propd-rules": "Rules for Bee6 (optional)",
   "C-propa-back-home": "‹ Back to home",
   "C-propa-sub": "One proposal at a time, in the recommended order. The supervisor already checked that each one is workable.",
@@ -210,7 +218,7 @@ export const proposalsEN: Record<keyof typeof proposalsID, string> = {
   "C-propa-decision": "Your decision",
   "C-propa-approve": "Approve",
   "C-propa-approve-na": "Approve · not available",
-  "C-propa-sop-changed": "The SOP changed after this was drafted. You can still reject it with a reason.",
+  "C-propa-sop-changed": "The step this proposal rewrites changed after it was drafted. You can still reject it with a reason.",
   "C-propa-reject-label": "Reject — why?",
   "C-propa-reject-hint": "Write a short reason first. It becomes a rule Bee6 will respect.",
   "C-propa-reject-send": "Reject with reason",
@@ -221,7 +229,7 @@ export const proposalsEN: Record<keyof typeof proposalsID, string> = {
   "C-propa-rule": "Now a rule: {reason}",
   "C-propa-rule-none": "Now a rule Bee6 will respect.",
   "C-propa-next-h": "WHAT HAPPENS NEXT",
-  "C-propa-next-p": "The approved change is in the SOP from its start date. Bee6 watches its metric until the review date, then the review shows whether it worked. Every reason you wrote is a rule Bee6 respects in future proposals.",
+  "C-propa-next-p": "Each approved change is in the SOP from its start date. Bee6 watches its metric until the review date, then the review shows whether it worked. Every reason you wrote is a rule Bee6 respects in future proposals.",
   "C-propa-home": "Back to home",
   "C-propa-see-sop": "See the SOP",
   // ── R-25 T11 (G4b): page-2 owner approvals (boards D2-08, 08c, 08d, 08e). Append-only. ──────────────────────
@@ -230,12 +238,22 @@ export const proposalsEN: Record<keyof typeof proposalsID, string> = {
   "C-propa-meta": "#{n} · supervisor: feasible {date}",
   "C-propa-evidence-h": "Why Bee6 suggests this",
   "C-propa-pace-why": "Approving creates a new SOP version. The old version stays in the SOP book.",
-  "C-propa-pace-one": "After you approve one change, the other can only be rejected.",
-  "C-propa-na-h": "Not available: the SOP changed",
-  "C-propa-na-why": "This proposal was drafted on the old SOP version, so it can only be rejected. A rejection reason becomes a rule Bee6 respects.",
+  "C-propa-pace-one": "Each approved change becomes its own SOP version.",
+  "C-propa-na-h": "Not available: this step was just changed",
+  "C-propa-na-why": "An approved proposal already changed the step this one rewrites, so this one can only be rejected. A rejection reason becomes a rule Bee6 respects.",
   "C-propa-reject-ph": "Why is this not workable?",
   "C-propa-all-counts": "{approved} approved, {rejected} rejected.",
   "C-propa-all-starts": "The approved change starts on {starts} and is reviewed on {review}.",
   "C-propa-st-approved-starts": "Approved · starts {date}",
   "C-propa-st-rejected-rule": "Rejected · now a rule",
+  "C-propw-ask-all": "Ask Bee6 for proposals",
+  "C-propg-round": "Writing proposal {n} of {total}…",
+  "C-propg-wrote-n": "Bee6 wrote {n} proposals. Open each to read the evidence.",
+  "C-propg-wrote-partial": "Bee6 wrote {n} of {total} proposals, but the rest could not be written right now. Tap Ask for another proposal to try again.",
+  "C-propg-cap": "This demo has reached its proposal limit, so Bee6 can't write more proposals now.",
+  "C-propg-wrote-cap": "Bee6 wrote {n} of {total} proposals. The demo's proposal limit was reached, so it stopped there.",
+  "C-propd-checked": "CHECKED BY BEE6 · {passed} OF {total} CHECKS",
+  "C-propd-checked-code": "Every check is a fixed rule in code, not the model's opinion.",
+  "C-propd-checked-v4": "The agent read {sections} SOP section(s) and {facts} fact(s) before writing.",
+  "C-propd-checked-rev": "Revised {n} time(s) until every check passed.",
 };

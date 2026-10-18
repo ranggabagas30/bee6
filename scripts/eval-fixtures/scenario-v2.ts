@@ -15,6 +15,12 @@
  *   v3    : the same cards in a different order
  *   v4    : light improvisation (one extra sentence on each problem card)
  *
+ * Days 4-5 (review-agent plan 3.4, 3.5; the optional "after" days) mirror `SCRIPT_V2` days 4-5 the same way. They are
+ * staff narration only (no customer dialogue, one read-back phone order on day 4), and the harness judges them by
+ * the review metric, not by the problem categories: no CUSTOMER_SERVICE fact on either day, day 4's read-back card
+ * is exactly ONE PHONE_CALL thread, day 5 has no PHONE_CALL thread. The variants of days 4-5 are written in the same
+ * style as days 1-3 (v4 adds one neutral line to each non-routine card).
+ *
  * Round 1 of the rewrite loop (tech-lead, section 10.1) rewrote d2-c3 and d3-c2 (exact, v1, v2, v4): the phone-order
  * card now states, in the problem moment itself, that the order was not read back to the caller.
  *
@@ -25,7 +31,11 @@
 export const VARIANT_IDS = ["exact", "v1", "v2", "v3", "v4"] as const;
 export type VariantId = (typeof VARIANT_IDS)[number];
 
-export type CardKind = "routine" | "problem_a" | "problem_b";
+/**
+ * `after_a` / `after_b` are the after days 4-5 (review-agent plan 3.4): the same problem moments narrated with the
+ * approved SOP in force. Staff voice only; `after_b` is the ONE read-back phone order on day 4.
+ */
+export type CardKind = "routine" | "problem_a" | "problem_b" | "after_a" | "after_b";
 
 export interface ScenarioCard {
   /** Stable id, e.g. "d2-c3". Printed in reports; the only identifier that ever is. */
@@ -36,7 +46,7 @@ export interface ScenarioCard {
 }
 
 export interface ScenarioDay {
-  day: 1 | 2 | 3;
+  day: 1 | 2 | 3 | 4 | 5;
   variants: Readonly<Record<VariantId, readonly ScenarioCard[]>>;
 }
 
@@ -248,6 +258,126 @@ const D3_V4 = [
   D3_EXACT[4],
 ] as const satisfies readonly ScenarioCard[];
 
+
+// ── Day 4 (after day: the approved SOP is in force) ─────────────────────────────────────────────────────
+
+const D4_EXACT = [
+  card("d4-c1", "routine", [
+    "Good morning. I am opening the shop now. The oven is on and the display lights are on. The float in the till is correct. I read the updated SOP before opening.",
+  ]),
+  card("d4-c2", "after_a", [
+    "The first tray of egg tarts is out of the oven. Before it goes on the display I am writing the baking time on the tray label, as the new step says. The croissants go in next.",
+  ]),
+  card("d4-c3", "after_b", [
+    "Hello, Demo Bakery, thanks for calling. Thirty croissants for Friday, pickup at nine. Let me read that back: thirty croissants, Friday, nine o'clock. Yes? Great, bye.",
+    "That was a phone order for Friday. This time I read the whole order back to the caller before hanging up, so the quantity and the pickup time are confirmed.",
+  ]),
+  card("d4-c4", "after_a", [
+    "Display check. The egg tart tray has its baking time on the label now, so nobody has had to ask me when they were baked. The cinnamon rolls are running low, I am refilling them.",
+  ]),
+  card("d4-c5", "routine", [
+    "We are closing now. Till counted, oven cleaned, leftover bread logged. The tray labels worked well today.",
+  ]),
+] as const satisfies readonly ScenarioCard[];
+
+const D4_V1 = [
+  card("d4-c1", "routine", [
+    "Morning, opening up the shop. The oven is switched on, the lights over the display are on, and the till matches the starting float. I went through the updated SOP before opening.",
+  ]),
+  card("d4-c2", "after_a", [
+    "The first batch of egg tarts just came out of the oven. Before it goes on the display I am writing the baking time on the tray label, like the new step says. Croissants are going in after that.",
+  ]),
+  card("d4-c3", "after_b", [
+    "Hello, Demo Bakery, thanks for calling. Thirty croissants for Friday, to be picked up at nine. Let me read that back: thirty croissants, Friday, nine o'clock. Yes? Great, goodbye.",
+    "That was a phone order for Friday. This time I read the entire order back to the caller before hanging up, so the quantity and the pickup time are confirmed.",
+  ]),
+  card("d4-c4", "after_a", [
+    "Checking the display. The egg tart tray has the baking time on its label now, so nobody has needed to ask me when they were baked. The cinnamon rolls are getting low so I am topping them up.",
+  ]),
+  card("d4-c5", "routine", [
+    "Time to close. The till is counted, the oven is cleaned and the leftover bread is in the log. The tray labels worked well today.",
+  ]),
+] as const satisfies readonly ScenarioCard[];
+
+const D4_V2 = [
+  card("d4-c1", "routine", [
+    "Um, good morning. Okay so I am opening the shop now, the oven is on and, um, the display lights are on. The float in the till is, is correct. I read the updated SOP before opening.",
+  ]),
+  card("d4-c2", "after_a", [
+    "Okay so the first tray of egg tarts is, um, out of the oven. Before it goes on the display I am writing the baking time on the tray label, um, as the new step says. The croissants go in, go in next.",
+  ]),
+  card("d4-c3", "after_b", [
+    "Um, hello, Demo Bakery, thanks for calling. Thirty croissants for Friday, um, pickup at nine. Let me read that back: thirty croissants, Friday, nine o'clock. Yes? Great, bye.",
+    "Okay so that was a phone order for Friday. This time I read the whole order back to the caller before hanging up, so, um, the quantity and the pickup time are confirmed.",
+  ]),
+  card("d4-c4", "after_a", [
+    "Okay display check. The egg tart tray has its baking time on the label now, so nobody has had to, um, ask me when they were baked. The cinnamon rolls are, um, running low, I am refilling them.",
+  ]),
+  card("d4-c5", "routine", [
+    "Um, we are closing now. Okay till counted, oven cleaned, um, leftover bread logged. The tray labels worked, worked well today.",
+  ]),
+] as const satisfies readonly ScenarioCard[];
+
+const D4_V4 = [
+  D4_EXACT[0],
+  card("d4-c2", "after_a", [...D4_EXACT[1].lines, "The tray looks tidy."]),
+  card("d4-c3", "after_b", [...D4_EXACT[2].lines, "It was a big order for a Friday."]),
+  card("d4-c4", "after_a", [...D4_EXACT[3].lines, "Everything else is full."]),
+  D4_EXACT[4],
+] as const satisfies readonly ScenarioCard[];
+
+// ── Day 5 (after day: nothing on the phone) ─────────────────────────────────────────────────────────────
+
+const D5_EXACT = [
+  card("d5-c1", "routine", ["Morning. Oven on, display lights on. The cash in the till is counted and correct."]),
+  card("d5-c2", "after_a", [
+    "The first tray of egg tarts is out. The baking time is written on the tray label and the tray is on the display. Croissants go in next.",
+  ]),
+  card("d5-c3", "after_a", [
+    "Display check. Everything is full. The baking-time labels are on every tray, and again nobody asked when the egg tarts were baked.",
+  ]),
+  card("d5-c4", "routine", ["The second tray of croissants is out. Label written, tray on the display."]),
+  card("d5-c5", "routine", [
+    "We are closed. I counted the till, cleaned the oven and logged the leftovers. Second day with the new steps, and it went smoothly.",
+  ]),
+] as const satisfies readonly ScenarioCard[];
+
+const D5_V1 = [
+  card("d5-c1", "routine", ["Good morning. The oven and the display lights are on, and the till count is right."]),
+  card("d5-c2", "after_a", [
+    "The first batch of egg tarts is out. The baking time is on the tray label and the tray is on the display. The croissants go in after that.",
+  ]),
+  card("d5-c3", "after_a", [
+    "Checking the display. All full. Every tray has its baking-time label, and once more nobody asked me when the egg tarts were baked.",
+  ]),
+  card("d5-c4", "routine", ["The second batch of croissants has come out. The label is written and the tray is on the display."]),
+  card("d5-c5", "routine", [
+    "We are closed for the day. Till counted, oven cleaned, leftovers written in the log. Second day with the new steps and it went smoothly.",
+  ]),
+] as const satisfies readonly ScenarioCard[];
+
+const D5_V2 = [
+  card("d5-c1", "routine", ["Um, morning. Okay so oven on, display lights on. The cash in the till is, um, counted and correct."]),
+  card("d5-c2", "after_a", [
+    "Okay so the first tray of egg tarts is, um, out. The baking time is written on the tray label and the tray is, is on the display. Croissants go in next.",
+  ]),
+  card("d5-c3", "after_a", [
+    "Okay display check. Everything is, um, full. The baking-time labels are on every tray, and, um, again nobody asked when the egg tarts were baked.",
+  ]),
+  card("d5-c4", "routine", ["Um, the second tray of croissants is out. Okay label written, um, tray on the display."]),
+  card("d5-c5", "routine", [
+    "Okay we are closed. Um, I counted the till, cleaned the oven and logged the leftovers. Second day with the new steps, and it went, um, smoothly.",
+  ]),
+] as const satisfies readonly ScenarioCard[];
+
+const D5_V4 = [
+  D5_EXACT[0],
+  card("d5-c2", "after_a", [...D5_EXACT[1].lines, "The tray looks tidy."]),
+  card("d5-c3", "after_a", [...D5_EXACT[2].lines, "The shop is calm."]),
+  D5_EXACT[3],
+  D5_EXACT[4],
+] as const satisfies readonly ScenarioCard[];
+
 export const SCENARIO_V2: readonly ScenarioDay[] = [
   {
     day: 1,
@@ -277,6 +407,26 @@ export const SCENARIO_V2: readonly ScenarioDay[] = [
       v2: D3_V2,
       v3: reorder(D3_EXACT, ["d3-c3", "d3-c2", "d3-c1", "d3-c5", "d3-c4"]),
       v4: D3_V4,
+    },
+  },
+  {
+    day: 4,
+    variants: {
+      exact: D4_EXACT,
+      v1: D4_V1,
+      v2: D4_V2,
+      v3: reorder(D4_EXACT, ["d4-c3", "d4-c1", "d4-c2", "d4-c5", "d4-c4"]),
+      v4: D4_V4,
+    },
+  },
+  {
+    day: 5,
+    variants: {
+      exact: D5_EXACT,
+      v1: D5_V1,
+      v2: D5_V2,
+      v3: reorder(D5_EXACT, ["d5-c3", "d5-c1", "d5-c2", "d5-c5", "d5-c4"]),
+      v4: D5_V4,
     },
   },
 ];

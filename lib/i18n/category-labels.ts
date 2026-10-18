@@ -43,7 +43,7 @@ function blockLines(lang: Lang, question: DebriefQuestionView): string[] {
  * skips empty lines"). Never reads anything from the server beyond the enum
  * code and the two `HH:MM` strings already on `DebriefQuestionView`.
  */
-export function questionLines(lang: Lang, question: DebriefQuestionView): string[] {
+function templateLines(lang: Lang, question: DebriefQuestionView): string[] {
   if (question.kind === "gate" && question.category) {
     const label = CATEGORY_LABELS[lang][question.category];
     if (label) return [t(lang, "C-d-q-step", { hm: question.start_hm, step: label })];
@@ -51,9 +51,23 @@ export function questionLines(lang: Lang, question: DebriefQuestionView): string
   return blockLines(lang, question);
 }
 
-/** `questionLines` joined into one string — for the radiogroup `aria-label` only; the on-screen heading renders each line separately. */
+/**
+ * The on-screen heading lines. DebriefAgent (sandbox only, docs/tasks/debrief-agent-18oct.md §5.6): when the server
+ * sent `question_text` it REPLACES the template (both languages: EN wording in a Bahasa UI is the accepted state until
+ * Rangga decides, D10). It is returned as-is, one line, for the caller to render as a plain text node: never through
+ * `t()` (no `{placeholder}` is ever interpolated into it) and never as HTML. Absent -> the template, as always.
+ */
+export function questionLines(lang: Lang, question: DebriefQuestionView): string[] {
+  if (question.question_text) return [question.question_text];
+  return templateLines(lang, question);
+}
+
+/**
+ * The TEMPLATE lines joined into one string, whatever the heading shows: used by the answered-question rows (which
+ * are rebuilt without `question_text`). The on-screen heading (which the radiogroup names via `aria-labelledby`) uses `questionLines`.
+ */
 export function questionText(lang: Lang, question: DebriefQuestionView): string {
-  return questionLines(lang, question).join(" ");
+  return templateLines(lang, question).join(" ");
 }
 
 /**

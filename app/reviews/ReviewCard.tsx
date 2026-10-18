@@ -8,6 +8,7 @@ import { dayLabel } from "@/lib/i18n/format";
 import { CATEGORY_KEY } from "@/lib/day/view-model";
 import type { ReviewVerdict } from "@/lib/firestore/schema";
 import type { ReviewView } from "@/lib/reviews/contract";
+import type { ReviewCaveat } from "@/lib/reviews/agent/schema";
 
 /**
  * One review of a shipped SOP change (R-11 Task 6.4): the before/after
@@ -16,6 +17,11 @@ import type { ReviewView } from "@/lib/reviews/contract";
  * included, by design). Every text that is not copy (change title, metric
  * description, failure condition, reasons) is a plain text node: never
  * through `t()`, never as HTML.
+ *
+ * `review.agent` (ReviewAgent, docs/tasks/review-agent-18oct.md 5.12) adds the "Bee6 explains" panel: the model's
+ * narrative as ONE text node (English only, `lang="en"`; never `t()`, never HTML) and, under it, the caveats the
+ * CODE computed, as fixed lines from the copy table (no model text), then a fixed framing line saying the
+ * suggestion above comes from a rule and the verdict is the people's. The panel never decides or changes anything.
  *
  * The bars are decoration (`aria-hidden`); the numbers are always in text.
  */
@@ -36,6 +42,22 @@ const WHY_KEY: Record<SuggestionReason, DictKey> = {
   not_enough_days: "C-rev-why-not_enough_days",
   no_baseline: "C-rev-why-no_baseline",
 };
+
+// Exhaustive on purpose: a new caveat that is not mapped fails `tsc`.
+const CAVEAT_KEY: Record<ReviewCaveat, DictKey> = {
+  short_window: "C-rev-agent-cv-short_window",
+  category_count_not_problem_count: "C-rev-agent-cv-category_count_not_problem_count",
+  staff_answers_affect_count: "C-rev-agent-cv-staff_answers_affect_count",
+  overlapping_change: "C-rev-agent-cv-overlapping_change",
+  threads_truncated: "C-rev-agent-cv-threads_truncated",
+  not_enough_days: "C-rev-agent-cv-not_enough_days",
+  no_baseline: "C-rev-agent-cv-no_baseline",
+};
+
+/** The agent panel's heading DOM id (labels the panel). */
+export function agentDomId(version: number): string {
+  return `rev-${version}-agent`;
+}
 
 /** The suggestion line's DOM id, so the matching verdict button can point at it with `aria-describedby`. */
 export function suggestionDomId(version: number): string {
@@ -108,10 +130,17 @@ function WindowTile({
 export function ReviewCard({
   review,
   lang,
+  agentMissing = false,
   children,
 }: {
   review: ReviewView;
   lang: Lang;
+  /**
+   * Set by the Reviews page for the review a fast-forward tap just created while the ReviewAgent was on, when that
+   * review came back without an explanation (the agent timed out or fell back). Shows one fixed notice (no model
+   * text). Ignored when the review does carry an explanation.
+   */
+  agentMissing?: boolean;
   children?: ReactNode;
 }) {
   const { before, after, suggestion, notices, supervisor, owner } = review;
@@ -183,6 +212,33 @@ export function ReviewCard({
             {t(lang, "C-rev-suggest-none", { why })}
           </p>
         </div>
+      )}
+
+      {/* A labelled group, not a <section>: several cards on one page would repeat the same landmark name. */}
+      {review.agent && (
+        <div role="group" className={styles.agent} aria-labelledby={agentDomId(review.version)}>
+          <p id={agentDomId(review.version)} className="b6-kick">
+            {t(lang, "C-rev-agent-kick")}
+          </p>
+          {/* The model's words: a text node, English only (marked so a screen reader switches voice on a Bahasa page). */}
+          <p lang="en" className={styles.agentText}>
+            {review.agent.narrative_en}
+          </p>
+          {review.agent.caveats.length > 0 && (
+            <ul className={styles.agentCaveats}>
+              {review.agent.caveats.map((c) => (
+                <li key={c}>{t(lang, CAVEAT_KEY[c])}</li>
+              ))}
+            </ul>
+          )}
+          <p className={cx("b6-note", styles.agentNote)}>{t(lang, "C-rev-agent-note")}</p>
+        </div>
+      )}
+
+      {agentMissing && !review.agent && (
+        <p role="status" className="b6-alert">
+          {t(lang, "C-rev-agent-missing")}
+        </p>
       )}
 
       <p className={styles.line}>

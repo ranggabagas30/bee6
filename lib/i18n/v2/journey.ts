@@ -17,7 +17,9 @@
 export const journeyID = {
   "C-journey-next-day-proposal_exists":
     "Bee6 sudah membuat usulan dari hari-hari ini, jadi jam toko tidak bisa maju ke hari lain. Untuk mengulang, masuk sebagai Pemilik dan atur ulang demo.", // PROVISIONAL
-  "C-journey-next-day-max_days": "Ketiga hari demo sudah selesai. Keluar, lalu lanjut sebagai Supervisor.", // PROVISIONAL
+  "C-journey-next-day-max_days": "Kelima hari demo sudah selesai. Keluar, lalu lanjut sebagai Supervisor.", // PROVISIONAL
+  "C-journey-next-day-approve_first": "Hari 4 dan 5 terbuka setelah Pemilik menyetujui satu perubahan. Keluar dan lanjut sebagai Supervisor.", // PROVISIONAL
+  "C-journey-next-day-review_exists": "Tinjauan sudah ada, jadi hari demo selesai. Keluar dan buka Tinjauan.", // PROVISIONAL
   "C-journey-next-day-session_open": "Akhiri sesi hari ini dulu.", // PROVISIONAL
   "C-journey-next-day-day_not_ended": "Jalankan hari ini dulu: ketuk Mulai, bacakan kartu, lalu Selesai.", // PROVISIONAL
   "C-journey-next-day-preparing": "Bee6 masih menyiapkan pertanyaan hari ini. Coba lagi sebentar lagi.", // PROVISIONAL
@@ -49,6 +51,8 @@ export const journeyID = {
   "C-journey-spoken": "Saya sudah mengucapkan ini", // PROVISIONAL
   "C-journey-waiting-hear": "Menunggu Bee6 mendengar kartu ini…", // PROVISIONAL
   "C-journey-catching-up": "Bee6 sedang menyusul: layanan transkripsi sedang sibuk. Lanjutkan membaca; kartu ini terbuka setelah terdengar.", // PROVISIONAL
+  "C-journey-reread-stalled": "Masih menyusul. Bacakan kartu ini sekali lagi sekarang; tombol terbuka setelah salah satu bacaan terdengar.", // PROVISIONAL
+  "C-journey-reread-lost": "Bacaan tadi tidak tertangkap. Bacakan kartu ini sekali lagi.", // PROVISIONAL
   "C-journey-not-picking-up": "Suara Anda tidak tertangkap?", // PROVISIONAL
   "C-journey-check-mic": "Pastikan mikrofon diizinkan.", // PROVISIONAL
   "C-journey-check-tab": "Biarkan tab ini terbuka.", // PROVISIONAL
@@ -60,6 +64,7 @@ export const journeyID = {
   "C-journey-jump-locked": "Terkunci sampai semua {total} kartu diucapkan ({k} dari {total} selesai).", // PROVISIONAL
   "C-journey-jump-tomorrow": "Lompat ke besok", // PROVISIONAL
   "C-journey-jump-tomorrow-busy": "Melompat…", // PROVISIONAL
+  "C-journey-jump-tomorrow-finishing": "Menyelesaikan unggahan…", // PROVISIONAL
   "C-journey-jumped": "Sekarang hari {n} dari {total}. Ketuk Mulai.", // PROVISIONAL
   "C-journey-fill-code": "Isi {code}", // PROVISIONAL
   "C-journey-filled": "Sudah terisi. Ketuk Pasang.", // PROVISIONAL
@@ -98,7 +103,9 @@ export const journeyID = {
 export const journeyEN: Record<keyof typeof journeyID, string> = {
   "C-journey-next-day-proposal_exists":
     "Bee6 has already written a proposal from these days, so the shop clock can't move to another day. To run the days again, sign in as Owner and reset the demo.",
-  "C-journey-next-day-max_days": "All 3 demo days are done. Sign out and continue as Supervisor.",
+  "C-journey-next-day-max_days": "All 5 demo days are done. Sign out and continue as Supervisor.",
+  "C-journey-next-day-approve_first": "Days 4 and 5 open after the Owner approves a change. Sign out and continue as Supervisor.",
+  "C-journey-next-day-review_exists": "A review already exists, so the demo days are finished. Sign out and open Reviews.",
   "C-journey-next-day-session_open": "End today's session first.",
   "C-journey-next-day-day_not_ended": "Run today first: tap Start, speak the cards, then End.",
   "C-journey-next-day-preparing": "Bee6 is still preparing today's questions. Try again in a minute.",
@@ -127,6 +134,8 @@ export const journeyEN: Record<keyof typeof journeyID, string> = {
   "C-journey-spoken": "I have spoken this",
   "C-journey-waiting-hear": "Waiting for Bee6 to hear this card…",
   "C-journey-catching-up": "Bee6 is catching up: the transcription service is busy. Keep reading; this card unlocks when it has been heard.",
+  "C-journey-reread-stalled": "Still catching up. Read this card again now; the button unlocks when either reading is heard.",
+  "C-journey-reread-lost": "That reading was not captured. Read this card again.",
   "C-journey-not-picking-up": "Not picking up your voice?",
   "C-journey-check-mic": "Check the microphone is allowed.",
   "C-journey-check-tab": "Keep this tab open.",
@@ -138,6 +147,7 @@ export const journeyEN: Record<keyof typeof journeyID, string> = {
   "C-journey-jump-locked": "Locked until all {total} cards are spoken ({k} of {total} done).",
   "C-journey-jump-tomorrow": "Jump to tomorrow",
   "C-journey-jump-tomorrow-busy": "Jumping…",
+  "C-journey-jump-tomorrow-finishing": "Finishing uploads…",
   "C-journey-jumped": "It is now day {n} of {total}. Tap Start.",
   "C-journey-fill-code": "Fill in {code}",
   "C-journey-filled": "Filled in. Tap Set up.",

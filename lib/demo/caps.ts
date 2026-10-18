@@ -131,7 +131,8 @@ export function capSpec(key: DemoCapKey, env: CapEnv = process.env): DemoCapSpec
         sandboxLimit: capFromEnv(env.DEMO_FAST_FORWARD_SANDBOX_CAP, FAST_FORWARD_PER_SANDBOX),
         code: "demo_fast_forward_cap",
         message: "This demo shop has reached its time-skip limit",
-        model: false,
+        // D20: with the ReviewAgent on, a skip runs a model, so it is charged against the model ceiling too.
+        model: env.REVIEW_AGENT === "true",
       };
     case "next_day":
       return {

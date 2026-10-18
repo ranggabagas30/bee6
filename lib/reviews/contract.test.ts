@@ -64,6 +64,17 @@ describe("review contract", () => {
     expect(ReviewViewSchema.safeParse({ ...view, sop_version_id: "x" }).success).toBe(false);
   });
 
+  it("ReviewViewSchema.agent is optional, strict, and caveats are the fixed enum", () => {
+    const agent = { narrative_en: "Fewer moments were noted after the change.", caveats: ["short_window", "category_count_not_problem_count"] };
+    expect(ReviewViewSchema.safeParse({ ...view, agent }).success).toBe(true);
+    expect(ReviewViewSchema.safeParse(view).success).toBe(true);
+    expect(ReviewViewSchema.safeParse({ ...view, agent: { ...agent, rounds: 1 } }).success).toBe(false);
+    expect(ReviewViewSchema.safeParse({ ...view, agent: { ...agent, suggested_verdict: "worked" } }).success).toBe(false);
+    expect(ReviewViewSchema.safeParse({ ...view, agent: { ...agent, caveats: ["other"] } }).success).toBe(false);
+    expect(ReviewViewSchema.safeParse({ ...view, agent: { ...agent, narrative_en: "" } }).success).toBe(false);
+    expect(ReviewViewSchema.safeParse({ ...view, agent: { ...agent, narrative_en: "x".repeat(1201) } }).success).toBe(false);
+  });
+
   it("ListReviewsResponseSchema rejects 21 open and 11 decided", () => {
     const ok = { fast_forward_available: false, open: [view], decided: [] };
     expect(ListReviewsResponseSchema.safeParse(ok).success).toBe(true);

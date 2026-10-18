@@ -15,7 +15,8 @@ import {
 } from "@/lib/proposals/review-contract";
 import type { ProposalView } from "@/lib/proposals/contract";
 import { Button, Card, Chip, Glass, Pill } from "@/app/ui";
-import { FeasibleActions, FeasibleHandover } from "@/app/proposals/FeasibleHandover";
+import { CheckedByBee6 } from "@/app/proposals/CheckedByBee6";
+import { FeasibleHandover } from "@/app/proposals/FeasibleHandover";
 import styles from "@/app/proposals/supervisor.module.css";
 
 /**
@@ -23,7 +24,8 @@ import styles from "@/app/proposals/supervisor.module.css";
  * pill, the change title, the rationale as one line under it, what changes in the SOP (the step's wording from the
  * proposal's generator SOP version in `<del>` with a visually hidden "Before:", as PR-9a's SOP book, the new wording
  * under it), the evidence (date · time — the dated summary from the view, never a quoted line), the metric to
- * watch, the review date and the feasible note. Actions on an `awaiting_supervisor` proposal: **Mark feasible**
+ * watch, the review date and the feasible note. CHK-1: a "Checked by Bee6" card sits right after the evidence (counts
+ * only; `CheckedByBee6`). Actions on an `awaiting_supervisor` proposal: **Mark feasible**
  * (no confirm) and an inline **Reject… (reason required)** panel — no confirm dialog for either (plan 9.5; R-25 tech-lead
  * ruling on UI-078: the inline panel stays, restyled with the board's "Reject this proposal?" title and lead). Both go to the
  * existing review route; the server re-derives every rule (role, stage, freshness, late constraints), so this
@@ -210,6 +212,8 @@ export function ProposalDetail({ auth, lang, item, feasible, onBack, onFeasible,
         </ul>
       </Card>
 
+      <CheckedByBee6 lang={lang} checked={proposal.checked} variant="full" />
+
       <div className={styles.tiles}>
         <Glass className="b6-tile">
           <span className="b6-kick">{t(lang, "C-propd-metric")}</span>
@@ -217,7 +221,11 @@ export function ProposalDetail({ auth, lang, item, feasible, onBack, onFeasible,
         </Glass>
         <Glass className="b6-tile">
           <span className="b6-kick">{t(lang, "C-propd-review")}</span>
-          <span className={styles.tileText}>{dayLabel(content.review_date, lang)}</span>
+          <span className={styles.tileText}>
+            {proposal.status === "awaiting_supervisor" || proposal.status === "awaiting_owner"
+              ? t(lang, "C-prop-review-draft", { date: dayLabel(content.review_date, lang) })
+              : dayLabel(content.review_date, lang)}
+          </span>
         </Glass>
       </div>
 
@@ -246,8 +254,6 @@ export function ProposalDetail({ auth, lang, item, feasible, onBack, onFeasible,
       )}
 
       {!feasible && <p className={styles.note}>{t(lang, "C-propd-note")}</p>}
-
-      {feasible && <FeasibleActions lang={lang} auth={auth} />}
 
       {canAct && !rejecting && (
         <div className={styles.actions}>

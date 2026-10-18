@@ -62,9 +62,9 @@ describe("DemoSessionResponseSchema", () => {
 const SID = "11111111-1111-4111-8111-111111111111";
 
 describe("R-19 NextDayRefusal", () => {
-  it("is exactly the eight plan codes", () => {
+  it("is exactly the ten codes: the eight plan codes plus approve_first and review_exists (the after days)", () => {
     expect([...NEXT_DAY_REFUSALS].sort()).toEqual(
-      ["busy", "day_not_ended", "max_days", "preparing", "proposal_exists", "session_open", "shift_incomplete", "unanswered_questions"].sort(),
+      ["approve_first", "busy", "day_not_ended", "max_days", "preparing", "proposal_exists", "review_exists", "session_open", "shift_incomplete", "unanswered_questions"].sort(),
     );
     for (const code of NEXT_DAY_REFUSALS) expect(NextDayRefusalSchema.safeParse(code).success).toBe(true);
     expect(NextDayRefusalSchema.safeParse("nope").success).toBe(false);
@@ -98,22 +98,21 @@ describe("R-19 POST /api/v1/demo/closing", () => {
 });
 
 describe("R-19 POST /api/v1/demo/next-day", () => {
-  it("body: expected_day 1 or 2 and a boolean confirm_unanswered, strict", () => {
-    for (const expected_day of [1, 2]) {
+  it("body: expected_day 1..4 and a boolean confirm_unanswered, strict", () => {
+    for (const expected_day of [1, 2, 3, 4]) {
       expect(DemoNextDayBodySchema.safeParse({ expected_day, confirm_unanswered: false }).success).toBe(true);
     }
-    for (const expected_day of [0, 3, 1.5, "1"]) {
+    for (const expected_day of [0, 5, 1.5, "1"]) {
       expect(DemoNextDayBodySchema.safeParse({ expected_day, confirm_unanswered: false }).success).toBe(false);
     }
     expect(DemoNextDayBodySchema.safeParse({ expected_day: 1 }).success).toBe(false);
     expect(DemoNextDayBodySchema.safeParse({ expected_day: 1, confirm_unanswered: "yes" }).success).toBe(false);
     expect(DemoNextDayBodySchema.safeParse({ expected_day: 1, confirm_unanswered: true, outlet_id: "sbx-1" }).success).toBe(false);
   });
-  it("200: { day: 2 | 3 }", () => {
-    expect(DemoNextDayResponseSchema.safeParse({ day: 2 }).success).toBe(true);
-    expect(DemoNextDayResponseSchema.safeParse({ day: 3 }).success).toBe(true);
+  it("200: { day: 2 | 3 | 4 | 5 }", () => {
+    for (const day of [2, 3, 4, 5]) expect(DemoNextDayResponseSchema.safeParse({ day }).success).toBe(true);
     expect(DemoNextDayResponseSchema.safeParse({ day: 1 }).success).toBe(false);
-    expect(DemoNextDayResponseSchema.safeParse({ day: 4 }).success).toBe(false);
+    expect(DemoNextDayResponseSchema.safeParse({ day: 6 }).success).toBe(false);
   });
   it("409 error.details: { unanswered? } only; the code is a NextDayRefusal in error.code", () => {
     expect(NextDayRefusalDetailsSchema.safeParse({}).success).toBe(true);
@@ -136,15 +135,23 @@ describe("R-19 POST /api/v1/demo/process-now", () => {
 });
 
 describe("R-19 GET /api/v1/demo/progress", () => {
-  const good = { day: 2, days_done: 1, proposals_with_content: 1, feasible: 0, owner_decided: 0 };
-  it("accepts the five counters and refuses an out-of-range day, a negative, an extra key", () => {
+  const good = { day: 2, days_done: 1, proposals_with_content: 1, feasible: 0, owner_decided: 0, approved: 0, reviews_open: 0, reviews_confirmed: 0 };
+  it("accepts the eight counters and refuses an out-of-range day, a negative, an extra key", () => {
     expect(DemoProgressResponseSchema.safeParse(good).success).toBe(true);
-    expect(DemoProgressResponseSchema.safeParse({ ...good, day: 4 }).success).toBe(false);
-    expect(DemoProgressResponseSchema.safeParse({ ...good, days_done: 4 }).success).toBe(false);
+    for (const day of [1, 2, 3, 4, 5]) expect(DemoProgressResponseSchema.safeParse({ ...good, day }).success).toBe(true);
+    expect(DemoProgressResponseSchema.safeParse({ ...good, days_done: 5 }).success).toBe(true);
+    expect(DemoProgressResponseSchema.safeParse({ ...good, day: 6 }).success).toBe(false);
+    expect(DemoProgressResponseSchema.safeParse({ ...good, days_done: 6 }).success).toBe(false);
     expect(DemoProgressResponseSchema.safeParse({ ...good, feasible: -1 }).success).toBe(false);
     expect(DemoProgressResponseSchema.safeParse({ ...good, extra: 1 }).success).toBe(false);
-    const { owner_decided: _drop, ...partial } = good;
-    expect(DemoProgressResponseSchema.safeParse(partial).success).toBe(false);
+    for (const key of ["owner_decided", "approved", "reviews_open", "reviews_confirmed"] as const) {
+      const { [key]: _drop, ...partial } = good;
+      expect(DemoProgressResponseSchema.safeParse(partial).success, key).toBe(false);
+    }
+    for (const key of ["approved", "reviews_open", "reviews_confirmed"] as const) {
+      expect(DemoProgressResponseSchema.safeParse({ ...good, [key]: -1 }).success, key).toBe(false);
+      expect(DemoProgressResponseSchema.safeParse({ ...good, [key]: 1.5 }).success, key).toBe(false);
+    }
   });
 });
 

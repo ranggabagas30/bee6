@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { listDebriefQuestions, submitAnswer, type DebriefStore } from "@/lib/debrief/service";
 import type { AnswerTxSnapshot, AnswerWritePlan } from "@/lib/debrief/answer-plan";
 import type { LastEnded, Question, Thread } from "@/lib/firestore/schema";
@@ -580,5 +580,103 @@ describe("R-12 demo redact cap, charged immediately before SDP (QA D2)", () => {
     const sdpDown = { redact: async () => { throw new Error("sdp down"); } };
     await submitAnswer({ store, redactor: sdpDown, log }, CLAIMS, "q1", answerBody(), ENDS_MS - 5000).catch(() => {});
     expect(log).toHaveBeenCalledWith(expect.objectContaining({ code: "redaction_unavailable" }));
+  });
+});
+
+describe("listDebriefQuestions: DebriefAgent question_text (docs/tasks/debrief-agent-18oct.md §5.5, D9)", () => {
+  const START = Date.UTC(2026, 9, 7, 7, 5); // 14:05 Jakarta
+  const TEXT = "Around 14:05, was the oven checked before opening?";
+  const agent = (over: Partial<NonNullable<Question["agent"]>> = {}): NonNullable<Question["agent"]> => ({
+    version: "debrief-q-v1",
+    model: "gemini-3.5-flash-lite",
+    category: "ROUTINE_OPS",
+    start_hm: "14:05",
+    question_en: TEXT,
+    rounds: 1,
+    generated_at_ms: 1,
+    ...over,
+  });
+  // The wording needs the sandbox calendar AND the flag AND an `sbx-` outlet (M2: the kill switch is the env var).
+  const SBX = "sbx-demo1";
+  let claims = { outlet_id: SBX, device_id: DEVICE };
+  beforeEach(() => {
+    vi.stubEnv("DEBRIEF_AGENT", "true");
+    claims = { outlet_id: SBX, device_id: DEVICE };
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+  const setUp = (sandbox: boolean, question: Partial<Question>) => {
+    const store = new FakeDebriefStore();
+    if (sandbox) store.calendar = { ...store.calendar, sandbox: true };
+    setUpActiveDebrief(store);
+    store.questions.set(
+      "q1",
+      makeQuestion({ outlet_id: claims.outlet_id, window_start_ms: START, window_end_ms: START + 180_000, ...question }),
+    );
+    return store;
+  };
+  const only = async (store: FakeDebriefStore) => (await listDebriefQuestions(store, claims, ENDS_MS - 10_000)).questions[0]!;
+
+  it("sandbox + a matching agent: question_text is the stored wording", async () => {
+    const q = await only(setUp(true, { agent: agent() }));
+    expect(q.question_text).toBe(TEXT);
+  });
+
+  it("sandbox + the category changed since the wording: no key (the template stays)", async () => {
+    const q = await only(setUp(true, { category: "CUSTOMER_SERVICE", agent: agent({ category: "ROUTINE_OPS" }) }));
+    expect(q).not.toHaveProperty("question_text");
+  });
+
+  it("sandbox + the start time no longer matches (window moved): no key", async () => {
+    const q = await only(setUp(true, { window_start_ms: START + 5 * 60_000, agent: agent() }));
+    expect(q).not.toHaveProperty("question_text");
+  });
+
+  it("sandbox + a stored wording out of the 20..140 bound: no key, and the list still parses", async () => {
+    const q = await only(setUp(true, { agent: agent({ question_en: "x".repeat(150) }) }));
+    expect(q).not.toHaveProperty("question_text");
+  });
+
+  it("sandbox + an unlabelled_unit question: no key", async () => {
+    const q = await only(setUp(true, { kind: "unlabelled_unit", category: null, thread_id: null, agent: agent() }));
+    expect(q).not.toHaveProperty("question_text");
+  });
+
+  it("sandbox + no agent: no key (the response is the one it always was)", async () => {
+    const q = await only(setUp(true, {}));
+    expect(q).not.toHaveProperty("question_text");
+  });
+
+  it("pilot (no sandbox) + an agent on the doc: NO key, the response is byte-identical to a question without one", async () => {
+    const withAgent = await only(setUp(false, { agent: agent() }));
+    const without = await only(setUp(false, {}));
+    expect(withAgent).toEqual(without);
+    expect(withAgent).not.toHaveProperty("question_text");
+  });
+
+  it("M2: flag OFF (env unset) + a stored agent on a sandbox outlet: NO key (removing the env var is the kill)", async () => {
+    vi.stubEnv("DEBRIEF_AGENT", "");
+    const q = await only(setUp(true, { agent: agent() }));
+    expect(q).not.toHaveProperty("question_text");
+  });
+
+  it("M2: the flag must be exactly 'true' ('1', 'TRUE', 'false' keep the template)", async () => {
+    for (const v of ["1", "TRUE", "false", "yes"]) {
+      vi.stubEnv("DEBRIEF_AGENT", v);
+      const q = await only(setUp(true, { agent: agent() }));
+      expect(q).not.toHaveProperty("question_text");
+    }
+  });
+
+  it("M2: flag ON + a stored agent on a sandbox outlet: the wording is present", async () => {
+    const q = await only(setUp(true, { agent: agent() }));
+    expect(q.question_text).toBe(TEXT);
+  });
+
+  it("M2: flag ON but a non-sbx outlet id (pilot id, even with a sandbox calendar): NO key", async () => {
+    claims = { outlet_id: "o1", device_id: DEVICE };
+    const q = await only(setUp(true, { agent: agent() }));
+    expect(q).not.toHaveProperty("question_text");
   });
 });

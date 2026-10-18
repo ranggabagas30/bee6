@@ -7,6 +7,7 @@ import { authedGetJson } from "@/lib/auth/client/api";
 import { getClientAuth } from "@/lib/auth/client/firebase-client";
 import { useAuthUser } from "@/lib/auth/client/use-auth-user";
 import { postDemoNextDay, readDeviceAuth } from "@/lib/capture/browser/client";
+import { abortAllCaptureUploads, hasPendingCaptureUploads, waitForCaptureUploads } from "@/lib/capture/browser/session";
 import { DEMO_DAYS_TOTAL } from "@/lib/demo/constants";
 import { DemoProgressResponseSchema, type NextDayRefusal } from "@/lib/demo/contract";
 import { DEMO_EMAILS, DEMO_PASSWORD, DEMO_STAFF_CODE } from "@/lib/demo/credentials";
@@ -16,6 +17,7 @@ import {
   cardState,
   currentStage,
   guideKeyFor,
+  phoneJourney,
   stageIndex,
   todoDoneCount,
   type Bilingual,
@@ -40,7 +42,7 @@ import { GUIDE_CONTROLS } from "@/app/demo/guide-controls";
  * layout ONLY when DEMO_MODE is on (through JudgeGuideLoader, a lazy chunk), so the pilot never renders it.
  *
  * - Phone (< 900 px): a collapsed bottom-sheet handle (kicker + stage chip, the card's one-line title, the day clock);
- *   laptop (>= 900 px): a "JUDGE GUIDE [STAGE n OF 5] v" pill top-right opening a 360 px side panel. Collapsed by
+ *   laptop (>= 900 px): a "JUDGE GUIDE [STAGE n OF 7] v" pill top-right opening a 360 px side panel. Collapsed by
  *   default, after every route change and after every card change (except listening -> all spoken, one flow).
  *   Non-modal, no focus trap.
  * - Contents (R-25 T6, board look): the stage label, then the ONE card of `guideKeyFor(route, state)` in a card box.
@@ -64,6 +66,8 @@ export const SHEET_RESERVE_PX = 96;
 export const CONFIG_REPOLL_MS = 10_000;
 
 const WIDE_QUERY = "(min-width: 900px)";
+/** A card that stays locked this long while the upload is retrying tells the judge to read it again (stuck-upload hint). */
+const CATCHING_UP_REREAD_MS = 45_000;
 
 /** localStorage flag (value "1"): this browser has seen the entry page's auto-opened welcome panel (R-25 fixes-2 §3). */
 export const WELCOME_SEEN_KEY = "bee6.guide.welcome_seen";
@@ -72,6 +76,8 @@ const STAGE_TOTAL = STAGES.length;
 const NEXT_DAY_REASON_KEY: Record<Exclude<NextDayRefusal, "unanswered_questions">, DictKey> = {
   proposal_exists: "C-journey-next-day-proposal_exists",
   max_days: "C-journey-next-day-max_days",
+  approve_first: "C-journey-next-day-approve_first",
+  review_exists: "C-journey-next-day-review_exists",
   session_open: "C-journey-next-day-session_open",
   day_not_ended: "C-journey-next-day-day_not_ended",
   preparing: "C-journey-next-day-preparing",
@@ -269,13 +275,12 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
   const key = guideKeyFor(pathname, state);
   const day = bridge ? bridge.state.profile.day : null;
   const openClosingReached = bridge?.state.profile.open_session?.closing_reached;
-  const card = guideCard(key, day, { openClosingReached });
+  const card = guideCard(key, day, { openClosingReached, nextDayAllowed: bridge?.state.profile.next_day.allowed });
 
   const journey: JourneyProgress = useMemo(() => {
-    if (bridge) {
-      return { day: bridge.state.profile.day, days_done: bridge.state.profile.days_done, proposals_with_content: 0, feasible: 0, owner_decided: 0, supervisor_visited: visited };
-    }
-    return progress ? { ...progress, supervisor_visited: visited } : { day: 1, days_done: 0, proposals_with_content: 0, feasible: 0, owner_decided: 0, supervisor_visited: visited };
+    // The phone knows only its own day; from day 4 on the approve_first guard implies an approved change (phoneJourney).
+    if (bridge) return phoneJourney(bridge.state.profile, visited);
+    return progress ? { ...progress, supervisor_visited: visited } : { day: 1, days_done: 0, proposals_with_content: 0, feasible: 0, owner_decided: 0, approved: 0, reviews_open: 0, reviews_confirmed: 0, supervisor_visited: visited };
   }, [bridge, progress, visited]);
   // R-25 R7: on a supervisor web page right after day 1 the stage stays "Supervisor · look around".
   const stage = currentStage(journey, { onSupervisorWeb: supervisorHere });
@@ -442,7 +447,7 @@ interface GuideCardViewProps {
 }
 
 function GuideCardView({ guideKey, day, openClosingReached, lang, bridge, open, journey, onAllSpoken, onPosition, onFilled }: GuideCardViewProps) {
-  const card = guideCard(guideKey, day, { openClosingReached });
+  const card = guideCard(guideKey, day, { openClosingReached, nextDayAllowed: bridge?.state.profile.next_day.allowed });
   const action = card.action;
   // The sign-in cards print the role's demo email and password; the literals come from lib/demo/credentials, never from copy.
   const creds =
@@ -623,7 +628,7 @@ function ScriptCard({
   onAllSpoken: (sessionId: string) => void;
   onPosition: (pos: { sid: string; n: number; total: number }) => void;
 }) {
-  const { profile, sessionId, linesThisSession, micTrouble, uploadBusy } = bridge.state;
+  const { profile, sessionId, linesThisSession, micTrouble, uploadBusy, droppedCount } = bridge.state;
   const script = scriptFor(profile.script_id);
   const cards: readonly ScriptCardV2[] = script ? script.days[profile.day as ScriptDay] : [];
   const sid = sessionId ?? "none";
@@ -643,10 +648,29 @@ function ScriptCard({
   // counting from now. Adjusted during render (React's "derive from props" pattern), not in an effect.
   // Known and accepted: a segment_accepted for card k that arrives after the tap can count toward card k+1. The
   // 1-line card gate is soft (a nudge, not a check); the server guard `requiredLines` is the real check.
-  const [shownAt, setShownAt] = useState(() => ({ index: st.index, lines: st.index === 0 ? 0 : linesThisSession }));
-  if (shownAt.index !== st.index) setShownAt({ index: st.index, lines: linesThisSession });
+  // `dropped` is the engine's drop count at that moment, so only a drop AFTER the card appeared raises the lost hint;
+  // a new engine starts again at 0, which rebases it.
+  const [shownAt, setShownAt] = useState(() => ({ index: st.index, lines: st.index === 0 ? 0 : linesThisSession, dropped: droppedCount }));
+  if (shownAt.index !== st.index) setShownAt({ index: st.index, lines: linesThisSession, dropped: droppedCount });
+  else if (droppedCount < shownAt.dropped) setShownAt({ ...shownAt, dropped: droppedCount });
   const linesSinceCardShown = Math.max(0, linesThisSession - shownAt.lines);
   const live = cardState({ cards, spoken, linesSinceCardShown });
+  const lostHint = droppedCount > shownAt.dropped;
+
+  // Stuck-upload hint: the card has been locked while the upload retried for 45 s on end. One timer per stall, tied to
+  // the card; it is cleared (and the flag with it) when the card unlocks, changes, the upload clears, or on unmount.
+  const stalled = uploadBusy && !live.canMarkSpoken;
+  const [rereadFor, setRereadFor] = useState<number | null>(null);
+  useEffect(() => {
+    if (!stalled) return;
+    const index = live.index;
+    const timer = setTimeout(() => setRereadFor(index), CATCHING_UP_REREAD_MS);
+    return () => {
+      clearTimeout(timer);
+      setRereadFor(null);
+    };
+  }, [stalled, live.index]);
+  const rereadHint = stalled && rereadFor === live.index;
 
   useEffect(() => {
     if (live.allSpoken && sessionId !== null) onAllSpoken(sessionId);
@@ -712,7 +736,15 @@ function ScriptCard({
           />
           {!live.canMarkSpoken ? <p className={styles.mono}>{t(lang, "C-journey-waiting-hear")}</p> : null}
           {/* R-23: a stalled upload is the service being busy, not the mic: say so and hold the mic hint back. */}
-          {!live.canMarkSpoken && uploadBusy ? <p className={styles.mono}>{t(lang, "C-journey-catching-up")}</p> : null}
+          {/* Stuck-upload hints, one line at most: a lost reading > a long stall > the plain catching-up line. A card must
+              never be a dead end, so the first two say what to do (read it again). */}
+          {!live.canMarkSpoken && lostHint ? (
+            <p className={styles.mono}>{t(lang, "C-journey-reread-lost")}</p>
+          ) : !live.canMarkSpoken && rereadHint ? (
+            <p className={styles.mono}>{t(lang, "C-journey-reread-stalled")}</p>
+          ) : !live.canMarkSpoken && uploadBusy ? (
+            <p className={styles.mono}>{t(lang, "C-journey-catching-up")}</p>
+          ) : null}
           {!live.canMarkSpoken && micTrouble && !uploadBusy && linesSinceCardShown === 0 ? (
             <div className={styles.mono}>
               <p style={{ margin: 0, fontWeight: 600 }}>{t(lang, "C-journey-not-picking-up")}</p>
@@ -769,12 +801,16 @@ function JumpClosing({ lang, bridge }: { lang: Lang; bridge: CaptureBridge }) {
   );
 }
 
+/** Longest Jump to tomorrow waits for day-1 uploads still finishing after End (Fb22). */
+const UPLOAD_WAIT_MS = 25_000;
+
 /** Debrief / done (plan 4.4, 7.2): Jump to tomorrow, the lock reason, and the inline unanswered confirm. */
 function JumpTomorrow({ lang, bridge }: { lang: Lang; bridge: CaptureBridge }) {
   const { profile, nextDate } = bridge.state;
   const { refetchConfig } = bridge.actions;
   const busyRef = useRef(false);
   const [busy, setBusy] = useState(false);
+  const [finishing, setFinishing] = useState(false); // waiting (bounded) for day-1 notes still uploading
   const [confirm, setConfirm] = useState<number | null>(null);
   const [errorKey, setErrorKey] = useState<DictKey | null>(null);
   const [jumpedTo, setJumpedTo] = useState<number | null>(null);
@@ -797,7 +833,7 @@ function JumpTomorrow({ lang, bridge }: { lang: Lang; bridge: CaptureBridge }) {
   const allowed = profile.next_day.allowed;
 
   async function jump(confirmUnanswered: boolean) {
-    if (busyRef.current || !allowed || profile.day === 3) return; // never call the route on day 3 (`max_days`)
+    if (busyRef.current || !allowed || profile.day === DEMO_DAYS_TOTAL) return; // never call the route on the last day (`max_days`)
     const auth = readDeviceAuth();
     if (!auth) return;
     busyRef.current = true;
@@ -805,6 +841,18 @@ function JumpTomorrow({ lang, bridge }: { lang: Lang; bridge: CaptureBridge }) {
     setErrorKey(null);
     setConfirm(null);
     setPostReason(null);
+    // The shift moves stored day-1 docs back 24 h; a day-1 note still retrying after End must not land after it.
+    // Give it a bounded chance to finish first, then hard-abort whatever is left.
+    if (hasPendingCaptureUploads()) {
+      setFinishing(true);
+      try {
+        await waitForCaptureUploads(UPLOAD_WAIT_MS);
+      } catch {
+        /* never strand the button: fall through to the abort and the shift */
+      }
+      setFinishing(false);
+    }
+    abortAllCaptureUploads();
     const result = await postDemoNextDay(auth, { expected_day: profile.day, confirm_unanswered: confirmUnanswered });
     busyRef.current = false;
     setBusy(false);
@@ -843,11 +891,11 @@ function JumpTomorrow({ lang, bridge }: { lang: Lang; bridge: CaptureBridge }) {
         </div>
       </div>
     );
-  } else if (allowed && profile.day !== 3) {
+  } else if (allowed && profile.day !== DEMO_DAYS_TOTAL) {
     content = (
       <div className={styles.ctlWrap}>
         <Ctl
-          label={busy ? t(lang, "C-journey-jump-tomorrow-busy") : nextDate ? t(lang, "C-journey-jump-tomorrow-on", { date: dayLabel(nextDate, lang) }) : t(lang, "C-journey-jump-tomorrow")}
+          label={finishing ? t(lang, "C-journey-jump-tomorrow-finishing") : busy ? t(lang, "C-journey-jump-tomorrow-busy") : nextDate ? t(lang, "C-journey-jump-tomorrow-on", { date: dayLabel(nextDate, lang) }) : t(lang, "C-journey-jump-tomorrow")}
           glyph="»"
           disabled={busy || postReason !== null}
           onClick={() => void jump(false)}

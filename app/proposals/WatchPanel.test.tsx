@@ -120,6 +120,41 @@ describe("WatchPanel — the ask button", () => {
     expect(onAsk).not.toHaveBeenCalled();
   });
 
+  // Demo feedback 2 item 18: on a demo sandbox, two or more ready problems read as one ask for all of them.
+  it("demo: two ready rows read 'Ask Bee6 for proposals' and still send another=false when no proposal exists", () => {
+    const { onAsk } = renderPanel({ demo: true, watch: watchOf([row("CUSTOMER_SERVICE", 2, "ready"), row("PHONE_CALL", 2, "ready")]) });
+    fireEvent.click(screen.getByRole("button", { name: "Ask Bee6 for proposals" }));
+    expect(onAsk).toHaveBeenCalledWith(false);
+  });
+
+  it("demo: two ready rows with a proposal already there still read 'Ask Bee6 for proposals' and send another=true", () => {
+    const { onAsk } = renderPanel({ demo: true, hasProposal: true, watch: watchOf([row("CUSTOMER_SERVICE", 2, "ready"), row("PHONE_CALL", 2, "ready")]) });
+    fireEvent.click(screen.getByRole("button", { name: "Ask Bee6 for proposals" }));
+    expect(onAsk).toHaveBeenCalledWith(true);
+  });
+
+  it("demo: one ready row keeps the singular and 'another' labels (a retry after a partial chain reads 'Ask for another proposal')", () => {
+    renderPanel({ demo: true, watch: watchOf([row("CUSTOMER_SERVICE", 2, "ready")]) });
+    expect(screen.getByRole("button", { name: "Ask Bee6 for a proposal" })).not.toBeNull();
+    cleanup();
+    renderPanel({ demo: true, hasProposal: true, watch: watchOf([row("CUSTOMER_SERVICE", 2, "proposed"), row("PHONE_CALL", 2, "ready")]) });
+    expect(screen.getByRole("button", { name: "Ask for another proposal" })).not.toBeNull();
+  });
+
+  it("pilot: two ready rows keep today's one-proposal-per-tap label", () => {
+    renderPanel({ watch: watchOf([row("CUSTOMER_SERVICE", 2, "ready"), row("PHONE_CALL", 2, "ready")]) });
+    expect(screen.getByRole("button", { name: "Ask Bee6 for a proposal" })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Ask Bee6 for proposals" })).toBeNull();
+  });
+
+  it("demo, two ready rows, busy: still 'Asking Bee6…' and disabled; ID copy for the all-ask label", () => {
+    renderPanel({ demo: true, busy: true, watch: watchOf([row("CUSTOMER_SERVICE", 2, "ready"), row("PHONE_CALL", 2, "ready")]) });
+    expect((screen.getByRole("button", { name: "Asking Bee6…" }) as HTMLButtonElement).disabled).toBe(true);
+    cleanup();
+    renderPanel({ lang: "id", demo: true, watch: watchOf([row("CUSTOMER_SERVICE", 2, "ready"), row("PHONE_CALL", 2, "ready")]) });
+    expect(screen.getByRole("button", { name: "Minta semua usulan dari Bee6" })).not.toBeNull();
+  });
+
   it("ID copy", () => {
     renderPanel({ lang: "id", watch: watchOf([row("CUSTOMER_SERVICE", 2, "ready")]) });
     expect(screen.getByRole("button", { name: "Minta usulan dari Bee6" })).not.toBeNull();

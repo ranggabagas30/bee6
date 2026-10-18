@@ -351,6 +351,7 @@ export const ID_BASE = {
   "C-prop-dir-increase": "naik", // PROVISIONAL
   "C-prop-failure": "Kondisi gagal", // PROVISIONAL
   "C-prop-review": "Ditinjau pada {date}", // PROVISIONAL
+  "C-prop-review-draft": "Ditinjau sekitar {date} (dikonfirmasi saat disetujui)", // PROVISIONAL
   "C-prop-censored": "Permintaan yang tidak terpenuhi di sini adalah batas bawah: permintaan sebenarnya lebih tinggi, karena tidak semua permintaan terdengar atau diucapkan.", // PROVISIONAL
   "C-prop-err-progress": "Usulan lain sedang dibuat. Coba lagi dalam satu menit.", // PROVISIONAL
   "C-prop-err-library": "Pustaka intervensi belum disiapkan.", // PROVISIONAL
@@ -371,7 +372,7 @@ export const ID_BASE = {
   "C-prop-rev-owner-rejected": "Pemilik menolak pada {date}. Alasan:", // PROVISIONAL
   "C-prop-notice-late": "Ditambahkan setelah usulan ini dibuat. Periksa usulan terhadap batasan ini sebelum memutuskan:", // PROVISIONAL
   "C-prop-notice-stale": "Sebagian bukti sudah tidak berlaku. Buat ulang usulan untuk tanggal ini.", // PROVISIONAL
-  "C-prop-notice-sop": "SOP sudah berubah sejak usulan ini dibuat. Buat ulang usulan.", // PROVISIONAL
+  "C-prop-notice-sop": "Langkah yang diubah usulan ini sudah berubah sejak usulan dibuat, jadi tidak bisa dilanjutkan. Tolak dengan alasan atau minta usulan baru.", // PROVISIONAL
   "C-prop-notice-superseded": "Ada usulan lebih baru untuk tanggal ini. Putuskan yang itu.", // PROVISIONAL
   "C-prop-act-feasible": "Layak", // PROVISIONAL
   "C-prop-act-approve": "Setujui", // PROVISIONAL
@@ -398,7 +399,7 @@ export const ID_BASE = {
   "C-prop-err-not-reviewable": "Usulan ini tidak bisa ditinjau.", // PROVISIONAL
   "C-prop-err-superseded": "Ada usulan lebih baru untuk tanggal ini. Daftar sudah diperbarui.", // PROVISIONAL
   "C-prop-err-stale": "Sebagian bukti sudah tidak berlaku, jadi usulan ini tidak bisa dilanjutkan. Buat ulang untuk tanggal ini.", // PROVISIONAL
-  "C-prop-err-sop-changed": "SOP sudah berubah, jadi usulan ini tidak bisa dilanjutkan. Buat ulang.", // PROVISIONAL
+  "C-prop-err-sop-changed": "Langkah yang diubah usulan ini sudah berubah, jadi tidak bisa dilanjutkan. Tolak dengan alasan atau minta usulan baru.", // PROVISIONAL
   "C-prop-err-constraint-added": "Ada batasan yang baru ditambahkan. Periksa, lalu putuskan lagi.", // PROVISIONAL
   "C-prop-err-forbidden-decide": "Peran Anda tidak bisa membuat keputusan ini.", // PROVISIONAL
   "C-prop-err-sop-limit": "SOP sudah punya 200 langkah, jadi langkah baru tidak bisa ditambahkan.", // PROVISIONAL
@@ -489,6 +490,20 @@ export const ID_BASE = {
   "C-rev-ff": "Lompat ke tanggal tinjauan (simulasi)", // PROVISIONAL
   "C-rev-ff-done": "Tinjauan simulasi dibuat.", // PROVISIONAL
   "C-rev-ff-none": "Tidak ada perubahan SOP yang tersisa untuk ditinjau.", // PROVISIONAL
+  // ReviewAgent (review-agent-18oct.md 5.12). The narrative itself is English-only (like the debrief heading); only this chrome is translated.
+  "C-rev-ff-busy": "Bee6 sedang meninjau…", // PROVISIONAL (Tiffany)
+  "C-rev-ff-estimate": "Bee6 membaca perubahan dan catatan dari sebelum dan sesudahnya. Biasanya {min} sampai {max} detik.", // PROVISIONAL (Tiffany)
+  "C-rev-ff-longer": "Lebih lama dari biasanya. Jika lebih dari sekitar {cap} detik, hasilnya muncul tanpa penjelasan.", // PROVISIONAL (Tiffany)
+  "C-rev-agent-missing": "Bee6 tidak dapat menulis penjelasan kali ini. Saran dan angka di atas tidak terpengaruh.", // PROVISIONAL (Tiffany)
+  "C-rev-agent-kick": "Bee6 menjelaskan", // PROVISIONAL (Tiffany)
+  "C-rev-agent-note": "Bee6 menulis penjelasan ini. Saran di atas berasal dari aturan tetap, dan putusan ada di tangan Anda.", // PROVISIONAL (Tiffany)
+  "C-rev-agent-cv-short_window": "Jangka pendek: hanya beberapa hari terekam di tiap sisi.", // PROVISIONAL (Tiffany)
+  "C-rev-agent-cv-category_count_not_problem_count": "Angkanya adalah kejadian dari satu jenis (misalnya pertanyaan pelanggan), bukan bukti sebab.", // PROVISIONAL (Tiffany)
+  "C-rev-agent-cv-staff_answers_affect_count": "Sebagian kejadian ini baru dihitung setelah staf mengonfirmasinya di debrief.", // PROVISIONAL (Tiffany)
+  "C-rev-agent-cv-overlapping_change": "Perubahan SOP lain juga berlaku pada periode yang sama.", // PROVISIONAL (Tiffany)
+  "C-rev-agent-cv-threads_truncated": "Tidak semua catatan bisa dibaca; jumlahnya mungkin kurang.", // PROVISIONAL (Tiffany)
+  "C-rev-agent-cv-not_enough_days": "Kurang dari 2 hari terekam di salah satu periode.", // PROVISIONAL (Tiffany)
+  "C-rev-agent-cv-no_baseline": "Tidak ada kejadian jenis ini yang tercatat sebelum perubahan.", // PROVISIONAL (Tiffany)
   "C-rev-err-forbidden": "Hanya pemilik atau supervisor yang bisa melihat tinjauan.", // PROVISIONAL
   "C-rev-retry": "Coba lagi", // PROVISIONAL
   "C-sop-outcome": "Hasil: {verdict}", // PROVISIONAL
@@ -849,6 +864,7 @@ export const EN_BASE: Record<keyof typeof ID_BASE, string> = {
   "C-prop-dir-increase": "go up",
   "C-prop-failure": "Failure condition",
   "C-prop-review": "Review on {date}",
+  "C-prop-review-draft": "Review about {date} (confirmed when approved)",
   "C-prop-censored": "Unmet requests counted here are a floor: real demand is higher, because not every request is heard or said.",
   "C-prop-err-progress": "Another proposal is being generated. Try again in a minute.",
   "C-prop-err-library": "The intervention library is not set up yet.",
@@ -869,7 +885,7 @@ export const EN_BASE: Record<keyof typeof ID_BASE, string> = {
   "C-prop-rev-owner-rejected": "The owner rejected this on {date}. Reason:", // PROVISIONAL
   "C-prop-notice-late": "Added after this proposal was made. Check the proposal against it before you decide:", // PROVISIONAL
   "C-prop-notice-stale": "Some of the evidence no longer holds. Generate again for these dates.", // PROVISIONAL
-  "C-prop-notice-sop": "The SOP has changed since this proposal was made. Generate again.", // PROVISIONAL
+  "C-prop-notice-sop": "The step this proposal rewrites has changed since it was made, so it cannot go ahead. Reject it with a reason or ask for a new proposal.", // PROVISIONAL
   "C-prop-notice-superseded": "A newer proposal exists for these dates. Decide on that one.", // PROVISIONAL
   "C-prop-act-feasible": "Feasible", // PROVISIONAL
   "C-prop-act-approve": "Approve", // PROVISIONAL
@@ -896,7 +912,7 @@ export const EN_BASE: Record<keyof typeof ID_BASE, string> = {
   "C-prop-err-not-reviewable": "This proposal cannot be reviewed.", // PROVISIONAL
   "C-prop-err-superseded": "A newer proposal exists for these dates. The list is updated.", // PROVISIONAL
   "C-prop-err-stale": "Some of the evidence no longer holds, so this cannot go ahead. Generate again for these dates.", // PROVISIONAL
-  "C-prop-err-sop-changed": "The SOP has changed, so this cannot go ahead. Generate again.", // PROVISIONAL
+  "C-prop-err-sop-changed": "The step this proposal rewrites has changed, so this cannot go ahead. Reject it with a reason or ask for a new proposal.", // PROVISIONAL
   "C-prop-err-constraint-added": "A constraint was just added. Check it, then decide again.", // PROVISIONAL
   "C-prop-err-forbidden-decide": "Your role cannot make this decision.", // PROVISIONAL
   "C-prop-err-sop-limit": "The SOP already has 200 steps, so a new step cannot be added.", // PROVISIONAL
@@ -987,6 +1003,19 @@ export const EN_BASE: Record<keyof typeof ID_BASE, string> = {
   "C-rev-ff": "Fast-forward to the review date (simulated)", // PROVISIONAL
   "C-rev-ff-done": "Simulated review created.", // PROVISIONAL
   "C-rev-ff-none": "No SOP change left to review.", // PROVISIONAL
+  "C-rev-ff-busy": "Bee6 is reviewing…", // PROVISIONAL
+  "C-rev-ff-estimate": "Bee6 reads the change and the notes from before and after. Usually {min} to {max} seconds.", // PROVISIONAL
+  "C-rev-ff-longer": "Taking longer than usual. If it takes more than about {cap} seconds, the result appears without the explanation.", // PROVISIONAL
+  "C-rev-agent-missing": "Bee6 could not write an explanation this time. The suggestion and the numbers above are not affected.", // PROVISIONAL
+  "C-rev-agent-kick": "Bee6 explains", // PROVISIONAL
+  "C-rev-agent-note": "Bee6 wrote this explanation. The suggestion above comes from a fixed rule, and the verdict is yours.", // PROVISIONAL
+  "C-rev-agent-cv-short_window": "Short windows: only a few captured days on each side.", // PROVISIONAL
+  "C-rev-agent-cv-category_count_not_problem_count": "The counts are moments of one kind (for example customer questions), not proof of cause.", // PROVISIONAL
+  "C-rev-agent-cv-staff_answers_affect_count": "Some of these moments count only after staff confirmed them in the debrief.", // PROVISIONAL
+  "C-rev-agent-cv-overlapping_change": "Another SOP change was in force in the same period.", // PROVISIONAL
+  "C-rev-agent-cv-threads_truncated": "Not every note could be read; the counts may be low.", // PROVISIONAL
+  "C-rev-agent-cv-not_enough_days": "Fewer than 2 captured days in one of the windows.", // PROVISIONAL
+  "C-rev-agent-cv-no_baseline": "No moments of this kind were noted before the change.", // PROVISIONAL
   "C-rev-err-forbidden": "Only the owner or a supervisor can see reviews.", // PROVISIONAL
   "C-rev-retry": "Try again", // PROVISIONAL
   "C-sop-outcome": "Outcome: {verdict}", // PROVISIONAL

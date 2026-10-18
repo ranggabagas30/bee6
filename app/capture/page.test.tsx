@@ -2,6 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEBRIEF_DONE_FLAG_KEY, DEBRIEF_DONE_SUMMARY_KEY } from "@/lib/debrief/constants";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { waitForBridgePhase } from "@/lib/testing/capture-bridge";
+import { waitForCondition } from "@/lib/testing/wait-for-condition";
 
 /**
  * /capture (R-P1 rewrite): Mulai, Selesai and Batalkan replace the old
@@ -102,6 +104,8 @@ const startCaptureSession = vi.fn(
     return session;
   },
 );
+/** 18 Oct: the page hard-aborts every live engine on sign-out and unmount. */
+const abortAllCaptureUploads = vi.fn();
 vi.mock("@/lib/capture/browser/session", () => ({
   startCaptureSession: (
     auth: unknown,
@@ -109,6 +113,7 @@ vi.mock("@/lib/capture/browser/session", () => ({
     cb: FakeCallbacks,
     sessionId?: string,
   ) => startCaptureSession(auth, config, cb, sessionId),
+  abortAllCaptureUploads: () => abortAllCaptureUploads(),
 }));
 
 let uuidCounter = 0;
@@ -134,6 +139,9 @@ afterEach(() => {
   fakeDroppedCount = 0;
   fakeQueuedCount = 0;
   uuidCounter = 0;
+  // mockReset, not only mockImplementation: a `mockImplementationOnce` a failed test never consumed would otherwise
+  // leak into the next test (clearAllMocks keeps the once-queue) and turn one timeout into a cascade of failures.
+  postDemoClosing.mockReset();
   postDemoClosing.mockImplementation(async () => ({ ok: true, data: { closing_reached: true } }) as never);
 });
 
@@ -158,13 +166,13 @@ function config(
 /**
  * R-19: the full sandbox journey profile (lib/capture/contract.ts DemoSessionProfileSchema). The old two-key
  * `{max_ms, script_id}` shape no longer parses on the server, so the page fixtures carry the real one: a fresh
- * sandbox on day 1 of 3 with the 10-minute hard stop.
+ * sandbox on day 1 of 5 with the 10-minute hard stop.
  */
 const DEMO_PROFILE = {
   max_ms: 600_000,
   script_id: "bakery-v2",
   day: 1,
-  days_total: 3,
+  days_total: 5,
   days_done: 0,
   closing_reached: false,
   open_session: null,
@@ -173,6 +181,17 @@ const DEMO_PROFILE = {
 
 // R-25 (ruling R10, board P2-05): on a sandbox the one red footer link replaces "Cancel session" and the header Sign out.
 const SIGN_OUT_RUNNING_LINK = "Sign out (cancels today's session)";
+
+/**
+ * Moves the faked clock and lets React land the re-renders it causes before the test looks at the screen. Without the
+ * act, a tick's state update is rendered by the scheduler a task after `advanceTimersByTimeAsync` resolves, so a
+ * synchronous assertion straight after it reads the previous frame whenever the machine is loaded.
+ */
+async function advance(ms: number) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+}
 
 function pinClock(iso: string) {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -328,13 +347,13 @@ describe("CapturePage running state: Selesai (UX-03 §5.5, technical spec §8.3 
 
   it("at start+4h: the End button appears", async () => {
     await renderRunning("2026-10-12T01:00:00Z");
-    await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+    await advance(4 * 60 * 60_000);
     expect(screen.getByRole("button", { name: "End" })).toBeTruthy();
   });
 
   it("tapping End opens the confirm panel; Belum, lanjut closes it with nothing changed", async () => {
     await renderRunning("2026-10-12T01:00:00Z");
-    await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+    await advance(4 * 60 * 60_000);
     fireEvent.click(screen.getByRole("button", { name: "End" }));
     expect(screen.getByText("End today's operations?")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Not yet, keep going" }));
@@ -344,7 +363,7 @@ describe("CapturePage running state: Selesai (UX-03 §5.5, technical spec §8.3 
 
   it("Ya, selesai posts the end, stops the engine and shows the Ended state", async () => {
     await renderRunning("2026-10-12T01:00:00Z");
-    await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+    await advance(4 * 60 * 60_000);
     fireEvent.click(screen.getByRole("button", { name: "End" }));
     fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
     await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
@@ -366,7 +385,7 @@ describe("CapturePage running state: Selesai (UX-03 §5.5, technical spec §8.3 
     await renderReady();
     fireEvent.click(await screen.findByRole("button", { name: "Start" }));
     await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
-    await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+    await advance(4 * 60 * 60_000);
     fireEvent.click(screen.getByRole("button", { name: "End" }));
     expect(
       screen.getByText("The 1-hour debrief starts now. This cannot be undone. You can tap Start again Wed 14 Oct at 01:00."),
@@ -393,7 +412,7 @@ describe("CapturePage running state: Batalkan (UX-03 §5.6, technical spec §8.9
       name: "Yes, delete session",
     }) as HTMLButtonElement;
     expect(deleteBtn.disabled).toBe(true);
-    await vi.advanceTimersByTimeAsync(1_000);
+    await advance(1_000);
     expect(deleteBtn.disabled).toBe(false);
   });
 
@@ -410,7 +429,7 @@ describe("CapturePage running state: Batalkan (UX-03 §5.6, technical spec §8.9
     vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
     await renderRunning();
     fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
-    await vi.advanceTimersByTimeAsync(1_000);
+    await advance(1_000);
     fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
     await waitFor(() => expect(postSessionDiscard).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
@@ -422,7 +441,7 @@ describe("CapturePage running state: Batalkan (UX-03 §5.6, technical spec §8.9
     vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
     await renderRunning();
     fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
-    await vi.advanceTimersByTimeAsync(15_000);
+    await advance(15_000);
     expect(screen.queryByText(/Cancel the session started at/)).toBeNull();
     expect(postSessionDiscard).not.toHaveBeenCalled();
     expect(screen.getByText("Listening")).toBeTruthy();
@@ -433,7 +452,7 @@ describe("CapturePage running state: Batalkan (UX-03 §5.6, technical spec §8.9
     vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
     await renderRunning();
     fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
-    await vi.advanceTimersByTimeAsync(1_000);
+    await advance(1_000);
     fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
     await waitFor(() => expect(screen.getByText("Session cancelled")).toBeTruthy());
   });
@@ -473,7 +492,7 @@ describe("CapturePage: auto-stop enforcement (technical spec §8.7)", () => {
     await renderRunning("2026-10-12T01:00:00Z"); // Mon 08:00 WIB
     // Mon 08:00 WIB -> auto-stop at Mon 23:00 WIB is 15h away; advance one
     // extra tick past it so a 30s-tick boundary lands strictly after it.
-    await vi.advanceTimersByTimeAsync(15 * 60 * 60_000 + 30_000);
+    await advance(15 * 60 * 60_000 + 30_000);
     await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
     const [, sessionId, body] = postSessionEnd.mock.calls[0]!;
     expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);
@@ -487,7 +506,7 @@ describe("CapturePage: auto-stop enforcement (technical spec §8.7)", () => {
   it("does not auto-stop well before close(D)+1h", async () => {
     await renderRunning("2026-10-12T01:00:00Z"); // Mon 08:00 WIB
     // Past the 4h Selesai cut-off, but 11h short of the 15h auto-stop mark.
-    await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+    await advance(4 * 60 * 60_000);
     expect(postSessionEnd).not.toHaveBeenCalled();
     expect(screen.getByText("Listening")).toBeTruthy();
   });
@@ -553,14 +572,14 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
   }
   /** Plan 5.4/5.5: "Jump to closing time" lives in the judge guide card (PR-5), which calls the page's action through the bridge. */
   async function reachClosing() {
-    await waitFor(() => expect(readCaptureBridge()?.state.phase).toBe("listening"));
+    await waitForBridgePhase("listening");
     act(() => readCaptureBridge()!.actions.jumpToClosing());
     await waitFor(() => expect(postDemoClosing).toHaveBeenCalledTimes(1));
     return (await screen.findByRole("button", { name: "End today" })) as HTMLButtonElement;
   }
   /** The guide's own 409 branch; the page's alert line shows the same copy under End. */
   async function jumpAndWaitForError() {
-    await waitFor(() => expect(readCaptureBridge()?.state.phase).toBe("listening"));
+    await waitForBridgePhase("listening");
     act(() => readCaptureBridge()!.actions.jumpToClosing());
     await waitFor(() => expect(postDemoClosing).toHaveBeenCalledTimes(1));
   }
@@ -614,13 +633,16 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
         "Bee6 has not heard enough yet (3 of 5). Wait a few seconds for the last card to upload, then try again.",
       ),
     );
-    expect(readCaptureBridge()?.state.closingError).toEqual({ key: "C-sess-closing-not-enough", vars: { have: 3, need: 5 } });
+    // the bridge snapshot is published by a passive effect, a task after the alert line it mirrors
+    await waitForCondition(() =>
+      expect(readCaptureBridge()?.state.closingError).toEqual({ key: "C-sess-closing-not-enough", vars: { have: 3, need: 5 } }),
+    );
     expect((screen.getByRole("button", { name: END_LOCKED }) as HTMLButtonElement).disabled).toBe(true);
     expect(postSessionEnd).not.toHaveBeenCalled();
     act(() => readCaptureBridge()!.actions.jumpToClosing());
     await screen.findByRole("button", { name: "End today" });
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(readCaptureBridge()?.state.closingError).toBeNull();
+    await waitForCondition(() => expect(readCaptureBridge()?.state.closingError).toBeNull());
   });
 
   it("closing failure without details (network, or another 409): the generic line, End stays locked", async () => {
@@ -643,16 +665,16 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
     expect(screen.getByRole("button", { name: "End today" })).toBeTruthy();
   });
 
-  // Q6: "Day n of 3 · date" on the phone, sandbox only.
-  it("shows 'Day 1 of 3 · Mon 12 Oct' before and during the session; the pilot shows no such line", async () => {
+  // Q6: "Day n of 5 · date" on the phone, sandbox only.
+  it("shows 'Day 1 of 5 · Mon 12 Oct' before and during the session; the pilot shows no such line", async () => {
     pinClock(MON_2230_WIB);
     fetchCaptureConfig.mockResolvedValue(demoConfig());
     await renderReady();
     await screen.findByRole("button", { name: "Start" });
-    expect(screen.getByText("Day 1 of 3 · Mon 12 Oct")).toBeTruthy();
+    expect(screen.getByText("Day 1 of 5 · Mon 12 Oct")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Start" }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Listening" })).toBeTruthy());
-    expect(screen.getByText("Day 1 of 3 · Mon 12 Oct")).toBeTruthy();
+    expect(screen.getByText("Day 1 of 5 · Mon 12 Oct")).toBeTruthy();
     cleanup();
     const { demo_session: _drop, ...pilot } = demoConfig();
     fetchCaptureConfig.mockResolvedValue(pilot);
@@ -661,19 +683,19 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
     expect(screen.queryByText(/Day \d of \d/)).toBeNull();
   });
 
-  it("day 2 of 3 reads from the profile", async () => {
+  it("day 2 of 5 reads from the profile", async () => {
     pinClock(MON_2230_WIB);
     fetchCaptureConfig.mockResolvedValue(demoConfig({ demo_session: { ...DEMO_PROFILE, day: 2, days_done: 1 } }));
     await renderReady();
     await screen.findByRole("button", { name: "Start" });
-    expect(screen.getByText("Day 2 of 3 · Mon 12 Oct")).toBeTruthy();
+    expect(screen.getByText("Day 2 of 5 · Mon 12 Oct")).toBeTruthy();
   });
 
   it("hard-stops at start + 10:00 with end_reason auto_stop and no confirm dialog (not at the 30 s tick)", async () => {
     await renderDemoRunning();
-    await vi.advanceTimersByTimeAsync(9 * 60_000 + 58_000);
+    await advance(9 * 60_000 + 58_000);
     expect(postSessionEnd).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(3_000);
+    await advance(3_000);
     await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
     expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "auto_stop" });
     await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
@@ -683,10 +705,10 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
 
   it("a start after close + 1 h (23:10 WIB, close 22:00) is not stopped at once: nothing before 9:58, exactly one auto_stop at 10:00", async () => {
     await renderDemoRunning("2026-10-12T16:10:00Z"); // Mon 23:10 WIB
-    await vi.advanceTimersByTimeAsync(9 * 60_000 + 58_000);
+    await advance(9 * 60_000 + 58_000);
     expect(postSessionEnd).not.toHaveBeenCalled();
     expect(screen.getByRole("heading", { name: "Listening" })).toBeTruthy();
-    await vi.advanceTimersByTimeAsync(3_000);
+    await advance(3_000);
     await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
     expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "auto_stop" });
   });
@@ -694,7 +716,7 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
   it("the auto-stop never needs closing: End stays locked and the stop still fires", async () => {
     await renderDemoRunning();
     expect((screen.getByRole("button", { name: END_LOCKED }) as HTMLButtonElement).disabled).toBe(true);
-    await vi.advanceTimersByTimeAsync(10 * 60_000 + 1_000);
+    await advance(10 * 60_000 + 1_000);
     await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
     expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "auto_stop" });
     expect(postDemoClosing).not.toHaveBeenCalled();
@@ -802,7 +824,7 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
     await renderReady();
     // The dev panel has its own "Start" (a dev session, no Mulai bookkeeping); tap the page's Mulai button.
     const panel = await screen.findByTestId("dev-panel");
-    await screen.findByText("Day 1 of 3 · Mon 12 Oct");
+    await screen.findByText("Day 1 of 5 · Mon 12 Oct");
     const mulai = screen.getAllByRole("button", { name: "Start" }).find((b) => !panel.contains(b))!;
     fireEvent.click(mulai);
     await waitFor(() => expect(screen.getByRole("heading", { name: "Listening" })).toBeTruthy());
@@ -827,14 +849,14 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
       lastCallbacks?.onEvent?.({ type: "segment_accepted", lines: 2 });
     });
     await waitFor(() => expect(screen.getByTestId("dev-readouts").textContent).toMatch(/Lines heard: 2/));
-    await vi.advanceTimersByTimeAsync(1_000);
+    await advance(1_000);
     fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
-    await vi.advanceTimersByTimeAsync(1_000);
+    await advance(1_000);
     fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
     await waitFor(() => expect(postSessionDiscard).toHaveBeenCalledTimes(1));
     // the pilot offers Start again from the next day's 01:00; move the clock there and let the page's 30 s tick see it
     vi.setSystemTime(new Date("2026-10-12T18:00:00Z"));
-    await vi.advanceTimersByTimeAsync(30_000);
+    await advance(30_000);
     await waitFor(() => expect(pilotMulai().getAttribute("aria-disabled")).toBeNull());
     fireEvent.click(pilotMulai());
     await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
@@ -866,7 +888,7 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
     await renderReady();
     fireEvent.click(await screen.findByRole("button", { name: "Start" }));
     await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
-    await vi.advanceTimersByTimeAsync(11 * 60_000);
+    await advance(11 * 60_000);
     expect(postSessionEnd).not.toHaveBeenCalled();
     expect(screen.getByText("Listening")).toBeTruthy();
     expect(postDemoClosing).not.toHaveBeenCalled();
@@ -927,7 +949,7 @@ describe("CapturePage judge-guide bridge (R-19 PR-5, sandbox only)", () => {
     cleanup();
     await renderDemoIdle();
     await waitFor(() => expect(readCaptureBridge()).not.toBeNull());
-    expect(bridge().state).toMatchObject({ profile: DEMO_PROFILE, phase: "ready", sessionId: null, linesThisSession: 0, closingBusy: false, closingError: null, micTrouble: false, uploadBusy: false });
+    expect(bridge().state).toMatchObject({ profile: DEMO_PROFILE, phase: "ready", sessionId: null, linesThisSession: 0, closingBusy: false, closingError: null, micTrouble: false, uploadBusy: false, droppedCount: 0 });
     expect(typeof bridge().actions.jumpToClosing).toBe("function");
     expect(typeof bridge().actions.refetchConfig).toBe("function");
   });
@@ -976,6 +998,14 @@ describe("CapturePage judge-guide bridge (R-19 PR-5, sandbox only)", () => {
     expect(bridge().state.micTrouble).toBe(false);
     act(() => lastCallbacks?.onStatus?.(ok));
     await waitFor(() => expect(bridge().state.uploadBusy).toBe(false));
+  });
+
+  it("the engine's droppedCount is published to the guide bridge (stuck-upload hint)", async () => {
+    await renderDemoRunning();
+    await waitFor(() => expect(bridge().state.droppedCount).toBe(0));
+    const dropped = { state: "listening", queuedCount: 0, droppedCount: 1, micError: null, lastUploadHttpStatus: 503, lostSinceSuccess: true, headFailedAttempts: 0 };
+    act(() => lastCallbacks?.onStatus?.(dropped));
+    await waitFor(() => expect(bridge().state.droppedCount).toBe(1));
   });
 
   it("a stalled upload (headFailedAttempts 1, healthy mic) publishes uploadBusy and no micTrouble (R-23)", async () => {
@@ -1141,7 +1171,7 @@ describe("CapturePage judge-guide bridge (R-19 PR-5, sandbox only)", () => {
     expect(closedHandle.getAttribute("aria-expanded")).toBe("false");
     // R-25 T6: the handle title names the card on screen ("Read card n of 5 aloud"), not the card heading.
     expect(closedHandle.textContent).toContain("Read card 1 of 5 aloud");
-    expect(closedHandle.textContent).toContain("Day 1 of 3");
+    expect(closedHandle.textContent).toContain("Day 1 of 5");
     const reserve = container.querySelector("[data-testid='guide-sheet-reserve']") as HTMLElement;
     expect(reserve.style.height).toBe(`calc(${SHEET_RESERVE_PX}px + env(safe-area-inset-bottom))`);
     const precedes = (el: Element) => Boolean(el.compareDocumentPosition(reserve) & Node.DOCUMENT_POSITION_FOLLOWING);
@@ -1214,7 +1244,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
   }
   /** "Jump to closing time" now lives in the judge guide (PR-5): the test calls the action the guide calls. */
   async function reachClosing() {
-    await waitFor(() => expect(readCaptureBridge()?.state.phase).toBe("listening"));
+    await waitForBridgePhase("listening");
     act(() => readCaptureBridge()!.actions.jumpToClosing());
     await screen.findByRole("button", { name: "End today" });
   }
@@ -1346,7 +1376,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       await settle();
       fireEvent.click(screen.getByRole("button", { name: "Start" }));
       await settle();
-      expect(readCaptureBridge()?.state.phase).toBe("listening");
+      await waitForBridgePhase("listening");
       act(() => readCaptureBridge()!.actions.jumpToClosing());
       await settle();
       expect(screen.getByRole("button", { name: "End today" })).toBeTruthy(); // closing reached
@@ -1359,7 +1389,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       fireEvent.click(screen.getByRole("button", { name: "Sign out anyway" }));
       await settle();
       expect(screen.getByText("Finishing uploads…")).toBeTruthy();
-      expect(fakeSessions[0]!.stop).toHaveBeenCalledWith({ drainMs: 15_000 });
+      expect(fakeSessions[0]!.stop).toHaveBeenCalledWith({ mode: "finish", drainMs: 15_000 });
       // With the engine's 5 s default the page would already be gone here.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(14_000);
@@ -1796,7 +1826,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       await renderReady();
       fireEvent.click(await screen.findByRole("button", { name: "Start" }));
       await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
-      await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+      await advance(4 * 60 * 60_000);
       fireEvent.click(screen.getByRole("button", { name: "End" }));
       fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
       await waitFor(() => expect(screen.getByText("Debrief running")).toBeTruthy());
@@ -1919,6 +1949,9 @@ describe("CapturePage dev panel (DEV-01, unaffected by the Mulai rewrite)", () =
     fetchCaptureConfig.mockResolvedValue(config({ sun: null }));
     await renderReady();
     const panel = await screen.findByTestId("dev-panel");
+    // The panel is mounted from the first render, before the config has loaded, and its Start does nothing without the
+    // config. "Not started" (the status banner) only shows once the page is ready.
+    await screen.findByText("Not started");
     fireEvent.click(within(panel).getByRole("button", { name: /^start$/i }));
     await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
     expect(postSessionStart).not.toHaveBeenCalled();
@@ -1929,6 +1962,9 @@ describe("CapturePage dev panel (DEV-01, unaffected by the Mulai rewrite)", () =
     fetchCaptureConfig.mockResolvedValue(config({ sun: null }));
     await renderReady();
     const panel = await screen.findByTestId("dev-panel");
+    // The panel is mounted from the first render, before the config has loaded, and its Start does nothing without the
+    // config. "Not started" (the status banner) only shows once the page is ready.
+    await screen.findByText("Not started");
     fireEvent.click(within(panel).getByRole("button", { name: /^start$/i }));
     await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
     fireEvent.click(within(panel).getByRole("button", { name: /^pause$/i }));
@@ -1958,7 +1994,7 @@ describe("CapturePage: debrief entry card (R-07, technical spec §8.10)", () => 
     await renderReady();
     fireEvent.click(await screen.findByRole("button", { name: "Start" }));
     await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
-    await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+    await advance(4 * 60 * 60_000);
     fireEvent.click(screen.getByRole("button", { name: "End" }));
     fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
     await waitFor(() => expect(screen.getByText("Debrief running")).toBeTruthy());
@@ -1975,7 +2011,7 @@ describe("CapturePage: debrief entry card (R-07, technical spec §8.10)", () => 
     fireEvent.click(await screen.findByRole("button", { name: "Start" }));
     await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
     // Mon 08:00 WIB -> Tue 02:00 WIB is 18h away; one extra tick past it.
-    await vi.advanceTimersByTimeAsync(18 * 60 * 60_000 + 30_000);
+    await advance(18 * 60 * 60_000 + 30_000);
     await waitFor(() => expect(screen.getByText("Ended automatically at 02:00")).toBeTruthy());
     expect(screen.getByText("Debrief running")).toBeTruthy();
   });
@@ -2019,7 +2055,7 @@ describe("CapturePage: debrief entry card (R-07, technical spec §8.10)", () => 
     fireEvent.click(await screen.findByRole("button", { name: "Start" }));
     await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
-    await vi.advanceTimersByTimeAsync(1_000);
+    await advance(1_000);
     fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
     await waitFor(() => expect(screen.getByText("Session cancelled")).toBeTruthy());
     expect(screen.queryByText("Debrief running")).toBeNull();
@@ -2053,5 +2089,133 @@ describe("CapturePage: debrief entry card (R-07, technical spec §8.10)", () => 
     await renderReady();
     await waitFor(() => expect(screen.getByRole("button", { name: "Start" })).toBeTruthy());
     expect(screen.queryByText("Debrief running")).toBeNull();
+  });
+});
+
+// 18 Oct (capture-retry-after-end): which stop mode each page trigger asks for. "finish" keeps retrying server refusals
+// in the background; "hard" starts no new upload. Sign-out and unmount also hard-abort every live engine.
+describe("CapturePage stop modes (18 Oct: retry after End)", () => {
+  const MON_2230_WIB = "2026-10-12T15:30:00Z";
+  const pilotConfig = () =>
+    config({ sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } });
+  const demoConfig = () => ({ ...pilotConfig(), capture_mode: "room", demo_session: DEMO_PROFILE });
+
+  async function renderPilotRunning() {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date("2026-10-12T01:00:00Z")); // Mon 08:00 WIB
+    fetchCaptureConfig.mockResolvedValue(pilotConfig());
+    const view = await renderReady();
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    return view;
+  }
+  async function renderDemoRunning() {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date(MON_2230_WIB));
+    fetchCaptureConfig.mockResolvedValue(demoConfig());
+    const view = await renderReady();
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Listening" })).toBeTruthy());
+    return view;
+  }
+  async function pilotSelesai() {
+    await advance(4 * 60 * 60_000);
+    fireEvent.click(screen.getByRole("button", { name: "End" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
+    await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
+  }
+  const settle = () =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+  it("Selesai stops in finish mode and does not abort the other engines", async () => {
+    await renderPilotRunning();
+    await pilotSelesai();
+    expect(fakeSessions[0]!.stop).toHaveBeenCalledWith({ mode: "finish" });
+    expect(abortAllCaptureUploads).not.toHaveBeenCalled();
+  });
+
+  it("the pilot auto-stop stops in finish mode", async () => {
+    await renderPilotRunning();
+    await advance(15 * 60 * 60_000 + 30_000);
+    await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
+    expect(fakeSessions[0]!.stop).toHaveBeenCalledWith({ mode: "finish" });
+  });
+
+  it("the sandbox 10:00 hard stop stops in finish mode", async () => {
+    await renderDemoRunning();
+    await advance(10 * 60_000 + 3_000);
+    await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
+    expect(fakeSessions[0]!.stop).toHaveBeenCalledWith({ mode: "finish" });
+  });
+
+  it("Batalkan (discard) stops in hard mode", async () => {
+    await renderPilotRunning();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
+    await advance(1_000);
+    fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
+    await waitFor(() => expect(postSessionDiscard).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
+    expect(fakeSessions[0]!.stop).toHaveBeenCalledWith({ mode: "hard" });
+  });
+
+  it("sandbox sign-out before closing stops hard, then aborts every engine before leaving", async () => {
+    await renderDemoRunning();
+    fireEvent.click(screen.getByRole("button", { name: SIGN_OUT_RUNNING_LINK }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign out and cancel" }));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/"));
+    expect(fakeSessions[0]!.stop).toHaveBeenCalledWith({ mode: "hard" });
+    expect(abortAllCaptureUploads).toHaveBeenCalledTimes(1);
+    expect(abortAllCaptureUploads.mock.invocationCallOrder[0]!).toBeLessThan(replace.mock.invocationCallOrder[0]!);
+  });
+
+  it("sandbox sign-out after closing drains in finish mode for 15 s, then aborts what is left", async () => {
+    await renderDemoRunning();
+    await waitForBridgePhase("listening");
+    act(() => readCaptureBridge()!.actions.jumpToClosing());
+    await screen.findByRole("button", { name: "End today" });
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign out anyway" }));
+    await settle();
+    expect(replace).toHaveBeenCalledWith("/");
+    const stop = fakeSessions[0]!.stop;
+    expect(stop).toHaveBeenCalledWith({ mode: "finish", drainMs: 15_000 });
+    expect(abortAllCaptureUploads).toHaveBeenCalled();
+    expect(stop.mock.invocationCallOrder[0]!).toBeLessThan(abortAllCaptureUploads.mock.invocationCallOrder[0]!);
+  });
+
+  it("unmounting while running stops hard and aborts every engine", async () => {
+    const { unmount } = await renderPilotRunning();
+    unmount();
+    expect(fakeSessions[0]!.stop).toHaveBeenCalledWith({ mode: "hard" });
+    expect(abortAllCaptureUploads).toHaveBeenCalled();
+  });
+
+  it("unmounting after Selesai (no running session) still kills the background drain", async () => {
+    const { unmount } = await renderPilotRunning();
+    await pilotSelesai();
+    expect(abortAllCaptureUploads).not.toHaveBeenCalled();
+    unmount();
+    expect(abortAllCaptureUploads).toHaveBeenCalled();
+  });
+
+  it("a new Start after a finish-mode stop leaves the old engine to drain: one stop, no abort", async () => {
+    isDevControlsEnabled.mockReturnValue(true);
+    fetchCaptureConfig.mockResolvedValue(config({ sun: null }));
+    await renderReady();
+    const panel = await screen.findByTestId("dev-panel");
+    await screen.findByText("Not started");
+    fireEvent.click(within(panel).getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
+    fireEvent.click(within(panel).getByRole("button", { name: /^pause$/i }));
+    await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
+    fireEvent.click(within(panel).getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(2));
+    expect(fakeSessions[0]!.stop).toHaveBeenCalledTimes(1);
+    expect(fakeSessions[0]!.stop).toHaveBeenCalledWith({ mode: "finish" });
+    expect(abortAllCaptureUploads).not.toHaveBeenCalled();
   });
 });

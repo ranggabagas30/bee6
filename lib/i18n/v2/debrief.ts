@@ -16,7 +16,7 @@
 export const debriefID = {
   // P2-08 Preparing your questions (W7: keep the page open and the screen on)
   "C-d2-prep-h": "Menyiapkan pertanyaanmu", // PROVISIONAL
-  "C-d2-prep-1": "Bee6 sedang membaca catatan hari ini untuk menentukan apa yang perlu ditanyakan. Pertanyaanmu muncul dalam sekitar 2 sampai 4 menit.", // PROVISIONAL
+  "C-d2-prep-1": "Bee6 sedang membaca catatan hari ini dan menyusun pertanyaanmu. Pertanyaanmu muncul dalam sekitar 2 sampai 4 menit, kadang sedikit lebih lama.", // PROVISIONAL
   "C-d2-prep-2": "Biarkan halaman ini terbuka dan layar tetap menyala. Jika ditutup, pertanyaan menunggu lebih lama, tetapi waktu debrief 60 menit terus berjalan.", // PROVISIONAL
   "C-d2-prep-3": "Mulai terkunci sampai debrief selesai.", // PROVISIONAL
   // waiting for more (every offered question answered, server still labelling)
@@ -31,7 +31,7 @@ export const debriefID = {
   "C-d2-timeout-unv": "Pertanyaan yang tidak dijawab dicatat sebagai belum terverifikasi.", // PROVISIONAL
   // ---- R-25 T7 (boards P2-08..P2-10b, L2-07..L2-09b): page-2 debrief screens. Append-only. EN from the boards, ID PROVISIONAL. ----
   // P2-08 Preparing
-  "C-d2-prep-sub": "Bee6 sedang membaca catatan hari ini untuk menentukan apa yang perlu ditanyakan. Mohon tunggu.", // PROVISIONAL
+  "C-d2-prep-sub": "Bee6 sedang membaca catatan hari ini dan menyusun pertanyaanmu. Ini bisa memakan waktu sedikit lebih lama.", // PROVISIONAL
   "C-d2-prep-window": "Hari {n} · jendela debrief 60 menit", // PROVISIONAL
   "C-d2-prep-window-plain": "Jendela debrief 60 menit", // PROVISIONAL
   "C-d2-prep-lead": "Biarkan halaman ini terbuka dan layar tetap menyala.", // PROVISIONAL
@@ -69,7 +69,7 @@ export const debriefID = {
 
 export const debriefEN: Record<keyof typeof debriefID, string> = {
   "C-d2-prep-h": "Preparing your questions",
-  "C-d2-prep-1": "Bee6 is reading today's notes to decide what to ask. Your questions appear in about 2 to 4 minutes.",
+  "C-d2-prep-1": "Bee6 is reading today's notes and writing your questions. Your questions appear in about 2 to 4 minutes, sometimes a little longer.",
   "C-d2-prep-2": "Keep this page open and the screen on. If you close it, the questions wait longer, but the 60-minute debrief clock keeps running.",
   "C-d2-prep-3": "Start is locked until the debrief is done.",
   "C-d2-wait-h": "Checking for more questions…",
@@ -79,7 +79,7 @@ export const debriefEN: Record<keyof typeof debriefID, string> = {
   "C-d2-done-all-one": "Thank you. Today's only question is answered and today is closed.",
   "C-d2-done-some": "{k} of {n} were not answered and are recorded as unverified.",
   "C-d2-timeout-unv": "Questions left unanswered are recorded as unverified.",
-  "C-d2-prep-sub": "Bee6 is reading today's notes to decide what to ask. Please wait.",
+  "C-d2-prep-sub": "Bee6 is reading today's notes and writing your questions. This can take a little longer.",
   "C-d2-prep-window": "Day {n} · debrief window 60 min",
   "C-d2-prep-window-plain": "Debrief window 60 min",
   "C-d2-prep-lead": "Please keep this page open and the screen on.",

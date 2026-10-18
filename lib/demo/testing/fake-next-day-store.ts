@@ -44,6 +44,17 @@ export function fakeNextDayStore(seed: {
     state.outlet = { ...state.outlet!, sandbox: { ...sandbox(), ...patch } };
   };
 
+  /** The four facts of `NextDayStore.readJumpBlockers`, read from the fake's docs (this outlet only). */
+  const jumpBlockers = (outletId: string) => {
+    const proposals = [...col(COLLECTIONS.proposals).values()].filter((p) => p.outlet_id === outletId && p.content != null);
+    return {
+      proposal_with_content: proposals.length > 0,
+      open_proposal_with_content: proposals.some((p) => p.status === "awaiting_supervisor" || p.status === "awaiting_owner"),
+      shipped_change_count: [...col(COLLECTIONS.sopVersions).values()].filter((v) => v.outlet_id === outletId && v.source === "proposal").length,
+      review_count: [...col(COLLECTIONS.reviews).values()].filter((r) => r.outlet_id === outletId).length,
+    };
+  };
+
   const store: NextDayStore = {
     async getOutlet(id) {
       calls.push(`getOutlet:${id}`);
@@ -74,7 +85,7 @@ export function fakeNextDayStore(seed: {
         open_session: pickOpenSession(sessions.filter((s) => s.ended_at_ms === null) as unknown as CaptureSession[]),
         last_ended: last,
         pending_unlabelled_lines: pending,
-        proposal_with_content: [...col(COLLECTIONS.proposals).values()].some((p) => p.outlet_id === outletId && p.content !== null),
+        ...jumpBlockers(outletId),
         proposal_lock_live: state.lockExpires !== null && state.lockExpires > nowMs,
         open_questions: mine(COLLECTIONS.questions).filter((q) => q.status === "open").length,
       };
@@ -90,9 +101,9 @@ export function fakeNextDayStore(seed: {
       calls.push("readCounter");
       return state.counters.get(counterId) ?? 0;
     },
-    async proposalWithContent(outletId) {
-      calls.push("proposalWithContent");
-      return [...col(COLLECTIONS.proposals).values()].some((p) => p.outlet_id === outletId && p.content != null);
+    async readJumpBlockers(outletId) {
+      calls.push("readJumpBlockers");
+      return jumpBlockers(outletId);
     },
     async takeShiftMarker(_outletId, nowMs, expectedCount) {
       calls.push("takeShiftMarker");
@@ -124,7 +135,7 @@ export function fakeNextDayStore(seed: {
     async readShiftDocs(outletId, limitPerCollection) {
       calls.push("readShiftDocs");
       const out: ShiftDoc[] = [];
-      for (const c of [COLLECTIONS.captureSessions, COLLECTIONS.segments, COLLECTIONS.threads, COLLECTIONS.questions, COLLECTIONS.corrections, COLLECTIONS.labelUnits, COLLECTIONS.proposals]) {
+      for (const c of [COLLECTIONS.captureSessions, COLLECTIONS.segments, COLLECTIONS.threads, COLLECTIONS.questions, COLLECTIONS.corrections, COLLECTIONS.labelUnits, COLLECTIONS.proposals, COLLECTIONS.sopVersions]) {
         let n = 0;
         for (const [id, data] of col(c)) {
           if (data.outlet_id !== outletId) continue;

@@ -20,6 +20,11 @@ export interface SopVersionView {
   steps: SopStepView[];
   /** The change that made this version, or null on the seed. */
   change: SopChangeView | null;
+  /**
+   * Only on a tab (`tabVersions`): the changes of older versions that share this version's effective date and are
+   * therefore folded into this tab (item 20). Newest first. Absent or empty otherwise.
+   */
+  alsoChanges?: SopChangeView[];
 }
 
 /** "dd/mm/yy" of a "YYYY-MM-DD" business date (the version switch label). */
@@ -84,4 +89,33 @@ export function buildVersions(overview: SopOverview): SopVersionView[] {
     date = older.effective_from_date;
   }
   return out;
+}
+
+/**
+ * Item 20 (Rangga, 18 Oct): when several versions share the same effective date (two proposals approved the same
+ * day, both starting tomorrow) only the LATEST of them gets a tab. The older ones stay in `all` (nothing is deleted),
+ * so the step origins, the table and the "see why it changed" cards still know about them: the tab carries the
+ * hidden versions' changes in `alsoChanges`. An undated version (the seed with no known date) never merges.
+ * Input and output are in the same order (SopApp holds oldest first).
+ */
+export function tabVersions(all: readonly SopVersionView[]): SopVersionView[] {
+  const tabs: SopVersionView[] = [];
+  for (const v of all) {
+    const same = v.effective_from_date === null ? [] : all.filter((o) => o.effective_from_date === v.effective_from_date);
+    const isTop = same.every((o) => o.version <= v.version);
+    if (!isTop) continue;
+    const hidden = same
+      .filter((o) => o.version < v.version)
+      .sort((a, b) => b.version - a.version)
+      .flatMap((o) => (o.change ? [o.change] : []));
+    tabs.push(hidden.length > 0 ? { ...v, alsoChanges: hidden } : v);
+  }
+  return tabs;
+}
+
+/** The version number of the tab that stands for `version` (itself unless a later version shares its date). */
+export function tabNumberOf(all: readonly SopVersionView[], version: number): number {
+  const v = all.find((o) => o.version === version);
+  if (!v || v.effective_from_date === null) return version;
+  return Math.max(...all.filter((o) => o.effective_from_date === v.effective_from_date).map((o) => o.version));
 }

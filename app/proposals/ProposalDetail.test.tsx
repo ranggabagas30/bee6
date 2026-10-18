@@ -128,7 +128,7 @@ describe("ProposalDetail — content (D2-03e)", () => {
     expect(screen.getByText("WATCH THIS METRIC")).not.toBeNull();
     expect(screen.getByText("Egg tart freshness questions per day")).not.toBeNull();
     expect(screen.getByText("REVIEW DATE")).not.toBeNull();
-    expect(screen.getByText("Wed 21 Oct")).not.toBeNull();
+    expect(screen.getByText("Review about Wed 21 Oct (confirmed when approved)")).not.toBeNull();
     expect(screen.getByText("Feasible means staff can do this in the shop. The owner approves or rejects after you.")).not.toBeNull();
   });
 
@@ -136,6 +136,52 @@ describe("ProposalDetail — content (D2-03e)", () => {
     const { onBack } = renderDetail();
     fireEvent.click(screen.getByRole("button", { name: "‹ Proposals" }));
     expect(onBack).toHaveBeenCalledTimes(1);
+  });
+});
+
+// CHK-1: the "Checked by Bee6" card sits right after the evidence block.
+describe("ProposalDetail — checked by Bee6 (CHK-1)", () => {
+  const V3 = { checks_total: 8, checks_passed: 8, rule_set: "pgate-v1", agent: "proposal-v3", revisions: 0, read_sections: null, read_facts: null } as const;
+  const V4 = { checks_total: 18, checks_passed: 18, rule_set: "pcheck-v4", agent: "proposal-v4", revisions: 1, read_sections: 1, read_facts: 2 } as const;
+  const withChecked = (checked: ProposalListItem["proposal"]["checked"]): ProposalListItem => {
+    const it = item();
+    return { ...it, proposal: { ...it.proposal, checked } };
+  };
+
+  it("v3: shows '8 OF 8 CHECKS' and the fixed-rules line, and hides the agent-reads line", () => {
+    renderDetail(withChecked(V3));
+    expect(screen.getByText("CHECKED BY BEE6 · 8 OF 8 CHECKS")).not.toBeNull();
+    expect(screen.getByText("Every check is a fixed rule in code, not the model's opinion.")).not.toBeNull();
+    expect(screen.queryByText(/The agent read/)).toBeNull();
+    expect(screen.queryByText(/Revised/)).toBeNull();
+  });
+
+  it("v4: shows the reads line with the counts, and the revision line", () => {
+    renderDetail(withChecked(V4));
+    expect(screen.getByText("CHECKED BY BEE6 · 18 OF 18 CHECKS")).not.toBeNull();
+    expect(screen.getByText("The agent read 1 SOP section(s) and 2 fact(s) before writing.")).not.toBeNull();
+    expect(screen.getByText("Revised 1 time(s) until every check passed.")).not.toBeNull();
+  });
+
+  it("sits directly after the evidence block", () => {
+    renderDetail(withChecked(V3));
+    const evidence = screen.getByText("THE EVIDENCE · 2 MOMENTS ON 2 DAYS").closest("section")!;
+    const checked = screen.getByText("CHECKED BY BEE6 · 8 OF 8 CHECKS").closest("section")!;
+    expect(evidence.nextElementSibling).toBe(checked);
+  });
+
+  it("nothing is rendered when `checked` is null or absent (the existing list still has exactly one list)", () => {
+    renderDetail(withChecked(null));
+    expect(screen.queryByText(/CHECKED BY BEE6/)).toBeNull();
+    cleanup();
+    renderDetail(item());
+    expect(screen.queryByText(/CHECKED BY BEE6/)).toBeNull();
+    expect(screen.getAllByRole("list")).toHaveLength(1);
+  });
+
+  it("shows on a feasible (hand-over) detail too, and in Bahasa", () => {
+    renderDetail(withChecked(V4), { feasible: true, lang: "id" });
+    expect(screen.getByText("DIPERIKSA BEE6 · 18 DARI 18 PEMERIKSAAN")).not.toBeNull();
   });
 });
 
@@ -260,6 +306,30 @@ describe("ProposalDetail — inline reject (D2-03f)", () => {
   });
 });
 
+describe("ProposalDetail — review date wording by status (R-FB-15)", () => {
+  it("awaiting_supervisor shows the estimate wording with (confirmed when approved)", () => {
+    renderDetail(item("awaiting_supervisor"));
+    expect(screen.getByText("Review about Wed 21 Oct (confirmed when approved)")).not.toBeNull();
+  });
+
+  it("awaiting_owner shows the estimate wording with (confirmed when approved)", () => {
+    renderDetail(item("awaiting_owner"));
+    expect(screen.getByText("Review about Wed 21 Oct (confirmed when approved)")).not.toBeNull();
+  });
+
+  it("approved shows just the bare date without (confirmed when approved)", () => {
+    renderDetail(item("approved"));
+    expect(screen.getByText("Wed 21 Oct")).not.toBeNull();
+    expect(screen.queryByText(/confirmed when approved/)).toBeNull();
+  });
+
+  it("rejected shows just the bare date without (confirmed when approved)", () => {
+    renderDetail(item("rejected"));
+    expect(screen.getByText("Wed 21 Oct")).not.toBeNull();
+    expect(screen.queryByText(/confirmed when approved/)).toBeNull();
+  });
+});
+
 describe("ProposalDetail — read-only and hand-over", () => {
   it("a proposal not awaiting the supervisor shows no actions", () => {
     renderDetail(item("awaiting_owner"));
@@ -274,8 +344,7 @@ describe("ProposalDetail — read-only and hand-over", () => {
     expect(screen.queryByRole("button", { name: "Mark feasible" })).toBeNull();
   });
 
-  it("feasible: the banner sits under the title, the buttons close the page, and Sign out · pick Owner signs out to the Owner tab (D2-03g)", async () => {
-    signOut.mockResolvedValue(undefined);
+  it("feasible: the banner sits under the title; no action buttons are shown (R-19 PR-A, D2-03g)", () => {
     renderDetail(item("awaiting_owner"), { feasible: true });
     const banner = screen.getByRole("status");
     expect(banner.textContent).toBe("Marked feasible. The owner decides next. Sign out and pick Owner to approve or reject.");
@@ -283,15 +352,12 @@ describe("ProposalDetail — read-only and hand-over", () => {
     expect(title.compareDocumentPosition(banner) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Mark feasible" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Reject… (reason required)" })).toBeNull();
-    // The banner already says the owner decides next, so the note is gone; the two buttons close the page.
+    // The banner already says the owner decides next, so the note is gone; no buttons appear.
     expect(screen.queryByText("Feasible means staff can do this in the shop. The owner approves or rejects after you.")).toBeNull();
-    const done = screen.getByRole("button", { name: "Marked feasible ✓" }) as HTMLButtonElement;
-    expect(done.disabled).toBe(true);
-    const out = screen.getByRole("button", { name: "Sign out · pick Owner" });
-    expect(done.compareDocumentPosition(out) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    fireEvent.click(out);
-    await waitFor(() => expect(signOut).toHaveBeenCalledWith(AUTH));
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/sign-in?as=owner"));
+    expect(screen.queryByRole("button", { name: "Marked feasible ✓" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /sign out.*pick owner/i })).toBeNull();
+    // The back button remains above the banner
+    expect(screen.getByRole("button", { name: "‹ Proposals" })).not.toBeNull();
   });
 
   it("no device id, name or thread key appears anywhere on the screen", () => {

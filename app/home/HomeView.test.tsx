@@ -197,7 +197,7 @@ describe("HomeView: waiting for your approval (W4, R-25 T13)", () => {
     const first = within(rows[0]!).getByRole("link", { name: "Review: Read the order back" });
     expect(first.getAttribute("href")).toBe(`/proposals?id=${UUID_A}`);
     expect(screen.getByText("One change at a time.")).not.toBeNull();
-    expect(screen.getByText(/Once you approve one, the SOP changes, so the other can only be rejected with a reason\./)).not.toBeNull();
+    expect(screen.getByText(/Each approval becomes a new SOP version; the other can still be approved or rejected with a reason\./)).not.toBeNull();
     expect(screen.queryByText(/more in Approvals/)).toBeNull();
   });
 

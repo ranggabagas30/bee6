@@ -5,6 +5,7 @@ import { SupervisorProposals, type ProposalsBridgeEvent } from "@/app/proposals/
 import type { ListProposalsResponse, ProposalListItem, ProposalsWatch, WatchRow } from "@/lib/proposals/review-contract";
 import type { ProposalView } from "@/lib/proposals/contract";
 import type { AskEstimate } from "@/lib/proposals/v4/flag";
+import { axeViolations } from "@/lib/testing/axe";
 
 const replace = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -406,6 +407,248 @@ describe("SupervisorProposals — ask (D2-03d)", () => {
   });
 });
 
+// Demo feedback 2 item 18: on a demo sandbox, one tap chains the generate route, one round per ready problem (at most 3).
+describe("SupervisorProposals — one tap asks for every proposal the evidence allows (item 18, demo sandbox only)", () => {
+  const TWO_READY = () => watchOf([row("CUSTOMER_SERVICE", 2, "ready"), row("PHONE_CALL", 2, "ready")]);
+  const written = (n: number) => ({ kind: "ok", data: { proposal: view(n, "awaiting_supervisor", `Title ${n}`), reused: false } });
+  const BODY = { from_date: "2026-10-05", to_date: "2026-10-11" };
+  const PARTIAL = "Bee6 wrote 1 of 2 proposals, but the rest could not be written right now. Tap Ask for another proposal to try again.";
+
+  /** After round 1 wrote and the list is reloaded: one proposal, one problem still ready. */
+  const afterOneWritten = () =>
+    listOk({ open: [item(3, "awaiting_supervisor", "Title 3")], decided: [], watch: watchOf([row("CUSTOMER_SERVICE", 2, "proposed"), row("PHONE_CALL", 2, "ready")]) });
+
+  it("two ready rows: two POSTs (round 1 without `another`, round 2 with it), ONE reload, ONE status line, ONE progress event", async () => {
+    proposalsResult = listOk({ open: [], decided: [], watch: TWO_READY() });
+    authedPostJson.mockResolvedValueOnce(written(3)).mockResolvedValueOnce(written(4));
+    const bridge = vi.fn();
+    renderScreen(bridge, null, true);
+    const ask = await screen.findByRole("button", { name: "Ask Bee6 for proposals" });
+    proposalsResult = listOk({
+      open: [item(3, "awaiting_supervisor", "Title 3"), item(4, "awaiting_supervisor", "Title 4")],
+      decided: [],
+      watch: watchOf([row("CUSTOMER_SERVICE", 2, "proposed"), row("PHONE_CALL", 2, "proposed")]),
+    });
+    fireEvent.click(ask);
+    await waitFor(() => expect(screen.getByText("Title 4")).not.toBeNull());
+    expect(authedPostJson).toHaveBeenCalledTimes(2);
+    expect(authedPostJson.mock.calls[0]![2]).toEqual(BODY);
+    expect(authedPostJson.mock.calls[1]![2]).toEqual({ ...BODY, another: true });
+    expect(getsTo("/api/v1/proposals")).toBe(2);
+    expect(screen.getByText("Bee6 wrote 2 proposals. Open each to read the evidence.")).not.toBeNull();
+    expect(bridge.mock.calls.filter((c) => (c[0] as ProposalsBridgeEvent).type === "progress")).toHaveLength(1);
+  });
+
+  it("with a proposal already there, round 1 already sends `another: true`", async () => {
+    proposalsResult = listOk({ open: [item(2, "awaiting_supervisor", "Title 2")], decided: [], watch: TWO_READY() });
+    authedPostJson.mockResolvedValue(written(3));
+    renderScreen(undefined, null, true);
+    fireEvent.click(await screen.findByRole("button", { name: "Ask Bee6 for proposals" }));
+    await waitFor(() => expect(authedPostJson).toHaveBeenCalledTimes(2));
+    expect(authedPostJson.mock.calls.map((c) => c[2])).toEqual([{ ...BODY, another: true }, { ...BODY, another: true }]);
+  });
+
+  it("one ready row: one POST and today's single-proposal line", async () => {
+    proposalsResult = listOk({ open: [], decided: [], watch: watchOf([row("CUSTOMER_SERVICE", 2, "ready")]) });
+    authedPostJson.mockResolvedValue(written(3));
+    renderScreen(undefined, null, true);
+    const ask = await screen.findByRole("button", { name: "Ask Bee6 for a proposal" });
+    proposalsResult = listOk({ open: [item(3, "awaiting_supervisor", "Title 3")], decided: [], watch: watchOf([row("CUSTOMER_SERVICE", 2, "proposed")]) });
+    fireEvent.click(ask);
+    expect(await screen.findByText("Bee6 wrote a proposal. Open it to read the evidence.")).not.toBeNull();
+    expect(authedPostJson).toHaveBeenCalledTimes(1);
+  });
+
+  it("PILOT unchanged: two ready rows, one POST, the singular label and line", async () => {
+    proposalsResult = listOk({ open: [], decided: [], watch: TWO_READY() });
+    authedPostJson.mockResolvedValue(written(3));
+    renderScreen();
+    const ask = await screen.findByRole("button", { name: "Ask Bee6 for a proposal" });
+    proposalsResult = afterOneWritten();
+    fireEvent.click(ask);
+    expect(await screen.findByText("Bee6 wrote a proposal. Open it to read the evidence.")).not.toBeNull();
+    expect(authedPostJson).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/Writing proposal/)).toBeNull();
+  });
+
+  it("stops when round 2 is not a new proposal (suppressed): the partial line, the list reloaded, the round-1 row visible, no retry", async () => {
+    proposalsResult = listOk({ open: [], decided: [], watch: TWO_READY() });
+    authedPostJson.mockResolvedValueOnce(written(3)).mockResolvedValueOnce({ kind: "ok", data: { proposal: suppressed(9), reused: false } });
+    renderScreen(undefined, null, true);
+    const ask = await screen.findByRole("button", { name: "Ask Bee6 for proposals" });
+    proposalsResult = afterOneWritten();
+    fireEvent.click(ask);
+    expect(await screen.findByText(PARTIAL)).not.toBeNull();
+    expect(screen.getByText("Title 3")).not.toBeNull();
+    expect(getsTo("/api/v1/proposals")).toBe(2);
+    // the retry control is the existing one; nothing retries by itself (each round is a paid call)
+    expect(screen.getByRole("button", { name: "Ask for another proposal" })).not.toBeNull();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(authedPostJson).toHaveBeenCalledTimes(2);
+  });
+
+  it("round 2 blocked by a rule also ends as a partial chain", async () => {
+    proposalsResult = listOk({ open: [], decided: [], watch: TWO_READY() });
+    const blocked = { ...suppressed(9), status: "blocked" as const, suppression: null, blocked_rule: "R3" };
+    authedPostJson.mockResolvedValueOnce(written(3)).mockResolvedValueOnce({ kind: "ok", data: { proposal: blocked, reused: false } });
+    renderScreen(undefined, null, true);
+    const ask = await screen.findByRole("button", { name: "Ask Bee6 for proposals" });
+    proposalsResult = afterOneWritten();
+    fireEvent.click(ask);
+    expect(await screen.findByText(PARTIAL)).not.toBeNull();
+  });
+
+  it("round 2 network error: the partial line, and the round-1 row is on the list", async () => {
+    proposalsResult = listOk({ open: [], decided: [], watch: TWO_READY() });
+    authedPostJson.mockResolvedValueOnce(written(3)).mockResolvedValueOnce({ kind: "error" });
+    renderScreen(undefined, null, true);
+    const ask = await screen.findByRole("button", { name: "Ask Bee6 for proposals" });
+    proposalsResult = afterOneWritten();
+    fireEvent.click(ask);
+    expect(await screen.findByText(PARTIAL)).not.toBeNull();
+    expect(screen.getByText("Title 3")).not.toBeNull();
+    expect(authedPostJson).toHaveBeenCalledTimes(2);
+  });
+
+  it("a 409 GENERATION_IN_PROGRESS on round 2 ends the chain like any failure (no waiting poll)", async () => {
+    proposalsResult = listOk({ open: [], decided: [], watch: TWO_READY() });
+    authedPostJson.mockResolvedValueOnce(written(3)).mockResolvedValueOnce({ kind: "conflict", code: "GENERATION_IN_PROGRESS" });
+    renderScreen(undefined, null, true);
+    const ask = await screen.findByRole("button", { name: "Ask Bee6 for proposals" });
+    proposalsResult = afterOneWritten();
+    fireEvent.click(ask);
+    expect(await screen.findByText(PARTIAL)).not.toBeNull();
+    expect(screen.queryByText("Bee6 is writing a proposal", { selector: "p" })).toBeNull();
+  });
+
+  it("a 409 GENERATION_IN_PROGRESS on round 1 keeps today's waiting path and makes no second call", async () => {
+    proposalsResult = listOk({ open: [], decided: [], watch: TWO_READY() });
+    authedPostJson.mockResolvedValue({ kind: "conflict", code: "GENERATION_IN_PROGRESS" });
+    renderScreen(undefined, null, true);
+    fireEvent.click(await screen.findByRole("button", { name: "Ask Bee6 for proposals" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Asking Bee6…" })).not.toBeNull());
+    expect(screen.getByText("Bee6 is writing a proposal", { selector: "p" })).not.toBeNull();
+    expect(authedPostJson).toHaveBeenCalledTimes(1);
+  });
+
+  it("signed out on round 2 still signs out and goes to sign-in", async () => {
+    proposalsResult = listOk({ open: [], decided: [], watch: TWO_READY() });
+    authedPostJson.mockResolvedValueOnce(written(3)).mockResolvedValueOnce({ kind: "signed_out" });
+    renderScreen(undefined, null, true);
+    fireEvent.click(await screen.findByRole("button", { name: "Ask Bee6 for proposals" }));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/sign-in"));
+    expect(signOut).toHaveBeenCalledTimes(1);
+  });
+
+  it("a demo cap refusing round 2 says so: n of total written, the limit was reached", async () => {
+    proposalsResult = listOk({ open: [], decided: [], watch: TWO_READY() });
+    authedPostJson.mockResolvedValueOnce(written(3)).mockResolvedValueOnce({ kind: "error", code: "demo_generate_cap" });
+    renderScreen(undefined, null, true);
+    const ask = await screen.findByRole("button", { name: "Ask Bee6 for proposals" });
+    proposalsResult = afterOneWritten();
+    fireEvent.click(ask);
+    expect(await screen.findByText("Bee6 wrote 1 of 2 proposals. The demo's proposal limit was reached, so it stopped there.")).not.toBeNull();
+    expect(screen.getByText("Title 3")).not.toBeNull();
+  });
+
+  it("a demo cap refusing round 1 says so, writes nothing, reloads nothing", async () => {
+    proposalsResult = listOk({ open: [], decided: [], watch: TWO_READY() });
+    authedPostJson.mockResolvedValue({ kind: "error", code: "demo_model_cap" });
+    renderScreen(undefined, null, true);
+    fireEvent.click(await screen.findByRole("button", { name: "Ask Bee6 for proposals" }));
+    expect(await screen.findByText("This demo has reached its proposal limit, so Bee6 can't write more proposals now.")).not.toBeNull();
+    expect(authedPostJson).toHaveBeenCalledTimes(1);
+    expect(getsTo("/api/v1/proposals")).toBe(1);
+  });
+
+  it("a plain 5xx on round 1 stays the generic error line (not the cap line)", async () => {
+    proposalsResult = listOk({ open: [], decided: [], watch: TWO_READY() });
+    authedPostJson.mockResolvedValue({ kind: "error" });
+    renderScreen(undefined, null, true);
+    fireEvent.click(await screen.findByRole("button", { name: "Ask Bee6 for proposals" }));
+    expect(await screen.findByText("Something went wrong. Try again.")).not.toBeNull();
+  });
+
+  it("MAX_ASK_ROUNDS: four ready rows make three POSTs", async () => {
+    proposalsResult = listOk({
+      open: [],
+      decided: [],
+      watch: watchOf([row("CUSTOMER_SERVICE", 2, "ready"), row("PHONE_CALL", 2, "ready"), row("COMPLAINT", 2, "ready"), row("EVENT", 2, "ready")]),
+    });
+    authedPostJson.mockResolvedValueOnce(written(3)).mockResolvedValueOnce(written(4)).mockResolvedValueOnce(written(5));
+    renderScreen(undefined, null, true);
+    const ask = await screen.findByRole("button", { name: "Ask Bee6 for proposals" });
+    proposalsResult = listOk({ open: [item(3, "awaiting_supervisor", "Title 3")], decided: [], watch: watchOf([row("EVENT", 2, "ready")]) });
+    fireEvent.click(ask);
+    expect(await screen.findByText("Bee6 wrote 3 proposals. Open each to read the evidence.")).not.toBeNull();
+    expect(authedPostJson).toHaveBeenCalledTimes(3);
+  });
+
+  it("the generating block names the round: 'Writing proposal 1 of 2…', then '2 of 2…'; a one-round ask has no such line", async () => {
+    proposalsResult = listOk({ open: [], decided: [], watch: TWO_READY() });
+    const resolvers: ((v: unknown) => void)[] = [];
+    authedPostJson.mockImplementation(() => new Promise((r) => resolvers.push(r)));
+    renderScreen(undefined, null, true);
+    fireEvent.click(await screen.findByRole("button", { name: "Ask Bee6 for proposals" }));
+    expect(screen.getByText("Writing proposal 1 of 2…")).not.toBeNull();
+    await act(async () => {
+      resolvers[0]!(written(3));
+    });
+    expect(screen.getByText("Writing proposal 2 of 2…")).not.toBeNull();
+    expect(screen.queryByText("Writing proposal 1 of 2…")).toBeNull();
+    cleanup();
+
+    authedPostJson.mockReset();
+    authedPostJson.mockImplementation(() => new Promise(() => {}));
+    proposalsResult = listOk({ open: [], decided: [], watch: watchOf([row("CUSTOMER_SERVICE", 2, "ready")]) });
+    renderScreen(undefined, null, true);
+    fireEvent.click(await screen.findByRole("button", { name: "Ask Bee6 for a proposal" }));
+    expect(screen.queryByText(/Writing proposal/)).toBeNull();
+  });
+
+  it("a `reused` answer ends the chain and reads the reused line", async () => {
+    proposalsResult = listOk({ open: [], decided: [], watch: TWO_READY() });
+    authedPostJson.mockResolvedValue({ kind: "ok", data: { proposal: view(3, "awaiting_supervisor", "Title 3"), reused: true } });
+    renderScreen(undefined, null, true);
+    const ask = await screen.findByRole("button", { name: "Ask Bee6 for proposals" });
+    proposalsResult = afterOneWritten();
+    fireEvent.click(ask);
+    await waitFor(() => expect(screen.getByText("Title 3")).not.toBeNull());
+    expect(authedPostJson).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("A proposal for these dates is already waiting for review.")).not.toBeNull();
+  });
+
+  it("double tap: a second tap while the chain runs starts nothing (one chain only)", async () => {
+    proposalsResult = listOk({ open: [], decided: [], watch: TWO_READY() });
+    let resolveFirst: (v: unknown) => void = () => {};
+    authedPostJson.mockImplementationOnce(() => new Promise((r) => { resolveFirst = r; })).mockResolvedValueOnce(written(4));
+    renderScreen(undefined, null, true);
+    const ask = await screen.findByRole("button", { name: "Ask Bee6 for proposals" });
+    fireEvent.click(ask);
+    fireEvent.click(ask);
+    fireEvent.click(screen.getByRole("button", { name: "Asking Bee6…" }));
+    expect(authedPostJson).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolveFirst(written(3));
+    });
+    await waitFor(() => expect(authedPostJson).toHaveBeenCalledTimes(2));
+    // still locked during round 2 and after the chain no stray third call exists
+    fireEvent.click(screen.getByRole("button", { name: "Asking Bee6…" }));
+    expect(authedPostJson).toHaveBeenCalledTimes(2);
+  });
+
+  it("has no axe violations after a partial chain (the partial line, the reloaded list, the retry control)", async () => {
+    proposalsResult = listOk({ open: [], decided: [], watch: TWO_READY() });
+    authedPostJson.mockResolvedValueOnce(written(3)).mockResolvedValueOnce({ kind: "error" });
+    const { container } = renderScreen(undefined, null, true);
+    const ask = await screen.findByRole("button", { name: "Ask Bee6 for proposals" });
+    proposalsResult = afterOneWritten();
+    fireEvent.click(ask);
+    await screen.findByText(PARTIAL);
+    expect(await axeViolations(container)).toEqual([]);
+  });
+});
+
 // R-24 D11 (plan 3.11): the estimated wait belongs to THIS tab's own Ask only; a 409 never shows it.
 describe("SupervisorProposals — estimated wait while asking (R-24 D11)", () => {
   const ESTIMATE: AskEstimate = { min_s: 10, max_s: 30 };
@@ -423,19 +666,56 @@ describe("SupervisorProposals — estimated wait while asking (R-24 D11)", () =>
     });
   }
 
-  it("calling with an estimate: the range, not 'up to a minute'; the overrun line after max_s", async () => {
+  it("calling with an estimate: writes-and-checks line with the range; the overrun line after max_s", async () => {
     vi.useFakeTimers(FAKE);
     proposalsResult = listOk({ open: [], decided: [], watch: watchOf([row("CUSTOMER_SERVICE", 2, "ready")]) });
     authedPostJson.mockImplementationOnce(() => new Promise(() => {}));
     renderScreen(undefined, ESTIMATE);
     await clickAsk();
     const block = screen.getByText("Bee6 is writing a proposal", { selector: "p" }).closest("[role='status']") as HTMLElement;
-    expect(block.textContent).toContain("Usually 10–30 seconds");
-    expect(block.textContent).not.toContain("up to a minute");
+    expect(block.textContent).toContain("Bee6 is writing and checking each proposal.");
+    expect(block.textContent).toContain("Usually 10–30 seconds, sometimes up to a minute.");
+    expect(block.textContent).not.toContain("This can take up to a minute. Please keep this page open.");
     await act(async () => {
       vi.advanceTimersByTime(30_000);
     });
     expect(block.textContent).toContain("Taking longer than usual. Bee6 is still working. Keep this page open.");
+  });
+
+  // The chain (item 18) keeps the block mounted across rounds: the overrun timer must restart with each round.
+  it("a two-round chain: round 2 starts at 12 s, so there is no overrun line 25 s later, and one 30 s into round 2", async () => {
+    vi.useFakeTimers(FAKE);
+    proposalsResult = listOk({ open: [], decided: [], watch: watchOf([row("CUSTOMER_SERVICE", 2, "ready"), row("PHONE_CALL", 2, "ready")]) });
+    const resolvers: ((v: unknown) => void)[] = [];
+    authedPostJson.mockImplementation(() => new Promise((r) => resolvers.push(r)));
+    renderScreen(undefined, ESTIMATE, true);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ask Bee6 for proposals" }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const region = screen.getByText("Bee6 is writing a proposal", { selector: "p" }).closest("[role='status']") as HTMLElement;
+    expect(region.textContent).toContain("Writing proposal 1 of 2…");
+    await act(async () => {
+      vi.advanceTimersByTime(12_000);
+    });
+    await act(async () => {
+      resolvers[0]!({ kind: "ok", data: { proposal: view(3, "awaiting_supervisor", "Title 3"), reused: false } });
+    });
+    expect(region.textContent).toContain("Writing proposal 2 of 2…");
+    await act(async () => {
+      vi.advanceTimersByTime(25_000);
+    });
+    expect(region.textContent).toContain("Usually 10–30 seconds");
+    expect(region.textContent).not.toContain("Taking longer than usual");
+    await act(async () => {
+      vi.advanceTimersByTime(5_000);
+    });
+    expect(region.textContent).toContain("Taking longer than usual");
+    // the same live region the whole way: it was never replaced
+    expect(screen.getAllByRole("status").filter((el) => el.textContent?.includes("Bee6 is writing a proposal"))).toEqual([region]);
   });
 
   it("calling without an estimate (flag off): today's body line, never the range", async () => {
@@ -462,6 +742,7 @@ describe("SupervisorProposals — estimated wait while asking (R-24 D11)", () =>
     const block = screen.getByText("Bee6 is writing a proposal", { selector: "p" }).closest("[role='status']") as HTMLElement;
     expect(block.textContent).toContain("This can take up to a minute. Please keep this page open.");
     expect(block.textContent).not.toContain("Usually");
+    expect(block.textContent).not.toContain("writing and checking");
     await act(async () => {
       vi.advanceTimersByTime(40_000);
     });

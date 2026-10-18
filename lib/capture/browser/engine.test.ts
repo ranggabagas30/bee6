@@ -333,6 +333,20 @@ describe("CaptureEngine", () => {
     expect(Date.now() - t0).toBeLessThan(200); // did not hang
   });
 
+  it("finish() also returns promptly while offline (18 Oct twin)", async () => {
+    const sleep = () => new Promise<void>((r) => setTimeout(r, 5));
+    const upload = vi.fn(async () => null); // never recovers
+    const { engine } = makeEngine({ upload, sleep });
+    engine.pushFrame(frame(0));
+    engine.flush();
+    await new Promise((r) => setTimeout(r, 12));
+    expect(upload.mock.calls.length).toBeGreaterThan(1);
+
+    const t0 = Date.now();
+    await engine.finish();
+    expect(Date.now() - t0).toBeLessThan(200); // a network outage after End exits at once
+  });
+
   it("keeps segments aligned after a simulated mic restart (finding #1)", async () => {
     const encoded: { len: number; first: number }[] = [];
     const encode = vi.fn(async (samples: Float32Array) => {
@@ -371,7 +385,7 @@ describe("CaptureEngine", () => {
   });
 
   it("uploads the final flushed segment on a graceful online stop", async () => {
-    // Mirrors session.stop(): flush the open segment, then abort. The last
+    // Mirrors session.stop() (finish mode): flush the open segment, then finish. The last
     // segment (e.g. at closing time) must still be delivered while online.
     const delivered: string[] = [];
     const upload = vi.fn(async (seg: { seg_id: string }) => {
@@ -382,7 +396,7 @@ describe("CaptureEngine", () => {
     engine.pushFrame(frame(0));
     engine.pushFrame(frame(100));
     engine.flush();
-    await engine.abort();
+    await engine.finish();
 
     expect(delivered).toContain("seg-1");
     expect(engine.status.queuedCount).toBe(0);
@@ -545,5 +559,262 @@ describe("CaptureEngine", () => {
     // After a snapshot the window resets.
     const snap2 = engine.snapshot();
     expect(snap2.speechPct).toBe(0);
+  });
+
+  describe("finish() vs abort() (18 Oct: retry after End)", () => {
+    const settle = async () => {
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+    };
+
+    /** An engine whose backoff sleep is held until `release()` (own clock). */
+    function makeHeld(overrides: Partial<CaptureEngineOptions> & { prefix?: string } = {}) {
+      const { prefix = "seg", ...rest } = overrides;
+      let t = 0;
+      let seq = 0;
+      const waits: number[] = [];
+      const held: { release: () => void } = { release: () => {} };
+      const engine = new CaptureEngine({
+        encode: async () => ({ bytes: new Uint8Array([1]), contentType: "audio/webm;codecs=opus" }),
+        upload: async () => 503,
+        sampleRate: SR,
+        genSegId: () => `${prefix}-${++seq}`,
+        now: () => t,
+        sleep: (ms) => {
+          waits.push(ms);
+          return new Promise<void>((r) => {
+            held.release = () => {
+              t += ms;
+              r();
+            };
+          });
+        },
+        batcher: new SegmentBatcher({ maxSegmentMs: 1_000, prerollMs: 0 }),
+        ...rest,
+      });
+      return { engine, held, waits };
+    }
+
+    function oneSegment(engine: CaptureEngine) {
+      engine.pushFrame(frame(0));
+      engine.pushFrame(frame(100));
+      engine.flush();
+    }
+
+    it("after finish, a 503 head keeps retrying until 240 s, then drops", async () => {
+      let calls = 0;
+      let finishedAtStatusIndex = -1;
+      const upload = vi.fn(async () => {
+        calls += 1;
+        if (calls === 3) {
+          finishedAtStatusIndex = statuses.length;
+          void engine.finish();
+        }
+        return 503 as number | null;
+      });
+      const { engine, clock, statuses } = makeEngine({ upload, rng: () => 1 });
+      oneSegment(engine);
+      await engine.drain();
+
+      expect(upload).toHaveBeenCalledTimes(14);
+      expect(clock.now()).toBe(241_500);
+      expect(engine.status.droppedCount).toBe(1);
+      expect(engine.status.queuedCount).toBe(0);
+      expect(engine.status.lostSinceSuccess).toBe(true);
+      expect(statuses.slice(finishedAtStatusIndex)).toContain("offline");
+    });
+
+    it("after finish, a 503 head that recovers is delivered", async () => {
+      let calls = 0;
+      const upload = vi.fn(async () => {
+        calls += 1;
+        if (calls === 2) void engine.finish();
+        return calls <= 3 ? 503 : 200;
+      });
+      const { engine } = makeEngine({ upload });
+      oneSegment(engine);
+      await engine.drain();
+
+      expect(upload).toHaveBeenCalledTimes(4);
+      expect(engine.status.droppedCount).toBe(0);
+      expect(engine.status.queuedCount).toBe(0);
+      expect(engine.status.state).toBe("listening");
+    });
+
+    it("finish does not reset or shorten the backoff, and jitter stays in bounds", async () => {
+      async function run(rng: () => number) {
+        const waits: number[] = [];
+        let t = 0;
+        let calls = 0;
+        const upload = vi.fn(async () => {
+          calls += 1;
+          if (calls === 1) void engine.finish();
+          return 503 as number | null;
+        });
+        const { engine } = makeEngine({
+          upload,
+          rng,
+          now: () => t,
+          sleep: async (ms) => {
+            waits.push(ms);
+            t += ms;
+          },
+        });
+        oneSegment(engine);
+        await engine.drain();
+        return waits;
+      }
+
+      const low = await run(() => 0);
+      expect(low.slice(0, 7)).toEqual([250, 500, 1_000, 2_000, 4_000, 8_000, 15_000]);
+      expect(low.slice(6).every((ms) => ms === 15_000)).toBe(true);
+
+      const high = await run(() => 0.999);
+      const raw = [500, 1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
+      expect(high.length).toBeGreaterThanOrEqual(7);
+      high.forEach((ms, i) => {
+        const r = raw[Math.min(i, raw.length - 1)] ?? 0;
+        expect(ms).toBeGreaterThanOrEqual(r / 2);
+        expect(ms).toBeLessThanOrEqual(r);
+      });
+      expect(Math.max(...high)).toBeLessThanOrEqual(30_000);
+    });
+
+    it("a network failure after finish exits at once", async () => {
+      let calls = 0;
+      const upload = vi.fn(async () => {
+        calls += 1;
+        if (calls === 2) void engine.finish();
+        return calls === 1 ? 503 : null;
+      });
+      const { engine } = makeEngine({ upload });
+      oneSegment(engine);
+      await engine.drain();
+
+      expect(upload).toHaveBeenCalledTimes(2);
+      expect(engine.status.queuedCount).toBe(1);
+      expect(engine.status.droppedCount).toBe(0);
+    });
+
+    it("finish wakes a network-backoff sleep (prompt exit kept)", async () => {
+      const upload = vi.fn(async () => null as number | null);
+      const { engine } = makeHeld({ upload });
+      oneSegment(engine);
+      await settle();
+      expect(upload).toHaveBeenCalledTimes(1); // asleep after the null
+
+      await engine.finish(); // must resolve without releasing the sleep
+      expect(upload).toHaveBeenCalledTimes(2); // the woken retry, then the break
+      expect(engine.status.queuedCount).toBe(1);
+    });
+
+    it("finish does NOT wake a server-error backoff", async () => {
+      const upload = vi.fn(async () => 503 as number | null);
+      const { engine, held } = makeHeld({ upload });
+      oneSegment(engine);
+      await settle();
+      expect(upload).toHaveBeenCalledTimes(1);
+
+      void engine.finish();
+      await settle();
+      expect(upload).toHaveBeenCalledTimes(1); // still sleeping
+
+      held.release();
+      await settle();
+      expect(upload).toHaveBeenCalledTimes(2);
+    });
+
+    it("the finish deadline bounds a multi-segment queue", async () => {
+      let calls = 0;
+      const upload = vi.fn(async () => {
+        calls += 1;
+        if (calls === 1) void engine.finish(); // deadline = 0 + 240 s
+        return 503 as number | null;
+      });
+      const { engine } = makeEngine({ upload, rng: () => 1 });
+      engine.pushFrame(frame(0));
+      engine.pushFrame(frame(100));
+      engine.flush();
+      engine.pushFrame(frame(2_000));
+      engine.pushFrame(frame(2_100));
+      engine.flush();
+      await engine.drain();
+
+      // head 1: 14 calls ending at 241.5 s; head 2 is dropped on its first refusal (241.5 s >= 240 s)
+      expect(upload).toHaveBeenCalledTimes(15);
+      expect(engine.status.droppedCount).toBe(2);
+      expect(engine.status.queuedCount).toBe(0);
+    });
+
+    it("abort() after finish stops at once", async () => {
+      const upload = vi.fn(async () => 503 as number | null);
+      const { engine } = makeHeld({ upload });
+      oneSegment(engine);
+      await settle();
+      expect(upload).toHaveBeenCalledTimes(1);
+
+      void engine.finish();
+      await engine.abort(); // resolves without a release
+      expect(upload).toHaveBeenCalledTimes(1);
+      expect(engine.status.queuedCount).toBe(1);
+    });
+
+    it("abort() before the flushed segment is pumped uploads nothing", async () => {
+      const { engine, upload } = makeEngine();
+      oneSegment(engine);
+      await engine.abort();
+
+      expect(upload).not.toHaveBeenCalled();
+    });
+
+    it("a success already in flight at abort() is still confirmed", async () => {
+      let resolveUpload: (status: number) => void = () => {};
+      const upload = vi.fn(
+        () =>
+          new Promise<number | null>((r) => {
+            resolveUpload = r;
+          }),
+      );
+      const { engine } = makeEngine({ upload });
+      oneSegment(engine);
+      await settle();
+      expect(upload).toHaveBeenCalledTimes(1);
+
+      const aborted = engine.abort();
+      resolveUpload(200);
+      await aborted;
+
+      expect(engine.status.queuedCount).toBe(0);
+      expect(engine.status.droppedCount).toBe(0);
+      expect(upload).toHaveBeenCalledTimes(1);
+    });
+
+    it("a new engine runs independently while an old one finishes", async () => {
+      const uploadA = vi.fn(async (_seg: { seg_id: string }) => 503 as number | null);
+      const a = makeHeld({ upload: uploadA, prefix: "a" });
+      const uploadB = vi.fn(async (_seg: { seg_id: string }) => 200 as number | null);
+      const b = makeEngine({ upload: uploadB, genSegId: (() => {
+        let n = 0;
+        return () => `b-${++n}`;
+      })() });
+
+      oneSegment(a.engine);
+      await settle();
+      void a.engine.finish(); // A is sleeping on a server-error backoff
+      await settle();
+
+      oneSegment(b.engine);
+      await b.engine.drain();
+
+      expect(uploadB).toHaveBeenCalledTimes(1);
+      expect(uploadB.mock.calls[0]?.[0].seg_id).toBe("b-1");
+      expect(uploadA).toHaveBeenCalledTimes(1);
+      expect(uploadA.mock.calls.every((c) => c[0].seg_id.startsWith("a-"))).toBe(true);
+
+      a.held.release();
+      await settle();
+      expect(uploadA).toHaveBeenCalledTimes(2);
+      expect(uploadA.mock.calls[1]?.[0].seg_id).toBe("a-1");
+      await a.engine.abort(); // stop the held retries
+    });
   });
 });

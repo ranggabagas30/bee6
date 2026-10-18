@@ -99,6 +99,7 @@ export function firestoreProposalReviewStore(outletId: string, db: Firestore = a
       constraint_ids: [],
       current_sop_version_id: null,
       current_sop: null,
+      drafted_sop: null,
     };
 
     // 1. The proposal itself.
@@ -180,6 +181,7 @@ export function firestoreProposalReviewStore(outletId: string, db: Firestore = a
       db.collection(COLLECTIONS.sopVersions).where("outlet_id", "==", outletId).limit(50),
     );
     let best: SopVersion | null = null;
+    let drafted: SopVersion | null = null; // the version the proposal was drafted on (item 20 step-level re-base)
     for (const d of sopSnap.docs) {
       const r = SopVersionSchema.safeParse(d.data());
       if (!r.success) {
@@ -188,6 +190,7 @@ export function firestoreProposalReviewStore(outletId: string, db: Firestore = a
       }
       if (r.data.outlet_id !== outletId) continue;
       if (!best || r.data.version > best.version) best = r.data;
+      if (r.data.sop_version_id === proposal.generator.sop_version_id) drafted = r.data;
     }
 
     return {
@@ -197,6 +200,7 @@ export function firestoreProposalReviewStore(outletId: string, db: Firestore = a
       constraint_ids,
       current_sop_version_id: best?.sop_version_id ?? null,
       current_sop: best,
+      drafted_sop: drafted,
     };
   }
 

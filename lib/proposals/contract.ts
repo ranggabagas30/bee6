@@ -47,6 +47,27 @@ export const ProposalViewSchema = z
       .strict()
       .nullable(),
     blocked_rule: z.enum(PROPOSAL_RULES).nullable(),
+    /**
+     * CHK-1: how this proposal was checked; counts and enums only (hard rule 7: no tool, rule or fact names). `null` on a
+     * suppressed doc (no check ran). Optional so a response from a server that predates CHK-1 still parses; `toProposalView`
+     * always sets it. The plain-code gate decides; this only reports (hard rule 10).
+     */
+    checked: z
+      .object({
+        checks_total: z.number().int().min(0),
+        checks_passed: z.number().int().min(0),
+        rule_set: z.enum(["pgate-v1", "pcheck-v4"]),
+        agent: z.enum(["proposal-v3", "proposal-v4", "other"]),
+        /** v4: check rounds minus one; v3: attempts minus one, clamped to 0..2. */
+        revisions: z.number().int().min(0).max(2),
+        /** v4: how many SOP-section reads succeeded; null on v3 (the agent has no tools). */
+        read_sections: z.number().int().min(0).nullable(),
+        /** v4: how many evidence reads succeeded; null on v3. */
+        read_facts: z.number().int().min(0).nullable(),
+      })
+      .strict()
+      .nullable()
+      .optional(),
     content: z
       .object({
         intervention: labelled,

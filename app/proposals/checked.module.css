@@ -1,0 +1,26 @@
+/* CHK-1 "Checked by Bee6" card: text only, in the proposal blocks' style. Wraps at 360 px (no fixed width, no nowrap). */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 18px 18px;
+}
+
+.kicker {
+  overflow-wrap: anywhere;
+}
+
+.line {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--b6-ink-soft);
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 720px) {
+  .card {
+    padding: 22px 24px;
+  }
+}

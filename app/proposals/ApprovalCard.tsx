@@ -6,6 +6,7 @@ import type { ProposalView } from "@/lib/proposals/contract";
 import type { ProposalListItem } from "@/lib/proposals/review-contract";
 import type { SopChangeView } from "@/lib/sop/contract";
 import { Card, Chip, Kicker, Pill, Tile } from "@/app/ui";
+import { CheckedByBee6 } from "@/app/proposals/CheckedByBee6";
 import styles from "@/app/proposals/approvals.module.css";
 
 /**
@@ -40,10 +41,19 @@ export const OWNER_STATUS_TONE: Record<ProposalView["status"], "neutral" | "ambe
 };
 
 /** "Starts {date} · review {date}" from the shipped change when there is one, else "Starts the day after approval · review {view date}". */
-export function datesLine(lang: Lang, content: NonNullable<ProposalView["content"]>, shipped: SopChangeView | null): string {
+export function datesLine(lang: Lang, content: NonNullable<ProposalView["content"]>, shipped: SopChangeView | null, status?: ProposalView["status"]): string {
   const starts = shipped ? t(lang, "C-propa-starts", { date: dayLabel(shipped.effective_from_date, lang) }) : t(lang, "C-propa-starts-after");
-  const review = dayLabel(shipped ? shipped.review_date : content.review_date, lang);
-  return t(lang, "C-propa-dates", { starts, review });
+  const reviewDate = dayLabel(shipped ? shipped.review_date : content.review_date, lang);
+  // Show estimate wording only for draft proposals (awaiting supervisor/owner), not for approved/rejected
+  const isDraft = status === "awaiting_supervisor" || status === "awaiting_owner";
+  if (shipped || !isDraft) {
+    // Use the template for shipped/decided proposals: "{starts} · review {date}"
+    return t(lang, "C-propa-dates", { starts, review: reviewDate });
+  } else {
+    // For draft proposals, construct the full string with estimate wording
+    const reviewEstimate = t(lang, "C-prop-review-draft", { date: reviewDate });
+    return `${starts} · ${reviewEstimate}`;
+  }
 }
 
 export interface ApprovalCardProps {
@@ -53,7 +63,7 @@ export interface ApprovalCardProps {
   shipped: SopChangeView | null;
   /** The proposal's place in the recommended order (1-based): the "#1 · supervisor: feasible …" meta line. */
   position?: number;
-  /** Another proposal is still waiting for the owner: the pace box adds "the other can only be rejected". */
+  /** Another proposal is still waiting for the owner: the pace box adds "each approved change becomes its own SOP version". */
   othersWaiting?: boolean;
 }
 
@@ -136,6 +146,8 @@ export function ApprovalCard({ lang, item, shipped, position, othersWaiting = fa
         </p>
       </section>
 
+      <CheckedByBee6 lang={lang} checked={proposal.checked} variant="short" />
+
       <div className={blocked ? `${styles.pace} ${styles.paceBlocked}` : styles.pace}>
         <span className={styles.paceIcon} aria-hidden="true">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -144,7 +156,7 @@ export function ApprovalCard({ lang, item, shipped, position, othersWaiting = fa
           </svg>
         </span>
         <div className={styles.paceBody}>
-          <p className={styles.paceLead}>{blocked ? t(lang, "C-propa-na-h") : datesLine(lang, content, shipped)}</p>
+          <p className={styles.paceLead}>{blocked ? t(lang, "C-propa-na-h") : datesLine(lang, content, shipped, proposal.status)}</p>
           {blocked ? (
             <p className={styles.paceWhy}>{t(lang, "C-propa-na-why")}</p>
           ) : !decided ? (

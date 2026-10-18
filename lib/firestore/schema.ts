@@ -2,9 +2,16 @@ import { z } from "zod";
 import { PrincipalRoleSchema, UserRoleSchema } from "@/lib/auth/roles";
 import { MIC_SOURCE_CLASSES } from "@/lib/capture/mic-source";
 import { CategorySchema, WorkCategorySchema } from "@/lib/pipeline/categories";
+import {
+  DEBRIEF_AGENT_MODELS,
+  DEBRIEF_AGENT_VERSION,
+  DEBRIEF_QUESTION_MAX_CHARS,
+  DEBRIEF_QUESTION_MIN_CHARS,
+} from "@/lib/debrief/agent/constants";
 import { GateDecisionSchema } from "@/lib/pipeline/gate";
 import { CORRECTION_TEXT_MAX_CHARS } from "@/lib/debrief/constants";
 import { NEXT_DAY_MAX } from "@/lib/demo/constants";
+import { ReviewAgentStoredSchema } from "@/lib/reviews/agent/schema";
 
 /**
  * Firestore schema v0 (web spec §6.4). zod schemas + inferred TS types for every
@@ -544,6 +551,22 @@ export const ThreadSchema = z
 export type Thread = z.infer<typeof ThreadSchema>;
 
 // ── questions (debrief questions; R-05b writes the failed-unit/gate kinds) ──
+/** The stored DebriefAgent wording (strict; written by the tick, parsed again by the read path's `agentTextFor`). */
+export const QuestionAgentSchema = z
+  .object({
+    version: z.literal(DEBRIEF_AGENT_VERSION),
+    model: z.enum(DEBRIEF_AGENT_MODELS),
+    category: WorkCategorySchema,
+    start_hm: z.string().regex(/^\d{2}:\d{2}$/),
+    // Storage bound only; the code-point 20..140 check ran in `checkQuestion` before the write.
+    question_en: z.string().min(DEBRIEF_QUESTION_MIN_CHARS).max(DEBRIEF_QUESTION_MAX_CHARS * 2),
+    /** Reserved (D10): not written by this plan. */
+    question_id_text: z.string().min(1).max(DEBRIEF_QUESTION_MAX_CHARS * 2).optional(),
+    rounds: z.number().int().min(1).max(2),
+    generated_at_ms: z.number().int().min(0),
+  })
+  .strict();
+
 /**
  * `kind: "unlabelled_unit"` (Task 4's `buildFailedUnitQuestion`) has no
  * `thread_id`/`category` — the label call never produced a thread at all.
@@ -567,9 +590,26 @@ export const QuestionSchema = z
     answered_at_ms: z.number().int().min(0).nullable().optional(),
     /** The debrief end that set `unverified` (lets a late in-window answer replace it, §4c item 2). */
     expired_by_debrief_end_ms: z.number().int().min(0).nullable().optional(),
+    /**
+     * DebriefAgent (docs/tasks/debrief-agent-18oct.md §3.3): the agent-worded question heading, sandbox only, written
+     * once by the tick. `category` + `start_hm` are the inputs it was worded for: the read path shows it only while
+     * they still match the question (D9). No name, no device id, no line text, no model reasoning is ever stored
+     * here. STRICT OPTIONAL on WRITE: a question doc without it parses exactly as before. The READ schema
+     * (`QuestionDocSchema`) drops an `agent` that does not match `QuestionAgentSchema` (`.catch(undefined)`), so a
+     * version/shape mismatch costs only the wording, never the question (step 3 risk review M5).
+     *
+     * ROLLBACK CAVEAT: `QuestionSchema` is `.strict()`, so a revision built BEFORE this field existed (e.g. `main`
+     * 30c931d) skips a question doc that carries `agent` (the debrief store logs and drops it) and the question
+     * vanishes from the phone. Only revisions that already know the key (this one onward) read it tolerantly. The
+     * field is written only while `DEBRIEF_AGENT=true` on a `sbx-` outlet, so the only safe kill on such a service is
+     * removing the env var, never a traffic rollback to an older revision.
+     */
+    agent: QuestionAgentSchema.optional(),
   })
   .strict();
 export type Question = z.infer<typeof QuestionSchema>;
+/** The stored DebriefAgent wording on a question doc (`Question["agent"]` without the optionality). */
+export type QuestionAgentText = z.infer<typeof QuestionAgentSchema>;
 
 /**
  * Stricter read-side parse (R-07): `status === "answered"` iff `answer` is
@@ -577,7 +617,11 @@ export type Question = z.infer<typeof QuestionSchema>;
  * `QuestionSchema` itself stays a plain `.strict()` object (other code
  * `.omit`/`.pick`s it) — the debrief store parses with this schema instead.
  */
-export const QuestionDocSchema = QuestionSchema.superRefine((q, ctx) => {
+export const QuestionDocSchema = QuestionSchema.extend({
+  // READ side only: tolerant. The top level stays strict; only the nested `agent` falls back to "absent" when it
+  // does not match `QuestionAgentSchema` (future version, wrong shape), so it costs the wording, never the question.
+  agent: QuestionAgentSchema.optional().catch(undefined),
+}).superRefine((q, ctx) => {
   const answered = q.status === "answered";
   const hasAnswer = q.answer === "yes" || q.answer === "no";
   const hasAnsweredAt = typeof q.answered_at_ms === "number";
@@ -1109,10 +1153,24 @@ export const ReviewSchema = z
     owner_verdict: VerdictEntrySchema.nullable(),
     created_at_ms: z.number().int().min(0),
     updated_at_ms: z.number().int().min(0),
+    /**
+     * ReviewAgent (docs/tasks/review-agent-18oct.md): a checked, plain-English explanation of the counts. Demo
+     * sandboxes only, written once by the fast-forward. Never a name, id, date, time, line text or model reasoning.
+     * Its verdict must equal the rule's suggestion (hard rule 10: the agent never decides).
+     *
+     * ROLLBACK CAVEAT: `ReviewSchema` is `.strict()`, so a revision built BEFORE this field existed skips a review
+     * doc that carries `agent` (the review store logs and drops it) and the review vanishes from the list. The field
+     * is written only while `REVIEW_AGENT=true` on a `sbx-` outlet, so the only safe kill is removing the env var,
+     * never a traffic rollback to an older revision.
+     */
+    agent: ReviewAgentStoredSchema.optional(),
   })
   .strict()
   .superRefine((r, ctx) => {
     const issue = (path: (string | number)[], message: string) => ctx.addIssue({ code: "custom", path, message });
+    if (r.agent && r.agent.suggested_verdict !== (r.suggestion.verdict ?? "none")) {
+      issue(["agent", "suggested_verdict"], "agent verdict must equal the rule's suggestion");
+    }
     if (r.review_id !== r.sop_version_id) issue(["review_id"], "review_id must equal sop_version_id");
     if (r.sop_version_id !== `${r.outlet_id}:v${r.version}`) issue(["sop_version_id"], `must equal "${r.outlet_id}:v${r.version}"`);
     if (!(r.review_date > r.effective_from_date)) issue(["review_date"], "review_date must be after effective_from_date");

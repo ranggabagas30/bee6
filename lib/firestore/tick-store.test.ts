@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Firestore } from "firebase-admin/firestore";
-import { Timestamp } from "firebase-admin/firestore";
+import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { firestoreTickStore } from "@/lib/firestore/tick-store";
 import { COLLECTIONS } from "@/lib/firestore/collections";
 import { deviceDocId } from "@/lib/firestore/stores";
@@ -63,6 +63,16 @@ function matches(data: Record<string, unknown>, field: string, op: string, value
   throw new Error(`fake firestore: unsupported op ${op}`);
 }
 
+/** Applies an update patch the way Firestore does: a `FieldValue.delete()` value removes the key. */
+function applyPatch(existing: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...existing };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value instanceof FieldValue && value.isEqual(FieldValue.delete())) delete next[key];
+    else next[key] = value;
+  }
+  return next;
+}
+
 /** Loosens a concrete fixture type to the plain-object shape the fake store keeps internally. */
 function asDoc(value: object): Record<string, unknown> {
   return value as Record<string, unknown>;
@@ -87,6 +97,8 @@ function fakeDb(seed: Record<string, Record<string, Record<string, unknown>>> = 
   const batchSizes: number[] = [];
   /** Every `.get()` of a query, so a test can assert which queries ran and with what shape. */
   const queryLog: Array<{ collection: string; filters: [string, string, unknown][]; select: string[] | null }> = [];
+  /** Every patch sent to a doc `update` (a transaction's `update` included), so a test can assert its exact keys. */
+  const updateLog: Array<{ collection: string; id: string; patch: Record<string, unknown> }> = [];
 
   function query(name: string, filters: [string, string, unknown][], limitN?: number, selectFields?: string[]) {
     return {
@@ -128,8 +140,9 @@ function fakeDb(seed: Record<string, Record<string, Record<string, unknown>>> = 
         col(name).set(id, data);
       },
       async update(patch) {
+        updateLog.push({ collection: name, id, patch });
         const existing = col(name).get(id) ?? {};
-        col(name).set(id, { ...existing, ...patch });
+        col(name).set(id, applyPatch(existing, patch));
       },
       async delete() {
         col(name).delete(id);
@@ -201,7 +214,7 @@ function fakeDb(seed: Record<string, Record<string, Record<string, unknown>>> = 
     },
   };
 
-  return { db: db as unknown as Firestore, collections, queryLog, batchSizes };
+  return { db: db as unknown as Firestore, collections, queryLog, batchSizes, updateLog };
 }
 
 const OUTLET = "outlet-1";
@@ -335,6 +348,22 @@ describe("firestoreTickStore.listStaffScrubNames", () => {
     });
     const result = await firestoreTickStore(db).listStaffScrubNames(OUTLET);
     expect(result).toEqual([]);
+  });
+});
+
+describe("firestoreTickStore.getOutletTz (DebriefAgent: the SAME tz the read path uses)", () => {
+  it("returns the outlet's timezone", async () => {
+    const { db } = fakeDb({ [COLLECTIONS.outlets]: { [OUTLET]: asDoc({ timezone: "Asia/Makassar" }) } });
+    expect(await firestoreTickStore(db).getOutletTz(OUTLET)).toBe("Asia/Makassar");
+  });
+
+  it.each([
+    ["a missing outlet doc", {}],
+    ["a malformed timezone", { [OUTLET]: asDoc({ timezone: 7 }) }],
+    ["an empty timezone", { [OUTLET]: asDoc({ timezone: "" }) }],
+  ])("falls back to Asia/Jakarta on %s", async (_name, docs) => {
+    const { db } = fakeDb({ [COLLECTIONS.outlets]: docs });
+    expect(await firestoreTickStore(db).getOutletTz(OUTLET)).toBe("Asia/Jakarta");
   });
 });
 
@@ -709,6 +738,99 @@ describe("firestoreTickStore.writeUnitResult", () => {
       window_end_ms: 9000,
       created_at_ms: 1000, // unchanged
       status: "open",
+    });
+  });
+
+  describe("DebriefAgent wording on an existing OPEN question (docs/tasks/debrief-agent-18oct.md §5.2)", () => {
+    const AGENT = {
+      version: "debrief-q-v1" as const,
+      model: "gemini-3.5-flash-lite" as const,
+      category: "CUSTOMER_SERVICE" as const,
+      start_hm: "14:05",
+      question_en: "Around 14:05, did a customer ask about the egg tarts?",
+      rounds: 1,
+      generated_at_ms: 5000,
+    };
+    const OLD_AGENT = { ...AGENT, category: "ROUTINE_OPS" as const, question_en: "Around 14:05, was the oven checked this morning?" };
+    const openDoc = (extra: Record<string, unknown> = {}) =>
+      asDoc({
+        outlet_id: OUTLET,
+        device_id: DEVICE,
+        question_id: "q1",
+        thread_id: "t1",
+        kind: "gate",
+        status: "open",
+        category: "ROUTINE_OPS",
+        window_start_ms: 0,
+        window_end_ms: 3000,
+        created_at_ms: 1000,
+        ...extra,
+      });
+    const incoming = (over: Partial<QuestionWrite> = {}): QuestionWrite => ({
+      outlet_id: OUTLET,
+      device_id: DEVICE,
+      question_id: "q1",
+      thread_id: "t1",
+      kind: "gate",
+      status: "open",
+      category: "ROUTINE_OPS",
+      window_start_ms: 0,
+      window_end_ms: 9000,
+      created_at_ms: 9999,
+      ...over,
+    });
+    const write = (store: ReturnType<typeof firestoreTickStore>, q: QuestionWrite) =>
+      store.writeUnitResult(OUTLET, DEVICE, {
+        threads: [],
+        questions: [q],
+        ledger: { outlet_id: OUTLET, device_id: DEVICE, unit_key: "u1", line_ids: [], status: "done", attempts: 1, labelled_at_ms: 2000 },
+        blank_line_ids: [],
+      });
+
+    it("same category and no new agent: the stored agent is left untouched", async () => {
+      const { db, collections } = fakeDb({ [COLLECTIONS.questions]: { q1: openDoc({ agent: OLD_AGENT }) } });
+      await write(firestoreTickStore(db), incoming());
+      expect(collections.get(COLLECTIONS.questions)?.get("q1")).toMatchObject({ window_end_ms: 9000, agent: OLD_AGENT });
+    });
+
+    it("category changed and no new agent: the stale agent is DELETED", async () => {
+      const { db, collections } = fakeDb({ [COLLECTIONS.questions]: { q1: openDoc({ agent: OLD_AGENT }) } });
+      await write(firestoreTickStore(db), incoming({ category: "CUSTOMER_SERVICE" }));
+      const doc = collections.get(COLLECTIONS.questions)?.get("q1");
+      expect(doc).toMatchObject({ category: "CUSTOMER_SERVICE", created_at_ms: 1000 });
+      expect("agent" in doc!).toBe(false);
+    });
+
+    it("category changed and a new agent: the new agent replaces the old one", async () => {
+      const { db, collections } = fakeDb({ [COLLECTIONS.questions]: { q1: openDoc({ agent: OLD_AGENT }) } });
+      await write(firestoreTickStore(db), incoming({ category: "CUSTOMER_SERVICE", agent: AGENT }));
+      expect(collections.get(COLLECTIONS.questions)?.get("q1")).toMatchObject({ category: "CUSTOMER_SERVICE", agent: AGENT });
+    });
+
+    it("an agent on the incoming write is written even when the category did not change", async () => {
+      const { db, collections } = fakeDb({ [COLLECTIONS.questions]: { q1: openDoc() } });
+      await write(firestoreTickStore(db), incoming({ agent: { ...AGENT, category: "ROUTINE_OPS" } }));
+      expect(collections.get(COLLECTIONS.questions)?.get("q1")).toMatchObject({ agent: { category: "ROUTINE_OPS" } });
+    });
+
+    it("pilot byte-identity: a category change on a question that never had an agent sends NO agent key at all", async () => {
+      const { db, updateLog } = fakeDb({ [COLLECTIONS.questions]: { q1: openDoc() } });
+      await write(firestoreTickStore(db), incoming({ category: "CUSTOMER_SERVICE" }));
+      const questionUpdate = updateLog.find((u) => u.collection === COLLECTIONS.questions);
+      expect(questionUpdate?.patch).toEqual({ category: "CUSTOMER_SERVICE", window_start_ms: 0, window_end_ms: 9000 });
+    });
+
+    it("a NEW question carries the agent object on the create", async () => {
+      const { db, collections } = fakeDb();
+      await write(firestoreTickStore(db), incoming({ agent: AGENT }));
+      expect(collections.get(COLLECTIONS.questions)?.get("q1")).toMatchObject({ agent: AGENT });
+    });
+
+    it("an answered question is never touched, agent or not", async () => {
+      const existing = openDoc({ status: "answered", answer: "yes", answered_at_ms: 5000, agent: OLD_AGENT });
+      const { db, collections } = fakeDb({ [COLLECTIONS.questions]: { q1: existing } });
+      await write(firestoreTickStore(db), incoming({ category: "CUSTOMER_SERVICE", agent: AGENT }));
+      expect(collections.get(COLLECTIONS.questions)?.get("q1")).toEqual(existing);
     });
   });
 

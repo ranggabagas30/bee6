@@ -134,7 +134,9 @@ function AllDecided({ lang, queue, sop }: { lang: Lang; queue: ProposalListItem[
   const ids = useId();
   const approved = queue.filter((i) => i.proposal.status === "approved").length;
   const rejected = queue.length - approved;
-  const firstShipped = queue.map((i) => shippedChangeFor(i, sop)).find((c) => c !== null) ?? null;
+  // Item 20: two approvals are two SOP versions, each with its own dates (shown on its row), so the one-change
+  // sentence ("The approved change starts on ...") is only used when exactly one proposal was approved.
+  const firstShipped = approved === 1 ? (queue.map((i) => shippedChangeFor(i, sop)).find((c) => c !== null) ?? null) : null;
   const summary = [
     t(lang, "C-propa-all-counts", { approved, rejected }),
     firstShipped
@@ -166,7 +168,7 @@ function AllDecided({ lang, queue, sop }: { lang: Lang; queue: ProposalListItem[
                   {isApproved ? (
                     <>
                       {shipped && <p className={styles.summaryLine}>{t(lang, "C-propa-shipped", { version: shipped.version })}</p>}
-                      <p className={styles.summaryLine}>{datesLine(lang, content, shipped)}</p>
+                      <p className={styles.summaryLine}>{datesLine(lang, content, shipped, item.proposal.status)}</p>
                     </>
                   ) : (
                     <p className={styles.summaryLine}>{owner?.reason ? t(lang, "C-propa-rule", { reason: owner.reason }) : t(lang, "C-propa-rule-none")}</p>

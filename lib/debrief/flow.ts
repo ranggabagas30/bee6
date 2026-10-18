@@ -76,6 +76,8 @@ export type DebriefEvent =
    * the ids it actually offered) keeps a skipped question from being offered twice, and an id that did not
    * fit under DEBRIEF_SHOW_MAX stays unseen so a later refresh can offer it.
    */
+  /** A poll got a 2xx body this bundle cannot read (demo only, M3): shown as the retryable load error, not silence. */
+  | { type: "REFRESH_UNREADABLE" }
   | { type: "REFRESHED"; questions: DebriefQuestionView[]; cached: ReadonlySet<string>; preparing?: boolean }
   | { type: "CHOOSE"; answer: "yes" | "no" }
   | { type: "TYPE"; reason: string }
@@ -161,6 +163,11 @@ export function reduceDebrief(s: DebriefState, e: DebriefEvent): DebriefState {
       // Same race as LOADED above: a late failure must not override a view
       // that already moved on (e.g. a timeout that beat the GET).
       if (s.view.kind !== "loading") return s;
+      return { ...s, view: { kind: "load_error" } };
+
+    case "REFRESH_UNREADABLE":
+      // Only the waiting screens: a question the judge is answering is never replaced, and the pilot never polls.
+      if (!s.demo || (s.view.kind !== "preparing" && s.view.kind !== "waiting_more")) return s;
       return { ...s, view: { kind: "load_error" } };
 
     case "REFRESHED": {

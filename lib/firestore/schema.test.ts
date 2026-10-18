@@ -16,6 +16,7 @@ import {
   ProposalSchema,
   QuestionDocSchema,
   QuestionSchema,
+  QuestionAgentSchema,
   ReviewSchema,
   SegmentSchema,
   SopChangeMetricSchema,
@@ -408,6 +409,118 @@ describe("QuestionSchema", () => {
         expired_by_debrief_end_ms: 1_700_000_000_000,
       }).success,
     ).toBe(true);
+  });
+});
+
+describe("QuestionSchema: DebriefAgent optional `agent` text", () => {
+  const gateQuestion = {
+    outlet_id: "sbx-0123456789ab",
+    question_id: "q_thread_unit_d1_w1:T1",
+    device_id: "d1",
+    thread_id: "unit_d1_w1:T1",
+    kind: "gate",
+    status: "open",
+    category: "PHONE_CALL",
+    window_start_ms: 0,
+    window_end_ms: 1000,
+    created_at_ms: 1_700_000_000_000,
+  };
+  const agent = {
+    version: "debrief-q-v1",
+    model: "gemini-3.5-flash-lite",
+    category: "PHONE_CALL",
+    start_hm: "14:05",
+    question_en: "Around 14:05, was there a phone order for twelve egg tarts?",
+    rounds: 1,
+    generated_at_ms: 1_700_000_000_000,
+  };
+
+  it("a question doc written before the feature (no `agent`) still parses", () => {
+    expect(QuestionSchema.safeParse(gateQuestion).success).toBe(true);
+    expect(QuestionDocSchema.safeParse(gateQuestion).success).toBe(true);
+  });
+
+  it("accepts a valid `agent`", () => {
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent }).success).toBe(true);
+    expect(QuestionDocSchema.safeParse({ ...gateQuestion, agent }).success).toBe(true);
+  });
+
+  it("accepts the reserved `question_id_text`, optional", () => {
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent: { ...agent, question_id_text: "Sekitar 14:05, apakah ada pesanan?" } }).success).toBe(true);
+  });
+
+  it("rejects an extra key inside `agent` (no name, no device id, no line text can ride along)", () => {
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent: { ...agent, device_id: "d1" } }).success).toBe(false);
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent: { ...agent, lines: ["x"] } }).success).toBe(false);
+  });
+
+  it("rejects a wrong version, an unknown model, a NON_WORK category, a bad start_hm, rounds out of 1..2", () => {
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent: { ...agent, version: "debrief-q-v2" } }).success).toBe(false);
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent: { ...agent, model: "gemini-9" } }).success).toBe(false);
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent: { ...agent, category: "NON_WORK" } }).success).toBe(false);
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent: { ...agent, start_hm: "2:05" } }).success).toBe(false);
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent: { ...agent, rounds: 3 } }).success).toBe(false);
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent: { ...agent, rounds: 0 } }).success).toBe(false);
+  });
+
+  it("the flash model is also a valid stored model (the single-constant switch must not break writes)", () => {
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent: { ...agent, model: "gemini-3.5-flash" } }).success).toBe(true);
+  });
+
+  it("question_en has a storage bound (20..280 code points)", () => {
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent: { ...agent, question_en: "x".repeat(19) } }).success).toBe(false);
+    expect(QuestionSchema.safeParse({ ...gateQuestion, agent: { ...agent, question_en: "x".repeat(281) } }).success).toBe(false);
+  });
+});
+
+describe("QuestionDocSchema: tolerant read of `agent` (step 3 risk review M5)", () => {
+  const base = {
+    outlet_id: "sbx-0123456789ab",
+    question_id: "q1",
+    device_id: "d1",
+    thread_id: "t1",
+    kind: "gate",
+    status: "open",
+    category: "PHONE_CALL",
+    window_start_ms: 0,
+    window_end_ms: 1000,
+    created_at_ms: 1_700_000_000_000,
+  };
+  const goodAgent = {
+    version: "debrief-q-v1",
+    model: "gemini-3.5-flash-lite",
+    category: "PHONE_CALL",
+    start_hm: "14:05",
+    question_en: "Around 14:05, was there a phone order for twelve egg tarts?",
+    rounds: 1,
+    generated_at_ms: 1,
+  };
+
+  it("a future-version, wrong-shape or non-object `agent` still loads the question on the READ schema, with the agent dropped", () => {
+    for (const agent of [{ ...goodAgent, version: "debrief-q-v2" }, { ...goodAgent, model: "gemini-9" }, { foo: 1 }, "x", 7, null]) {
+      const r = QuestionDocSchema.safeParse({ ...base, agent });
+      expect(r.success).toBe(true);
+      if (r.success) expect(r.data.agent).toBeUndefined();
+    }
+    // a valid one is kept
+    const ok = QuestionDocSchema.safeParse({ ...base, agent: goodAgent });
+    expect(ok.success && ok.data.agent?.version).toBe("debrief-q-v1");
+  });
+
+  it("the WRITE schema (QuestionSchema) stays strict about the same objects", () => {
+    expect(QuestionSchema.safeParse({ ...base, agent: { ...goodAgent, version: "debrief-q-v2" } }).success).toBe(false);
+    expect(QuestionSchema.safeParse({ ...base, agent: { foo: 1 } }).success).toBe(false);
+  });
+
+  it("everything else on the read schema stays strict (an unknown top-level key, a bad status, the answered rule)", () => {
+    expect(QuestionDocSchema.safeParse({ ...base, agent: goodAgent, extra: 1 }).success).toBe(false);
+    expect(QuestionDocSchema.safeParse({ ...base, status: "weird" }).success).toBe(false);
+    expect(QuestionDocSchema.safeParse({ ...base, status: "answered", agent: { foo: 1 } }).success).toBe(false);
+  });
+
+  it("QuestionAgentSchema is the strict stored shape", () => {
+    expect(QuestionAgentSchema.safeParse(goodAgent).success).toBe(true);
+    expect(QuestionAgentSchema.safeParse({ ...goodAgent, version: "debrief-q-v2" }).success).toBe(false);
   });
 });
 

@@ -1,4 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { getModelLocation } from "@/config/regions";
+import { adkReviewAgent } from "@/lib/agents/review-agent";
 import { requireClaims } from "@/lib/http/guard";
 import { BadRequestError, ValidationError, handleApiError } from "@/lib/http/errors";
 import { jsonOk } from "@/lib/http/respond";
@@ -16,7 +18,8 @@ import { fastForwardReview } from "@/lib/reviews/service";
  * 422/405). With DEMO_MODE on, the service still answers 404 unless the
  * caller's outlet has project_kind "demo", before its role check. It runs the
  * same `createReview` as the daily Scheduler run, flagged as simulated time.
- * It never moves a clock.
+ * It never moves a clock. With REVIEW_AGENT on (sandbox only) it also asks the ReviewAgent to explain the counts;
+ * any failure there falls back to the plain card (the 20 s cap is inside the agent).
  */
 
 export const runtime = "nodejs";
@@ -74,6 +77,15 @@ export async function POST(req: NextRequest) {
       demoMode: true,
       beforeCreate: () => enforceDemoCapsForRoute("fast_forward", claims, "reviews:verdict", "check"),
       afterCreate: () => enforceDemoCapsForRoute("fast_forward", claims, "reviews:verdict", "charge"),
+      // ReviewAgent (docs/tasks/review-agent-18oct.md §5.11): used only when REVIEW_AGENT is exactly "true" AND the
+      // outlet is a demo sandbox (decided inside the service). The location comes from config/regions.yaml.
+      reviewAgent: {
+        run: adkReviewAgent,
+        env: process.env,
+        project: process.env.GOOGLE_CLOUD_PROJECT ?? "",
+        resolveLocation: (m) => getModelLocation(m).location,
+        now_ms: Date.now(),
+      },
     });
 
     const res = jsonOk(FastForwardResponseSchema.parse(data), 200);

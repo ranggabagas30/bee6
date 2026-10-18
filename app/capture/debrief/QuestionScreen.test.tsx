@@ -444,15 +444,98 @@ describe("QuestionScreen: quoted lines (demo-feedback-2 item 10, sandbox only)",
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("Around 15:00 there was routine work. Is that right?");
   });
 
-  it("the radiogroup aria-label stays the template only: the quote is read once, in the card", () => {
+  it("the radiogroup is named by the heading (aria-labelledby), never by a copy of its text: the quote is read once, in the card", () => {
     renderScreen(q({ lines: ["Pelanggan tanya roti."] }));
     const group = screen.getByRole("radiogroup");
-    expect(group.getAttribute("aria-label")).toBe("Around 15:00 there was routine work. Is that right?");
-    expect(group.getAttribute("aria-label")).not.toContain("Pelanggan");
+    const heading = screen.getByRole("heading", { level: 2 });
+    expect(group.hasAttribute("aria-label")).toBe(false);
+    expect(heading.id).not.toBe("");
+    expect(group.getAttribute("aria-labelledby")).toBe(heading.id);
+    // the computed name is the heading's text and nothing of the quoted lines
+    expect(screen.getByRole("radiogroup", { name: "Around 15:00 there was routine work. Is that right?" })).toBe(group);
+    expect(screen.queryByRole("radiogroup", { name: /Pelanggan/ })).toBeNull();
   });
 
   it("an unlabelled_unit without lines keeps its own why sentence", () => {
     renderScreen(q({ kind: "unlabelled_unit", category: null }));
     expect(screen.getByText("Bee6 heard work here but could not tell what. It needs your answer to be sure.")).toBeTruthy();
+  });
+});
+
+describe("QuestionScreen: DebriefAgent question_text (sandbox only)", () => {
+  const noop = () => {};
+  const TEXT = "Around 15:00, was the oven checked before opening?";
+  function renderScreen(question: DebriefQuestionView, lang: "en" | "id" = "en") {
+    return render(
+      <QuestionScreen
+        view={baseView({ list: [question] })}
+        lang={lang}
+        uploadNote={null}
+        onChoose={noop}
+        onTypeReason={noop}
+        onLanjut={noop}
+        onLewati={noop}
+      />,
+    );
+  }
+
+  it("the heading is the agent's wording, in place of the template", () => {
+    renderScreen(q({ question_text: TEXT }));
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(TEXT);
+    expect(screen.queryByText("Around 15:00 there was routine work. Is that right?")).toBeNull();
+  });
+
+  it("the quoted 'Bee6 heard:' lines stay under the agent's heading, and the chip and time stay", () => {
+    renderScreen(q({ question_text: TEXT, lines: ["Pelanggan tanya roti tawar habis."] }));
+    expect(screen.getByText("Bee6 heard:")).toBeTruthy();
+    expect(screen.getByText("“Pelanggan tanya roti tawar habis.”")).toBeTruthy();
+    expect(screen.getByText("Today · 15:00")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(TEXT);
+  });
+
+  it("the radiogroup is labelled by the visible heading (the agent's wording), so the group is named by what is on screen", () => {
+    renderScreen(q({ question_text: TEXT, lines: ["Pelanggan tanya roti tawar habis."] }));
+    const group = screen.getByRole("radiogroup", { name: TEXT });
+    expect(group.hasAttribute("aria-label")).toBe(false);
+    expect(group.getAttribute("aria-labelledby")).toBe(screen.getByRole("heading", { level: 2 }).id);
+  });
+
+  it("A11y: the agent heading is marked lang=\"en\" in a Bahasa UI, and carries no lang in an English UI", () => {
+    const { unmount } = renderScreen(q({ question_text: TEXT }), "id");
+    expect(screen.getByRole("heading", { level: 2 }).getAttribute("lang")).toBe("en");
+    unmount();
+    renderScreen(q({ question_text: TEXT }), "en");
+    expect(screen.getByRole("heading", { level: 2 }).hasAttribute("lang")).toBe(false);
+  });
+
+  it("A11y: the template heading (no question_text) never gets a lang attribute, in either language", () => {
+    const { unmount } = renderScreen(q(), "id");
+    expect(screen.getByRole("heading", { level: 2 }).hasAttribute("lang")).toBe(false);
+    unmount();
+    renderScreen(q(), "en");
+    expect(screen.getByRole("heading", { level: 2 }).hasAttribute("lang")).toBe(false);
+  });
+
+  it("is a plain text node: markup, entities and braces render inertly and nothing is interpolated", () => {
+    const hostile = "<b>x</b> <img src=x onerror=alert(1)> &amp; {hm} {step} {code} ${1+1}";
+    const { container } = renderScreen(q({ question_text: hostile }));
+    expect(container.querySelector("b")).toBeNull();
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("script")).toBeNull();
+    const heading = screen.getByRole("heading", { level: 2 });
+    expect(heading.textContent).toBe(hostile);
+    expect(heading.children).toHaveLength(1); // the one line span, no parsed markup inside it
+    expect(heading.querySelector("span")!.children).toHaveLength(0);
+  });
+
+  it("a Bahasa UI shows the same wording (EN until Rangga decides, D10) with the rest of the screen in Bahasa", () => {
+    renderScreen(q({ question_text: TEXT }), "id");
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(TEXT);
+    expect(screen.getByRole("radio", { name: "Ya" })).toBeTruthy();
+  });
+
+  it("without question_text the template heading is unchanged (the pilot screen)", () => {
+    renderScreen(q());
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("Around 15:00 there was routine work. Is that right?");
   });
 });
