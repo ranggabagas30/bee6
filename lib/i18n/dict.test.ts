@@ -374,7 +374,9 @@ describe("approval screen copy (R-09 Task 6)", () => {
     expect(t("en", "C-prop-review-draft", { date: "Sun 1 Nov" })).toBe(
       "Review about Sun 1 Nov (confirmed when approved)",
     );
-    expect(t("id", "C-prop-review-draft", { date: "Sun 1 Nov" })).toMatch(/Sun 1 Nov/);
+    expect(t("id", "C-prop-review-draft", { date: "Min 1 Nov" })).toBe(
+      "Ditinjau sekitar Min 1 Nov (dikonfirmasi saat disetujui)",
+    );
     // The post-approval review key should remain unchanged
     expect(t("en", "C-prop-review", { date: "Sun 1 Nov" })).toBe("Review on Sun 1 Nov");
     expect(t("id", "C-prop-review", { date: "Sun 1 Nov" })).toBe("Ditinjau pada Sun 1 Nov");
