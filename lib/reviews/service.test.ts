@@ -556,6 +556,207 @@ describe("fastForwardReview", () => {
   });
 });
 
+describe("fastForwardReview with the ReviewAgent (docs/tasks/review-agent-18oct.md §5.11)", () => {
+  const SBX_ID = "sbx-aaaaaaaaaaaa";
+  const sandbox = { template_outlet_id: "demo-tpl-outlet", created_at_ms: 1, expires_at_ms: 2, key_sha256: "a".repeat(64) };
+  const sbxOutlet = (over: Partial<Outlet> = {}) => outlet({ outlet_id: SBX_ID, sandbox, ...over });
+  const NARRATIVE =
+    "The change added a display check at peak times. Before it, 6 moments of this kind were noted over 3 captured days; after it, 2 over 3 captured days, a change of 67 percent. Fewer moments were noted, which suggests it worked.";
+  const DRAFT = {
+    narrative_en: NARRATIVE,
+    suggested_verdict: "worked" as const,
+    quoted_numbers: [6, 3, 2, 3, 67],
+    caveats: ["short_window", "category_count_not_problem_count"] as ("short_window" | "category_count_not_problem_count")[],
+  };
+  const USAGE = { input_tokens: 2400, output_tokens: 180, thoughts_tokens: null };
+
+  type Run = NonNullable<Parameters<typeof fastForwardReview>[1]["reviewAgent"]>["run"];
+  /** A fake model that reads through the REAL tools and submits `draft` to the real check_review. */
+  const reading = (draft: unknown, seen: unknown[] = []): Run => async (input) => {
+    const call = (name: string, args: unknown = {}) => {
+      const t = input.tools.find((x) => x.name === name)!;
+      return t.execute(t.parameters.parse(args));
+    };
+    call("get_change");
+    call("get_counts");
+    seen.push(call("get_evidence_sample", { window: "before" }), call("get_evidence_sample", { window: "after" }));
+    call("check_review", draft);
+    return {
+      kind: "decided",
+      outcome: input.session.outcome!,
+      usage: USAGE,
+      trace: { model_calls: 3, tool_calls: [], check_rounds: input.session.checkRounds, ms: 10, ended_by: "decided" as const },
+    };
+  };
+  const agentDeps = (run: Run, env: Record<string, string | undefined> = { REVIEW_AGENT: "true" }) => ({
+    run,
+    env,
+    project: "bee6-playground",
+    resolveLocation: () => "global",
+    now_ms: at("2026-10-17"),
+  });
+  const ffAgent = (f: ReturnType<typeof fakeStore>, run: Run, env?: Record<string, string | undefined>) =>
+    fastForwardReview(f.store, {
+      claims: claims("supervisor", SBX_ID),
+      now_ms: at("2026-10-17"),
+      demoMode: true,
+      reviewAgent: agentDeps(run, env),
+    });
+  const sbxStore = (extra: Partial<FakeOpts> = {}) => fakeStore({ ...windowData(), outletDoc: sbxOutlet(), ...extra });
+
+  it("flag on + sandbox: the agent runs once, the doc carries `agent`, the audit says accepted (counts and enums only)", async () => {
+    const run = vi.fn(reading(DRAFT));
+    const f = sbxStore();
+    expect(await ffAgent(f, run)).toEqual({ version: 2 });
+    expect(run).toHaveBeenCalledTimes(1);
+    const doc = f.reviews.get(`${OUTLET}:v2`)!;
+    expect(doc.agent).toMatchObject({
+      version: "review-v1",
+      model: "gemini-3.5-flash-lite",
+      narrative_en: NARRATIVE,
+      suggested_verdict: "worked",
+      caveats: ["short_window", "category_count_not_problem_count"],
+      rounds: 1,
+      model_calls: 3,
+      generated_at_ms: at("2026-10-17"),
+    });
+    expect(doc.agent!.suggested_verdict).toBe(doc.suggestion.verdict);
+    expect(f.audits[0]!.details).toEqual({ version: 2, suggested: "worked", reason: "improved", simulated: true, agent: "accepted" });
+    expect(JSON.stringify(f.audits)).not.toContain(NARRATIVE);
+  });
+
+  it("flag OFF (unset, TRUE, 1, false) with a sandbox: the agent is never invoked; the doc and the audit are byte-identical to no agent deps", async () => {
+    const plain = sbxStore();
+    await fastForwardReview(plain.store, { claims: claims("supervisor", SBX_ID), now_ms: at("2026-10-17"), demoMode: true });
+    for (const env of [{}, { REVIEW_AGENT: "TRUE" }, { REVIEW_AGENT: "1" }, { REVIEW_AGENT: "false" }]) {
+      const run = vi.fn(reading(DRAFT));
+      const f = sbxStore();
+      await ffAgent(f, run, env);
+      expect(run).not.toHaveBeenCalled();
+      expect(f.reviews.get(`${OUTLET}:v2`)).toEqual(plain.reviews.get(`${OUTLET}:v2`));
+      expect(f.audits).toEqual(plain.audits);
+      expect(JSON.stringify(f.reviews.get(`${OUTLET}:v2`))).toBe(JSON.stringify(plain.reviews.get(`${OUTLET}:v2`)));
+    }
+    expect("agent" in plain.reviews.get(`${OUTLET}:v2`)!).toBe(false);
+    expect(plain.audits[0]!.details).toEqual({ version: 2, suggested: "worked", reason: "improved", simulated: true });
+  });
+
+  it("flag on but a demo outlet that is not a sandbox: not invoked, nothing changes", async () => {
+    const run = vi.fn(reading(DRAFT));
+    const f = fakeStore({ ...windowData() }); // the plain demo outlet (OUTLET), no sandbox block
+    await fastForwardReview(f.store, { claims: claims("supervisor"), now_ms: at("2026-10-17"), demoMode: true, reviewAgent: agentDeps(run) });
+    expect(run).not.toHaveBeenCalled();
+    expect("agent" in f.reviews.get(`${OUTLET}:v2`)!).toBe(false);
+    expect(f.audits[0]!.details).not.toHaveProperty("agent");
+  });
+
+  it("flag on but a sandbox block on a non-sbx- id: not invoked", async () => {
+    const run = vi.fn(reading(DRAFT));
+    const f = fakeStore({ ...windowData(), outletDoc: outlet({ sandbox }) });
+    await fastForwardReview(f.store, { claims: claims("supervisor"), now_ms: at("2026-10-17"), demoMode: true, reviewAgent: agentDeps(run) });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("fallback: an error, a decline, a timeout or a rejected run writes the review WITHOUT agent, audit fallback", async () => {
+    const usage = USAGE;
+    const trace = { model_calls: 1, tool_calls: [], check_rounds: 0, ms: 1, ended_by: "error" as const };
+    const runs: Run[] = [
+      async () => ({ kind: "error", error_class: "adk_429", usage, trace }),
+      async () => ({ kind: "error", error_class: "timeout", usage, trace: { ...trace, ended_by: "timeout" } }),
+      async () => ({ kind: "decided", outcome: { kind: "declined", reason: "cannot_explain" }, usage, trace: { ...trace, ended_by: "decided" } }),
+      async () => ({ kind: "decided", outcome: { kind: "rejected", reasons: ["causal_claim"] }, usage, trace }),
+      async () => {
+        throw new Error("SECRET");
+      },
+    ];
+    for (const run of runs) {
+      const f = sbxStore();
+      expect(await ffAgent(f, run)).toEqual({ version: 2 });
+      const doc = f.reviews.get(`${OUTLET}:v2`)!;
+      expect("agent" in doc).toBe(false);
+      expect(doc).toMatchObject({ simulated: true, status: "awaiting_supervisor" });
+      expect(f.audits[0]!.details).toMatchObject({ agent: "fallback", suggested: "worked" });
+    }
+  });
+
+  it("the agent's verdict must equal the rule's: a disagreeing draft never reaches the doc", async () => {
+    const f = sbxStore();
+    await ffAgent(f, reading({ ...DRAFT, suggested_verdict: "revert" }));
+    expect("agent" in f.reviews.get(`${OUTLET}:v2`)!).toBe(false);
+    expect(f.reviews.get(`${OUTLET}:v2`)!.suggestion.verdict).toBe("worked");
+    expect(f.audits[0]!.details).toMatchObject({ agent: "fallback" });
+  });
+
+  it("a draft the final re-check refuses (a name) is not stored", async () => {
+    const f = sbxStore({ staff: ["Sari Demo"] });
+    const bad = { ...DRAFT, narrative_en: `${NARRATIVE} Sari liked it.` };
+    // The fake model skips check_review's refusal by setting the accepted outcome itself.
+    const run: Run = async (input) => {
+      for (const w of ["change", "counts", "before", "after"] as const) input.session.inspected.add(w);
+      input.session.checkRounds = 1;
+      input.session.outcome = { kind: "accepted", draft: bad };
+      return { kind: "decided", outcome: input.session.outcome, usage: USAGE, trace: { model_calls: 2, tool_calls: [], check_rounds: 1, ms: 1, ended_by: "decided" } };
+    };
+    await ffAgent(f, run);
+    expect("agent" in f.reviews.get(`${OUTLET}:v2`)!).toBe(false);
+  });
+
+  it("the agent reads scrubbed summaries only: a planted staff name never reaches a tool result", async () => {
+    const threads = windowData().threads.map((t, i) => ({ ...t, summary: i === 0 ? "Sari asked about the display." : "A customer asked." }));
+    const seen: unknown[] = [];
+    const f = fakeStore({ ...windowData(), threads, outletDoc: sbxOutlet(), staff: ["Sari Demo"] });
+    await ffAgent(f, reading(DRAFT, seen));
+    const text = JSON.stringify(seen);
+    expect(text).toContain("[STAFF] asked about the display.");
+    expect(text).not.toContain("Sari");
+    expect(text).not.toContain("unit_");
+    expect(text).not.toContain(DEVICE);
+  });
+
+  it("staff names that cannot be read: the agent is not run (fail closed), the plain card is written", async () => {
+    const run = vi.fn(reading(DRAFT));
+    const f = sbxStore();
+    f.store.listStaffScrubNames = async () => {
+      throw new Error("down");
+    };
+    await ffAgent(f, run);
+    expect(run).not.toHaveBeenCalled();
+    expect("agent" in f.reviews.get(`${OUTLET}:v2`)!).toBe(false);
+    expect(f.audits[0]!.details).toMatchObject({ agent: "fallback" });
+  });
+
+  it("the runner gets the location the route resolved and the demo project", async () => {
+    const run = vi.fn(reading(DRAFT));
+    const resolveLocation = vi.fn(() => "the-location");
+    const f = sbxStore();
+    await fastForwardReview(f.store, {
+      claims: claims("supervisor", SBX_ID),
+      now_ms: at("2026-10-17"),
+      demoMode: true,
+      reviewAgent: { ...agentDeps(run), resolveLocation },
+    });
+    expect(resolveLocation).toHaveBeenCalledWith("gemini-3.5-flash-lite");
+    expect(run.mock.calls[0]![1]).toMatchObject({ project: "bee6-playground", location: "the-location" });
+  });
+
+  it("the daily run never invokes the agent, even with REVIEW_AGENT=true in the process env", async () => {
+    vi.stubEnv("REVIEW_AGENT", "true");
+    const f = fakeStore(windowData());
+    const r = await runDueReviews({ outlets: [outlet()], storeFor: () => f.store, now_ms: at("2026-10-23") });
+    expect(r.created).toBe(1);
+    expect("agent" in f.reviews.get(`${OUTLET}:v2`)!).toBe(false);
+    expect(f.audits[0]!.details).not.toHaveProperty("agent");
+    vi.unstubAllEnvs();
+  });
+
+  it("the view of an agent review carries the narrative and the computed caveats", async () => {
+    const f = sbxStore();
+    await ffAgent(f, reading(DRAFT));
+    const r = await listReviews(f.store, { claims: claims("owner", SBX_ID), now_ms: at("2026-10-17"), demoMode: true });
+    expect(r.open[0]!.agent).toEqual({ narrative_en: NARRATIVE, caveats: ["short_window", "category_count_not_problem_count"] });
+  });
+});
+
 describe("fastForwardReview with the real sandbox cap (QA D1: a refused or lost skip costs no slot)", () => {
   const SBX = "sbx-0123456789ab";
   const NOW = at("2026-10-17");
