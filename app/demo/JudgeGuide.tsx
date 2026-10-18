@@ -7,6 +7,7 @@ import { authedGetJson } from "@/lib/auth/client/api";
 import { getClientAuth } from "@/lib/auth/client/firebase-client";
 import { useAuthUser } from "@/lib/auth/client/use-auth-user";
 import { postDemoNextDay, readDeviceAuth } from "@/lib/capture/browser/client";
+import { abortAllCaptureUploads } from "@/lib/capture/browser/session";
 import { DEMO_DAYS_TOTAL } from "@/lib/demo/constants";
 import { DemoProgressResponseSchema, type NextDayRefusal } from "@/lib/demo/contract";
 import { DEMO_EMAILS, DEMO_PASSWORD, DEMO_STAFF_CODE } from "@/lib/demo/credentials";
@@ -834,6 +835,8 @@ function JumpTomorrow({ lang, bridge }: { lang: Lang; bridge: CaptureBridge }) {
     setErrorKey(null);
     setConfirm(null);
     setPostReason(null);
+    // The shift moves stored day-1 docs back 24 h; a day-1 note still retrying after End must not land after it.
+    abortAllCaptureUploads();
     const result = await postDemoNextDay(auth, { expected_day: profile.day, confirm_unanswered: confirmUnanswered });
     busyRef.current = false;
     setBusy(false);

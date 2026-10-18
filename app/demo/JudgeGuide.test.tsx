@@ -36,6 +36,9 @@ vi.mock("@/lib/capture/browser/client", async (importOriginal) => ({
   postDemoNextDay: (...a: unknown[]) => postDemoNextDay(...a),
 }));
 
+const abortAllCaptureUploads = vi.fn();
+vi.mock("@/lib/capture/browser/session", () => ({ abortAllCaptureUploads: () => abortAllCaptureUploads() }));
+
 const getIdToken = vi.fn(async () => "id-token");
 const FAKE_AUTH = { currentUser: { getIdToken } };
 vi.mock("@/lib/auth/client/firebase-client", () => ({
@@ -861,6 +864,19 @@ describe("/capture: the debrief cards and Jump to tomorrow (plan 4.4, 7.2)", () 
     await waitFor(() => expect(postDemoNextDay).toHaveBeenCalledWith({ deviceToken: "t", deviceId: "d" }, { expected_day: 1, confirm_unanswered: false }));
     await waitFor(() => expect(refetchConfig.mock.calls.length).toBe(refetchesBefore + 1));
     expect(screen.getByRole("status").textContent).toBe("It is now day 2 of 3. Tap Start.");
+  });
+
+  // Fb22: a day-1 note still retrying after End must not land after the next-day shift (it would be filed under day 2).
+  it("Jump to tomorrow aborts every capture upload before it posts the next-day shift", async () => {
+    pathname = "/capture";
+    postDemoNextDay.mockResolvedValueOnce({ ok: true, data: { day: 2 } });
+    act(() => publishCaptureBridge(debrief({ allowed: true, reason: null })));
+    renderGuide();
+    openGuide();
+    fireEvent.click(screen.getByRole("button", { name: "Jump to tomorrow" }));
+    await waitFor(() => expect(postDemoNextDay).toHaveBeenCalledTimes(1));
+    expect(abortAllCaptureUploads).toHaveBeenCalledTimes(1);
+    expect(abortAllCaptureUploads.mock.invocationCallOrder[0]!).toBeLessThan(postDemoNextDay.mock.invocationCallOrder[0]!);
   });
 
   it("409 unanswered_questions: an inline confirm (no modal) with the count; Jump anyway retries with confirm_unanswered: true; Answer them first closes it", async () => {
