@@ -41,9 +41,9 @@ export type CheckRule = (typeof CHECK_RULES)[number];
  */
 export const RULE_HINTS: Partial<Record<CheckRule, string>> = {
   negation:
-    "Ask ONE positive question about whether the moment happened. Do not use no, not, never, nobody, nothing, none, neither, nor, without, any n't form, made up, fake or false.",
+    "Ask ONE positive question about whether there was the moment, as the notes describe it (for example: was there a phone order for twelve egg tarts?). Do not ask whether a step was or was not done. Do not use no, not, never, nobody, nothing, none, neither, nor, without, any n't form, dont/didnt-style forms, made up, fake or false.",
   compound:
-    "Ask ONE yes/no question. Do not join two questions with and/or, and do not write yes or no in the question.",
+    "Ask ONE yes/no question. Do not join two questions with and, or, but or &, and do not write yes or no in the question.",
 };
 
 export function hintsFor(reasons: readonly CheckRule[]): string[] {
@@ -99,12 +99,31 @@ const INSTRUCTION_WORD = /\b(ignore|system prompt|instruction|assistant|as an ai
 /**
  * A negated or inverted wording makes a correct Yes/No mean the opposite ("was there no complaint?" - "No" - the
  * complaint is dropped as `staff_rejected`). Word-boundary, so it also fires inside hyphenated forms ("no-show");
- * `\b` never matches inside a word, so "notice" / "know" / "another" are fine.
+ * `\b` never matches inside a word, so "notice" / "know" / "another" are fine. Includes the apostrophe-less
+ * contractions people type on a phone ("didnt") and "made up" with any spacing or a hyphen.
  */
-const NEGATION =
-  /\b(?:no|not|never|nobody|nothing|none|neither|nor|without|cannot|untrue|fake|false|made up)\b|n['\u2019]t\b/i;
-/** A second yes/no clause ("... cold and was a new one made?") or an explicit "yes or no": a partial-truth No drops evidence. */
-const COMPOUND = /\b(?:and|or)\s+(?:did|was|were|is|are|had|has|do|does)\b|\byes or no\b/i;
+const NEGATION_EN =
+  "\\b(?:no|not|never|nobody|nothing|none|neither|nor|without|cannot|untrue|fake|false|made[\\s-]+up|" +
+  "dont|didnt|doesnt|isnt|wasnt|werent|arent|hasnt|havent|hadnt|cant|couldnt|wouldnt|shouldnt|wont)\\b|n['\\u2019]t\\b";
+const NEGATION = new RegExp(NEGATION_EN, "i");
+/** Bahasa negators, for the NOTES only (the question is English). Word-boundary, case-insensitive. */
+const NEGATION_NOTES = new RegExp(`${NEGATION_EN}|\\b(?:tidak|nggak|enggak|gak|belum|bukan|tanpa|jangan)\\b`, "i");
+
+/**
+ * True when the moment's own notes (lines or summary) state a negative fact ("I did not read the order back"). The
+ * question must then keep the template: any positive yes/no about such a moment is answered No by an honest worker,
+ * and a No on a gate question is `staff_rejected` (the true evidence is dropped). Plain code, English and Bahasa,
+ * pure, no I/O. Deliberately NOT a `CheckRule`: it runs before the model is called, not on its wording.
+ */
+export function notesHaveNegation(lines: readonly string[], summary: string): boolean {
+  return NEGATION_NOTES.test(`${lines.join("\n")}\n${summary}`);
+}
+
+/**
+ * A second clause: any bare "and" / "or" / "but" or '&' outside the LEADING time clause ("Between 14:05 and 14:08,"
+ * is the only legal "and"). A partial-truth No on a compound drops evidence.
+ */
+const COMPOUND = /\b(?:and|or|but)\b|&/i;
 const LETTERS_5 = /\p{L}{5,}/gu;
 const LETTER_RUNS = /\p{L}+/gu;
 const PREFIX_LEN = 5;
@@ -192,7 +211,7 @@ export function checkQuestion(draft: unknown, ctx: CheckContext): CheckResult {
   if (ROLE_WORD.test(q)) fail("role_word");
   if (INSTRUCTION_WORD.test(q)) fail("instruction_word");
   if (NEGATION.test(q)) fail("negation");
-  if (COMPOUND.test(q)) fail("compound");
+  if (COMPOUND.test(q.replace(TIME_CLAUSE, ""))) fail("compound");
 
   const reasons = CHECK_RULES.filter((rule) => failed.has(rule));
   return { passed: reasons.length === 0, reasons };

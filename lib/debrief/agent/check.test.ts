@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { CHECK_RULES, QUESTION_ALLOW_WORDS, checkQuestion, type CheckContext, type CheckRule } from "@/lib/debrief/agent/check";
+import {
+  CHECK_RULES,
+  QUESTION_ALLOW_WORDS,
+  RULE_HINTS,
+  checkQuestion,
+  notesHaveNegation,
+  type CheckContext,
+  type CheckRule,
+} from "@/lib/debrief/agent/check";
 import type { DebriefQuestionMoment } from "@/lib/debrief/agent/types";
 
 const moment: DebriefQuestionMoment = {
@@ -18,7 +26,7 @@ const run = (q: unknown, c: CheckContext = ctx) => checkQuestion(q, c);
 const draft = (question_en: string) => ({ question_en });
 const reasonsOf = (q: string, c: CheckContext = ctx): CheckRule[] => run(draft(q), c).reasons;
 
-const GOOD = "Around 14:05, was the phone order read back to the caller?";
+const GOOD = "Around 14:05, was there a phone order for twelve egg tarts?";
 
 describe("checkQuestion: rule table", () => {
   it("1. accepts a grounded yes/no question", () => {
@@ -323,6 +331,25 @@ describe("checkQuestion: negation and compound (step 3 risk review M1)", () => {
     ["Around 14:05, was a no-show latte complaint made?", complaint],
     ["Around 14:05, was the not-read-back phone order taken?", ctx],
     ["AROUND 14:05, WAS THERE NO PHONE ORDER?", ctx],
+    // apostrophe-less contractions (typed on a phone) and spacing/hyphen variants of "made up"
+    ["Around 14:05, dont you think the phone order was taken?", ctx],
+    ["Around 14:05, didnt a customer complain about the latte?", complaint],
+    ["Around 14:05, doesnt the phone order matter?", ctx],
+    ["Around 14:05, isnt there a phone order for twelve egg tarts?", ctx],
+    ["Around 14:05, wasnt there a phone order for twelve egg tarts?", ctx],
+    ["Around 14:05, werent there phone orders for twelve egg tarts?", ctx],
+    ["Around 14:05, arent there phone orders for twelve egg tarts?", ctx],
+    ["Around 14:05, hasnt a phone order been taken?", ctx],
+    ["Around 14:05, havent they taken a phone order?", ctx],
+    ["Around 14:05, hadnt a phone order been taken?", ctx],
+    ["Around 14:05, cant the phone order be taken?", ctx],
+    ["Around 14:05, couldnt a phone order be taken?", ctx],
+    ["Around 14:05, wouldnt a phone order be taken?", ctx],
+    ["Around 14:05, shouldnt a phone order be taken?", ctx],
+    ["Around 14:05, wont a phone order be taken?", ctx],
+    ["Around 14:05, was the complaint about the latte made  up?", complaint],
+    ["Around 14:05, was the complaint about the latte made-up?", complaint],
+    ["Around 14:05, was the complaint about the latte made - up?", complaint],
   ];
   it.each(NEGATED)("rejects the negated wording %s", (q, c) => {
     const r = run(draft(q), c);
@@ -336,6 +363,16 @@ describe("checkQuestion: negation and compound (step 3 risk review M1)", () => {
     ["Around 14:05, did a customer complain and did we make a new latte?", complaint],
     ["Around 14:05, was the latte complaint made, yes or no?", complaint],
     ["Around 14:05, was the floor mopped and is it clean now?", routine],
+    // bare and / or / but / '&' (the clause after the connector need not start with an auxiliary)
+    ["Around 14:05, was the order taken by phone and written down?", ctx],
+    ["Around 14:05, did a customer complain and then was a latte made?", complaint],
+    ["Around 14:05, was it cold & was a new one made?", complaint],
+    ["Around 14:05, was it cold &was a new one made?", complaint],
+    ["Around 14:05, was the latte cold but a new one made?", complaint],
+    ["Around 14:05, was the floor mopped or cleaned?", routine],
+    ["Around 14:05, was the latte cold AND a new one made?", complaint],
+    // an "and" in a time clause that is NOT the leading one is still a join
+    ["Around 14:05, was there a phone order between 14:05 and 14:08?", ctx],
   ];
   it.each(COMPOUND)("rejects the compound wording %s", (q, c) => {
     const r = run(draft(q), c);
@@ -345,7 +382,8 @@ describe("checkQuestion: negation and compound (step 3 risk review M1)", () => {
 
   const LEGIT: Array<[string, CheckContext]> = [
     ["Around 14:05, was there a phone call?", { ...ctx, moment: { ...moment, lines: ["Hello hello."], summary: "" } }],
-    ["Around 14:05, was the phone order read back to the caller?", ctx],
+    ["Around 14:05, was there a phone order for twelve egg tarts?", ctx],
+    ["Between 14:05 and 14:08, was there a phone call?", { ...ctx, moment: { ...moment, lines: ["Hello hello."], summary: "" } }],
     ["Around 14:05, was there a customer complaint about a latte?", complaint],
     ["Around 14:05, was the latte cold?", complaint],
     ["Around 14:05, was the floor mopped near the counter?", routine],
@@ -356,6 +394,67 @@ describe("checkQuestion: negation and compound (step 3 risk review M1)", () => {
   ];
   it.each(LEGIT)("still accepts %s", (q, c) => {
     expect(run(draft(q), c)).toEqual({ passed: true, reasons: [] });
+  });
+});
+
+describe("notesHaveNegation: notes that state a negative fact (the agent is skipped, the template stays)", () => {
+  it.each([
+    [["There was a phone order for twelve egg tarts.", "I did not read the order back to the caller."], ""],
+    [["There was a phone order."], "Phone order taken, not read back."],
+    [["Nobody read the order back."], ""],
+    [["We never called back."], ""],
+    [["Nothing was said."], ""],
+    [["None of them paid."], ""],
+    [["Neither of them came."], ""],
+    [["We served it without a receipt."], ""],
+    [["We cannot find the order."], ""],
+    [["That complaint was untrue."], ""],
+    [["The order was fake."], ""],
+    [["The report was false."], ""],
+    [["The story was made up."], ""],
+    [["The story was made   up."], ""],
+    [["The story was made-up."], ""],
+    [["We didn't call back."], ""],
+    [["We didn\u2019t call back."], ""],
+    [["We didnt call back."], ""],
+    [["We couldnt find it."], ""],
+    [["No complaint today."], ""],
+    // Bahasa
+    [["Saya tidak membaca ulang pesanan itu."], ""],
+    [["Pesanan itu nggak dibacakan."], ""],
+    [["Enggak sempat dibacakan."], ""],
+    [["Gak dicatat."], ""],
+    [["Pesanan belum dibacakan."], ""],
+    [["Itu bukan pesanan telepon."], ""],
+    [["Dilayani tanpa struk."], ""],
+    [["Jangan lupa dibacakan."], ""],
+    [["SAYA TIDAK MEMBACA ULANG."], ""],
+    [["Ok."], "Pesanan telepon, tidak dibacakan."],
+  ] as Array<[string[], string]>)("detects a negation in %j / %j", (lines, summary) => {
+    expect(notesHaveNegation(lines, summary)).toBe(true);
+  });
+
+  it.each([
+    [["There was a phone order for twelve egg tarts."], "Phone order taken."],
+    [["The customer said the latte was cold.", "We made a new latte for the customer."], "Complaint about a cold latte."],
+    [["We noted the order and knew the quantity."], "Another note."],
+    [["Ada pesanan telepon untuk dua belas tart."], "Pesanan diterima."],
+    // word boundaries: no Bahasa token hides inside a longer word
+    [["Pesanan itu sudah dibacakan, bukannya dilewati?"], ""],
+    [["Tidaklah"], ""],
+    [["Anggak and enggakkah"], ""],
+    [[], ""],
+  ] as Array<[string[], string]>)("finds no negation in %j / %j", (lines, summary) => {
+    expect(notesHaveNegation(lines, summary)).toBe(false);
+  });
+});
+
+describe("checkQuestion: steering hints (M1 rework)", () => {
+  it("the negation hint asks for ONE positive existential question and never for a yes/no about a step", () => {
+    const hint = RULE_HINTS.negation ?? "";
+    expect(hint).toContain("was there");
+    expect(hint).not.toContain("a Yes must always mean");
+    expect(hint).not.toMatch(/whether the moment happened/i);
   });
 });
 
