@@ -141,6 +141,24 @@ describe("buildReviewAgentInputs", () => {
     expect(i.staffNames).toEqual(["Sari Demo"]);
   });
 
+  it("cleans the string fields of the change: invisible characters stripped, whitespace flattened", () => {
+    const dirty = sop();
+    const c = dirty.change!;
+    c.change_title = "Label\u200B  the\ntrays";
+    c.after = { ...c.after, title: "Display\tcheck", text: "Check   the\n\ndisplay\u202E and labels." };
+    c.before = { ...c.before!, text: "Check\u200B the   display." };
+    c.metric = { ...c.metric, description: "Customers\n asking" };
+    c.failure_condition = "Still\u0000 asked.";
+    const i = base({ sop: dirty, rationale: "Customers\n\nasked\u200B." });
+    expect(i.change.change_title).toBe("Label the trays");
+    expect(i.change.step_title).toBe("Display check");
+    expect(i.change.step_before).toBe("Check the display.");
+    expect(i.change.step_after).toBe("Check the display and labels.");
+    expect(i.change.metric.description).toBe("Customers asking");
+    expect(i.change.failure_condition).toBe("Still asked.");
+    expect(i.change.rationale).toBe("Customers asked.");
+  });
+
   it("throws on a version that is not a shipped change", () => {
     expect(() => base({ sop: { version: 1, change: null } })).toThrow(/not a shipped change/);
   });

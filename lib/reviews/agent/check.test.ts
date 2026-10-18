@@ -76,6 +76,22 @@ describe("checkReview", () => {
       const bad = withNarrative(GOOD_NARRATIVE.replace("100 percent", "67 percent"), { quoted_numbers: [2, 3, 0, 2, 67] });
       expect(reasonsOf(bad)).toEqual(["number_not_allowed"]);
     });
+    it("number_not_allowed on a number written as a word (C1)", () => {
+      const three = withNarrative(GOOD_NARRATIVE.replace("over 3 captured days", "over three captured days"), { quoted_numbers: [2, 0, 100] });
+      expect(reasonsOf(three)).toContain("number_not_allowed");
+      const halved = withNarrative(
+        "The change added baking times to the tray labels. The count halved after it, which suggests it worked. The counts are moments of one kind, not proof of cause.",
+        { quoted_numbers: [] },
+      );
+      expect(reasonsOf(halved)).toContain("number_not_allowed");
+      for (const w of ["twice", "double", "dozen", "quarter", "Twenty"]) {
+        expect(reasonsOf(withNarrative(`${GOOD_NARRATIVE} It was ${w} as often.`))).toContain("number_not_allowed");
+      }
+    });
+    it('"one" is not a number word: "moments of one kind" still passes', () => {
+      const n = withNarrative(`${GOOD_NARRATIVE} The counts are moments of one kind, not proof of cause.`);
+      expect(reasonsOf(n)).toEqual([]);
+    });
     it("a comma decimal parses as a decimal", () => {
       const n = withNarrative(`${GOOD_NARRATIVE} That is 0,7 per day before it.`, { quoted_numbers: [2, 3, 0, 2, 100, 0.7] });
       expect(reasonsOf(n)).toEqual([]);
@@ -152,6 +168,13 @@ describe("checkReview", () => {
     });
     it("url_or_handle", () => {
       for (const p of [" See https://x.test", " See www.x", " shop.com", " @shop"]) expect(reasonsOf(mk(p))).toContain("url_or_handle");
+    });
+    it("url_or_handle covers more top-level domains (C2)", () => {
+      for (const p of [" see example.net", " see shop.co", " see a-b.io", " see shop.xyz", " see shop.app", " see Shop.ONLINE"]) {
+        expect(reasonsOf(mk(p))).toContain("url_or_handle");
+      }
+      // Plain prose with a full stop is not a link.
+      expect(reasonsOf(mk(" It went well. Staff agreed."))).not.toContain("url_or_handle");
     });
     it("date_or_time: iso date, clock time, month, weekday", () => {
       for (const p of [" On 2026-10-13.", " At 14:05.", " In October.", " On Monday.", " Oct 13."]) {

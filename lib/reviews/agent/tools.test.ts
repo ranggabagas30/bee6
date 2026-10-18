@@ -19,7 +19,7 @@ function setup(opts: Parameters<typeof makeInputs>[0] = {}) {
   return { inputs, session, tools, by, call };
 }
 
-const FORBIDDEN_KEYS = ["thread_id", "device_id", "question_id", "verdict", "suggestion", "suggested_verdict", "answer"];
+const FORBIDDEN_KEYS = ["thread_id", "device_id", "question_id", "verdict", "suggestion", "suggested_verdict", "answer", "staffNames", "role", "name"];
 function keysDeep(v: unknown, out: string[] = []): string[] {
   if (Array.isArray(v)) v.forEach((x) => keysDeep(x, out));
   else if (typeof v === "object" && v !== null) {
@@ -113,6 +113,7 @@ describe("buildReviewTools", () => {
       call("get_evidence_sample", { window: "after" }),
     ];
     for (const r of results) for (const k of keysDeep(r)) expect(FORBIDDEN_KEYS).not.toContain(k);
+    expect(JSON.stringify(results)).not.toContain("Sari");
   });
 
   describe("check_review", () => {

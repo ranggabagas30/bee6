@@ -112,7 +112,15 @@ export function requiredCaveats(ctx: CaveatContext): ReviewCaveat[] {
 const TOLERANCE = 1e-6;
 const NUMBER_TOKEN = /\d+(?:[.,]\d+)?/g;
 const PLACEHOLDER = /[[\]{}]/;
-const URL_OR_HANDLE = /https?:|www\.|\.com\b|\.id\b|@/i;
+const URL_OR_HANDLE =
+  /https?:|www\.|@|\b[a-z0-9-]+\.(?:com|net|org|io|co|id|me|ly|gg|xyz|app|dev|site|online|info|biz|link|shop|store)\b/i;
+/**
+ * Numbers written as words ("three", "halved", "twice") would slip past the digit check, so they fail
+ * `number_not_allowed`: the narrative must write every number as digits. "one" is left out on purpose ("moments of one
+ * kind" is fixed wording the prompt asks for).
+ */
+const NUMBER_WORD =
+  /\b(?:zero|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|dozen|twice|double|doubled|triple|tripled|half|halved|quarter)\b/i;
 const ISO_DATE = /\d{4}-\d{2}-\d{2}/;
 const CLOCK_TIME = /\b\d{1,2}:\d{2}\b/;
 /**
@@ -184,7 +192,7 @@ export function checkReview(
 
   const found = extractNumbers(q);
   const allowed = allowedNumbers(inputs);
-  add(!found.every((n) => hasNear(allowed, n)), "number_not_allowed");
+  add(!found.every((n) => hasNear(allowed, n)) || NUMBER_WORD.test(q), "number_not_allowed");
   add(!(found.every((n) => hasNear(d.quoted_numbers, n)) && d.quoted_numbers.every((n) => hasNear(found, n))), "quoted_numbers_mismatch");
 
   const required = requiredCaveats(caveatContextOfInputs(inputs));

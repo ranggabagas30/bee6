@@ -39,6 +39,9 @@ export function buildSample(candidates: readonly Candidate[], staffNames: readon
   return out;
 }
 
+/** Invisible characters stripped, whitespace flattened: the shape every free-text field of the change reaches the model in. */
+const clean = (text: string): string => stripInvisibleChars(text).replace(/\s+/g, " ").trim();
+
 export function buildReviewAgentInputs(input: {
   sop: SopVersion;
   /** The source proposal's stored rationale (already redacted). */
@@ -57,24 +60,24 @@ export function buildReviewAgentInputs(input: {
   return {
     change: {
       version: sop.version,
-      change_title: change.change_title,
+      change_title: clean(change.change_title),
       kind: change.kind,
-      step_title: change.after.title,
-      step_before: change.before === null ? null : change.before.text,
-      step_after: change.after.text,
+      step_title: clean(change.after.title),
+      step_before: change.before === null ? null : clean(change.before.text),
+      step_after: clean(change.after.text),
       intervention: entry
         ? { id: entry.id, label_en: entry.label_en, definition: entry.definition }
         : { id: change.intervention_id, label_en: change.intervention_id, definition: "" },
-      rationale: input.rationale,
+      rationale: clean(input.rationale),
       metric: {
         category: change.metric.category,
         category_label_en: t("en", `C-cat-${change.metric.category}` as DictKey),
         direction: change.metric.direction,
-        description: change.metric.description,
+        description: clean(change.metric.description),
         baseline_count: change.metric.baseline_count,
         baseline_days: change.metric.baseline_days,
       },
-      failure_condition: change.failure_condition,
+      failure_condition: clean(change.failure_condition),
     },
     counts: { before: { ...input.before.window }, after: { ...input.after.window }, rule: { min_days: 2, threshold_pct: 20 } },
     sample: { before: buildSample(input.before.candidates, staffNames), after: buildSample(input.after.candidates, staffNames) },
