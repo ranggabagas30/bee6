@@ -128,7 +128,7 @@ describe("ProposalDetail — content (D2-03e)", () => {
     expect(screen.getByText("WATCH THIS METRIC")).not.toBeNull();
     expect(screen.getByText("Egg tart freshness questions per day")).not.toBeNull();
     expect(screen.getByText("REVIEW DATE")).not.toBeNull();
-    expect(screen.getByText("Wed 21 Oct")).not.toBeNull();
+    expect(screen.getByText("Review about Wed 21 Oct (confirmed when approved)")).not.toBeNull();
     expect(screen.getByText("Feasible means staff can do this in the shop. The owner approves or rejects after you.")).not.toBeNull();
   });
 
@@ -257,6 +257,30 @@ describe("ProposalDetail — inline reject (D2-03f)", () => {
     expect(await screen.findByText("Write between 3 and 300 characters.")).not.toBeNull();
     expect(screen.getByRole("alert")).not.toBeNull();
     expect(screen.getByRole("textbox")).not.toBeNull();
+  });
+});
+
+describe("ProposalDetail — review date wording by status (R-FB-15)", () => {
+  it("awaiting_supervisor shows the estimate wording with (confirmed when approved)", () => {
+    renderDetail(item("awaiting_supervisor"));
+    expect(screen.getByText("Review about Wed 21 Oct (confirmed when approved)")).not.toBeNull();
+  });
+
+  it("awaiting_owner shows the estimate wording with (confirmed when approved)", () => {
+    renderDetail(item("awaiting_owner"));
+    expect(screen.getByText("Review about Wed 21 Oct (confirmed when approved)")).not.toBeNull();
+  });
+
+  it("approved shows just the bare date without (confirmed when approved)", () => {
+    renderDetail(item("approved"));
+    expect(screen.getByText("Wed 21 Oct")).not.toBeNull();
+    expect(screen.queryByText(/confirmed when approved/)).toBeNull();
+  });
+
+  it("rejected shows just the bare date without (confirmed when approved)", () => {
+    renderDetail(item("rejected"));
+    expect(screen.getByText("Wed 21 Oct")).not.toBeNull();
+    expect(screen.queryByText(/confirmed when approved/)).toBeNull();
   });
 });
 

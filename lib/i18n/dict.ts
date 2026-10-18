@@ -351,6 +351,7 @@ export const ID_BASE = {
   "C-prop-dir-increase": "naik", // PROVISIONAL
   "C-prop-failure": "Kondisi gagal", // PROVISIONAL
   "C-prop-review": "Ditinjau pada {date}", // PROVISIONAL
+  "C-prop-review-draft": "Ditinjau sekitar {date} (dikonfirmasi saat disetujui)", // PROVISIONAL
   "C-prop-censored": "Permintaan yang tidak terpenuhi di sini adalah batas bawah: permintaan sebenarnya lebih tinggi, karena tidak semua permintaan terdengar atau diucapkan.", // PROVISIONAL
   "C-prop-err-progress": "Usulan lain sedang dibuat. Coba lagi dalam satu menit.", // PROVISIONAL
   "C-prop-err-library": "Pustaka intervensi belum disiapkan.", // PROVISIONAL
@@ -849,6 +850,7 @@ export const EN_BASE: Record<keyof typeof ID_BASE, string> = {
   "C-prop-dir-increase": "go up",
   "C-prop-failure": "Failure condition",
   "C-prop-review": "Review on {date}",
+  "C-prop-review-draft": "Review about {date} (confirmed when approved)",
   "C-prop-censored": "Unmet requests counted here are a floor: real demand is higher, because not every request is heard or said.",
   "C-prop-err-progress": "Another proposal is being generated. Try again in a minute.",
   "C-prop-err-library": "The intervention library is not set up yet.",

@@ -197,6 +197,48 @@ describe("ProposalCard — title heading level", () => {
   });
 });
 
+
+describe("ProposalCard — draft review date shows estimate wording (R-FB-15)", () => {
+  it("shows 'Review about {date} (confirmed when approved)' for awaiting_supervisor", () => {
+    render(<ProposalCard lang="en" proposal={awaitingProposal()} />);
+    expect(screen.getByText("Review about Sun 1 Nov (confirmed when approved)")).not.toBeNull();
+  });
+
+  it("shows 'Review about {date} (confirmed when approved)' for awaiting_owner", () => {
+    render(<ProposalCard lang="en" proposal={{ ...awaitingProposal(), status: "awaiting_owner" }} />);
+    expect(screen.getByText("Review about Sun 1 Nov (confirmed when approved)")).not.toBeNull();
+  });
+
+  it("shows 'Review on {date}' for approved proposals", () => {
+    render(<ProposalCard lang="en" proposal={{ ...awaitingProposal(), status: "approved" }} />);
+    expect(screen.getByText("Review on Sun 1 Nov")).not.toBeNull();
+    expect(screen.queryByText(/confirmed when approved/)).toBeNull();
+  });
+
+  it("shows 'Ditinjau pada {date}' for approved proposals in Bahasa", () => {
+    render(<ProposalCard lang="id" proposal={{ ...awaitingProposal(), status: "approved" }} />);
+    expect(screen.getByText("Ditinjau pada Min 1 Nov")).not.toBeNull();
+    expect(screen.queryByText(/dikonfirmasi saat disetujui/)).toBeNull();
+  });
+
+  it("shows 'Review on {date}' for rejected proposals", () => {
+    render(<ProposalCard lang="en" proposal={{ ...awaitingProposal(), status: "rejected" }} />);
+    expect(screen.getByText("Review on Sun 1 Nov")).not.toBeNull();
+    expect(screen.queryByText(/confirmed when approved/)).toBeNull();
+  });
+
+  it("shows 'Ditinjau pada {date}' for rejected proposals in Bahasa", () => {
+    render(<ProposalCard lang="id" proposal={{ ...awaitingProposal(), status: "rejected" }} />);
+    expect(screen.getByText("Ditinjau pada Min 1 Nov")).not.toBeNull();
+    expect(screen.queryByText(/dikonfirmasi saat disetujui/)).toBeNull();
+  });
+
+  it("uses Bahasa estimate wording when lang is id and status is awaiting", () => {
+    render(<ProposalCard lang="id" proposal={awaitingProposal()} />);
+    expect(screen.getByText("Ditinjau sekitar Min 1 Nov (dikonfirmasi saat disetujui)")).not.toBeNull();
+  });
+});
+
 describe("ProposalCard — 360px safety", () => {
   it("the card's root style uses overflowWrap: anywhere and no fixed width over 360", () => {
     const { container } = render(<ProposalCard lang="en" proposal={awaitingProposal()} />);

@@ -86,10 +86,12 @@ function ProposalContentView({
   content,
   lang,
   titleLevel,
+  status,
 }: {
   content: ProposalContent;
   lang: Lang;
   titleLevel: 2 | 3;
+  status: ProposalView["status"];
 }) {
   const Title = titleLevel === 3 ? "h3" : "h2";
   const dirKey: DictKey = content.metric.direction === "decrease" ? "C-prop-dir-decrease" : "C-prop-dir-increase";
@@ -139,7 +141,11 @@ function ProposalContentView({
       <p style={LINE_STYLE}>
         <strong>{t(lang, "C-prop-failure")}:</strong> {content.failure_condition}
       </p>
-      <p style={LINE_STYLE}>{t(lang, "C-prop-review", { date: dayLabel(content.review_date, lang) })}</p>
+      <p style={LINE_STYLE}>
+        {status === "awaiting_supervisor" || status === "awaiting_owner"
+          ? t(lang, "C-prop-review-draft", { date: dayLabel(content.review_date, lang) })
+          : t(lang, "C-prop-review", { date: dayLabel(content.review_date, lang) })}
+      </p>
       <p style={LINE_STYLE}>{t(lang, "C-prop-censored")}</p>
     </>
   );
@@ -238,7 +244,7 @@ export function ProposalCard({
       )}
 
       {proposal.status !== "suppressed" && proposal.status !== "blocked" && proposal.content && (
-        <ProposalContentView content={proposal.content} lang={lang} titleLevel={titleLevel} />
+        <ProposalContentView content={proposal.content} lang={lang} titleLevel={titleLevel} status={proposal.status} />
       )}
 
       {review && <ReviewLines review={review} lang={lang} />}
