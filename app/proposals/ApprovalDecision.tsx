@@ -16,7 +16,8 @@ import styles from "@/app/proposals/approvals.module.css";
  * required **"Reject — why?"** field with "Reject with reason". No confirm dialogs. Both go to the existing owner
  * route (`POST /api/v1/proposals/{id}/approve`, `decision: approve | reject`); the server re-derives every rule
  * (role, stage, freshness, SOP version, late constraints), so this card only mirrors the notices it already got:
- * - the SOP changed after this was drafted (`notices.sop_changed`, the SOP_CHANGED rule kept): Approve reads
+ * - the step this proposal rewrites changed after it was drafted (`notices.sop_changed`, the step-level SOP_CHANGED
+ *   rule of item 20; a newer SOP that left the step alone does not set it): Approve reads
  *   "Approve · not available" and is disabled, the reject field stays (board D2-08d);
  * - stale evidence disables Approve with the stale notice; late constraints need the acknowledgement tick;
  * - a superseded proposal has no actions.

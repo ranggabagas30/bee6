@@ -272,9 +272,18 @@ describe("STAGES and GUIDE data", () => {
     expect(GUIDE.home.todo?.map((r) => r.en)).toEqual([
       "Supervisor marked both proposals feasible",
       "Open Approvals and review in order",
-      "Approve one, reject the other",
+      "Approve or reject each proposal",
     ]);
     expect(GUIDE.approvals.todo).toHaveLength(3);
+    // item 20: both proposals can be approved, so no card tells the owner to approve one and reject the other
+    expect(GUIDE.approvals.title.en).toBe("Approve or reject each proposal");
+    expect(GUIDE.approvals.body.map((l) => l.en)).toEqual(["Approve or reject each proposal; a rejection reason becomes a rule Bee6 respects."]);
+    expect(GUIDE.approvals_done.body[0]!.en).toContain("Each approved change is now its own SOP version");
+    for (const key of GUIDE_KEYS) {
+      const c = GUIDE[key];
+      const all = [c.title, ...c.body, ...(c.todo ?? [])].map((l) => l.en);
+      expect(all.join(" | "), key).not.toMatch(/approve one|reject the other/i);
+    }
     expect(GUIDE.proposal_detail.todo).toHaveLength(5);
     expect(GUIDE.proposals_waiting.todo).toHaveLength(4);
   });

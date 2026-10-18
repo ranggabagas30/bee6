@@ -69,7 +69,7 @@ export const homeID = {
   "C-home-waiting-sub-n": "{n} ditandai layak oleh supervisor. Dalam urutan yang disarankan Bee6.", // PROVISIONAL
   "C-home-waiting-in-order": "Tinjau berurutan", // PROVISIONAL
   "C-home-waiting-one-lead": "Satu perubahan sekali waktu.", // PROVISIONAL
-  "C-home-waiting-one-body": "Setelah Anda menyetujui satu, SOP berubah, jadi yang lain hanya bisa ditolak dengan alasan. Bee6 menentukan tanggal mulai.", // PROVISIONAL
+  "C-home-waiting-one-body": "Setiap persetujuan menjadi versi SOP baru; yang lain tetap bisa disetujui atau ditolak dengan alasan. Bee6 menentukan tanggal mulai.", // PROVISIONAL
   "C-home-waiting-done": "Tidak ada yang menunggu. Semua usulan yang masuk sudah Anda putuskan.", // PROVISIONAL
   "C-home-waiting-sop": "Lihat versi SOP yang baru", // PROVISIONAL
   "C-home-to-day-full": "Lihat hari penuh (tampilan supervisor)", // PROVISIONAL
@@ -124,7 +124,7 @@ export const homeEN: Record<keyof typeof homeID, string> = {
   "C-home-waiting-sub-n": "{n} marked feasible by the supervisor. In Bee6's recommended order.",
   "C-home-waiting-in-order": "Review in order",
   "C-home-waiting-one-lead": "One change at a time.",
-  "C-home-waiting-one-body": "Once you approve one, the SOP changes, so the other can only be rejected with a reason. Bee6 sets the start date.",
+  "C-home-waiting-one-body": "Each approval becomes a new SOP version; the other can still be approved or rejected with a reason. Bee6 sets the start date.",
   "C-home-waiting-done": "Nothing is waiting. You have decided every proposal sent to you.",
   "C-home-waiting-sop": "See the new SOP version",
   "C-home-to-day-full": "See the full day (supervisor view)",

@@ -465,6 +465,7 @@ describe("decision snapshot (5.S4, 5.S5)", () => {
       constraint_ids: [],
       current_sop_version_id: null,
       current_sop: null,
+      drafted_sop: null,
     });
     expect(queryLog).toHaveLength(0);
     expect(getAll).not.toHaveBeenCalled();
@@ -510,6 +511,31 @@ describe("decision snapshot (5.S4, 5.S5)", () => {
     expect(snap.constraint_ids.sort()).toEqual([C1, C2].sort());
     expect(snap.current_sop_version_id).toBe(`${OUTLET_ID}:v3`);
     expect(snap.current_sop?.sop_version_id).toBe(`${OUTLET_ID}:v3`);
+    // the proposal was drafted on v1: the snapshot also carries that doc (item 20)
+    expect(snap.drafted_sop?.sop_version_id).toBe(`${OUTLET_ID}:v1`);
+  });
+
+  it("5.S5b drafted_sop is null when the drafted version doc is missing, malformed or another outlet's", async () => {
+    const read = async (versions: Record<string, Record<string, unknown>>) => {
+      const { db } = fakeDb({
+        [COLLECTIONS.proposals]: { [P1]: asDoc(makeProposal()) },
+        [COLLECTIONS.sopVersions]: versions,
+      });
+      return firestoreProposalReviewStore(OUTLET_ID, db).readDecisionSnapshot(P1);
+    };
+    // missing: only v3 exists
+    const missing = await read({ [`${OUTLET_ID}:v3`]: asDoc(makeSop(3)) });
+    expect(missing.drafted_sop).toBeNull();
+    expect(missing.current_sop?.version).toBe(3);
+    // malformed v1
+    const bad = await read({ [`${OUTLET_ID}:v1`]: { nonsense: true }, [`${OUTLET_ID}:v3`]: asDoc(makeSop(3)) });
+    expect(bad.drafted_sop).toBeNull();
+    // foreign outlet's doc with the same id never counts
+    const foreign = await read({
+      [`${OUTLET_ID}:v1`]: asDoc(makeSop(1, { outlet_id: FOREIGN_OUTLET_ID })),
+      [`${OUTLET_ID}:v3`]: asDoc(makeSop(3)),
+    });
+    expect(foreign.drafted_sop).toBeNull();
   });
 });
 
@@ -637,7 +663,7 @@ describe("transactDecision ships the SOP version (R-10 Task 6)", () => {
     details: { version: 2 },
   };
   function v2(): SopVersion {
-    const plan = planShip({ current: seedV1(), proposal: owner(), now_ms: NOW_MS, tz: "Asia/Jakarta" });
+    const plan = planShip({ current: seedV1(), drafted: seedV1(), proposal: owner(), now_ms: NOW_MS, tz: "Asia/Jakarta" });
     if (plan.kind !== "ship") throw new Error("fixture must ship");
     return plan.sop_version;
   }
