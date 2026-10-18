@@ -329,6 +329,91 @@ describe("wordGateQuestions", () => {
     });
   });
 
+  describe("negated notes without 'not' (the tech-lead's REQUIRED change) and filter-before-cap (M1 rework 2)", () => {
+    const skipLogs = () =>
+      logSpy.mock.calls
+        .map((c: unknown[]) => String(c[0]))
+        .filter((l: string) => l.includes("debrief_agent.call"));
+    const textOf = (id: string, text: string): Partial<ThreadWrite> => ({
+      lines: [{ line_id: `${id}#0`, start_ms: T0, end_ms: T0 + 10_000, text }],
+    });
+    const NEG = "I did not read the order back.";
+    const POS = "There was a phone order for twelve egg tarts.";
+    /** One unit with one thread per text, in order. */
+    function unit(texts: string[], over: Partial<WordGateInput> = {}, run: DebriefAgent = vi.fn<DebriefAgent>(async () => accepted())) {
+      const ids = texts.map((_, i) => `t${i + 1}`);
+      const threadWrites = ids.map((id, i) => thread(id, textOf(id, texts[i]!)));
+      const questionWrites = ids.map((id) => question(id));
+      const input: WordGateInput = {
+        outlet_id: "sbx-1",
+        unit_id: "u1",
+        questionWrites,
+        threadWrites,
+        storedByThread: new Map(ids.map((id) => [id, null])),
+        staffNames: ["Sari Demo"],
+        tz: TZ,
+        now_ms: NOW,
+        deps: { run, project: "proj", resolveLocation: () => "LOC", now_ms: NOW },
+        ...over,
+      };
+      return { input, questionWrites, run };
+    }
+
+    it("end to end: 'I forgot to read the order back' keeps the template, runner never invoked, one negated_notes skip line", async () => {
+      const { input, questionWrites, run } = unit(["Phone order, I forgot to read the order back to the caller."]);
+      await wordGateQuestions(input);
+      expect(run).not.toHaveBeenCalled();
+      expect("agent" in questionWrites[0]!).toBe(false);
+      const logs = skipLogs();
+      expect(logs).toHaveLength(1);
+      expect(JSON.parse(logs[0]!)).toEqual({
+        event: "debrief_agent.call",
+        outlet_id: "sbx-1",
+        unit_id: "u1",
+        outcome: "skipped",
+        reason: "negated_notes",
+      });
+      expect(logs[0]).not.toContain("forgot");
+    });
+
+    it("3 negated moments + a positive 4th: the positive one is worded (negated moments use no cap slot)", async () => {
+      const { input, questionWrites, run } = unit([NEG, NEG, NEG, POS]);
+      await wordGateQuestions(input);
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(questionWrites.map((q) => q.agent !== undefined)).toEqual([false, false, false, true]);
+      expect(skipLogs().filter((l: string) => l.includes('"reason":"negated_notes"'))).toHaveLength(3);
+    });
+
+    it("4 positives: the cap is still 3, in unit order", async () => {
+      const { input, questionWrites, run } = unit([POS, POS, POS, POS]);
+      await wordGateQuestions(input);
+      expect(run).toHaveBeenCalledTimes(DEBRIEF_AGENT_MAX_PER_UNIT);
+      expect(questionWrites.map((q) => q.agent !== undefined)).toEqual([true, true, true, false]);
+    });
+
+    it("no_lines moments also use no cap slot", async () => {
+      const { input, questionWrites, run } = unit(["\u200b", "\u200b", "\u200b", POS]);
+      await wordGateQuestions(input);
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(questionWrites.map((q) => q.agent !== undefined)).toEqual([false, false, false, true]);
+    });
+
+    it("low unit budget: a negated moment logs negated_notes (its real reason), the positive one logs unit_budget", async () => {
+      const { input, run } = unit([NEG, POS], { unit_budget_left_ms: DEBRIEF_AGENT_UNIT_GUARD_MS - 1 });
+      await wordGateQuestions(input);
+      expect(run).not.toHaveBeenCalled();
+      const reasons = skipLogs().map((l: string) => (JSON.parse(l) as { reason: string }).reason);
+      expect(reasons).toEqual(["negated_notes", "unit_budget"]);
+    });
+
+    it("low unit budget with only negated moments: no unit_budget line at all", async () => {
+      const { input } = unit([NEG, NEG], { unit_budget_left_ms: DEBRIEF_AGENT_UNIT_GUARD_MS - 1 });
+      await wordGateQuestions(input);
+      const reasons = skipLogs().map((l: string) => (JSON.parse(l) as { reason: string }).reason);
+      expect(reasons).toEqual(["negated_notes", "negated_notes"]);
+    });
+  });
+
   describe("continuation skip (F3: an existing open question keeps its wording)", () => {
     it("stored open + same category: not called", async () => {
       const run = vi.fn<DebriefAgent>(async () => accepted());

@@ -21,10 +21,11 @@ import type { QuestionWrite, StoredThread, ThreadWrite } from "@/lib/pipeline/ti
  * The gate decides which moments become questions (hard rule 10); this module only picks, among the questions the
  * gate already raised, the ones worth a model call:
  *  - the thread's own gate verdict must be `question` (never a `fact` thread, never an `unlabelled_unit` question);
- *  - a moment whose own notes state a negative fact (English or Bahasa) keeps the template (`negated_notes`);
+ *  - a moment with no usable lines (`no_lines`), or whose own notes state a negative fact (English or Bahasa), keeps
+ *    the template (`negated_notes`); both are dropped BEFORE the cap, so they never use one of its slots;
  *  - a continuation of an already-open thread with the same category keeps the wording its existing question has
  *    (the store never rewrites it, F3), so it is skipped;
- *  - at most `DEBRIEF_AGENT_MAX_PER_UNIT` per unit, run in parallel, so a unit pays one agent budget, not three;
+ *  - at most `DEBRIEF_AGENT_MAX_PER_UNIT` of the remaining moments per unit, run in parallel, so a unit pays one agent budget, not three;
  *  - not when the unit has already spent most of its own time budget (the 30 min lease is sized on it).
  * The checker is re-run on the accepted draft before it is stored (defence in depth, one function with the tool).
  *
@@ -118,17 +119,10 @@ async function wordGateQuestionsUnsafe(input: WordGateInput): Promise<void> {
     candidates.push({ q, thread });
   }
 
-  // 3: the cap, in unit order.
-  const capped = candidates.slice(0, DEBRIEF_AGENT_MAX_PER_UNIT);
-  if (capped.length === 0) return;
-
-  if (input.unit_budget_left_ms !== undefined && input.unit_budget_left_ms < DEBRIEF_AGENT_UNIT_GUARD_MS) {
-    for (let i = 0; i < capped.length; i += 1) skip("unit_budget");
-    return;
-  }
-
-  const work: Array<{ q: QuestionWrite; moment: DebriefQuestionMoment }> = [];
-  for (const { q, thread } of capped) {
+  // 3: build each moment and drop the ones the agent must not word, BEFORE the cap, so a skipped moment never takes
+  // one of the DEBRIEF_AGENT_MAX_PER_UNIT slots from a moment that can be worded.
+  const eligible: Array<{ q: QuestionWrite; moment: DebriefQuestionMoment }> = [];
+  for (const { q, thread } of candidates) {
     const moment = buildMoment({
       category: q.category,
       window_start_ms: q.window_start_ms,
@@ -153,9 +147,17 @@ async function wordGateQuestionsUnsafe(input: WordGateInput): Promise<void> {
       skip("negated_notes");
       continue;
     }
-    work.push({ q, moment });
+    eligible.push({ q, moment });
   }
+
+  // 4: the cap, in unit order, over the moments that can actually be worded.
+  const work = eligible.slice(0, DEBRIEF_AGENT_MAX_PER_UNIT);
   if (work.length === 0) return;
+
+  if (input.unit_budget_left_ms !== undefined && input.unit_budget_left_ms < DEBRIEF_AGENT_UNIT_GUARD_MS) {
+    for (let i = 0; i < work.length; i += 1) skip("unit_budget");
+    return;
+  }
 
   // Resolved once per unit, only when there is something to word. Any failure keeps every template.
   let run: DebriefAgent;
