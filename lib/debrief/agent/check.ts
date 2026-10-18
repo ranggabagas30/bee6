@@ -52,19 +52,29 @@ export interface CheckResult {
  */
 export const QUESTION_ALLOW_WORDS: readonly string[] = [
   "around", "there", "happen", "happened", "happening", "right", "really", "actually", "earlier", "today", "moment",
-  "someone", "anyone", "during", "after", "before", "about", "whether", "correct", "correctly", "properly", "still",
-  "while", "which", "where", "their", "these", "those", "think", "sound", "sounded", "heard", "order", "phone",
-  "customer", "customers", "please", "could", "would", "should", "little", "shortly", "later", "again", "maybe",
+  "someone", "anyone", "during", "after", "before", "about", "whether", "still",
+  "while", "which", "where", "their", "these", "those", "think", "sound", "sounded", "heard",
+  "please", "could", "would", "should", "little", "shortly", "later", "again", "maybe",
   "roughly", "thing", "things", "place", "taken", "taking", "given", "going", "being", "doing", "having", "making",
-  "asked", "asking", "answer", "called", "calling", "talked", "talking", "spoke", "speaking", "served", "serving", "between",
+  "asked", "asking", "answer", "called", "calling", "talked", "talking", "spoke", "speaking", "between",
+  "without", "something", "anything",
 ];
 
 const YES_NO_STARTERS = new Set(["did", "was", "were", "is", "are", "do", "does", "has", "have", "had"]);
 const TIME_CLAUSE = /^(?:around|at about|at|just after|just before|between \d{2}:\d{2} and)\s+\d{2}:\d{2},?\s+/i;
 const CLOCK_TIME = /(?<!\d)\d{1,2}:\d{2}(?!\d)/g;
 const DIGIT_RUN = /\d+/g;
-const URL_OR_HANDLE = /https?:|www\.|\.com\b|\.id\b|@/i;
-const PLACEHOLDER = /[[\]{}]/;
+/** Any number character that is not an ASCII digit (fullwidth digits, fractions, superscripts, ...). */
+const NON_ASCII_NUMBER = /(?![0-9])\p{N}/u;
+const MAX_FREE_DIGITS = 6;
+const URL_OR_HANDLE = /https?:|www\.|\.com\b|\.id\b|@|\p{L}\.\p{L}/iu;
+const PLACEHOLDER = /[[\]{}_]/;
+/** A `[STAFF]`-style span in the notes: its word must not become an allowed word for a bracketless echo. */
+const BRACKET_SPAN = /\[[^\]]*\]/g;
+/** Question marks that count for the single-'?' rule: ASCII, fullwidth, small, Arabic. */
+const QUESTION_MARKS = /[?？﹖؟]/g;
+/** Format, control, private-use, surrogate, unassigned, line/paragraph separators and combining marks. */
+const CONTROL_LIKE = /[\p{Cc}\p{Cf}\p{Co}\p{Cs}\p{Cn}\p{Zl}\p{Zp}\p{M}]/u;
 const ROLE_WORD = /\b(supervisor|owner|manager|boss|cashier|barista|chef|cook|staff member|the staff)\b/i;
 const INSTRUCTION_WORD = /\b(ignore|system prompt|instruction|assistant|as an ai|developer|override)\b/i;
 const LETTERS_5 = /\p{L}{5,}/gu;
@@ -92,7 +102,7 @@ function allowedPrefixes(moment: DebriefQuestionMoment): Set<string> {
   const sources = [...moment.lines, moment.summary, moment.category_label_en, ...QUESTION_ALLOW_WORDS];
   const prefixes = new Set<string>();
   for (const source of sources) {
-    for (const word of source.match(LETTER_RUNS) ?? []) {
+    for (const word of source.replace(BRACKET_SPAN, " ").match(LETTER_RUNS) ?? []) {
       const w = normaliseWord(word);
       if (Array.from(w).length >= PREFIX_LEN) prefixes.add(Array.from(w).slice(0, PREFIX_LEN).join(""));
     }
@@ -115,7 +125,7 @@ export function checkQuestion(draft: unknown, ctx: CheckContext): CheckResult {
   if (length < DEBRIEF_QUESTION_MIN_CHARS) fail("too_short");
   if (length > DEBRIEF_QUESTION_MAX_CHARS) fail("too_long");
 
-  const questionMarks = (q.match(/\?/g) ?? []).length;
+  const questionMarks = (q.match(QUESTION_MARKS) ?? []).length;
   if (!q.endsWith("?") || questionMarks !== 1) fail("not_a_question");
   if (!isYesNo(q)) fail("not_yes_no");
   if ((q.match(/[.!?]/g) ?? []).length > 2) fail("multiple_sentences");
@@ -129,7 +139,11 @@ export function checkQuestion(draft: unknown, ctx: CheckContext): CheckResult {
   const withoutTimes = q.replace(CLOCK_TIME, (t) => (t === moment.start_hm || t === moment.end_hm ? " " : t));
   const inputText = `${moment.lines.join(" ")} ${moment.summary}`;
   const inputRuns = new Set(inputText.match(DIGIT_RUN) ?? []);
-  if ((withoutTimes.match(DIGIT_RUN) ?? []).some((run) => !inputRuns.has(run))) fail("number_not_in_input");
+  const freeRuns = withoutTimes.match(DIGIT_RUN) ?? [];
+  if (freeRuns.some((run) => !inputRuns.has(run))) fail("number_not_in_input");
+  // Runs of the notes can be chained into a phone number ("0812 3456 7890"): cap the digits outside the two times.
+  if (freeRuns.join("").length > MAX_FREE_DIGITS) fail("number_not_in_input");
+  if (NON_ASCII_NUMBER.test(q)) fail("number_not_in_input");
 
   const prefixes = allowedPrefixes(moment);
   for (const token of q.match(LETTERS_5) ?? []) {
@@ -142,7 +156,7 @@ export function checkQuestion(draft: unknown, ctx: CheckContext): CheckResult {
 
   if (URL_OR_HANDLE.test(q)) fail("url_or_handle");
   if (PLACEHOLDER.test(q)) fail("placeholder");
-  if (stripInvisibleChars(q) !== q || /[\u0000-\u001F]/.test(q)) fail("control_chars");
+  if (stripInvisibleChars(q) !== q || q !== q.normalize("NFC") || CONTROL_LIKE.test(q)) fail("control_chars");
   if (scrubQuestionLine(q, ctx.staffNames, ctx.outletName) !== q) fail("staff_name");
   if (ROLE_WORD.test(q)) fail("role_word");
   if (INSTRUCTION_WORD.test(q)) fail("instruction_word");

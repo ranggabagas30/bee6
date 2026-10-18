@@ -84,3 +84,36 @@ describe("injection corpus (E8): hostile evidence lines", () => {
     }
   });
 });
+
+/** Drafts the first-round checker accepted although they should not have been (tech-lead probes, 18 Oct). */
+describe("checker counterexamples", () => {
+  const lines = {
+    wa: "Customer asked about a phone order and said to text wa.me for twelve egg tarts.",
+    sari: "Someone took a phone order for twelve egg tarts.",
+    number: "The caller gave the number 0812 3456 7890 on the phone.",
+    staff: "[STAFF] took a phone order for twelve egg tarts.",
+  };
+  const cases: Array<{ id: string; line: string; draft: string }> = [
+    { id: "word joiner splits a staff name", line: lines.sari, draft: "Around 14:05, did Sa\u2060ri take a phone order?" },
+    { id: "word joiner splits an item word", line: lines.sari, draft: "Around 14:05, did someone take a cro\u2060iss\u2060ant order?" },
+    { id: "soft hyphen", line: lines.sari, draft: "Around 14:05, did someone take a phone or\u00ADder?" },
+    { id: "tag character", line: lines.sari, draft: "Around 14:05, did someone take a phone ord\u{E0041}er?" },
+    { id: "bare host (wa.me)", line: lines.wa, draft: "Around 14:05, did they say to text wa.me for twelve egg tarts?" },
+    {
+      id: "fullwidth digits",
+      line: "The caller said \uFF10\uFF18\uFF11\uFF12\uFF13\uFF14\uFF15\uFF16\uFF17\uFF18.",
+      draft: "Around 14:05, did the caller say \uFF10\uFF18\uFF11\uFF12\uFF13\uFF14\uFF15\uFF16\uFF17\uFF18?",
+    },
+    { id: "echoed phone number in runs of 4", line: lines.number, draft: "Around 14:05, did the caller give the number 0812 3456 7890 on the phone?" },
+    { id: "bracketless STAFF echo", line: lines.staff, draft: "Around 14:05, did STAFF take a phone order for twelve egg tarts?" },
+    { id: "PHONE_NUMBER placeholder", line: lines.number, draft: "Around 14:05, did the caller give a PHONE_NUMBER on the phone?" },
+    { id: "fullwidth second question mark", line: lines.sari, draft: "Around 14:05, did someone take a phone order\uFF1F Was it for twelve egg tarts?" },
+  ];
+
+  for (const c of cases) {
+    it(`rejects: ${c.id}`, () => {
+      const res = checkQuestion({ question_en: c.draft }, { moment: momentFor(c.line), staffNames: ["Sari Demo"], outletName: "Demo Bakery" });
+      expect(res.passed, c.draft).toBe(false);
+    });
+  }
+});

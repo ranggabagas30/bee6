@@ -186,6 +186,89 @@ describe("checkQuestion: rule table", () => {
   });
 });
 
+describe("checkQuestion: counterexamples (tech-lead required fixes; each was ACCEPTED before)", () => {
+  const sariCtx: CheckContext = { moment, staffNames: ["Sari"], outletName: "Demo Bakery" };
+
+  it("C1. control_chars: word joiner, soft hyphen, tag char, line separator, combining mark, non-NFC", () => {
+    // a word joiner splits the staff name past the scrub, and the 5+ letter word check
+    expect(reasonsOf("Around 14:05, did Sa\u2060ri take a phone order?", sariCtx)).toContain("control_chars");
+    expect(reasonsOf("Around 14:05, was there a cro\u2060iss\u2060ant order on the phone?")).toContain("control_chars");
+    expect(reasonsOf("Around 14:05, was there a phone or\u00ADder for twelve egg tarts?")).toContain("control_chars");
+    expect(reasonsOf("Around 14:05, was there a phone ord\u{E0041}er for twelve egg tarts?")).toContain("control_chars");
+    expect(reasonsOf("Around 14:05, was there a phone\u2028order for twelve egg tarts?")).toContain("control_chars");
+    expect(reasonsOf("Around 14:05, was there a phone\u2029order for twelve egg tarts?")).toContain("control_chars");
+    expect(reasonsOf("Around 14:05, was there a phone orde\u0301r for twelve egg tarts?")).toContain("control_chars");
+    // U+212B ANGSTROM SIGN is not NFC (its NFC form is U+00C5)
+    expect(reasonsOf("Around 14:05, was there a phone order for twelve egg tarts \u212B?")).toContain("control_chars");
+  });
+
+  it("C2. url_or_handle: a bare letter.letter host-like token (wa.me)", () => {
+    expect(reasonsOf("Around 14:05, was there a phone order, did they say to text wa.me?")).toContain("url_or_handle");
+    expect(reasonsOf("Around 14:05, was there a phone order for twelve egg tarts?")).not.toContain("url_or_handle");
+  });
+
+  it("C3. numbers: non-ASCII number characters fail (fullwidth digits)", () => {
+    const c: CheckContext = { ...ctx, moment: { ...moment, lines: ["The caller said \uFF10\uFF18\uFF11\uFF12\uFF13\uFF14\uFF15\uFF16\uFF17\uFF18 on the phone."] } };
+    expect(reasonsOf("Around 14:05, did the caller say \uFF10\uFF18\uFF11\uFF12\uFF13\uFF14\uFF15\uFF16\uFF17\uFF18 on the phone?", c)).toContain("number_not_in_input");
+    expect(reasonsOf("Around 14:05, was there a phone order for \u00BD dozen egg tarts?")).toContain("number_not_in_input");
+  });
+
+  it("C3b. number_not_in_input: more than 6 ASCII digits outside the two clock times, even when each run is echoed", () => {
+    const c: CheckContext = { ...ctx, moment: { ...moment, lines: ["The caller gave the number 0812 3456 7890 on the phone."] } };
+    expect(reasonsOf("Around 14:05, did the caller give the number 0812 3456 7890 on the phone?", c)).toContain("number_not_in_input");
+    // the two allowed clock times do not count towards the digit budget
+    const ok: CheckContext = { ...ctx, moment: { ...moment, lines: ["The caller wanted 12 egg tarts on the phone."] } };
+    expect(reasonsOf("Between 14:05 and 14:08, was there a phone order for 12 egg tarts?", ok)).toEqual([]);
+  });
+
+  it("C4. allow-list: 'order', 'phone', 'customer', 'correctly' are no longer free words", () => {
+    const cleaning: CheckContext = {
+      moment: {
+        category: "ROUTINE_OPS",
+        category_label_en: "routine work",
+        start_hm: "14:05",
+        end_hm: "14:08",
+        fired_rule: "always_question",
+        lines: ["We mopped the floor near the counter.", "The floor is clean now."],
+        summary: "Floor cleaning.",
+      },
+      staffNames: ["Sari"],
+      outletName: "Demo Bakery",
+    };
+    expect(reasonsOf("Around 14:05, did a customer place a phone order?", cleaning)).toContain("word_not_in_input");
+    expect(reasonsOf("Around 14:05, was the floor mopped near the counter correctly?", cleaning)).toContain("word_not_in_input");
+    expect(reasonsOf("Around 14:05, was the floor mopped near the counter properly?", cleaning)).toContain("word_not_in_input");
+    expect(reasonsOf("Around 14:05, was the floor mopped near the counter?", cleaning)).toEqual([]);
+    for (const w of ["order", "phone", "customer", "customers", "served", "serving", "correct", "correctly", "properly"]) {
+      expect(QUESTION_ALLOW_WORDS).not.toContain(w);
+    }
+    for (const w of ["without", "something", "anything", "between"]) expect(QUESTION_ALLOW_WORDS).toContain(w);
+  });
+
+  it("C4b. a legitimate PHONE_CALL question still gets 'phone' from its category label", () => {
+    const c: CheckContext = { ...ctx, moment: { ...moment, lines: ["Hello hello."], summary: "" } };
+    expect(reasonsOf("Around 14:05, was there a phone call?", c)).toEqual([]);
+    expect(reasonsOf("Around 14:05, was the phone order taken without anything read back?")).toEqual([]);
+  });
+
+  it("C5. placeholders: a bracketless echo of '[STAFF]' is not an allowed word; '_' is a placeholder char", () => {
+    const c: CheckContext = {
+      ...ctx,
+      moment: { ...moment, lines: ["[STAFF] took a phone order for twelve egg tarts.", "Call [PHONE_NUMBER] back."], summary: "" },
+    };
+    expect(reasonsOf("Around 14:05, did STAFF take a phone order for twelve egg tarts?", c)).toContain("word_not_in_input");
+    expect(reasonsOf("Around 14:05, did the caller leave a PHONE_NUMBER for the order?", c)).toContain("placeholder");
+    expect(reasonsOf("Around 14:05, did the caller leave a PHONE NUMBER for the order?", c)).toContain("word_not_in_input");
+    expect(reasonsOf("Around 14:05, was there a phone order for twelve egg tarts?", c)).toEqual([]);
+  });
+
+  it("C6. not_a_question: a fullwidth or other question mark counts as a second '?'", () => {
+    expect(reasonsOf("Around 14:05, was there a phone order\uFF1F Was it for twelve egg tarts?")).toContain("not_a_question");
+    expect(reasonsOf("Around 14:05, was there a phone order\uFE56 Was it for twelve egg tarts?")).toContain("not_a_question");
+    expect(reasonsOf("Around 14:05, was there a phone order\u061F Was it for twelve egg tarts?")).toContain("not_a_question");
+  });
+});
+
 describe("checkQuestion: constants", () => {
   it("CHECK_RULES is the 16-rule list, schema_invalid first, no duplicates", () => {
     expect(CHECK_RULES).toHaveLength(16);
