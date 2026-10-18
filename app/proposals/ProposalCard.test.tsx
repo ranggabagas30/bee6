@@ -329,7 +329,7 @@ describe("ProposalCard — notices (R-09 7.T3)", () => {
     );
     expect(screen.getByText("A newer proposal exists for these dates. Decide on that one.")).not.toBeNull();
     expect(screen.getByText("Some of the evidence no longer holds. Generate again for these dates.")).not.toBeNull();
-    expect(screen.getByText("The SOP has changed since this proposal was made. Generate again.")).not.toBeNull();
+    expect(screen.getByText("The step this proposal rewrites has changed since it was made, so it cannot go ahead. Reject it with a reason or ask for a new proposal.")).not.toBeNull();
     expect(
       screen.getByText("Added after this proposal was made. Check the proposal against it before you decide:"),
     ).not.toBeNull();
@@ -377,7 +377,7 @@ describe("ProposalCard — notice ids for aria-describedby", () => {
       />,
     );
     const stale = screen.getByText("Some of the evidence no longer holds. Generate again for these dates.");
-    const sop = screen.getByText("The SOP has changed since this proposal was made. Generate again.");
+    const sop = screen.getByText("The step this proposal rewrites has changed since it was made, so it cannot go ahead. Reject it with a reason or ask for a new proposal.");
     expect(stale.id).toBe(noticeDomId(proposal.proposal_id, "stale"));
     expect(sop.id).toBe(noticeDomId(proposal.proposal_id, "sop"));
   });

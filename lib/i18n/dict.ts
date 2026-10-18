@@ -371,7 +371,7 @@ export const ID_BASE = {
   "C-prop-rev-owner-rejected": "Pemilik menolak pada {date}. Alasan:", // PROVISIONAL
   "C-prop-notice-late": "Ditambahkan setelah usulan ini dibuat. Periksa usulan terhadap batasan ini sebelum memutuskan:", // PROVISIONAL
   "C-prop-notice-stale": "Sebagian bukti sudah tidak berlaku. Buat ulang usulan untuk tanggal ini.", // PROVISIONAL
-  "C-prop-notice-sop": "SOP sudah berubah sejak usulan ini dibuat. Buat ulang usulan.", // PROVISIONAL
+  "C-prop-notice-sop": "Langkah yang diubah usulan ini sudah berubah sejak usulan dibuat, jadi tidak bisa dilanjutkan. Tolak dengan alasan atau minta usulan baru.", // PROVISIONAL
   "C-prop-notice-superseded": "Ada usulan lebih baru untuk tanggal ini. Putuskan yang itu.", // PROVISIONAL
   "C-prop-act-feasible": "Layak", // PROVISIONAL
   "C-prop-act-approve": "Setujui", // PROVISIONAL
@@ -398,7 +398,7 @@ export const ID_BASE = {
   "C-prop-err-not-reviewable": "Usulan ini tidak bisa ditinjau.", // PROVISIONAL
   "C-prop-err-superseded": "Ada usulan lebih baru untuk tanggal ini. Daftar sudah diperbarui.", // PROVISIONAL
   "C-prop-err-stale": "Sebagian bukti sudah tidak berlaku, jadi usulan ini tidak bisa dilanjutkan. Buat ulang untuk tanggal ini.", // PROVISIONAL
-  "C-prop-err-sop-changed": "SOP sudah berubah, jadi usulan ini tidak bisa dilanjutkan. Buat ulang.", // PROVISIONAL
+  "C-prop-err-sop-changed": "Langkah yang diubah usulan ini sudah berubah, jadi tidak bisa dilanjutkan. Tolak dengan alasan atau minta usulan baru.", // PROVISIONAL
   "C-prop-err-constraint-added": "Ada batasan yang baru ditambahkan. Periksa, lalu putuskan lagi.", // PROVISIONAL
   "C-prop-err-forbidden-decide": "Peran Anda tidak bisa membuat keputusan ini.", // PROVISIONAL
   "C-prop-err-sop-limit": "SOP sudah punya 200 langkah, jadi langkah baru tidak bisa ditambahkan.", // PROVISIONAL
@@ -869,7 +869,7 @@ export const EN_BASE: Record<keyof typeof ID_BASE, string> = {
   "C-prop-rev-owner-rejected": "The owner rejected this on {date}. Reason:", // PROVISIONAL
   "C-prop-notice-late": "Added after this proposal was made. Check the proposal against it before you decide:", // PROVISIONAL
   "C-prop-notice-stale": "Some of the evidence no longer holds. Generate again for these dates.", // PROVISIONAL
-  "C-prop-notice-sop": "The SOP has changed since this proposal was made. Generate again.", // PROVISIONAL
+  "C-prop-notice-sop": "The step this proposal rewrites has changed since it was made, so it cannot go ahead. Reject it with a reason or ask for a new proposal.", // PROVISIONAL
   "C-prop-notice-superseded": "A newer proposal exists for these dates. Decide on that one.", // PROVISIONAL
   "C-prop-act-feasible": "Feasible", // PROVISIONAL
   "C-prop-act-approve": "Approve", // PROVISIONAL
@@ -896,7 +896,7 @@ export const EN_BASE: Record<keyof typeof ID_BASE, string> = {
   "C-prop-err-not-reviewable": "This proposal cannot be reviewed.", // PROVISIONAL
   "C-prop-err-superseded": "A newer proposal exists for these dates. The list is updated.", // PROVISIONAL
   "C-prop-err-stale": "Some of the evidence no longer holds, so this cannot go ahead. Generate again for these dates.", // PROVISIONAL
-  "C-prop-err-sop-changed": "The SOP has changed, so this cannot go ahead. Generate again.", // PROVISIONAL
+  "C-prop-err-sop-changed": "The step this proposal rewrites has changed, so this cannot go ahead. Reject it with a reason or ask for a new proposal.", // PROVISIONAL
   "C-prop-err-constraint-added": "A constraint was just added. Check it, then decide again.", // PROVISIONAL
   "C-prop-err-forbidden-decide": "Your role cannot make this decision.", // PROVISIONAL
   "C-prop-err-sop-limit": "The SOP already has 200 steps, so a new step cannot be added.", // PROVISIONAL

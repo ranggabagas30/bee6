@@ -53,7 +53,7 @@ export interface ApprovalCardProps {
   shipped: SopChangeView | null;
   /** The proposal's place in the recommended order (1-based): the "#1 · supervisor: feasible …" meta line. */
   position?: number;
-  /** Another proposal is still waiting for the owner: the pace box adds "the other can only be rejected". */
+  /** Another proposal is still waiting for the owner: the pace box adds "each approved change becomes its own SOP version". */
   othersWaiting?: boolean;
 }
 

@@ -100,6 +100,15 @@ const SOP_WITH_V2: SopOverview = {
   ],
 };
 
+const SOP_WITH_V2_V3: SopOverview = {
+  ...SOP_WITH_V2,
+  latest: { version: 3, effective_from_date: "2026-10-14", steps: SOP_WITH_V2.latest!.steps },
+  changes: [
+    ...SOP_WITH_V2.changes,
+    { ...SOP_WITH_V2.changes[0]!, version: 3, previous_version: 2, change_title: "Proposal 2", review_date: "2026-10-21" },
+  ],
+};
+
 beforeEach(() => {
   proposalsResult = TWO_WAITING;
   sopResult = { kind: "ok", data: { today: "2026-10-13", latest: null, in_force_version: null, first_version_date: null, changes: [] } };
@@ -231,21 +240,23 @@ describe("ApprovalsReview — review in order", () => {
 });
 
 describe("ApprovalsReview — approve", () => {
-  it("Approve posts to the approve route, reloads, shows the answer, moves to #2 which is now 'Approve · not available' with the SOP-changed line, and the shipped version", async () => {
+  it("Approve posts to the approve route, reloads, shows the answer, moves to #2 which is still approvable (its step is untouched), and the shipped version", async () => {
     const onBridge = vi.fn();
     authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "approved", status: "approved" } });
     renderScreen(onBridge);
     await screen.findByRole("heading", { level: 1, name: "Proposal 1" });
-    proposalsResult = ok([item(2, "awaiting_owner", { notices: { sop_changed: true } })], [item(1, "approved", { owner: APPROVED })]);
+    proposalsResult = ok([item(2, "awaiting_owner")], [item(1, "approved", { owner: APPROVED })]);
     sopResult = { kind: "ok", data: SOP_WITH_V2 };
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     expect(authedPostJson).toHaveBeenCalledWith(AUTH, `/api/v1/proposals/${uuid(1)}/approve`, { decision: "approve", acknowledged_constraint_ids: [] }, expect.anything());
 
     expect(await screen.findByText("Approved. It ships as a new SOP version.")).toBeTruthy();
     await screen.findByRole("heading", { level: 1, name: "Proposal 2" });
-    const na = screen.getByRole("button", { name: "Approve · not available" });
-    expect(na.hasAttribute("disabled")).toBe(true);
-    expect(screen.getByText("The SOP changed after this was drafted. You can still reject it with a reason.")).toBeTruthy();
+    // item 20: the second proposal is NOT blocked just because a newer SOP version exists
+    const approve = screen.getByRole("button", { name: "Approve" });
+    expect(approve.hasAttribute("disabled")).toBe(false);
+    expect(screen.queryByRole("button", { name: "Approve · not available" })).toBeNull();
+    expect(screen.queryByText(/changed after it was drafted/)).toBeNull();
     expect(screen.getByRole("progressbar").getAttribute("aria-label")).toBe("1 of 2 decided");
     const order = screen.getByRole("list", { name: "RECOMMENDED ORDER" });
     expect(within(order).getAllByRole("listitem")[0]!.textContent).toContain("Approved");
@@ -253,6 +264,32 @@ describe("ApprovalsReview — approve", () => {
     expect(onBridge).toHaveBeenCalledWith({ type: "progress" });
     // the answer takes focus so it is read out, not the document body
     expect(document.activeElement?.textContent).toBe("Approved. It ships as a new SOP version.");
+  });
+
+  it("approve #1 then #2: both become SOP versions, and the summary lists version 2 and version 3 with their own dates", async () => {
+    authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "approved", status: "approved" } });
+    renderScreen();
+    await screen.findByRole("heading", { level: 1, name: "Proposal 1" });
+    proposalsResult = ok([item(2, "awaiting_owner")], [item(1, "approved", { owner: APPROVED })]);
+    sopResult = { kind: "ok", data: SOP_WITH_V2 };
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    await screen.findByRole("heading", { level: 1, name: "Proposal 2" });
+
+    proposalsResult = ok([], [item(1, "approved", { owner: APPROVED }), item(2, "approved", { owner: APPROVED })]);
+    sopResult = { kind: "ok", data: SOP_WITH_V2_V3 };
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    expect(authedPostJson).toHaveBeenCalledTimes(2);
+    expect(authedPostJson).toHaveBeenLastCalledWith(AUTH, `/api/v1/proposals/${uuid(2)}/approve`, { decision: "approve", acknowledged_constraint_ids: [] }, expect.anything());
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Both decided. Nice and calm." })).toBeTruthy();
+    expect(await screen.findByText("Shipped as SOP version 2")).toBeTruthy();
+    expect(await screen.findByText("Shipped as SOP version 3")).toBeTruthy();
+    expect(screen.getByText("2 approved, 0 rejected.")).toBeTruthy();
+    // each row carries its own start and review dates (v3 has the shorter review window)
+    expect(screen.getByText("Starts Wed 14 Oct · review Wed 28 Oct")).toBeTruthy();
+    expect(screen.getByText("Starts Wed 14 Oct · review Wed 21 Oct")).toBeTruthy();
+    // the single-change summary sentence would only describe one of the two: it is left out
+    expect(screen.queryByText(/The approved change starts on/)).toBeNull();
   });
 
   it("a double tap sends one request", async () => {
@@ -311,7 +348,7 @@ describe("ApprovalsReview — approve", () => {
     await screen.findByRole("heading", { level: 1, name: "Proposal 1" });
     proposalsResult = ok([item(1, "awaiting_owner", { notices: { sop_changed: true } }), item(2, "awaiting_owner")]);
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
-    expect(await screen.findByText("The SOP has changed, so this cannot go ahead. Generate again.")).toBeTruthy();
+    expect(await screen.findByText("The step this proposal rewrites has changed, so this cannot go ahead. Reject it with a reason or ask for a new proposal.")).toBeTruthy();
     await screen.findByRole("button", { name: "Approve · not available" });
     await waitFor(() => expect(screen.getByLabelText("Reject — why?").hasAttribute("disabled")).toBe(false));
     fireEvent.change(screen.getByLabelText("Reject — why?"), { target: { value: "Not this week." } });
@@ -324,7 +361,7 @@ describe("ApprovalsReview — approve", () => {
     await screen.findByRole("heading", { level: 1, name: "Proposal 1" });
     const reads = authedGetJson.mock.calls.filter((c) => c[1] === "/api/v1/proposals").length;
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
-    expect(await screen.findByText("The SOP has changed, so this cannot go ahead. Generate again.")).toBeTruthy();
+    expect(await screen.findByText("The step this proposal rewrites has changed, so this cannot go ahead. Reject it with a reason or ask for a new proposal.")).toBeTruthy();
     await waitFor(() => expect(authedGetJson.mock.calls.filter((c) => c[1] === "/api/v1/proposals").length).toBe(reads + 1));
   });
 });
@@ -470,25 +507,27 @@ describe("ApprovalsReview — page-2 layout (R-25 T11)", () => {
     expect(within(c).getByText("WATCH THIS METRIC")).toBeTruthy();
   });
 
-  it("the pace box says approving creates a version, and that the other can only be rejected while another is waiting", async () => {
+  it("the pace box says approving creates a version; while another is waiting, that each approved change is its own version (never 'the other can only be rejected')", async () => {
     renderScreen();
     const c = await waitFor(card);
-    expect(within(c).getByText(/Approving creates a new SOP version\./).textContent).toContain("the other can only be rejected");
+    const line = within(c).getByText(/Approving creates a new SOP version\./).textContent!;
+    expect(line).toContain("Each approved change becomes its own SOP version.");
+    expect(line).not.toContain("only be rejected");
     cleanup();
     proposalsResult = ok([item(1, "awaiting_owner")]);
     renderScreen();
     const alone = await waitFor(card);
-    expect(within(alone).getByText(/Approving creates a new SOP version\./).textContent).not.toContain("only be rejected");
+    expect(within(alone).getByText(/Approving creates a new SOP version\./).textContent).not.toContain("Each approved change");
   });
 
   it("the SOP-changed proposal shows the amber 'Not available' pace box and the same line in the decision card", async () => {
     proposalsResult = ok([item(2, "awaiting_owner", { notices: { sop_changed: true } })], [item(1, "approved", { owner: APPROVED })]);
     renderScreen();
     await screen.findByRole("heading", { level: 1, name: "Proposal 2" });
-    const lead = screen.getByText("Not available: the SOP changed");
+    const lead = screen.getByText("Not available: this step was just changed");
     expect(lead.parentElement!.parentElement!.className).toContain("paceBlocked");
     expect(screen.getByText(/can only be rejected\. A rejection reason becomes a rule Bee6 respects\./)).toBeTruthy();
-    expect(screen.getByText("The SOP changed after this was drafted. You can still reject it with a reason.")).toBeTruthy();
+    expect(screen.getByText("The step this proposal rewrites changed after it was drafted. You can still reject it with a reason.")).toBeTruthy();
   });
 
   it("the decision card is an h2 'Your decision' (sentence case); the reject field is required, with a placeholder, and the label text is plain", async () => {
