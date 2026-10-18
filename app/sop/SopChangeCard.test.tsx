@@ -33,7 +33,7 @@ function change(overrides: Partial<SopChangeView> = {}): SopChangeView {
 }
 
 function textOrder(container: HTMLElement): string[] {
-  return Array.from(container.querySelectorAll("h3, h4, p")).map((n) => n.textContent ?? "");
+  return Array.from(container.querySelectorAll("h4, h5, p")).map((n) => n.textContent ?? "");
 }
 
 describe("SopChangeCard", () => {
@@ -67,6 +67,14 @@ describe("SopChangeCard", () => {
       expect(idx, `missing or out of order: ${want}`).toBeGreaterThan(at);
       at = idx;
     }
+  });
+
+  it("the inline card (opened under an improved step) leaves out the before/after block the step already shows", () => {
+    render(<SopChangeCard change={change()} lang="en" inline />);
+    expect(screen.getByText("Check the display more often")).not.toBeNull();
+    expect(screen.getByText("Review on Fri 23 Oct")).not.toBeNull();
+    expect(screen.queryByText("Before (version 1)")).toBeNull();
+    expect(screen.queryByText("Check the display every hour.")).toBeNull();
   });
 
   it("5.T2 an add change says it is a new step and shows no before text", () => {

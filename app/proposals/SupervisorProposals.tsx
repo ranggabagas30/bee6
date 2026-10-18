@@ -11,10 +11,11 @@ import { CATEGORY_KEY } from "@/lib/day/view-model";
 import { MODEL_TIMEOUT_MS } from "@/lib/proposals/constants";
 import { GenerateResponseSchema, type ProposalView } from "@/lib/proposals/contract";
 import type { ProposalListItem } from "@/lib/proposals/review-contract";
-import { Button, Card, Chip, Pill } from "@/app/ui";
-import { EmptyState } from "@/app/web/EmptyState";
+import { Button, Card, Chip, Glass, Pill } from "@/app/ui";
+import { PageHead } from "@/app/web/PageHead";
 import { ConstraintsPanel } from "@/app/proposals/ConstraintsPanel";
 import { GeneratingState } from "@/app/proposals/GeneratingState";
+import type { AskEstimate } from "@/lib/proposals/v4/flag";
 import { ProposalDetail } from "@/app/proposals/ProposalDetail";
 import { WatchPanel } from "@/app/proposals/WatchPanel";
 import { useProposalList } from "@/app/proposals/useProposalList";
@@ -24,7 +25,8 @@ import styles from "@/app/proposals/supervisor.module.css";
  * The supervisor's Proposals screen (R-19 PR-12a, plan 9.5; boards D2-03, D2-03a, D2-03b, D2-03d, D2-03e, D2-03f,
  * D2-03g). One client state machine, three screens:
  * - `list`: page head, the watch panel (plan 3.5 data from the same GET), the open proposals as rows, recently
- *   decided ones, the constraints panel; "Asking Bee6…" replaces the rows while a generate call runs;
+ *   decided ones, and the constraints panel folded into a collapsed "Rules for Bee6 (optional)" (R-25 T10, R8: the
+ *   feature stays, the board shows none); "Bee6 is writing a proposal" replaces the rows while a generate call runs;
  * - `detail`: one proposal, Mark feasible / inline reject;
  * - `feasible`: the same detail with the hand-over banner instead of the actions.
  *
@@ -67,6 +69,8 @@ const STATUS_KEY: Record<ProposalView["status"], DictKey> = {
   approved: "C-prop-st-approved",
   rejected: "C-prop-st-rejected",
 };
+/** The list row says "Waiting for you" (board D2-03); the detail keeps "Waiting for your check" (D2-03e). */
+const LIST_STATUS_KEY: Record<ProposalView["status"], DictKey> = { ...STATUS_KEY, awaiting_supervisor: "C-propd-st-yours-list" };
 const STATUS_TONE: Record<ProposalView["status"], "neutral" | "amber" | "teal" | "green" | "red"> = {
   suppressed: "neutral",
   blocked: "neutral",
@@ -76,22 +80,24 @@ const STATUS_TONE: Record<ProposalView["status"], "neutral" | "amber" | "teal" |
   rejected: "red",
 };
 
-function ProposalRow({ item, lang, onOpen }: { item: ProposalListItem; lang: Lang; onOpen: () => void }) {
+function ProposalRow({ item, lang, onOpen, decided }: { item: ProposalListItem; lang: Lang; onOpen: () => void; decided?: boolean }) {
   const { proposal } = item;
   const content = proposal.content;
   if (!content) return null;
   const dates = [...new Set(content.evidence.map((e) => e.date))].map((d) => dayLabel(d, lang)).join(", ");
   return (
     <Card as="li" className={styles.row}>
-      <div className={styles.rowTop}>
-        <Pill tone={STATUS_TONE[proposal.status]}>{t(lang, STATUS_KEY[proposal.status])}</Pill>
-        <Chip>{content.target_step ? content.target_step.title : t(lang, "C-propd-step-new")}</Chip>
+      <div className={styles.rowBody}>
+        <div className={styles.rowTop}>
+          <Chip>{content.target_step ? content.target_step.title : t(lang, "C-propd-step-new")}</Chip>
+          <Pill tone={STATUS_TONE[proposal.status]}>{t(lang, LIST_STATUS_KEY[proposal.status])}</Pill>
+        </div>
+        <h3 className={styles.rowTitle}>{content.change_title}</h3>
+        <p className={styles.rowWhy}>{content.rationale}</p>
+        <span className={styles.rowMeta}>{t(lang, "C-propd-moments", { n: content.evidence.length, dates })}</span>
       </div>
-      <h3 className={styles.rowTitle}>{content.change_title}</h3>
-      <p className={styles.rowWhy}>{content.rationale}</p>
-      <span className={styles.rowMeta}>{t(lang, "C-propd-moments", { n: content.evidence.length, dates })}</span>
       <div className={styles.rowActions}>
-        <Button variant="secondary" onClick={onOpen} aria-label={t(lang, "C-propd-open-aria", { title: content.change_title })}>
+        <Button variant={decided ? "secondary" : "primary"} onClick={onOpen} aria-label={t(lang, "C-propd-open-aria", { title: content.change_title })}>
           {t(lang, "C-propd-open")}
         </Button>
       </div>
@@ -125,7 +131,21 @@ function SuppressedLines({ notice, lang }: { notice: Extract<Notice, { kind: "su
   );
 }
 
-export function SupervisorProposals({ auth, lang, onBridge }: { auth: Auth; lang: Lang; onBridge?: (event: ProposalsBridgeEvent) => void }) {
+export function SupervisorProposals({
+  auth,
+  lang,
+  onBridge,
+  askEstimate = null,
+  demo = false,
+}: {
+  auth: Auth;
+  lang: Lang;
+  onBridge?: (event: ProposalsBridgeEvent) => void;
+  /** A demo sandbox principal (R-25 T10 / R14): the watch panel always shows the script's two problem rows. */
+  demo?: boolean;
+  /** R-24 D11: the estimated wait while THIS tab's Ask runs (v4 flag on); `null` = today's copy. Never shown while `waiting`. */
+  askEstimate?: AskEstimate | null;
+}) {
   const router = useRouter();
   const [reloadKey, setReloadKey] = useState(0);
   const [constraintsKey, setConstraintsKey] = useState(0);
@@ -286,12 +306,7 @@ export function SupervisorProposals({ auth, lang, onBridge }: { auth: Auth; lang
 
   // The page head is part of every list-level state: a loading or failed read still has its h1 (axe
   // page-has-heading-one, R-19 PR-5 round 4) and the page does not re-flow when the data lands.
-  const head = (
-    <header className={styles.head}>
-      <h1 className={styles.h1}>{t(lang, "C-prop-title")}</h1>
-      <p className={styles.sub}>{t(lang, "C-propw-sub")}</p>
-    </header>
-  );
+  const head = <PageHead title={t(lang, "C-prop-title")} sub={t(lang, "C-propw-sub")} />;
 
   if (list.kind === "loading") {
     return (
@@ -337,7 +352,7 @@ export function SupervisorProposals({ auth, lang, onBridge }: { auth: Auth; lang
     <>
       {head}
 
-      <WatchPanel lang={lang} watch={watch} hasProposal={hasProposal} busy={generating} onAsk={(another) => void ask(another)} />
+      <WatchPanel lang={lang} watch={watch} hasProposal={hasProposal} busy={generating} demo={demo} onAsk={(another) => void ask(another)} />
 
       {/* While Bee6 is asked the cleared line keeps one line of height (D2): the rows do not move when the answer fills it. */}
       <p
@@ -352,18 +367,20 @@ export function SupervisorProposals({ auth, lang, onBridge }: { auth: Auth; lang
       </p>
 
       {generating ? (
-        // A plain block around the asking state (its margins collapse through), so the hold can read the block's
-        // height and the panel right after it.
+        // A plain block around the asking state, so the hold can read the block's height and the panel right after it.
         <div ref={askingBlockRef}>
-          <GeneratingState lang={lang} minHeight={reserveHeight} />
+          <GeneratingState lang={lang} minHeight={reserveHeight} estimate={asking === "calling" ? askEstimate : null} />
         </div>
       ) : nothingYet ? (
-        <EmptyState title={t(lang, "C-web-empty-prop-h")} detail={t(lang, "C-web-empty-prop-p")} />
+        <Glass className={styles.noteCard}>
+          <p className={styles.noteCardTitle}>{t(lang, "C-web-empty-prop-h")}</p>
+          <p className={styles.noteCardBody}>{t(lang, "C-web-empty-prop-p")}</p>
+        </Glass>
       ) : (
-        // A plain block (no style of its own: child margins collapse through it as before), measured at the ask.
-        <div ref={listRef}>
+        // A plain block (only a column gap between the two sections), measured at the ask.
+        <div ref={listRef} className={styles.lists}>
           <section aria-labelledby="prop-list-open">
-            <h2 id="prop-list-open" className={styles.sectionTitle}>
+            <h2 id="prop-list-open" className="b6-sr-only">
               {t(lang, "C-prop-list-open")}
             </h2>
             {open.length === 0 ? (
@@ -386,7 +403,7 @@ export function SupervisorProposals({ auth, lang, onBridge }: { auth: Auth; lang
           </section>
           {decided.length > 0 && (
             <section aria-labelledby="prop-list-decided">
-              <h2 id="prop-list-decided" className={styles.sectionTitle}>
+              <h2 id="prop-list-decided" className={`b6-kick ${styles.sectionTitle}`}>
                 {t(lang, "C-prop-list-decided")}
               </h2>
               <ul className={styles.rows}>
@@ -395,6 +412,7 @@ export function SupervisorProposals({ auth, lang, onBridge }: { auth: Auth; lang
                     key={item.proposal.proposal_id}
                     item={item}
                     lang={lang}
+                    decided
                     onOpen={() => {
                       setNotice(null);
                       setScreen({ kind: "detail", id: item.proposal.proposal_id });
@@ -407,7 +425,14 @@ export function SupervisorProposals({ auth, lang, onBridge }: { auth: Auth; lang
         </div>
       )}
 
-      <ConstraintsPanel auth={auth} role="supervisor" lang={lang} reloadKey={constraintsKey} />
+      {/* Folded away (R8): the feature stays, the page-2 board shows none. Nothing here fetches until it is rendered open or shut:
+          the panel loads its own list on mount, so the rejection reload (`constraintsKey`) keeps working while it is closed. */}
+      <details className={`b6-card ${styles.rules}`}>
+        <summary className={styles.rulesSummary}>{t(lang, "C-propd-rules")}</summary>
+        <div className={styles.rulesBody}>
+          <ConstraintsPanel auth={auth} role="supervisor" lang={lang} reloadKey={constraintsKey} />
+        </div>
+      </details>
     </>
   );
 }

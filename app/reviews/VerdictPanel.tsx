@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { signOut, type Auth } from "@/lib/auth/client/firebase-client";
 import { authedPostJson } from "@/lib/auth/client/api";
@@ -12,6 +12,9 @@ import {
   type ReviewConflictCode,
   type ReviewView,
 } from "@/lib/reviews/contract";
+import { Button } from "@/app/ui";
+import { cx } from "@/app/ui/cx";
+import styles from "@/app/reviews/reviews.module.css";
 import { VERDICT_KEY, suggestionDomId } from "@/app/reviews/ReviewCard";
 
 /**
@@ -36,8 +39,7 @@ import { VERDICT_KEY, suggestionDomId } from "@/app/reviews/ReviewCard";
 
 type Step = "idle" | "confirm" | "settled";
 
-// Button display order, fixed here on purpose: it is a UI choice (worked, revise, revert) and must not shift if the schema enum is ever reordered.
-const VERDICTS: readonly ReviewVerdict[] = ["worked", "revise", "revert"];
+// Button order is a UI choice (worked, then revise and revert on one row) and must not shift if the schema enum is ever reordered.
 
 const REASON_MIN = 3;
 const REASON_MAX = 300;
@@ -49,21 +51,6 @@ const CONFLICT_KEY: Record<ReviewConflictCode, DictKey> = {
   EXPIRED: "C-rev-err-expired",
   NOTHING_TO_REVIEW: "C-srv-generic", // a fast-forward code; never answered by the verdict route
 };
-
-const WRAPPER_STYLE: CSSProperties = { marginTop: 12, overflowWrap: "anywhere" };
-const LABEL_STYLE: CSSProperties = { display: "block", fontSize: 16, margin: "8px 0 4px 0" };
-const TEXTAREA_STYLE: CSSProperties = {
-  width: "100%",
-  maxWidth: "100%",
-  boxSizing: "border-box",
-  fontSize: 16,
-  padding: 8,
-};
-const HINT_STYLE: CSSProperties = { fontSize: 14, color: "#6b7280", margin: "4px 0 8px 0" };
-const BUTTON_STYLE: CSSProperties = { minHeight: 48, width: "100%", fontSize: 16, padding: "0 16px", boxSizing: "border-box" };
-const ROW_STYLE: CSSProperties = { display: "flex", gap: 8, marginTop: 8 };
-const ROW_BUTTON_STYLE: CSSProperties = { minHeight: 48, flex: 1, fontSize: 16, padding: "0 16px", boxSizing: "border-box" };
-const MESSAGE_STYLE: CSSProperties = { margin: "8px 0 0 0", overflowWrap: "anywhere" };
 
 export function VerdictPanel({
   auth,
@@ -178,43 +165,55 @@ export function VerdictPanel({
     setMessage("C-srv-generic");
   }
 
+  function pick(v: ReviewVerdict) {
+    setMessage(null);
+    setVerdict(v);
+    setStep("confirm");
+  }
+
+  /** One verdict button. `worked` is the lead (primary, 56 px); the others are quieter. Same handler for all. */
+  function verdictButton(v: ReviewVerdict) {
+    return (
+      <Button
+        key={v}
+        ref={(el) => {
+          buttonRefs.current[v] = el;
+        }}
+        variant={v === "worked" ? "primary" : "secondary"}
+        size={v === "worked" ? "lg" : "md"}
+        block={v === "worked"}
+        disabled={busy}
+        aria-describedby={review.suggestion.verdict === v ? suggestionDomId(review.version) : undefined}
+        onClick={() => pick(v)}
+      >
+        {t(lang, VERDICT_KEY[v])}
+      </Button>
+    );
+  }
+
   return (
-    <div style={WRAPPER_STYLE}>
+    <div className={styles.verdicts}>
       {step === "idle" && (
         <>
-          {VERDICTS.map((v) => (
-            <div key={v} style={{ marginBottom: 8 }}>
-              <button
-                ref={(el) => {
-                  buttonRefs.current[v] = el;
-                }}
-                type="button"
-                disabled={busy}
-                aria-describedby={review.suggestion.verdict === v ? suggestionDomId(review.version) : undefined}
-                onClick={() => {
-                  setMessage(null);
-                  setVerdict(v);
-                  setStep("confirm");
-                }}
-                style={BUTTON_STYLE}
-              >
-                {t(lang, VERDICT_KEY[v])}
-              </button>
-            </div>
-          ))}
+          {verdictButton("worked")}
+          <div className={styles.row}>
+            {verdictButton("revise")}
+            {verdictButton("revert")}
+          </div>
         </>
       )}
 
       {step === "confirm" && verdict !== null && (
-        <div role="group" aria-label={t(lang, "C-rev-confirm", { verdict: t(lang, VERDICT_KEY[verdict]) })}>
-          <p ref={confirmRef} tabIndex={-1} style={{ margin: 0 }}>
+        <div className={styles.confirm} role="group" aria-label={t(lang, "C-rev-confirm", { verdict: t(lang, VERDICT_KEY[verdict]) })}>
+          <p ref={confirmRef} tabIndex={-1} className={styles.confirmQ}>
             {t(lang, "C-rev-confirm", { verdict: t(lang, VERDICT_KEY[verdict]) })}
           </p>
-          <label style={LABEL_STYLE} htmlFor={reasonId}>
+          <label className={styles.label} htmlFor={reasonId}>
             {t(lang, "C-rev-reason-label")}
           </label>
           <textarea
             id={reasonId}
+            className={cx("b6-field", styles.textarea)}
             value={reason}
             maxLength={REASON_MAX}
             rows={3}
@@ -222,17 +221,16 @@ export function VerdictPanel({
             aria-describedby={hintId}
             aria-invalid={reasonTooShort || message === "C-rev-err-length" ? true : undefined}
             onChange={(event) => setReason(event.target.value)}
-            style={TEXTAREA_STYLE}
           />
-          <p id={hintId} style={HINT_STYLE}>
+          <p id={hintId} className={styles.hint}>
             {t(lang, "C-rev-reason-hint")}
           </p>
-          <div style={ROW_STYLE}>
-            <button type="button" disabled={busy || reasonTooShort} onClick={() => void submit()} style={ROW_BUTTON_STYLE}>
+          <div className={styles.row}>
+            <Button disabled={busy || reasonTooShort} onClick={() => void submit()}>
               {t(lang, "C-rev-yes")}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="secondary"
               disabled={busy}
               onClick={() => {
                 returnFocusTo.current = verdict;
@@ -240,16 +238,15 @@ export function VerdictPanel({
                 setMessage(null);
                 setStep("idle");
               }}
-              style={ROW_BUTTON_STYLE}
             >
               {t(lang, "C-rev-no")}
-            </button>
+            </Button>
           </div>
         </div>
       )}
 
       {message !== null && (
-        <p role="alert" style={MESSAGE_STYLE}>
+        <p role="alert" className={cx("b6-alert", "b6-alert--red", styles.message)}>
           {t(lang, message)}
         </p>
       )}

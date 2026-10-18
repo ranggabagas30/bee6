@@ -152,12 +152,12 @@ describe("SidePanel", () => {
     expect(document.documentElement.classList.contains("b6-panel-open")).toBe(false);
   });
 
-  it("while collapsed to the pill it pushes every page down below the pill (a class on <html>, top padding on <body>); open or unmounted removes it", () => {
-    const rule = ruleDeclarations(css, ".b6-panel-collapsed body");
-    // pill height + its 14 px top offset + 8 px of air = 70 px
+  it("while collapsed to the pill it keeps each header's controls left of it (a class on <html>, right padding on .b6-pill-room); open or unmounted removes it", () => {
+    // R-25 fixes-2 §2: the pill sits in the header band; no page is pushed down (QA M-001, the white top strip)
+    expect(ruleDeclarations(css, ".b6-panel-collapsed body")).toEqual({});
+    expect(ruleDeclarations(css, ".b6-panel-collapsed .b6-pill-room.b6-pill-room")["padding-right"]).toBe("var(--b6-panel-pill-room)");
+    expect(tokens["--b6-panel-pill-room"]).toBe("300px");
     expect(tokens["--b6-panel-pill-h"]).toBe("48px");
-    expect(rule["padding-top"]).toBe("calc(var(--b6-panel-pill-h) + 14px + 8px)");
-    expect(rule["padding-right"]).toBeUndefined();
     expect(ruleDeclarations(css, ".b6-panel-open body")["padding-top"]).toBeUndefined();
     expect(minHeightPx(ruleDeclarations(css, ".b6-panel-pill"), tokens)).toBe(48);
     const root = document.documentElement;
@@ -175,22 +175,24 @@ describe("SidePanel", () => {
     expect(root.classList.contains("b6-panel-open")).toBe(false);
   });
 
-  // Round-3 D1: the collapsed class above lands in an effect, so on a full page load the 70 px arrived only after
-  // hydration (every page jumped down, CLS 0.01-0.06). A host that knows at first paint that the pill will be
-  // there puts `b6-panel-reserved` on <html> before anything paints; at panel widths (>= 900 px) that reserves
-  // the same padding from the first frame. An open panel wins (right inset only, no top padding), exactly as
-  // the collapsed class behaves.
-  it("CSS contract: b6-panel-reserved on <html> reserves the pill's top padding from the first paint at >= 900 px, unless the panel is open", () => {
-    const media = parseCss(css).find((r) => r.prelude === "@media (min-width: 900px)");
+  // Round-3 D1: the collapsed class above lands in an effect, so on a full page load the room arrived only after
+  // hydration (every page jumped, CLS 0.01-0.06). A host that knows at first paint that the pill will be there puts
+  // `b6-panel-reserved` on <html> before anything paints; at panel widths (>= 900 px) that reserves the same
+  // right-hand header room from the first frame. An open panel wins (right body inset only), as the collapsed class does.
+  it("CSS contract: b6-panel-reserved on <html> reserves the header's pill room from the first paint at >= 900 px, unless the panel is open", () => {
+    const media = parseCss(css).find((r) => r.prelude === "@media (min-width: 900px)" && r.children.some((c) => c.prelude.includes(".b6-panel-reserved")));
     expect(media).toBeDefined();
-    const rule = media!.children.find((c) => c.prelude === ".b6-panel-reserved:not(.b6-panel-open) body");
+    const rule = media!.children.find((c) => c.prelude === ".b6-panel-reserved:not(.b6-panel-open) .b6-pill-room.b6-pill-room");
     expect(rule).toBeDefined();
     const decls = Object.fromEntries(declarations(rule!.body));
-    expect(decls["padding-top"]).toBe(ruleDeclarations(css, ".b6-panel-collapsed body")["padding-top"]);
-    expect(Object.keys(decls)).toEqual(["padding-top"]);
-    // never outside the media query: a phone (bottom sheet, no pill) must not get the padding
+    expect(decls["padding-right"]).toBe(ruleDeclarations(css, ".b6-panel-collapsed .b6-pill-room.b6-pill-room")["padding-right"]);
+    expect(Object.keys(decls)).toEqual(["padding-right"]);
+    // never outside the media query: a phone (bottom sheet, no pill) must not get the room
+    expect(ruleDeclarations(css, ".b6-panel-reserved:not(.b6-panel-open) .b6-pill-room.b6-pill-room")).toEqual({});
     expect(ruleDeclarations(css, ".b6-panel-reserved:not(.b6-panel-open) body")).toEqual({});
     expect(ruleDeclarations(css, ".b6-panel-reserved body")).toEqual({});
+    // no !important anywhere in the room rules
+    expect(rule!.body).not.toMatch(/!important/);
     // the host owns the reserve class: SidePanel neither adds nor removes it
     const root = document.documentElement;
     root.classList.add("b6-panel-reserved");

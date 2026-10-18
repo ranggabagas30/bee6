@@ -21,7 +21,7 @@ function foldChar(ch: string): string {
 }
 
 /** Accent-folds a string one codepoint at a time, preserving length/index alignment with `Array.from(text)`. */
-function foldString(text: string): string {
+export function foldString(text: string): string {
   return Array.from(text).map(foldChar).join("");
 }
 

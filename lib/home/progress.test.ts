@@ -36,18 +36,20 @@ function decided(
     supervisor_decision: supervisor,
     owner_decision: owner === null ? null : { decision: owner, decided_at_ms: decidedAtMs },
     change_title: "Title",
+    created_at_ms: decidedAtMs,
     updated_at_ms: decidedAtMs,
     ...overrides,
   };
 }
 
-function awaiting(title: string, updatedAtMs: number): HomeProposalRow {
+function awaiting(title: string, createdAtMs: number, updatedAtMs: number = createdAtMs): HomeProposalRow {
   return {
     proposal_id: uuid(),
     status: "awaiting_owner",
     supervisor_decision: "feasible",
     owner_decision: null,
     change_title: title,
+    created_at_ms: createdAtMs,
     updated_at_ms: updatedAtMs,
   };
 }
@@ -138,12 +140,23 @@ describe("waitingApproval", () => {
     expect(r.items.map((i) => i.change_title)).toEqual(["A"]);
   });
 
-  it("items carry proposal_id and change_title only, newest first", () => {
+  it("items carry proposal_id and change_title only, oldest created first (the approvals-queue order)", () => {
     const rows = [awaiting("Old", 10), awaiting("New", 30), awaiting("Mid", 20)];
     const r = waitingApproval(rows);
-    expect(r.items.map((i) => i.change_title)).toEqual(["New", "Mid", "Old"]);
+    expect(r.items.map((i) => i.change_title)).toEqual(["Old", "Mid", "New"]);
     expect(Object.keys(r.items[0]!).sort()).toEqual(["change_title", "proposal_id"]);
-    expect(r.items[0]!.proposal_id).toBe(rows[1]!.proposal_id);
+    expect(r.items[0]!.proposal_id).toBe(rows[0]!.proposal_id);
+  });
+
+  it("orders by created_at_ms, not updated_at_ms (UI-116: a recently touched older proposal stays first)", () => {
+    const rows = [awaiting("First", 10, 900), awaiting("Second", 20, 100)];
+    expect(waitingApproval(rows).items.map((i) => i.change_title)).toEqual(["First", "Second"]);
+  });
+
+  it("a created_at_ms tie breaks on proposal_id ascending, like the approvals queue", () => {
+    const a = { ...awaiting("A", 50), proposal_id: "00000000-0000-4000-8000-0000000000aa" };
+    const b = { ...awaiting("B", 50), proposal_id: "00000000-0000-4000-8000-0000000000bb" };
+    expect(waitingApproval([b, a]).items.map((i) => i.change_title)).toEqual(["A", "B"]);
   });
 
   it("count is the total while items stop at 5", () => {
@@ -151,7 +164,8 @@ describe("waitingApproval", () => {
     const r = waitingApproval(rows);
     expect(r.count).toBe(7);
     expect(r.items).toHaveLength(5);
-    expect(r.items[0]!.change_title).toBe("T6");
+    expect(r.items[0]!.change_title).toBe("T0");
+    expect(r.items[4]!.change_title).toBe("T4");
   });
 
   it("an awaiting_owner row without a title is skipped", () => {

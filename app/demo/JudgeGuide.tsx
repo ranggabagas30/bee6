@@ -9,15 +9,15 @@ import { useAuthUser } from "@/lib/auth/client/use-auth-user";
 import { postDemoNextDay, readDeviceAuth } from "@/lib/capture/browser/client";
 import { DEMO_DAYS_TOTAL } from "@/lib/demo/constants";
 import { DemoProgressResponseSchema, type NextDayRefusal } from "@/lib/demo/contract";
-import { DEMO_STAFF_CODE } from "@/lib/demo/credentials";
+import { DEMO_EMAILS, DEMO_PASSWORD, DEMO_STAFF_CODE } from "@/lib/demo/credentials";
 import {
   guideCard,
   STAGES,
   cardState,
   currentStage,
   guideKeyFor,
-  jumpLockText,
   stageIndex,
+  todoDoneCount,
   type Bilingual,
   type GuideKey,
   type GuideState,
@@ -26,20 +26,25 @@ import {
 import { scriptFor, type ScriptCardV2, type ScriptDay, type ScriptSpeaker } from "@/lib/demo/script";
 import { useLang } from "@/lib/i18n/context";
 import { t, type DictKey } from "@/lib/i18n/dict";
+import { dayLabel } from "@/lib/i18n/format";
 import type { Lang } from "@/lib/i18n/lang";
-import { Button, Kicker, Sheet, SidePanel, StepTick } from "@/app/ui";
+import { Button, Chip, Sheet, SidePanel, StepTick } from "@/app/ui";
+import { cx } from "@/app/ui/cx";
+import styles from "@/app/demo/guide.module.css";
 import { demoSnapshot, subscribeDemoState, viewFromSnapshot } from "@/app/demo/demo-client";
-import { useCaptureBridge, useProposalsSignal, type CaptureBridge } from "@/app/demo/guide-bridge";
+import { clearPairDone, clearSignInRole, useCaptureBridge, usePairBridge, useProposalsSignal, useSignInBridge, type CaptureBridge } from "@/app/demo/guide-bridge";
 import { GUIDE_CONTROLS } from "@/app/demo/guide-controls";
 
 /**
  * R-19 PR-5 judge guide (docs/tasks/R-19-demo-v2.md section 7; one card per screen, no tabs). Mounted by the root
  * layout ONLY when DEMO_MODE is on (through JudgeGuideLoader, a lazy chunk), so the pilot never renders it.
  *
- * - Phone (< 900 px): a collapsed bottom-sheet handle "JUDGE GUIDE · STAGE n OF 5 · <card title> · Day n of 3";
- *   laptop (>= 900 px): a pill top-right opening a 360 px side panel. Collapsed by default, after every route
- *   change and after every card change (except listening -> all spoken, one flow). Non-modal, no focus trap.
- * - Contents: the 5-stage list, then the ONE card of `guideKeyFor(route, state)`.
+ * - Phone (< 900 px): a collapsed bottom-sheet handle (kicker + stage chip, the card's one-line title, the day clock);
+ *   laptop (>= 900 px): a "JUDGE GUIDE [STAGE n OF 5] v" pill top-right opening a 360 px side panel. Collapsed by
+ *   default, after every route change and after every card change (except listening -> all spoken, one flow).
+ *   Non-modal, no focus trap.
+ * - Contents (R-25 T6, board look): the stage label, then the ONE card of `guideKeyFor(route, state)` in a card box.
+ *   No journey list: the stage lives in the chip, and the web cards carry their own "Do this now" rows.
  * - /capture: state comes from the page's published bridge (app/demo/guide-bridge.ts); the card exists only
  *   when a sandbox judge device published one. Web routes: state is the demo role (localStorage) plus
  *   GET /api/v1/demo/progress. Entry and pairing routes need no state.
@@ -59,6 +64,9 @@ export const SHEET_RESERVE_PX = 96;
 export const CONFIG_REPOLL_MS = 10_000;
 
 const WIDE_QUERY = "(min-width: 900px)";
+
+/** localStorage flag (value "1"): this browser has seen the entry page's auto-opened welcome panel (R-25 fixes-2 §3). */
+export const WELCOME_SEEN_KEY = "bee6.guide.welcome_seen";
 const STAGE_TOTAL = STAGES.length;
 
 const NEXT_DAY_REASON_KEY: Record<Exclude<NextDayRefusal, "unanswered_questions">, DictKey> = {
@@ -80,17 +88,29 @@ const SPEAKER_KEY: Record<ScriptSpeaker, DictKey> = {
 };
 
 const SR_ONLY: CSSProperties = { position: "absolute", width: 1, height: 1, margin: -1, padding: 0, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap", border: 0 };
-const CARD_TITLE: CSSProperties = { fontSize: 18, fontWeight: 600, margin: 0, outline: "none" };
-const BODY_LINE: CSSProperties = { margin: "6px 0 0", fontSize: 15, lineHeight: 1.45 };
-const FOOTNOTE: CSSProperties = { margin: "10px 0 0", fontSize: 13, color: "var(--b6-muted)" };
-const ERROR_LINE: CSSProperties = { margin: "8px 0 0", fontSize: 14, color: "var(--b6-red-ink)" };
-const MUTED_LINE: CSSProperties = { margin: "8px 0 0", fontSize: 14, color: "var(--b6-muted)" };
-const SCRIPT_BOX: CSSProperties = { maxHeight: "50vh", overflowY: "auto", margin: "8px 0 0", padding: "10px 12px", borderRadius: 12, background: "var(--b6-surface-soft)" };
-const SPEAKER_TAG: CSSProperties = { display: "block", fontSize: 11, letterSpacing: 0.6, textTransform: "uppercase", color: "var(--b6-muted)", margin: "10px 0 2px" };
-const LINE_TEXT: CSSProperties = { margin: 0, fontSize: 18, lineHeight: 1.4 };
-/** Every guide control is at least 48 px high (plan 7.2); the Button look alone is 44. */
+/** Every guide control is at least 48 px high (plan 7.2); the board's control is 44, the guide keeps the larger tap row. */
 const GUIDE_BUTTON: CSSProperties = { minHeight: 48 };
-const LINK_BUTTON: CSSProperties = { background: "none", border: 0, padding: "12px 0", minHeight: 48, font: "inherit", fontSize: 14, color: "var(--b6-teal-ink)", textDecoration: "underline", cursor: "pointer" };
+
+/**
+ * `{code}`, `{email}`, `{password}`, `{day}`, `{next}`, `{n}`, `{total}` in guide copy; `**x**` is bold (`boldClass` styles
+ * it, the credential values use it); `strong` bolds a phrase that has no markup.
+ */
+function rich(text: string, strong?: string, boldClass?: string): ReactNode {
+  if (text.includes("**")) {
+    return text.split("**").map((part, i) => (i % 2 === 1 ? <b key={i} className={boldClass}>{part}</b> : part));
+  }
+  if (strong && text.includes(strong)) {
+    const [head, ...rest] = text.split(strong);
+    return (
+      <>
+        {head}
+        <b>{strong}</b>
+        {rest.join(strong)}
+      </>
+    );
+  }
+  return text;
+}
 
 function useWide(): boolean {
   const subscribe = useCallback((onChange: () => void) => {
@@ -111,8 +131,9 @@ function pick(text: Bilingual, lang: Lang): string {
 }
 
 /** `{code}` in guide copy is the demo pairing code (never a literal in copy, see import-boundaries.test). */
-function fill(text: string): string {
-  return text.replace(/\{code\}/g, DEMO_STAFF_CODE);
+function fill(text: string, vars: Record<string, string | number> = {}): string {
+  const all: Record<string, string | number> = { code: DEMO_STAFF_CODE, ...vars };
+  return text.replace(/\{(\w+)\}/g, (m, k: string) => (k in all ? String(all[k]) : m));
 }
 
 function readLocal(key: string): string | null {
@@ -158,6 +179,8 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
   const pathname = usePathname() ?? "/";
   const wide = useWide();
   const bridge = useCaptureBridge();
+  const pairDone = usePairBridge();
+  const signInRole = useSignInBridge();
   const demoSnap = useSyncExternalStore(subscribeDemoState, () => demoSnapshot(), () => "");
   const demoView = viewFromSnapshot(demoSnap);
   const webRole = demoView && !demoView.expired && demoView.state.role !== "staff" ? demoView.state.role : null;
@@ -165,6 +188,16 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
   const seg = pathname.split("/").filter(Boolean)[0] ?? "";
   const isEntry = seg === "" || seg === "sign-in" || seg === "pair";
   const isCapture = seg === "capture";
+  const isPair = seg === "pair";
+  const isSignIn = seg === "sign-in";
+  // R-25 R12: /pair reports "paired" through the pair bridge; a stale signal never outlives the /pair route.
+  useEffect(() => {
+    if (!isPair) clearPairDone();
+  }, [isPair]);
+  // Demo feedback 2, finding 4: /sign-in reports the role panel it shows; same rule, the signal never outlives the route.
+  useEffect(() => {
+    if (!isSignIn) clearSignInRole();
+  }, [isSignIn]);
   // The proposals page's own screen and write counter (after-merge wiring, lib/demo/proposals-signal). The screen
   // counts only on /proposals; the counter re-reads the progress after an ask, a feasible mark, a rejection or an approval.
   const proposals = useProposalsSignal();
@@ -176,7 +209,25 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
   const auth = config ? getClientAuth(config) : null;
   const authStatus = useAuthUser(auth).status;
   const [progress, setProgress] = useState<JourneyProgress | null>(null);
-  const [open, setOpen] = useState(false);
+  // R-25 fixes-2 §3: on the entry page the laptop panel opens by itself the first time this browser sees it. Decided
+  // once, in the first client render (the guide never renders on the server); the phone sheet never auto-opens.
+  const [autoOpened] = useState(
+    () => seg === "" && readLocal(WELCOME_SEEN_KEY) !== "1" && typeof window.matchMedia === "function" && window.matchMedia(WIDE_QUERY).matches,
+  );
+  const [open, setOpen] = useState(autoOpened);
+  // The first close of the auto-opened panel (close button, Escape, a route change, the pill) remembers it was seen.
+  useEffect(() => {
+    if (autoOpened && !open) writeLocal(WELCOME_SEEN_KEY, "1");
+  }, [autoOpened, open]);
+  // Escape closes the auto-opened panel even while nothing inside it has focus (SidePanel handles Escape only inside).
+  useEffect(() => {
+    if (!autoOpened || !open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [autoOpened, open]);
   // "Supervisor visited" (plan 7.1): true the moment any supervisor page is on screen, and remembered in
   // localStorage for the later stages. Derived, not set in the effect: the effect only persists it.
   const [visitedStored] = useState(() => readLocal(SUPERVISOR_SEEN_KEY) === "1");
@@ -202,13 +253,19 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
   // The session whose 5 cards are all marked spoken (reported by the script card); a new session id resets it.
   const [allSpokenFor, setAllSpokenFor] = useState<string | null>(null);
   const allSpoken = bridge !== null && bridge.state.sessionId !== null && allSpokenFor === bridge.state.sessionId;
+  // The script card reports which card of the session is on screen, for the handle title "Read card n of 5 aloud".
+  const [cardPos, setCardPos] = useState<{ sid: string; n: number; total: number } | null>(null);
   const state: GuideState | null = isCapture
     ? bridge
       ? { kind: "capture", phase: bridge.state.phase === "listening" && allSpoken ? "all_spoken" : bridge.state.phase }
       : null
-    : webRole !== null
-      ? { kind: "web", role: webRole, progress: progress ? { ...progress, supervisor_visited: visited } : null, screen: proposalsScreen }
-      : null;
+    : isSignIn
+      ? { kind: "sign_in", role: signInRole }
+      : isPair
+        ? { kind: "pair", paired: pairDone }
+        : webRole !== null
+        ? { kind: "web", role: webRole, progress: progress ? { ...progress, supervisor_visited: visited } : null, screen: proposalsScreen }
+        : null;
   const key = guideKeyFor(pathname, state);
   const day = bridge ? bridge.state.profile.day : null;
   const openClosingReached = bridge?.state.profile.open_session?.closing_reached;
@@ -220,7 +277,8 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
     }
     return progress ? { ...progress, supervisor_visited: visited } : { day: 1, days_done: 0, proposals_with_content: 0, feasible: 0, owner_decided: 0, supervisor_visited: visited };
   }, [bridge, progress, visited]);
-  const stage = currentStage(journey);
+  // R-25 R7: on a supervisor web page right after day 1 the stage stays "Supervisor · look around".
+  const stage = currentStage(journey, { onSupervisorWeb: supervisorHere });
   const stageN = stageIndex(stage) + 1;
 
   // Collapsed on every route change and on every card change the PAGE drives (a capture phase, the proposals page's
@@ -228,13 +286,18 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
   // progress read (the re-read on open, or the one a page write signals) never collapses it: the guide re-reads the
   // counters the moment it opens, and shutting itself on that read was integration QA D1 (one tap opened it, the
   // moved card closed it ~50 ms later, a second tap was needed).
-  const pageSig = `${pathname}|${bridge?.state.phase ?? ""}|${proposalsScreen ?? ""}|${webRole ?? ""}`;
+  const pageSig = `${pathname}|${bridge?.state.phase ?? ""}|${proposalsScreen ?? ""}|${webRole ?? ""}|${isPair && pairDone ? "paired" : ""}`;
   const prevRef = useRef({ pathname, key, pageSig });
   useEffect(() => {
     const prev = prevRef.current;
     prevRef.current = { pathname, key, pageSig };
     if (prev.pathname === pathname && prev.key === key) return;
     if (prev.pageSig === pageSig) return; // only the progress data moved: the open card updates in place
+    const startedListening = prev.pathname === pathname && prev.key === "capture_ready" && key === "capture_listening";
+    if (startedListening) {
+      setOpen(true);
+      return;
+    }
     const sameFlow = prev.pathname === pathname && prev.key === "capture_listening" && key === "capture_all_spoken";
     if (!sameFlow) setOpen(false);
   }, [pathname, key, pageSig]);
@@ -260,25 +323,18 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
   if (isCapture && !bridge) return null;
   if (!isEntry && !isCapture && webRole === null) return null;
 
-  const title = pick(card.title, lang);
   const dayText = bridge ? t(lang, "C-journey-guide-day", { n: bridge.state.profile.day, total: DEMO_DAYS_TOTAL }) : null;
+  const pos = cardPos && bridge && cardPos.sid === bridge.state.sessionId ? cardPos : null;
+  const handleText = fill(pick(card.handle ?? card.title, lang), { n: pos?.n ?? 1, total: pos?.total ?? 5, next: (day ?? 1) + 1 });
+  // The entry and the two sign-in cards are "welcome" cards: a DEMO chip and the Welcome label, not a stage number.
+  const welcome = key === "entry" || key === "sign_in_supervisor" || key === "sign_in_owner";
+  const chipText = welcome ? t(lang, "C-journey-guide-demo-chip") : t(lang, "C-journey-guide-stage-chip", { n: stageN, total: STAGE_TOTAL });
+  const kicker = t(lang, "C-journey-guide-kicker");
+  const stageLabel = welcome ? t(lang, "C-journey-welcome") : pick(STAGES[stageN - 1]!.title, lang);
 
   const body = (
     <>
-      {lang === "id" ? <p style={MUTED_LINE}>{t(lang, "C-journey-id-soon")}</p> : null}
-      <section aria-label={t(lang, "C-journey-guide-stages")}>
-        <Kicker>{t(lang, "C-journey-guide-stages").toUpperCase()}</Kicker>
-        <ol style={{ listStyle: "none", margin: "8px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
-          {STAGES.map((s, i) => {
-            const status = i + 1 < stageN ? "done" : i + 1 === stageN ? "now" : "todo";
-            return (
-              <StepTick key={s.id} as="li" status={status} statusLabel={t(lang, status === "done" ? "C-journey-stage-done" : status === "now" ? "C-journey-stage-now" : "C-journey-stage-todo")}>
-                {pick(s.title, lang)}
-              </StepTick>
-            );
-          })}
-        </ol>
-      </section>
+      <span className="b6-dsec">{stageLabel}</span>
       <GuideCardView
         key={key}
         guideKey={key}
@@ -287,7 +343,9 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
         lang={lang}
         bridge={bridge}
         open={open}
+        journey={journey}
         onAllSpoken={setAllSpokenFor}
+        onPosition={setCardPos}
         onFilled={() => setOpen(false)}
       />
     </>
@@ -301,12 +359,21 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
         onOpenChange={setOpen}
         openLabel={t(lang, "C-journey-guide-open")}
         closeLabel={t(lang, "C-journey-guide-close")}
-        pill={<span>{t(lang, "C-journey-guide-pill", { n: stageN, total: STAGE_TOTAL })}</span>}
+        pill={
+          <span className="b6-fab">
+            <span className="b6-kick">{kicker}</span>
+            <Chip variant="teal" className={styles.chipSm}>
+              {chipText}
+            </Chip>
+          </span>
+        }
         bodyLabelledBy={`guide-card-${key}`}
         header={
-          <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-            <Kicker>{t(lang, "C-journey-guide-handle", { n: stageN, total: STAGE_TOTAL })}</Kicker>
-            <span style={{ fontSize: 15, fontWeight: 600 }}>{dayText ? `${title} · ${dayText}` : title}</span>
+          <span className={cx("b6-kick", styles.kickRow)}>
+            {kicker}
+            <Chip variant="teal" className={styles.chipSm}>
+              {chipText}
+            </Chip>
           </span>
         }
       >
@@ -319,6 +386,7 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
     <>
       <div data-testid="guide-sheet-reserve" aria-hidden="true" style={{ height: `calc(${SHEET_RESERVE_PX}px + env(safe-area-inset-bottom))` }} />
       <Sheet
+        className={styles.sheet}
         label={t(lang, "C-journey-guide-label")}
         open={open}
         onOpenChange={setOpen}
@@ -327,10 +395,22 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
         closeLabel={t(lang, "C-journey-guide-close")}
         bodyLabelledBy={`guide-card-${key}`}
         handle={
-          <>
-            <Kicker>{t(lang, "C-journey-guide-handle", { n: stageN, total: STAGE_TOTAL })}</Kicker>
-            <span style={{ fontSize: 15, fontWeight: 600 }}>{dayText ? `${title} · ${dayText}` : title}</span>
-          </>
+          <span className={styles.handleRow}>
+            <span className={styles.handleText}>
+              <span className={cx("b6-kick", styles.kickRow)}>
+                {kicker}
+                <Chip variant="teal" className={styles.chipSm}>
+                  {chipText}
+                </Chip>
+              </span>
+              {open ? null : <span className={styles.handleTitle}>{handleText}</span>}
+            </span>
+            {dayText ? (
+              <span className={styles.handleEnd}>
+                <span className="b6-clock">{dayText}</span>
+              </span>
+            ) : null}
+          </span>
         }
       >
         {body}
@@ -351,31 +431,74 @@ interface GuideCardViewProps {
   bridge: CaptureBridge | null;
   /** The sheet / panel is open: a registered control is mounted only then (see `RegisteredControl`). */
   open: boolean;
+  /** The stage counters (the "Do this now" rows read them). */
+  journey: JourneyProgress;
   /** Called with the session id once every card of the day is marked spoken. */
   onAllSpoken: (sessionId: string) => void;
-  /** The pair card's Fill in ran: the guide collapses so the page's Set up button is reachable. */
+  /** The script card reports the card on screen (the handle title says which). */
+  onPosition: (pos: { sid: string; n: number; total: number }) => void;
+  /** A Fill in ran (the pair card's, or the sign-in card's): the guide collapses so the page's Set up / Sign in button is reachable. */
   onFilled: () => void;
 }
 
-function GuideCardView({ guideKey, day, openClosingReached, lang, bridge, open, onAllSpoken, onFilled }: GuideCardViewProps) {
+function GuideCardView({ guideKey, day, openClosingReached, lang, bridge, open, journey, onAllSpoken, onPosition, onFilled }: GuideCardViewProps) {
   const card = guideCard(guideKey, day, { openClosingReached });
   const action = card.action;
+  // The sign-in cards print the role's demo email and password; the literals come from lib/demo/credentials, never from copy.
+  const creds =
+    guideKey === "sign_in_supervisor"
+      ? { email: DEMO_EMAILS.supervisor, password: DEMO_PASSWORD }
+      : guideKey === "sign_in_owner"
+        ? { email: DEMO_EMAILS.owner, password: DEMO_PASSWORD }
+        : null;
+  const vars = { day: day ?? 1, next: (day ?? 1) + 1, ...creds };
+  const title = pick(card.title, lang);
+  const headId = `guide-card-${guideKey}`;
+  const footnote = card.footnote ? fill(pick(card.footnote, lang), vars) : null;
+  const done = card.todo ? todoDoneCount(guideKey, journey) : 0;
   return (
-    <article aria-labelledby={`guide-card-${guideKey}`}>
-      <h2 id={`guide-card-${guideKey}`} style={CARD_TITLE}>
-        {pick(card.title, lang)}
+    <article aria-labelledby={headId} className="b6-cardbox">
+      {/* The card's name for assistive tech; the sighted card leads with its kicker (or "Do this now"). */}
+      <h2 id={headId} className="b6-sr-only">
+        {title}
       </h2>
+      {card.kicker ? <span className="b6-kick">{pick(card.kicker, lang)}</span> : null}
+      {card.todo ? (
+        <>
+          <p id={`${headId}-todo`} className={styles.cardLead}>
+            {t(lang, "C-journey-do-now")}
+          </p>
+          <ul aria-labelledby={`${headId}-todo`} className={styles.todo}>
+            {card.todo.map((row, i) => {
+              const status = i < done ? "done" : i === done ? "now" : "todo";
+              return (
+                <StepTick
+                  key={i}
+                  as="li"
+                  status={status}
+                  statusLabel={t(lang, status === "done" ? "C-journey-stage-done" : status === "now" ? "C-journey-stage-now" : "C-journey-stage-todo")}
+                >
+                  <span className={status === "now" ? styles.todoNow : status === "done" ? styles.todoDone : styles.todoLater}>{pick(row, lang)}</span>
+                </StepTick>
+              );
+            })}
+          </ul>
+        </>
+      ) : null}
       {card.body.map((line, i) => (
-        <p key={i} style={BODY_LINE}>
-          {fill(pick(line, lang))}
+        <p key={i} className={styles.line}>
+          {rich(fill(pick(line, lang), vars), guideKey === "pair_done" ? title : undefined, creds ? styles.cred : undefined)}
         </p>
       ))}
       {action?.kind === "fill_demo_code" ? <FillCode lang={lang} onFilled={onFilled} /> : null}
-      {action?.kind === "script_card" && bridge ? <ScriptCard lang={lang} bridge={bridge} onAllSpoken={onAllSpoken} /> : null}
+      {action?.kind === "fill_demo_credentials" ? (
+        <FillCredentials lang={lang} role={guideKey === "sign_in_owner" ? "owner" : "supervisor"} onFilled={onFilled} />
+      ) : null}
+      {action?.kind === "script_card" && bridge ? <ScriptCard lang={lang} bridge={bridge} note={footnote} onAllSpoken={onAllSpoken} onPosition={onPosition} /> : null}
       {action?.kind === "jump_closing" && bridge ? <JumpClosing lang={lang} bridge={bridge} /> : null}
       {action?.kind === "jump_tomorrow" && bridge ? <JumpTomorrow lang={lang} bridge={bridge} /> : null}
       {action?.kind === "reset_demo" && open ? <RegisteredControl kind="reset_demo" lang={lang} /> : null}
-      {card.footnote ? <p style={FOOTNOTE}>{fill(pick(card.footnote, lang))}</p> : null}
+      {footnote && action?.kind !== "script_card" ? <p className={styles.why}>{footnote}</p> : null}
     </article>
   );
 }
@@ -391,33 +514,115 @@ function RegisteredControl({ kind, lang }: { kind: "reset_demo"; lang: Lang }) {
   return Control ? <Control lang={lang} /> : null;
 }
 
+/** The board's dark guide control: label on the left, a glyph on the right (the glyph is decoration). */
+function Ctl({ label, glyph, disabled, onClick }: { label: string; glyph: string; disabled?: boolean; onClick?: () => void }) {
+  return (
+    <button type="button" className="b6-ctl" style={GUIDE_BUTTON} disabled={disabled} onClick={onClick}>
+      <span className={styles.ctlLabel}>{label}</span>
+      <span aria-hidden="true">{glyph}</span>
+    </button>
+  );
+}
+
 /** Pair: puts the demo code in the page's 6-digit field without submitting (the field is `#pairing-code`, PairForm). */
+/** The page's text input with this id, or null when it is not in the DOM. */
+function inputById(id: string): HTMLInputElement | null {
+  const input = document.getElementById(id);
+  return input instanceof HTMLInputElement ? input : null;
+}
+
+/** Through the native setter so React's controlled input sees the change (a plain `.value =` is swallowed). */
+function setInputValue(input: HTMLInputElement, value: string): void {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+  setter?.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 function FillCode({ lang, onFilled }: { lang: Lang; onFilled: () => void }) {
   const [filled, setFilled] = useState(false);
   function onFill() {
-    const input = document.getElementById("pairing-code");
-    if (!(input instanceof HTMLInputElement)) return;
-    // Through the native setter so React's controlled input sees the change (a plain `.value =` is swallowed).
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-    setter?.call(input, DEMO_STAFF_CODE);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
+    const input = inputById("pairing-code");
+    if (!input) return;
+    setInputValue(input, DEMO_STAFF_CODE);
     setFilled(true);
     onFilled(); // the open phone sheet covers Set up (R-21 D7): hand the page back
   }
   return (
-    <div style={{ marginTop: 12 }}>
-      <Button variant="secondary" style={GUIDE_BUTTON} onClick={onFill}>
-        {t(lang, "C-journey-fill-code", { code: DEMO_STAFF_CODE })}
-      </Button>
-      <p role="status" aria-live="polite" style={filled ? MUTED_LINE : SR_ONLY}>
+    <>
+      <Ctl
+        label={filled ? t(lang, "C-journey-filled-short") : t(lang, "C-journey-fill-code", { code: DEMO_STAFF_CODE })}
+        glyph={filled ? "✓" : "›"}
+        disabled={filled}
+        onClick={onFill}
+      />
+      {/* The control's own label changes silently for a screen reader: say what to do next. */}
+      <p role="status" aria-live="polite" style={SR_ONLY}>
         {filled ? t(lang, "C-journey-filled") : ""}
       </p>
+    </>
+  );
+}
+
+/**
+ * The sign-in card's "Fill in the form" (demo feedback 2, finding 4): the role's demo email and the password go into the
+ * email form's two fields through the DOM, like `FillCode`; it never submits. If either field is not in the page (auth is
+ * still loading, or a signed-in user is about to be redirected) the tap does nothing.
+ */
+function FillCredentials({ lang, role, onFilled }: { lang: Lang; role: "supervisor" | "owner"; onFilled: () => void }) {
+  const [filled, setFilled] = useState(false);
+  function onFill() {
+    const email = inputById("signin-email");
+    const password = inputById("signin-password");
+    if (!email || !password) return;
+    setInputValue(email, DEMO_EMAILS[role]);
+    setInputValue(password, DEMO_PASSWORD);
+    setFilled(true);
+    onFilled(); // the open phone sheet covers the Sign in button: hand the page back
+  }
+  return (
+    <>
+      <Ctl
+        label={filled ? t(lang, "C-journey-filled-short") : t(lang, "C-journey-fill-credentials")}
+        glyph={filled ? "✓" : "›"}
+        disabled={filled}
+        onClick={onFill}
+      />
+      {/* The control's own label changes silently for a screen reader: say what to do next. */}
+      <p role="status" aria-live="polite" style={SR_ONLY}>
+        {filled ? t(lang, "C-journey-filled-signin") : ""}
+      </p>
+    </>
+  );
+}
+
+/** The speech of one script card: the speaker tag (never spoken) over the line. Scrolls inside the card box, keyboard-reachable. */
+function ScriptLines({ lang, card }: { lang: Lang; card: ScriptCardV2 }) {
+  return (
+    <div className={styles.lines} tabIndex={0} role="region" aria-label={t(lang, "C-journey-script-text")}>
+      {card.lines.map((line, i) => (
+        <div key={i} className={styles.say}>
+          <span className={styles.who}>{t(lang, SPEAKER_KEY[line.speaker])}</span>
+          <p className={styles.tx}>{pick(line.text, lang)}</p>
+        </div>
+      ))}
     </div>
   );
 }
 
-/** Listening (plan 5.3): ONE script card, "I have spoken this" after 1 heard line, previous card read-only, lock text. */
-function ScriptCard({ lang, bridge, onAllSpoken }: { lang: Lang; bridge: CaptureBridge; onAllSpoken: (sessionId: string) => void }) {
+/** Listening (plan 5.3): ONE script card, "I have spoken this" after 1 heard line, previous card read-only. */
+function ScriptCard({
+  lang,
+  bridge,
+  note,
+  onAllSpoken,
+  onPosition,
+}: {
+  lang: Lang;
+  bridge: CaptureBridge;
+  note: string | null;
+  onAllSpoken: (sessionId: string) => void;
+  onPosition: (pos: { sid: string; n: number; total: number }) => void;
+}) {
   const { profile, sessionId, linesThisSession, micTrouble, uploadBusy } = bridge.state;
   const script = scriptFor(profile.script_id);
   const cards: readonly ScriptCardV2[] = script ? script.days[profile.day as ScriptDay] : [];
@@ -448,6 +653,10 @@ function ScriptCard({ lang, bridge, onAllSpoken }: { lang: Lang; bridge: Capture
   }, [live.allSpoken, sessionId, onAllSpoken]);
 
   useEffect(() => {
+    onPosition({ sid, n: live.index + 1, total: live.total });
+  }, [sid, live.index, live.total, onPosition]);
+
+  useEffect(() => {
     if (focusNextRef.current) {
       focusNextRef.current = false;
       headingRef.current?.focus();
@@ -469,40 +678,43 @@ function ScriptCard({ lang, bridge, onAllSpoken }: { lang: Lang; bridge: Capture
 
   const shown = previous && prevCard ? prevCard : active;
   const shownN = previous && prevCard ? live.index : live.index + 1;
+  const isLast = live.index === live.total - 1;
 
   return (
-    <div>
-      {/* One live line: it announces the card that replaced the last one (and the re-read of the previous card). */}
-      <p role="status" aria-live="polite" aria-atomic="true" style={{ ...MUTED_LINE, marginTop: 12 }}>
-        {t(lang, "C-journey-card-of", { n: shownN, total: live.total })}
-      </p>
-      <h3 ref={headingRef} tabIndex={-1} style={{ ...CARD_TITLE, fontSize: 16, marginTop: 2 }}>
-        {pick(shown.title, lang)}
+    <>
+      {/* The heading is the card's kicker row; its "Card n of 5" is the one live line that announces the card that
+          replaced the last one (and the re-read of the previous card), and focus lands here after "next card". */}
+      <h3 ref={headingRef} tabIndex={-1} className={styles.scriptHead}>
+        <span role="status" aria-live="polite" aria-atomic="true" className="b6-kick">
+          {t(lang, "C-journey-card-of", { n: shownN, total: live.total })}
+        </span>
+        <Chip>{pick(shown.title, lang)}</Chip>
       </h3>
-      <div style={SCRIPT_BOX}>
-        {shown.lines.map((line, i) => (
-          <div key={i}>
-            <span style={SPEAKER_TAG}>{t(lang, SPEAKER_KEY[line.speaker])}</span>
-            <p style={LINE_TEXT}>{pick(line.text, lang)}</p>
-          </div>
+      <div className={styles.bars} aria-hidden="true">
+        {cards.map((c, i) => (
+          <span key={c.id} className={cx(styles.bar, i < shownN - 1 && styles.barOn)} />
         ))}
       </div>
+      <ScriptLines lang={lang} card={shown} />
+      {lang === "id" ? <p className={styles.why}>{t(lang, "C-journey-id-soon")}</p> : null}
+      {note ? <p className={styles.why}>{note}</p> : null}
       {previous && prevCard ? (
-        <button type="button" style={LINK_BUTTON} onClick={() => setPrevious(false)}>
+        <button type="button" className={styles.link} style={GUIDE_BUTTON} onClick={() => setPrevious(false)}>
           {t(lang, "C-journey-back-to-card", { n: live.index + 1 })}
         </button>
       ) : (
         <>
-          <div style={{ marginTop: 10 }}>
-            <Button variant="primary" block style={GUIDE_BUTTON} disabled={!live.canMarkSpoken} onClick={markSpoken}>
-              {t(lang, "C-journey-spoken")}
-            </Button>
-          </div>
-          {!live.canMarkSpoken ? <p style={MUTED_LINE}>{t(lang, "C-journey-waiting-hear")}</p> : null}
+          <Ctl
+            label={isLast ? t(lang, "C-journey-spoken-finish") : t(lang, "C-journey-spoken-next")}
+            glyph="✓"
+            disabled={!live.canMarkSpoken}
+            onClick={markSpoken}
+          />
+          {!live.canMarkSpoken ? <p className={styles.mono}>{t(lang, "C-journey-waiting-hear")}</p> : null}
           {/* R-23: a stalled upload is the service being busy, not the mic: say so and hold the mic hint back. */}
-          {!live.canMarkSpoken && uploadBusy ? <p style={MUTED_LINE}>{t(lang, "C-journey-catching-up")}</p> : null}
+          {!live.canMarkSpoken && uploadBusy ? <p className={styles.mono}>{t(lang, "C-journey-catching-up")}</p> : null}
           {!live.canMarkSpoken && micTrouble && !uploadBusy && linesSinceCardShown === 0 ? (
-            <div style={MUTED_LINE}>
+            <div className={styles.mono}>
               <p style={{ margin: 0, fontWeight: 600 }}>{t(lang, "C-journey-not-picking-up")}</p>
               <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
                 <li>{t(lang, "C-journey-check-mic")}</li>
@@ -511,40 +723,55 @@ function ScriptCard({ lang, bridge, onAllSpoken }: { lang: Lang; bridge: Capture
               </ul>
             </div>
           ) : null}
-          <p style={MUTED_LINE}>{jumpLockText(lang, spoken.filter((id) => cards.some((c) => c.id === id)).length, live.total)}</p>
           {prevCard ? (
-            <button type="button" style={LINK_BUTTON} onClick={() => setPrevious(true)}>
+            <button type="button" className={styles.link} style={GUIDE_BUTTON} onClick={() => setPrevious(true)}>
               {t(lang, "C-journey-previous-card")}
             </button>
           ) : null}
         </>
       )}
-    </div>
+    </>
   );
 }
 
-/** All spoken (plan 5.4): the page's "Jump to closing time"; disabled while the request is in flight. */
-function JumpClosing({ lang, bridge }: { lang: Lang; bridge: CaptureBridge }) {
-  const { closingBusy, closingError } = bridge.state;
+/** All spoken: "‹ Previous card (re-read only)" shows the last script card again, read-only (the speech is already captured). */
+function RereadLast({ lang, bridge }: { lang: Lang; bridge: CaptureBridge }) {
+  const [shown, setShown] = useState(false);
+  const { profile } = bridge.state;
+  const script = scriptFor(profile.script_id);
+  const cards: readonly ScriptCardV2[] = script ? script.days[profile.day as ScriptDay] : [];
+  const last = cards[cards.length - 1];
+  if (!last) return null;
   return (
-    <div style={{ marginTop: 12 }}>
-      <Button variant="primary" block style={GUIDE_BUTTON} disabled={closingBusy} onClick={bridge.actions.jumpToClosing}>
-        {closingBusy ? t(lang, "C-journey-jump-closing-busy") : t(lang, "C-journey-jump-closing")}
-      </Button>
+    <>
+      {shown ? <ScriptLines lang={lang} card={last} /> : null}
+      <button type="button" className={styles.link} style={GUIDE_BUTTON} onClick={() => setShown((v) => !v)}>
+        {shown ? t(lang, "C-journey-reread-hide") : t(lang, "C-journey-previous-card")}
+      </button>
+    </>
+  );
+}
+
+/** All spoken (plan 5.4): the page's "Jump to closing time · 21:00"; disabled while the request is in flight. */
+function JumpClosing({ lang, bridge }: { lang: Lang; bridge: CaptureBridge }) {
+  const { closingBusy, closingError, closeHm } = bridge.state;
+  const label = closingBusy ? t(lang, "C-journey-jump-closing-busy") : closeHm ? t(lang, "C-journey-jump-closing-at", { time: closeHm }) : t(lang, "C-journey-jump-closing");
+  return (
+    <>
+      <Ctl label={label} glyph="»" disabled={closingBusy} onClick={bridge.actions.jumpToClosing} />
       {closingError ? (
         // Not an alert: the page already announces this same failure (one role=alert under End), and two
         // alerts would read it twice. The guide's copy is for sighted users reading the card.
-        <p style={ERROR_LINE}>
-          {t(lang, closingError.key, closingError.vars)}
-        </p>
+        <p className={styles.error}>{t(lang, closingError.key, closingError.vars)}</p>
       ) : null}
-    </div>
+      <RereadLast lang={lang} bridge={bridge} />
+    </>
   );
 }
 
 /** Debrief / done (plan 4.4, 7.2): Jump to tomorrow, the lock reason, and the inline unanswered confirm. */
 function JumpTomorrow({ lang, bridge }: { lang: Lang; bridge: CaptureBridge }) {
-  const { profile } = bridge.state;
+  const { profile, nextDate } = bridge.state;
   const { refetchConfig } = bridge.actions;
   const busyRef = useRef(false);
   const [busy, setBusy] = useState(false);
@@ -601,12 +828,12 @@ function JumpTomorrow({ lang, bridge }: { lang: Lang; bridge: CaptureBridge }) {
   let content: ReactNode;
   if (confirm !== null) {
     content = (
-      <div role="group" aria-labelledby="guide-unanswered-h" style={{ marginTop: 12 }}>
-        <p id="guide-unanswered-h" style={{ ...BODY_LINE, fontWeight: 600 }}>
+      <div role="group" aria-labelledby="guide-unanswered-h" className={styles.ctlWrap}>
+        <p id="guide-unanswered-h" className={styles.line} style={{ fontWeight: 600 }}>
           {t(lang, "C-journey-next-day-unanswered_questions", { n: confirm })}
         </p>
-        <p style={BODY_LINE}>{t(lang, "C-journey-next-day-unanswered-body")}</p>
-        <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+        <p className={styles.line}>{t(lang, "C-journey-next-day-unanswered-body")}</p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <Button variant="primary" style={GUIDE_BUTTON} onClick={() => setConfirm(null)}>
             {t(lang, "C-journey-next-day-unanswered-answer-first")}
           </Button>
@@ -618,31 +845,34 @@ function JumpTomorrow({ lang, bridge }: { lang: Lang; bridge: CaptureBridge }) {
     );
   } else if (allowed && profile.day !== 3) {
     content = (
-      <div style={{ marginTop: 12 }}>
-        <Button variant="primary" block style={GUIDE_BUTTON} disabled={busy || postReason !== null} onClick={() => void jump(false)}>
-          {busy ? t(lang, "C-journey-jump-tomorrow-busy") : t(lang, "C-journey-jump-tomorrow")}
-        </Button>
-        {postReason !== null ? <p style={MUTED_LINE}>{t(lang, NEXT_DAY_REASON_KEY[postReason])}</p> : null}
+      <div className={styles.ctlWrap}>
+        <Ctl
+          label={busy ? t(lang, "C-journey-jump-tomorrow-busy") : nextDate ? t(lang, "C-journey-jump-tomorrow-on", { date: dayLabel(nextDate, lang) }) : t(lang, "C-journey-jump-tomorrow")}
+          glyph="»"
+          disabled={busy || postReason !== null}
+          onClick={() => void jump(false)}
+        />
+        {postReason !== null ? <p className={styles.mono}>{t(lang, NEXT_DAY_REASON_KEY[postReason])}</p> : null}
       </div>
     );
   } else if (reason !== null && reason !== "unanswered_questions") {
     // Transient reasons (busy, preparing) re-poll by themselves (the guide's interval): a line, no retry tap.
-    content = <p style={MUTED_LINE}>{t(lang, NEXT_DAY_REASON_KEY[reason])}</p>;
+    content = <p className={styles.mono}>{t(lang, NEXT_DAY_REASON_KEY[reason])}</p>;
   } else {
     content = null;
   }
 
   return (
-    <div>
+    <>
       {content}
       {errorKey ? (
-        <p role="alert" style={ERROR_LINE}>
+        <p role="alert" className={styles.error}>
           {t(lang, errorKey)}
         </p>
       ) : null}
-      <p role="status" aria-live="polite" style={jumpedTo !== null ? MUTED_LINE : SR_ONLY}>
+      <p role="status" aria-live="polite" className={jumpedTo !== null ? styles.mono : undefined} style={jumpedTo !== null ? undefined : SR_ONLY}>
         {jumpedTo !== null ? t(lang, "C-journey-jumped", { n: jumpedTo, total: DEMO_DAYS_TOTAL }) : ""}
       </p>
-    </div>
+    </>
   );
 }

@@ -107,6 +107,10 @@ function Harness({
   headline,
   primary,
   demo,
+  onSignOut,
+  dayNumber,
+  expiredFallback,
+  note,
 }: {
   /** R-19: a sandbox judge device (auto-open, preparing, waiting-more, terminal done). */
   demo?: boolean;
@@ -117,6 +121,11 @@ function Harness({
   /** Tech-lead finding 3: proves these are only shown for `closed`/`timed_out`. */
   headline?: ReactNode;
   primary?: ReactNode;
+  onSignOut?: () => void;
+  dayNumber?: number | null;
+  /** R-25 idle fix: pass-throughs for the sandbox expired-never-opened fallback and the page's privacy note. */
+  expiredFallback?: ReactNode;
+  note?: ReactNode;
 }) {
   // Date is frozen per-test (see the file-level beforeEach), so these
   // Date.now()-relative defaults are stable across this render and every
@@ -140,6 +149,10 @@ function Harness({
         headline={headline}
         primary={primary}
         demo={demo}
+        onSignOut={onSignOut}
+        dayNumber={dayNumber}
+        expiredFallback={expiredFallback}
+        note={note}
       />
     </LangProvider>
   );
@@ -253,7 +266,7 @@ describe("DebriefFlow: the global fetch (no test seam)", () => {
     await openCard();
     fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "sudah" } });
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next question" }));
     await waitFor(() => expect(posted).toEqual(["/api/v1/questions/q1/answer"]));
     await waitFor(() => expect(readCache(storage)).toEqual([]));
   });
@@ -281,7 +294,7 @@ describe("DebriefFlow: Lanjut commit order and persistence", () => {
     await openCard();
     fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "sudah" } });
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next question" }));
     await waitFor(() => expect(order).toContain("fetch:POST"));
     expect(order.indexOf("setItem")).toBeLessThan(order.indexOf("fetch:POST"));
   });
@@ -296,7 +309,7 @@ describe("DebriefFlow: Lanjut commit order and persistence", () => {
     await openCard();
     fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "sudah" } });
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next question" }));
     await waitFor(() => expect(screen.getByText("Debrief complete. Thank you.")).toBeTruthy());
   });
 
@@ -308,7 +321,7 @@ describe("DebriefFlow: Lanjut commit order and persistence", () => {
     storage.setItemShouldThrow = true;
     fireEvent.click(screen.getByRole("radio", { name: "No" }));
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "lupa restock" } });
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next question" }));
     await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
     expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("lupa restock");
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
@@ -346,7 +359,7 @@ describe("DebriefFlow: Lanjut commit order and persistence", () => {
       // Nothing written to any storage key yet, choice and reason typed but Lanjut not tapped.
       expect(setItemSpy).not.toHaveBeenCalled();
 
-      fireEvent.click(screen.getByRole("button", { name: "Next" }));
+      fireEvent.click(screen.getByRole("button", { name: "Next question" }));
       await waitFor(() => expect(screen.getByText("Debrief complete. Thank you.")).toBeTruthy());
 
       const writesWithReason = setItemSpy.mock.calls.filter(
@@ -371,7 +384,7 @@ describe("DebriefFlow: done-screen unsent count stays live (tech-lead finding 2)
     await openCard();
     fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "sudah" } });
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next question" }));
     await waitFor(() => expect(screen.getByText("Debrief complete. Thank you.")).toBeTruthy());
     await waitFor(() => expect(screen.queryByText(/not sent yet/)).toBeNull());
   });
@@ -386,7 +399,7 @@ describe("DebriefFlow: done-screen unsent count stays live (tech-lead finding 2)
     await openCard();
     fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "sudah" } });
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next question" }));
     await waitFor(() => expect(screen.getByText("Debrief complete. Thank you.")).toBeTruthy());
     await waitFor(() => expect(screen.getByText("1 answer is not sent yet.")).toBeTruthy());
   });
@@ -416,7 +429,7 @@ describe("DebriefFlow: timeout", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "sudah" } });
     vi.setSystemTime(new Date(2_000));
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next question" }));
     await waitFor(() => expect(screen.getByText(/The debrief time ran out/)).toBeTruthy());
     expect(storage.calls.filter((c) => c.op === "setItem")).toHaveLength(0);
   });
@@ -448,7 +461,7 @@ describe("DebriefFlow: reopening inside the hour", () => {
     await openCard();
     fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "sudah" } });
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next question" }));
     // Still the same fixed two-item list this debrief loaded; filtering only
     // happens once, at LOADED, not on every question transition.
     await waitFor(() => expect(screen.getByText("Question 2 of 2")).toBeTruthy());
@@ -542,7 +555,7 @@ describe("DebriefFlow: R-19 demo debrief (sandbox only)", () => {
   async function answerYes(reason = "ok") {
     fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
     fireEvent.change(screen.getByRole("textbox"), { target: { value: reason } });
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next question" }));
   }
 
   it("auto-opens on mount: no 'Answer questions' card, the list is fetched at once", async () => {
@@ -564,10 +577,47 @@ describe("DebriefFlow: R-19 demo debrief (sandbox only)", () => {
     const { fn } = server([], true);
     render(<Harness fetchFn={fn} storage={new FakeStorage()} demo />);
     await waitFor(() => expect(screen.getByText("Preparing your questions")).toBeTruthy());
-    expect(screen.getByText(/Keep this page open and the screen on/)).toBeTruthy();
-    expect(screen.getByText("Start is locked until the debrief is done.")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Preparing your questions" })).toBeTruthy();
+    // One amber live region carries the keep-the-page-open warning.
+    const status = screen.getByRole("status");
+    expect(status.textContent).toContain("Please keep this page open and the screen on.");
+    expect(status.textContent).toContain("If you close the page they will wait for you, but the 60-minute debrief clock keeps running.");
+    expect(screen.getByText("Bee6 is reading today's notes to decide what to ask. Please wait.")).toBeTruthy();
+    expect(screen.getByText("Debrief window 60 min")).toBeTruthy();
+    const locked = screen.getByRole("button", { name: "Start is locked until the debrief is done" }) as HTMLButtonElement;
+    expect(locked.disabled).toBe(true);
     expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Check for new questions" })).toBeNull();
+  });
+
+  it("Preparing shows 'Day n' on the mono line when the page passes the day", async () => {
+    const { fn } = server([], true);
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} demo dayNumber={2} />);
+    await waitFor(() => expect(screen.getByText("Day 2 · debrief window 60 min")).toBeTruthy());
+  });
+
+  it("the question screen shows the minutes left from the page's clock, rounded up", async () => {
+    const endsAtMs = Date.now() + 47 * 60_000 - 20_000;
+    const { fn } = server([q("q1")], false);
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} endsAtMs={endsAtMs} nowMs={Date.now()} demo />);
+    await waitFor(() => expect(screen.getByText("47 min left")).toBeTruthy());
+  });
+
+  it("a sandbox debrief has exactly one h1 on every screen (the page keeps none of its own)", async () => {
+    const { fn } = server([q("q1")], true);
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} demo />);
+    await waitFor(() => expect(screen.getByText("Question 1 of 1")).toBeTruthy());
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    await answerYes();
+    await waitFor(() => expect(screen.getByText("Checking for more questions…")).toBeTruthy());
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+  });
+
+  it("the pilot question screen adds no page h1 of its own (the pilot page has its own)", async () => {
+    const { fn } = makeFetch({ list: () => ({ status: 200, body: listResponse([q("q1")]) }) });
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} />);
+    await openCard();
+    expect(screen.getByText("Question 1 of 1")).toBeTruthy();
+    expect(screen.queryAllByRole("heading", { level: 1 })).toHaveLength(0);
   });
 
   it("polls every 10 s while preparing and shows the question that arrived", async () => {
@@ -605,7 +655,8 @@ describe("DebriefFlow: R-19 demo debrief (sandbox only)", () => {
     await waitFor(() => expect(screen.getByText("Checking for more questions…")).toBeTruthy());
     state.questions = [q("q1"), q("q2")];
     await vi.advanceTimersByTimeAsync(10_500);
-    await waitFor(() => expect(screen.getByText("Question 1 of 1")).toBeTruthy());
+    // The new list restarts at its first item, but the heading counts over the whole debrief: q1 is already answered.
+    await waitFor(() => expect(screen.getByText("Question 2 of 2")).toBeTruthy());
     await answerYes("also ok");
     await waitFor(() => expect(screen.getByText("Checking for more questions…")).toBeTruthy());
     state.preparing = false;
@@ -654,12 +705,35 @@ describe("DebriefFlow: R-19 demo debrief (sandbox only)", () => {
     expect(storage.getItem("bee6.debrief.done")).toBe(String(endsAtMs));
   });
 
-  it("the done screen renders the `primary` slot (the Start-locked line) and never the entry card", async () => {
+  it("the sandbox done screen puts the page's `primary` slot in its footer (the lock line or hint) and never the entry card", async () => {
     const { fn } = server([], false);
     render(<Harness fetchFn={fn} storage={new FakeStorage()} demo primary={<p>Start unlocks tomorrow</p>} />);
     await waitFor(() => expect(screen.getByText("There are no questions today.")).toBeTruthy());
     expect(screen.getByText("Start unlocks tomorrow")).toBeTruthy();
+    // The page's slot replaces the screen's own button, so there is never a second Start line.
+    expect(screen.queryByRole("button", { name: "Start unlocks tomorrow from 01:00" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Answer questions" })).toBeNull();
+  });
+
+  it("without a `primary` slot the sandbox done screen draws its own really-disabled Start button", async () => {
+    const { fn } = server([], false);
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} demo />);
+    await waitFor(() => expect(screen.getByText("There are no questions today.")).toBeTruthy());
+    expect((screen.getByRole("button", { name: "Start unlocks tomorrow from 01:00" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("the sandbox done screen: stage heading, the next business date, and a Sign out link only when the page passes onSignOut", async () => {
+    const { fn } = server([], false);
+    const first = render(<Harness fetchFn={fn} storage={new FakeStorage()} demo />);
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Debrief complete" })).toBeTruthy());
+    expect(screen.getByText(/^Next Start · .+ from 01:00$/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+    first.unmount();
+    const onSignOut = vi.fn();
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} demo onSignOut={onSignOut} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    expect(onSignOut).toHaveBeenCalledTimes(1);
   });
 
   it("the flag survives a remount: the done summary shows again, nothing is fetched, no entry card", async () => {
@@ -703,14 +777,52 @@ describe("DebriefFlow: R-19 demo debrief (sandbox only)", () => {
     expect(gets(calls)).toBe(during);
   });
 
-  it("timed out mid-question (demo): the unchanged timeout copy plus the unverified line", async () => {
+  it("timed out mid-question (demo): 'Debrief closed' with how many were not answered, unverified in bold, Start disabled", async () => {
+    const endsAtMs = Date.now() + 5_000;
+    const { fn } = server([q("q1"), q("q2")], true);
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} endsAtMs={endsAtMs} nowMs={Date.now()} demo />);
+    await waitFor(() => expect(screen.getByText("Question 1 of 2")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("advance-now"));
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Debrief closed" })).toBeTruthy());
+    const sub = screen.getByText((_, el) => el?.tagName === "P" && el.textContent === "The 60 minutes are over. 2 of 2 questions were not answered and are recorded as unverified.");
+    expect(sub.querySelector("strong")?.textContent).toBe("unverified");
+    expect((screen.getByRole("button", { name: "Start unlocks tomorrow from 01:00" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByText(/The debrief time ran out/)).toBeNull();
+  });
+
+  it("timed out (demo): the page's `primary` slot is the footer, its `headline` is not shown", async () => {
     const endsAtMs = Date.now() + 5_000;
     const { fn } = server([q("q1")], true);
-    render(<Harness fetchFn={fn} storage={new FakeStorage()} endsAtMs={endsAtMs} nowMs={Date.now()} demo />);
+    render(
+      <Harness fetchFn={fn} storage={new FakeStorage()} endsAtMs={endsAtMs} nowMs={Date.now()} demo headline={<p>PAGE HEADLINE</p>} primary={<p>Start unlocks tomorrow</p>} />,
+    );
     await waitFor(() => expect(screen.getByText("Question 1 of 1")).toBeTruthy());
     fireEvent.click(screen.getByTestId("advance-now"));
-    await waitFor(() => expect(screen.getByText(/The debrief time ran out/)).toBeTruthy());
-    expect(screen.getByText("Questions left unanswered are recorded as unverified.")).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Debrief closed" })).toBeTruthy());
+    expect(screen.getByText("Start unlocks tomorrow")).toBeTruthy();
+    expect(screen.queryByText("PAGE HEADLINE")).toBeNull();
+  });
+
+  it("timed out with one answered and one left (demo): '1 of 2 questions were not answered'", async () => {
+    const endsAtMs = Date.now() + 60_000;
+    const { fn } = server([q("q1"), q("q2")], false);
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} endsAtMs={endsAtMs} nowMs={Date.now()} demo />);
+    await waitFor(() => expect(screen.getByText("Question 1 of 2")).toBeTruthy());
+    await answerYes();
+    await waitFor(() => expect(screen.getByText("Question 2 of 2")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("advance-now"));
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Debrief closed" })).toBeTruthy());
+    expect(screen.getByText((_, el) => el?.tagName === "P" && el.textContent === "The 60 minutes are over. 1 of 2 questions were not answered and are recorded as unverified.")).toBeTruthy();
+  });
+
+  it("timed out before any question was shown (demo): the plain unverified sentence", async () => {
+    const endsAtMs = Date.now() + 5_000;
+    const { fn } = server([], true);
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} endsAtMs={endsAtMs} nowMs={Date.now()} demo />);
+    await waitFor(() => expect(screen.getByText("Preparing your questions")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("advance-now"));
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Debrief closed" })).toBeTruthy());
+    expect(screen.getByText((_, el) => el?.tagName === "P" && el.textContent === "The 60 minutes are over. Questions left unanswered are recorded as unverified.")).toBeTruthy();
   });
 
   it("pilot timeout has no unverified line", async () => {
@@ -787,95 +899,6 @@ describe("DebriefFlow: R-19 demo debrief (sandbox only)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Skip" }));
     await waitFor(() => expect(screen.getByText("Debrief complete")).toBeTruthy());
     expect(screen.queryByText("Checking for more questions…")).toBeNull();
-  });
-
-  describe("manual 'Check for new questions' on a sandbox (R-18 behaviour kept under demo)", () => {
-    const CHECK = { name: "Check for new questions" };
-
-    it("taps closer than 5 s to the last check are ignored, so the questions route is not hammered", async () => {
-      pollClock();
-      const { fn, calls } = server([q("q1")], true);
-      render(<Harness fetchFn={fn} storage={new FakeStorage()} demo />);
-      await waitFor(() => expect(screen.getByRole("button", CHECK)).toBeTruthy());
-      expect(gets(calls)).toBe(1);
-      await vi.advanceTimersByTimeAsync(6_000); // past the minimum interval since the open
-      fireEvent.click(screen.getByRole("button", CHECK));
-      await waitFor(() => expect(gets(calls)).toBe(2));
-      await screen.findByRole("button", CHECK); // back from "Checking…"
-      fireEvent.click(screen.getByRole("button", CHECK));
-      fireEvent.click(screen.getByRole("button", CHECK));
-      await vi.advanceTimersByTimeAsync(3_000);
-      fireEvent.click(screen.getByRole("button", CHECK));
-      expect(gets(calls)).toBe(2);
-      await vi.advanceTimersByTimeAsync(2_500); // 5.5 s after the check; the 10 s poll has not fired yet
-      fireEvent.click(screen.getByRole("button", CHECK));
-      await waitFor(() => expect(gets(calls)).toBe(3));
-    });
-
-    it("an append keeps the typed reason and the chosen answer", async () => {
-      pollClock();
-      const { fn, state } = server([q("q1")], true);
-      render(<Harness fetchFn={fn} storage={new FakeStorage()} demo />);
-      await waitFor(() => expect(screen.getByText("Question 1 of 1")).toBeTruthy());
-      fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
-      fireEvent.change(screen.getByRole("textbox"), { target: { value: "sudah dicek" } });
-      state.questions = [q("q1"), q("q2")];
-      await vi.advanceTimersByTimeAsync(6_000);
-      fireEvent.click(screen.getByRole("button", CHECK));
-      await waitFor(() => expect(screen.getByText("Question 1 of 2")).toBeTruthy());
-      expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("sudah dicek");
-      expect(screen.getByRole("radio", { name: "Yes" }).getAttribute("aria-checked")).toBe("true");
-    });
-
-    it("a 429 or 503 keeps the screen and is never retried in a tight loop", async () => {
-      pollClock();
-      let status = 200;
-      const calls: string[] = [];
-      const fn = vi.fn(async (input: RequestInfo | URL) => {
-        calls.push(String(input));
-        return {
-          ok: status === 200,
-          status,
-          json: async () => ({ data: { debrief: { business_date: "2026-10-07", ends_at_ms: Date.now() + HOUR_MS }, questions: [q("q1")], preparing: true } }),
-        } as Response;
-      }) as unknown as typeof fetch;
-      render(<Harness fetchFn={fn} storage={new FakeStorage()} demo />);
-      await waitFor(() => expect(screen.getByRole("button", CHECK)).toBeTruthy());
-      await vi.advanceTimersByTimeAsync(6_000);
-      status = 429;
-      fireEvent.click(screen.getByRole("button", CHECK));
-      await waitFor(() => expect(calls).toHaveLength(2));
-      status = 503;
-      await vi.advanceTimersByTimeAsync(3_000); // inside the 5 s debounce and the 10 s poll: nothing retries
-      expect(calls).toHaveLength(2);
-      expect(screen.getByText("Question 1 of 1")).toBeTruthy();
-      expect(screen.queryByText("Questions could not load yet.")).toBeNull();
-    });
-
-    it("an answered id still in the phone cache is never offered again (reload, then a poll that still lists it)", async () => {
-      pollClock();
-      const storage = new FakeStorage();
-      const endsAtMs = Date.now() + HOUR_MS;
-      const state = { questions: [q("q1")] as unknown[] };
-      const f = makeFetch({
-        list: () => ({
-          status: 200,
-          body: { data: { debrief: { business_date: "2026-10-07", ends_at_ms: endsAtMs }, questions: state.questions, preparing: true } },
-        }),
-        answer: () => "network", // the upload never lands, so the answer stays in the phone cache
-      });
-      const first = render(<Harness fetchFn={f.fn} storage={storage} endsAtMs={endsAtMs} demo />);
-      await waitFor(() => expect(screen.getByText("Question 1 of 1")).toBeTruthy());
-      await answerYes();
-      await waitFor(() => expect(screen.getByText("Checking for more questions…")).toBeTruthy());
-      first.unmount();
-      // The server still lists q1 (the upload has not landed); a fresh page must not offer it again.
-      render(<Harness fetchFn={f.fn} storage={storage} endsAtMs={endsAtMs} demo />);
-      await waitFor(() => expect(screen.getByText("Checking for more questions…")).toBeTruthy());
-      await vi.advanceTimersByTimeAsync(10_500); // a poll lists q1 again
-      expect(screen.queryByText(/Question 1 of/)).toBeNull();
-      expect(screen.getByText("Checking for more questions…")).toBeTruthy();
-    });
   });
 
   it("the Preparing and Waiting screens are not aria-busy (a busy region hides updates from a screen reader)", async () => {
@@ -996,5 +1019,162 @@ describe("DebriefFlow: R-19 demo debrief (sandbox only)", () => {
       render(<Harness fetchFn={fn} storage={storage} demo />);
       await waitFor(() => expect(screen.getByText("There are no questions today.")).toBeTruthy());
     });
+  });
+  // R-25 idle fix (QA R25-001): a fresh sandbox clone carries yesterday's expired `last_ended`, so the flow mounts
+  // already past its hour and never opened. The page's idle stage arrives as `expiredFallback`; `note` is the
+  // privacy block rendered after every other screen.
+  describe("expired and never opened: the page's idle fallback (R-25 idle fix)", () => {
+    it("shows the fallback and nothing else (no note, headline or primary), and fetches nothing", async () => {
+      const { fn, calls } = server([q("q1")], false);
+      render(
+        <Harness
+          fetchFn={fn}
+          storage={new FakeStorage()}
+          endsAtMs={Date.now() - 1}
+          demo
+          expiredFallback={<p>FALLBACK</p>}
+          note={<p>NOTE</p>}
+          headline={<p>PAGE HEADLINE</p>}
+          primary={<p>PRIMARY</p>}
+        />,
+      );
+      expect(screen.getByText("FALLBACK")).toBeTruthy();
+      expect(screen.queryByText("NOTE")).toBeNull();
+      expect(screen.queryByText("PAGE HEADLINE")).toBeNull();
+      expect(screen.queryByText("PRIMARY")).toBeNull();
+      expect(gets(calls)).toBe(0);
+    });
+
+    it("a done flag for this debrief wins: the done summary shows with the note, not the fallback", async () => {
+      const storage = new FakeStorage();
+      const endsAtMs = Date.now() - 1;
+      storage.setItem("bee6.debrief.done", String(endsAtMs));
+      const { fn } = server([q("q1")], false);
+      render(<Harness fetchFn={fn} storage={storage} endsAtMs={endsAtMs} demo expiredFallback={<p>FALLBACK</p>} note={<p>NOTE</p>} />);
+      expect(screen.getByRole("heading", { level: 1, name: "Debrief complete" })).toBeTruthy();
+      expect(screen.getByText("NOTE")).toBeTruthy();
+      expect(screen.queryByText("FALLBACK")).toBeNull();
+    });
+
+    it("a flow open when the hour ends keeps the Timeout screen (fallback never takes over), note under it", async () => {
+      const endsAtMs = Date.now() + 5_000;
+      const { fn } = server([q("q1")], true);
+      render(
+        <Harness fetchFn={fn} storage={new FakeStorage()} endsAtMs={endsAtMs} nowMs={Date.now()} demo expiredFallback={<p>FALLBACK</p>} note={<p>NOTE</p>} />,
+      );
+      await waitFor(() => expect(screen.getByText("Question 1 of 1")).toBeTruthy());
+      expect(screen.getByText("NOTE")).toBeTruthy();
+      expect(screen.queryByText("FALLBACK")).toBeNull();
+      fireEvent.click(screen.getByTestId("advance-now"));
+      await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Debrief closed" })).toBeTruthy());
+      expect(screen.getByText("NOTE")).toBeTruthy();
+      expect(screen.queryByText("FALLBACK")).toBeNull();
+    });
+
+    it("pilot (no demo): the fallback is ignored, the old closed arm (headline + primary) renders", async () => {
+      const { fn } = server([q("q1")], false);
+      render(
+        <Harness
+          fetchFn={fn}
+          storage={new FakeStorage()}
+          endsAtMs={Date.now() - 1}
+          expiredFallback={<p>FALLBACK</p>}
+          note={<p>NOTE</p>}
+          headline={<p>PAGE HEADLINE</p>}
+          primary={<p>PRIMARY</p>}
+        />,
+      );
+      expect(screen.getByText("PAGE HEADLINE")).toBeTruthy();
+      expect(screen.getByText("PRIMARY")).toBeTruthy();
+      expect(screen.queryByText("FALLBACK")).toBeNull();
+      // `note` is harmless here (the page never passes it on the pilot); only `demo` gates the fallback.
+      expect(screen.getByText("NOTE")).toBeTruthy();
+    });
+  });
+});
+
+describe("DebriefFlow: quoted lines (demo-feedback-2 item 10, sandbox only)", () => {
+  const LINE_A = "Pelanggan tanya roti tawar habis.";
+  const LINE_B = "Kami bilang besok pagi ada lagi.";
+
+  /** Records every request body; the list response carries `lines` on q1. */
+  function linesFetch() {
+    const bodies: string[] = [];
+    const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url === "/api/v1/questions" && method === "GET") {
+        const body = listResponse([q("q1", { lines: [LINE_A, LINE_B] })]);
+        return { ok: true, status: 200, json: async () => body } as Response;
+      }
+      if (/\/answer$/.test(url) && method === "POST") {
+        bodies.push(String(init?.body ?? ""));
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }
+      throw new Error(`unexpected fetch ${method} ${url}`);
+    });
+    return { fn: fn as unknown as typeof fetch, bodies };
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("passes the list response's lines through to the question screen as quoted text", async () => {
+    const { fn } = linesFetch();
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} />);
+    await openCard();
+    expect(screen.getByText("Bee6 heard:")).toBeTruthy();
+    expect(screen.getByText(`“${LINE_A}”`)).toBeTruthy();
+    expect(screen.getByText(`“${LINE_B}”`)).toBeTruthy();
+  });
+
+  it("never reaches the storage, IndexedDB, or the answer upload body", async () => {
+    const { fn, bodies } = linesFetch();
+    const storage = new FakeStorage();
+    const setItemSpy = vi.spyOn(storage, "setItem");
+    let idbTouched = 0;
+    Object.defineProperty(globalThis, "indexedDB", {
+      configurable: true,
+      get() {
+        idbTouched += 1;
+        return undefined;
+      },
+    });
+    try {
+      render(<Harness fetchFn={fn} storage={storage} />);
+      await openCard();
+      fireEvent.click(screen.getByRole("radio", { name: "Yes" }));
+      fireEvent.change(screen.getByRole("textbox"), { target: { value: "sudah" } });
+      fireEvent.click(screen.getByRole("button", { name: "Next question" }));
+      await waitFor(() => expect(screen.getByText("Debrief complete. Thank you.")).toBeTruthy());
+    } finally {
+      delete (globalThis as Record<string, unknown>).indexedDB;
+    }
+
+    expect(setItemSpy).toHaveBeenCalled();
+    for (const [key, value] of setItemSpy.mock.calls) {
+      expect(String(key)).not.toContain("Pelanggan");
+      expect(String(value)).not.toContain("Pelanggan");
+      expect(String(value)).not.toContain("roti");
+      expect(String(value)).not.toContain("lines");
+    }
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).not.toContain("Pelanggan");
+    expect(bodies[0]).not.toContain("lines");
+    expect(Object.keys(JSON.parse(bodies[0]!)).sort()).toEqual(
+      ["answer", "answered_at_ms", "debrief_business_date", "question_id", "reason"].sort(),
+    );
+    // The phone cache holds the strict five-key entry and nothing else.
+    for (const entry of readCache(storage)) {
+      expect(Object.keys(entry).sort()).toEqual(["answer", "answered_at_ms", "debrief_business_date", "question_id", "reason"]);
+    }
+    expect(idbTouched).toBe(0);
+  });
+
+  it("the sandbox (demo) flow shows the lines too", async () => {
+    const { fn } = linesFetch();
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} demo />);
+    await waitFor(() => expect(screen.getByText(`“${LINE_A}”`)).toBeTruthy());
   });
 });

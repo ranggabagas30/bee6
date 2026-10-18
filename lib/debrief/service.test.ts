@@ -64,6 +64,9 @@ class FakeDebriefStore implements DebriefStore {
     this.listStaffNamesCalls += 1;
     return this.staffNames;
   }
+  async getThread(thread_id: string): Promise<Thread | null> {
+    return this.threads.get(thread_id) ?? null;
+  }
   // R-19 PR-3 `preparing` inputs (exercised in service.r19.test.ts); nothing pending here.
   async getLatestEndedSession() {
     return null;

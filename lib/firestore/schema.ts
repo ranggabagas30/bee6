@@ -789,7 +789,7 @@ export const PROPOSAL_STATUSES = [
   "approved",
   "rejected",
 ] as const; // technical spec §4.3; R-09 writes the last three (review/approve routes)
-export const PROPOSAL_RULES = [
+export const PGATE_V1_RULES = [
   "schema_invalid",
   "intervention_unknown",
   "rubric_missing",
@@ -802,7 +802,23 @@ export const PROPOSAL_RULES = [
   "output_too_long",
   "evidence_stale",
 ] as const; // pgate-v1, precedence order
-export type ProposalRule = (typeof PROPOSAL_RULES)[number];
+/** R-24 (pcheck-v4): the ten v4 rules; mirrors `V4_RULES` in `lib/proposals/v4/types.ts` (a test pins the two). */
+const PCHECK_V4_RULES = [
+  "section_not_fetched",
+  "step_not_in_section",
+  "evidence_not_inspected",
+  "intervention_not_inspected",
+  "quote_alias_not_cited",
+  "quotes_insufficient",
+  "quote_not_in_evidence",
+  "scope_unsupported",
+  "change_is_noop",
+  "text_rule_violation",
+] as const;
+/** Every rule a stored proposal doc may name (`gate.fired_rule`, `gate.checks[].rule`): the superset. */
+export const PROPOSAL_RULES = [...PGATE_V1_RULES, ...PCHECK_V4_RULES] as const;
+/** The `pgate-v1` rules only (what `proposal-gate.ts` keys on); the v4 rules are `V4Rule`. */
+export type ProposalRule = (typeof PGATE_V1_RULES)[number];
 export const SUPPRESSION_REASONS = ["insufficient_evidence", "model_declined"] as const;
 export const MODEL_DECLINE_REASONS = [
   "no_clear_pattern",
@@ -930,6 +946,22 @@ export const ProposalSchema = z
         attempts: z.number().int().min(0).max(4), // 0 = suppressed before any model call; R-20: up to MAX_FOCUS_PER_ASK focuses x 2 attempts
         /** R-19: the evidence-floor rule that produced this doc; absent = the old any-category floor. */
         floor_version: z.literal("floor-v2").optional(),
+        /** R-24: the rule set that produced `gate.checks`; present only on a doc the v4 agent produced. */
+        check_version: z.literal("pcheck-v4").optional(),
+        /** R-24: v4 run trace, counts and enums only (hard rule 7); absent on v3 docs and on every flag-off doc. */
+        v4: z
+          .object({
+            model_calls: z.number().int().min(0),
+            tool_calls: z
+              .array(z.object({ name: z.string().min(1).max(40), ok: z.boolean() }).strict())
+              .max(40),
+            check_rounds: z.number().int().min(0).max(3),
+            ms: z.number().int().min(0),
+            ended_by: z.enum(["decided", "model_done", "limit", "timeout", "error"]),
+            fell_back: z.boolean(),
+          })
+          .strict()
+          .optional(),
       })
       .strict(),
     gate: z

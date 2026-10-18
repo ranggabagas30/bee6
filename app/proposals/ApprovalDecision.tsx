@@ -8,11 +8,11 @@ import type { Lang } from "@/lib/i18n/lang";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import { CONSTRAINT_INPUT_MAX, CONSTRAINT_INPUT_MIN } from "@/lib/constraints/contract";
 import { DecisionResponseSchema, type DecisionConflictCode, type ProposalListItem } from "@/lib/proposals/review-contract";
-import { Button, Card, Kicker } from "@/app/ui";
+import { Button, Card } from "@/app/ui";
 import styles from "@/app/proposals/approvals.module.css";
 
 /**
- * "Your decision" (R-19 PR-12b, plan 9.5; boards D2-08, D2-08c): **Approve** at the top, and under it the inline
+ * "Your decision" (R-19 PR-12b, plan 9.5; R-25 T11 page-2 look; boards D2-08, D2-08c): **Approve** at the top, and under it the inline
  * required **"Reject — why?"** field with "Reject with reason". No confirm dialogs. Both go to the existing owner
  * route (`POST /api/v1/proposals/{id}/approve`, `decision: approve | reject`); the server re-derives every rule
  * (role, stage, freshness, SOP version, late constraints), so this card only mirrors the notices it already got:
@@ -122,7 +122,9 @@ export function ApprovalDecision({ auth, lang, item, pending = false, onSettled 
 
   return (
     <Card as="section" aria-labelledby={`${ids}-decision`} className={styles.decision}>
-      <Kicker id={`${ids}-decision`}>{t(lang, "C-propa-decision")}</Kicker>
+      <h2 id={`${ids}-decision`} className={styles.decisionTitle}>
+        {t(lang, "C-propa-decision")}
+      </h2>
 
       {(notices.evidence_stale || needsAck) && (
         <div className={styles.notices}>
@@ -168,7 +170,7 @@ export function ApprovalDecision({ auth, lang, item, pending = false, onSettled 
           if (canSend && !busy) void submit({ decision: "reject", reason: trimmed });
         }}
       >
-        <label className={styles.rejectLabel} htmlFor={reasonId}>
+        <label className={`${styles.rejectLabel} ${styles.required}`} htmlFor={reasonId}>
           {t(lang, "C-propa-reject-label")}
         </label>
         <textarea
@@ -178,13 +180,15 @@ export function ApprovalDecision({ auth, lang, item, pending = false, onSettled 
           maxLength={CONSTRAINT_INPUT_MAX}
           rows={3}
           disabled={busy}
+          required
+          placeholder={t(lang, "C-propa-reject-ph")}
           aria-describedby={hintId}
           onChange={(event) => setReason(event.target.value)}
         />
         <p id={hintId} className={styles.hint}>
           {t(lang, "C-propa-reject-hint")} {t(lang, "C-con-count", { n: reason.length })}
         </p>
-        <Button type="submit" variant="destructive" block disabled={!canSend || busy}>
+        <Button type="submit" variant="destructive" block className={styles.rejectBtn} disabled={!canSend || busy}>
           {t(lang, "C-propa-reject-send")}
         </Button>
       </form>

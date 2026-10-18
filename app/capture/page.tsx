@@ -16,17 +16,22 @@ import {
   retainEngineStatus,
   type RetainedUpload,
 } from "@/app/capture/upload-retention";
-import { idleViewFor } from "@/app/capture/idle-view";
+import { idleViewFor, type IdleView } from "@/app/capture/idle-view";
 import { selesaiViewFor } from "@/app/capture/selesai-view";
 import { isDiscardArmed, nextMulaiIsNow, shouldAutoClosePanel } from "@/app/capture/batalkan-panel";
 import { DebriefFlow } from "@/app/capture/debrief/DebriefFlow";
+import { EndConfirmSheet } from "@/app/capture/EndConfirmSheet";
 import { OpenSessionView } from "@/app/capture/OpenSessionView";
 import { SignOutDialog, type SignOutKind } from "@/app/capture/SignOutDialog";
 import { configPollMs, dropOpenSession, markOpenSessionClosed, mergeRefreshedLastEnded } from "@/app/capture/config-refresh";
 import { drawerInsetStyle, isCompactChrome, useDrawerLayout } from "@/app/capture/drawer-layout";
 import { capturePhaseFor, publishCaptureBridge, useDebriefDoneFlag, useDebriefView, type CaptureBridgeActions } from "@/app/demo/guide-bridge";
+import { StageScreen } from "@/app/capture/StageScreen";
+import css from "@/app/capture/capture.module.css";
 import { ShopTopBar } from "@/app/shop/ShopTopBar";
-import { Button, Chip } from "@/app/ui";
+import { StaffTopBar } from "@/app/shop/StaffTopBar";
+import { Button, Mist } from "@/app/ui";
+import { cx } from "@/app/ui/cx";
 import { useLang } from "@/lib/i18n/context";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import { clockLabel, dayLabel } from "@/lib/i18n/format";
@@ -254,6 +259,9 @@ export default function CapturePage() {
   const openBusyRef = useRef(false);
   const [openBusy, setOpenBusy] = useState(false);
   const [openErrorKey, setOpenErrorKey] = useState<DictKey | null>(null);
+  // R25-002: the open-session view's End confirm (spec §8 step 10a). Separate from `selesaiConfirmOpen`, which
+  // belongs to the running session's sheet, so a stale flag can never open the wrong sheet after Start.
+  const [openEndConfirm, setOpenEndConfirm] = useState(false);
   // R-19 PR-4b: bumped whenever the phone itself changes the session, so a config re-fetch that started earlier
   // can never overwrite what the phone just did.
   const configGenRef = useRef(0);
@@ -316,6 +324,11 @@ export default function CapturePage() {
   // dialog's `busy` also covers `autoStopBusy`, so Confirm cannot fire during the end call itself.
   if (signOutKind === "running" && session === null) {
     setSignOutKind(null);
+  }
+  // R25-002: the 30 s config re-poll can drop the open session under the sheet (the server closed it): nothing to
+  // end any more, so the sheet goes with the view.
+  if (openEndConfirm && !demoSession?.open_session) {
+    setOpenEndConfirm(false);
   }
 
   // Debrief entry (R-07, technical spec §8.10): per-device, from this
@@ -799,6 +812,7 @@ export default function CapturePage() {
       setOpenErrorKey(sessionErrorKey(result.status, result.code));
       return;
     }
+    setOpenEndConfirm(false);
     setLastEnded({ business_date: localDate, end_reason: "selesai", debrief_ends_at_ms: endedAt + DEBRIEF_DURATION_MS });
     setConfig((c) => (c ? dropOpenSession(c) : c));
     afterSessionChanged();
@@ -949,6 +963,80 @@ export default function CapturePage() {
     stopRunningSession();
   };
 
+  // ── R-25 T5: sandbox screen pieces ───────────────────────────────────────────
+  // A sandbox device (server field `demo_session`) gets the page-2 staff screen; the pilot keeps its screen.
+  const sandbox = demoSession !== undefined;
+  // R25-003 (boards L2-*): from 900 px the one sign-out control is the header's secondary button; under 900 px it is
+  // the footer link (R10). Decided here, not in CSS, so there is never a second affordance in the tree.
+  const headerSignOut = sandbox && drawerLayout.wide;
+  const signOutDisabled = signOutBusy || selesaiBusy || autoStopBusy || closingBusy || mulaiBusy || openBusy;
+  // R-19 (Q6): "Day n of 3 · date". The date is the real local date (the shifted days are behind it).
+  const dayLine =
+    view === "ready" && demoSession !== undefined && config && nowMs !== null
+      ? t(lang, "C-sess-day-of", {
+          n: demoSession.day,
+          total: demoSession.days_total,
+          date: dayLabel(businessDateOf(nowMs, config.timezone), lang),
+        })
+      : null;
+  /**
+   * The one quiet sign-out control of the footer (board P2-05: a text link, not a button pair). Before closing, while a
+   * session runs, it is the red "cancels today's session" link; otherwise a muted "Sign out". Same handler as the old
+   * header button, same disabled rule.
+   */
+  function renderSignOutLink(tone: "muted" | "danger") {
+    if (headerSignOut) return null;
+    return (
+      <Button
+        variant={tone === "danger" ? "text-danger" : "text"}
+        onClick={handleSignOutTap}
+        disabled={signOutDisabled}
+      >
+        {t(lang, tone === "danger" ? "C-sess-signout-running-link" : "C-sess-signout")}
+      </Button>
+    );
+  }
+  /** Upload block (UX-03 §5.7): shown in every mode, including idle and
+      stopped. While a session runs it follows the live status; after a
+      stop it keeps the lost notice (until Dismiss or the next Start, R-23)
+      and the retry row. It never changes the headline. */
+  function renderUploadBlock() {
+    return (
+      <UploadStatusLine
+        view={
+          sessionRunning
+            ? deriveUploadView(status)
+            : deriveRetainedUploadView(lastUploadStatus)
+        }
+        lost={lostNotice}
+        onDismissLost={() => setDismissedDrops(uploadSource?.droppedCount ?? 0)}
+        online={networkOnline}
+        styled={modern}
+        httpStatus={
+          sessionRunning ? status?.lastUploadHttpStatus : lastUploadStatus?.lastUploadHttpStatus
+        }
+      />
+    );
+  }
+
+  /** Capture privacy notice (UX-03 §5.10): a muted notice, not a consent gate (CLAUDE.md §7b). */
+  function renderNote() {
+    return (
+      <p data-testid="capture-notice" className="b6-note">
+        {t(lang, "C-notice-pilot")}
+      </p>
+    );
+  }
+
+  /** The h1 of a sandbox idle stage: Ready to open, or what the day ended as (the same words the headline status carries). */
+  function sandboxIdleTitle(v: IdleView): string {
+    if (!v.offered) {
+      if (v.headline === "ended_auto") return t(lang, "C-h-ended-auto", { time: v.endedAt ?? "" });
+      return t(lang, v.headline === "discarded" ? "C-h-discarded" : "C-h-ended");
+    }
+    return t(lang, v.headline === "discarded" ? "C-h-discarded" : "C-sess-ready-h");
+  }
+
   // ── idle view (no session open) ─────────────────────────────────────────────
   // The debrief card sits above the primary slot (UX-03 §5.2 / plan §7.5),
   // and while a question is open it must replace the idle section entirely —
@@ -962,18 +1050,45 @@ export default function CapturePage() {
     const openSession = demoSession?.open_session ?? null;
     if (openSession) {
       return (
-        <OpenSessionView
-          lang={lang}
-          closingReached={openSession.closing_reached}
-          busy={openBusy}
-          errorKey={openErrorKey}
-          onEnd={() => void handleOpenEnd()}
-          onCancel={() => void handleOpenCancel()}
-        />
+        <>
+          <OpenSessionView
+            lang={lang}
+            closingReached={openSession.closing_reached}
+            busy={openBusy}
+            // R25-002: while the sheet is open the error is shown in the sheet, not twice.
+            errorKey={openEndConfirm ? null : openErrorKey}
+            onEnd={() => {
+              setOpenErrorKey(null);
+              setOpenEndConfirm(true);
+            }}
+            onCancel={() => void handleOpenCancel()}
+            dayLine={dayLine}
+            footer={
+              <>
+                {renderNote()}
+                {renderSignOutLink("muted")}
+              </>
+            }
+          />
+          {openEndConfirm ? (
+            <EndConfirmSheet
+              lang={lang}
+              body={t(lang, "C-script-end-b")}
+              busy={openBusy}
+              errorKey={openErrorKey}
+              onKeep={() => {
+                setOpenEndConfirm(false);
+                setOpenErrorKey(null);
+              }}
+              onEnd={() => void handleOpenEnd()}
+            />
+          ) : null}
+        </>
       );
     }
     if (!idle) return null;
-    const headline = (
+    // R-25 T5: a sandbox gets the page-2 stage instead of the status banner; the pilot keeps the banner as before.
+    const headline = sandbox ? null : (
       <StatusBanner
         state={idle.headline}
         micSource={micSource}
@@ -995,7 +1110,39 @@ export default function CapturePage() {
         : nextDayReason === null || nextDayReason === "unanswered_questions"
           ? "C-sess-start-jump-hint"
           : NEXT_DAY_REASON_KEY[nextDayReason];
-    const primary = (
+    const sandboxPrimary = sandbox ? (
+      <>
+        {startLocked ? (
+          <>
+            <Button size="lg" block disabled>
+              {t(lang, "C-sess-start-locked")}
+            </Button>
+            {lockedHintKey ? <p className="b6-note">{t(lang, lockedHintKey)}</p> : null}
+          </>
+        ) : (
+          <Button
+            size="lg"
+            block
+            onClick={handleMulaiTap}
+            disabled={mulaiBusy}
+            aria-disabled={!idle.offered || mulaiBusy ? "true" : undefined}
+          >
+            {mulaiBusy ? t(lang, "C-b-mulai-busy") : t(lang, "C-b-mulai")}
+          </Button>
+        )}
+        {mulaiErrorKey ? (
+          <p role="alert" className="b6-alert b6-alert--red">
+            {t(lang, mulaiErrorKey)}
+          </p>
+        ) : null}
+      </>
+    ) : null;
+    const primary = sandbox ? (
+      <>
+        {sandboxPrimary}
+        {renderSignOutLink("muted")}
+      </>
+    ) : (
       <>
         {startLocked ? (
           <>
@@ -1022,12 +1169,34 @@ export default function CapturePage() {
       </>
     );
 
+    /** R-25 T5 / idle fix: the sandbox idle stage (board P2-04 / P2-04b). Also the debrief's `expiredFallback`. */
+    const idleView = idle;
+    function renderSandboxIdleStage() {
+      const ended = !idleView.offered;
+      const title = sandboxIdleTitle(idleView);
+      const subText = ended ? idleView.note : t(lang, "C-sess-ready-sub");
+      return (
+        <StageScreen
+          tone={ended ? "done" : "idle"}
+          orbLabel={ended ? undefined : t(lang, "C-b-mulai")}
+          title={title}
+          sub={subText ? <p className="b6-sub">{subText}</p> : null}
+          mono={dayLine}
+        >
+          {sandboxPrimary}
+          {renderNote()}
+          {renderSignOutLink("muted")}
+        </StageScreen>
+      );
+    }
+
     // nowMs is set by the mount-time tick effect before any debrief can
     // exist (debriefEndsAtMs only comes from a real Selesai/auto-stop, both
     // of which require config/nowMs already loaded), so the `nowMs === null`
     // arm is defensive only.
     const auth = debriefEndsAtMs !== null && nowMs !== null && effectiveConfig ? readDeviceAuth() : null;
     if (debriefEndsAtMs === null || nowMs === null || !effectiveConfig || !auth) {
+      if (sandbox) return renderSandboxIdleStage();
       return (
         <>
           {headline}
@@ -1046,6 +1215,10 @@ export default function CapturePage() {
         headline={headline}
         primary={primary}
         demo={config?.demo_session !== undefined}
+        dayNumber={demoSession?.day ?? null}
+        expiredFallback={sandbox ? renderSandboxIdleStage() : undefined}
+        // UX-03 section 5.10: the privacy notice is on every screen of the page, the debrief included.
+        note={sandbox ? <div className={cx("b6-foot", css.foot)}>{renderNote()}</div> : undefined}
       />
     );
   }
@@ -1060,13 +1233,7 @@ export default function CapturePage() {
       const close = closeMs(session.local_date, config.weekly_hours, config.timezone);
       const closeHm = close === null ? "--:--" : clockLabel(close, config.timezone);
       return (
-        <Button
-          variant="secondary"
-          block
-          style={{ marginTop: 12, minHeight: 48 }}
-          disabled={!closingReached}
-          onClick={openSelesaiConfirm}
-        >
+        <Button size="lg" block disabled={!closingReached} onClick={openSelesaiConfirm}>
           {closingReached ? t(lang, "C-sess-end-today") : t(lang, "C-sess-end-locked", { time: closeHm })}
         </Button>
       );
@@ -1092,6 +1259,19 @@ export default function CapturePage() {
     // exist (Mulai is gated on it via `idle` above), so this is never the
     // fallback path in practice; the guard just avoids an impure render call.
     if (!session || !config || nowMs === null) return null;
+    // R-25 ruling R2: on a sandbox the End confirm is the page-2 bottom sheet (same handlers, same disabled rule).
+    if (config.demo_session) {
+      return (
+        <EndConfirmSheet
+          lang={lang}
+          body={t(lang, "C-script-end-b")}
+          busy={selesaiBusy || autoStopBusy}
+          errorKey={selesaiErrorKey}
+          onKeep={closeSelesaiConfirm}
+          onEnd={confirmSelesai}
+        />
+      );
+    }
     const tz = config.timezone;
     const now = nowMs;
     const nextDay = nextOpenLocalDate(session.local_date, config.weekly_hours);
@@ -1178,7 +1358,57 @@ export default function CapturePage() {
     );
   }
 
+  /** R-25 T5, sandbox only (boards P2-05 / P2-05d / P2-06): the listening stage; End, then the one sign-out link. */
+  function renderSandboxRunning() {
+    const micError = headlineStateFor(status?.state ?? "listening") === "mic_error";
+    return (
+      <StageScreen
+        tone={micError ? "idle" : "listening"}
+        title={t(lang, micError ? "C-h-mic" : "C-h-listening")}
+        sub={
+          micError ? (
+            <p className="b6-alert b6-alert--red">{t(lang, "C-h-mic-help")}</p>
+          ) : (
+            <p className="b6-sub">
+              {closingReached ? (
+                t(lang, "C-sess-closing-sub")
+              ) : (
+                <>
+                  {t(lang, "C-sess-listening-sub-1")}
+                  <br />
+                  {t(lang, "C-sess-listening-sub-2")}
+                </>
+              )}
+            </p>
+          )
+        }
+        mono={dayLine}
+      >
+        {sampleRateMsg ? (
+          <p role="alert" className="b6-alert b6-alert--red">
+            {t(lang, "C-cap-rate")}
+          </p>
+        ) : null}
+        {session ? (
+          <>
+            {renderSelesaiArea()}
+            {closingError ? (
+              <p role="alert" className="b6-alert b6-alert--red">
+                {t(lang, closingError.key, closingError.vars)}
+              </p>
+            ) : null}
+            {renderSignOutLink(closingReached ? "muted" : "danger")}
+          </>
+        ) : null}
+        {renderNote()}
+        {/* The End confirm sits over the screen as a sheet, so End stays put underneath and gets focus back. */}
+        {session && selesaiConfirmOpen ? renderSelesaiConfirmPanel() : null}
+      </StageScreen>
+    );
+  }
+
   function renderRunning() {
+    if (sandbox) return renderSandboxRunning();
     return (
       <>
         <StatusBanner
@@ -1220,6 +1450,10 @@ export default function CapturePage() {
     present: view === "ready" && demoSession !== undefined,
     wide: drawerLayout.wide,
   });
+  // R-25 T5: the page-2 screen is for a sandbox device. Its config is what says so, so loading / error (no config yet)
+  // keep the plain markup; a loaded pilot keeps the screen it always had. One tree for both, with fixed slots, so
+  // nothing (the dev panel, the upload block) remounts when the config arrives.
+  const modern = sandbox;
   // Compact top-of-page chrome keeps banner + End + Cancel above the guide's collapsed handle on a 360 x 640 screen.
   const mainPadding = compactChrome ? "12px 24px 24px" : PAGE_STYLE.padding;
   const mainStyle: React.CSSProperties =
@@ -1235,97 +1469,97 @@ export default function CapturePage() {
         };
 
   return (
-    <main style={mainStyle}>
-      <ShopTopBar
-        compact={compactChrome}
-        signOut={
-          demoSession !== undefined
-            ? {
-                label: t(lang, "C-sess-signout"),
-                onClick: handleSignOutTap,
-                disabled: signOutBusy || selesaiBusy || autoStopBusy || closingBusy || mulaiBusy || openBusy,
-              }
-            : undefined
-        }
-      />
-      <h1 style={compactChrome ? { fontSize: 22, margin: "0 0 8px" } : { fontSize: 22 }}>{t(lang, "C-cap-title")}</h1>
-      {/* R-19 (Q6), sandbox only: "Day n of 3 · date". The date is the real local date (the shifted days are
-          behind it); the pilot never renders this line. */}
-      {view === "ready" && demoSession !== undefined && config && nowMs !== null ? (
-        <p style={{ margin: "0 0 8px" }}>
-          <Chip>
-            {t(lang, "C-sess-day-of", {
-              n: demoSession.day,
-              total: demoSession.days_total,
-              date: dayLabel(businessDateOf(nowMs, config.timezone), lang),
-            })}
-          </Chip>
-        </p>
-      ) : null}
-
-      {devControlsEnabled ? (
-        <DevPanel
-          onStart={handleDevStart}
-          onPause={handleDevStop}
-          onStop={handleDevStop}
-          events={events}
-          linesHeard={linesThisSession}
+    <div className={modern ? css.page : undefined}>
+      {modern ? <Mist /> : null}
+      {/* The staff bar (logo, the demo outlet line with its expiry, ID | EN; the Sign out button from 900 px, R25-003). */}
+      {modern ? (
+        <StaffTopBar
+          demo
+          outletLine
+          signOut={
+            headerSignOut
+              ? {
+                  label: t(lang, "C-sess-signout"),
+                  onClick: handleSignOutTap,
+                  disabled: signOutDisabled,
+                }
+              : undefined
+          }
         />
       ) : null}
+      <main className={modern ? css.column : undefined} style={modern ? inset : mainStyle}>
+        {modern ? null : <ShopTopBar compact={compactChrome} />}
+        {modern ? null : (
+          <h1 style={compactChrome ? { fontSize: 22, margin: "0 0 8px" } : { fontSize: 22 }}>{t(lang, "C-cap-title")}</h1>
+        )}
 
-      {view === "loading" ? <p>{t(lang, "C-h-loading")}</p> : null}
+        {devControlsEnabled ? (
+          <DevPanel
+            onStart={handleDevStart}
+            onPause={handleDevStop}
+            onStop={handleDevStop}
+            events={events}
+            linesHeard={linesThisSession}
+          />
+        ) : null}
 
-      {view === "error" ? (
-        <section role="alert">
-          <h2 style={{ fontSize: 18, color: "#b00020" }}>{t(lang, "C-h-error")}</h2>
-          <p>{t(lang, "C-h-error-help")}</p>
-        </section>
-      ) : null}
+        {/* One polite status for the headline (the pilot's StatusBanner does this job there). It is mounted for the
+            whole sandbox screen, so Start -> "Listening" and a mic problem are announced; the stage is decorative. */}
+        {modern ? (
+          <p role="status" aria-live="polite" aria-atomic="true" className="b6-sr-only">
+            {sessionRunning
+              ? headlineStateFor(status?.state ?? "listening") === "mic_error"
+                ? `${t(lang, "C-h-mic")}. ${t(lang, "C-h-mic-help")}`
+                : t(lang, "C-h-listening")
+              : // Not running: what the stage screen's h1 says when the day ended or was cancelled (same region, no second one).
+                idle && idle.headline !== "idle" && debriefEndsAtMs === null && !demoSession?.open_session
+                ? sandboxIdleTitle(idle)
+                : ""}
+          </p>
+        ) : null}
 
-      {view === "unsupported" ? (
-        <section role="alert">
-          <h2 style={{ fontSize: 18 }}>{t(lang, "C-h-unsupported")}</h2>
-          <p>{t(lang, "C-h-unsupported-help")}</p>
-        </section>
-      ) : null}
+        {modern ? renderUploadBlock() : null}
 
-      {view === "ready" ? (sessionRunning ? renderRunning() : renderIdle()) : null}
+        {view === "loading" ? <p>{t(lang, "C-h-loading")}</p> : null}
 
-      {signOutKind !== null ? (
-        <SignOutDialog
-          kind={signOutKind}
-          lang={lang}
-          busy={signOutBusy || autoStopBusy}
-          finishing={signOutFinishing}
-          errorKey={signOutErrorKey}
-          onConfirm={() => void confirmSignOut()}
-          onDismiss={() => setSignOutKind(null)}
-        />
-      ) : null}
+        {view === "error" ? (
+          <section role="alert">
+            <h2 style={{ fontSize: 18, color: "#b00020" }}>{t(lang, "C-h-error")}</h2>
+            <p>{t(lang, "C-h-error-help")}</p>
+          </section>
+        ) : null}
 
-      {/* Upload block (UX-03 §5.7): shown in every mode, including idle and
-          stopped. While a session runs it follows the live status; after a
-          stop it keeps the lost notice (until Dismiss or the next Start, R-23)
-          and the retry row. It never changes the headline. */}
-      <UploadStatusLine
-        view={
-          sessionRunning
-            ? deriveUploadView(status)
-            : deriveRetainedUploadView(lastUploadStatus)
-        }
-        lost={lostNotice}
-        onDismissLost={() => setDismissedDrops(uploadSource?.droppedCount ?? 0)}
-        online={networkOnline}
-        httpStatus={
-          sessionRunning ? status?.lastUploadHttpStatus : lastUploadStatus?.lastUploadHttpStatus
-        }
-      />
-      {/* Capture privacy notice (UX-03 §5.10): a muted notice, not a consent
-          gate (CLAUDE.md §7b). One per page, in the page's language, every mode. */}
-      <p data-testid="capture-notice" style={{ marginTop: 24, fontSize: 14, color: "#444" }}>
-        {t(lang, "C-notice-pilot")}
-      </p>
+        {view === "unsupported" ? (
+          <section role="alert">
+            <h2 style={{ fontSize: 18 }}>{t(lang, "C-h-unsupported")}</h2>
+            <p>{t(lang, "C-h-unsupported-help")}</p>
+          </section>
+        ) : null}
 
-    </main>
+        {view === "ready" ? (sessionRunning ? renderRunning() : renderIdle()) : null}
+
+        {signOutKind !== null ? (
+          <SignOutDialog
+            kind={signOutKind}
+            lang={lang}
+            busy={signOutBusy || autoStopBusy}
+            finishing={signOutFinishing}
+            errorKey={signOutErrorKey}
+            onConfirm={() => void confirmSignOut()}
+            onDismiss={() => setSignOutKind(null)}
+          />
+        ) : null}
+
+        {modern ? null : renderUploadBlock()}
+        {/* Capture privacy notice (UX-03 §5.10): a muted notice, not a consent
+            gate (CLAUDE.md §7b). One per page, in the page's language, every mode. On a sandbox it sits in the
+            stage screens' footer (renderNote), right under the action, as on the board. */}
+        {modern ? (view !== "ready" ? renderNote() : null) : (
+          <p data-testid="capture-notice" style={{ marginTop: 24, fontSize: 14, color: "#444" }}>
+            {t(lang, "C-notice-pilot")}
+          </p>
+        )}
+      </main>
+    </div>
   );
 }

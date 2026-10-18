@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { SupervisorProposals, type ProposalsBridgeEvent } from "@/app/proposals/SupervisorProposals";
 import type { ListProposalsResponse, ProposalListItem, ProposalsWatch, WatchRow } from "@/lib/proposals/review-contract";
 import type { ProposalView } from "@/lib/proposals/contract";
+import type { AskEstimate } from "@/lib/proposals/v4/flag";
 
 const replace = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -99,8 +100,8 @@ function getsTo(path: string): number {
   return authedGetJson.mock.calls.filter((call) => call[1] === path).length;
 }
 
-function renderScreen(onBridge?: (e: ProposalsBridgeEvent) => void) {
-  return render(<SupervisorProposals auth={AUTH} lang="en" onBridge={onBridge} />);
+function renderScreen(onBridge?: (e: ProposalsBridgeEvent) => void, askEstimate?: AskEstimate | null, demo?: boolean) {
+  return render(<SupervisorProposals auth={AUTH} lang="en" onBridge={onBridge} askEstimate={askEstimate} demo={demo} />);
 }
 
 beforeEach(() => {
@@ -136,7 +137,7 @@ describe("SupervisorProposals — list screen (D2-03, D2-03a, D2-03b)", () => {
     expect(screen.getByText("No open proposals.")).not.toBeNull();
   });
 
-  it("open proposals render as rows (status, title, step, why, moments) with an Open control; decided ones under their own heading", async () => {
+  it("open proposals render as rows (status, title, step, why, moments) with a Review control; decided ones under their own heading", async () => {
     proposalsResult = listOk({
       open: [item(2, "awaiting_supervisor", "Write the bake time")],
       decided: [item(1, "rejected", "Older idea")],
@@ -147,12 +148,67 @@ describe("SupervisorProposals — list screen (D2-03, D2-03a, D2-03b)", () => {
     // The row's visible h3 names it; the li carries no aria-label of its own (tech-lead PR-12a finding 6).
     const openRow = screen.getByRole("heading", { level: 3, name: "Write the bake time" }).closest("li")!;
     expect(openRow.getAttribute("aria-label")).toBeNull();
-    expect(within(openRow).getByText("Waiting for your check")).not.toBeNull();
+    expect(within(openRow).getByText("Waiting for you")).not.toBeNull();
     expect(within(openRow).getByText("Display check")).not.toBeNull();
     expect(within(openRow).getByText("Customers asked if the egg tarts were fresh.")).not.toBeNull();
     expect(within(openRow).getByText("2 moments · Tue 6 Oct, Wed 7 Oct")).not.toBeNull();
     expect(screen.getByRole("heading", { name: "Recently decided" })).not.toBeNull();
     expect(screen.getByText("Older idea")).not.toBeNull();
+  });
+
+  it("a row reads chip, then pill, then the title; Review is the dark button, and a decided row's is the quiet one", async () => {
+    proposalsResult = listOk({
+      open: [item(2, "awaiting_supervisor", "Write the bake time")],
+      decided: [item(1, "rejected", "Older idea")],
+      watch: watchOf([row("CUSTOMER_SERVICE", 2, "proposed")]),
+    });
+    renderScreen();
+    await screen.findByText("Write the bake time");
+    const openRow = screen.getByRole("heading", { level: 3, name: "Write the bake time" }).closest("li")!;
+    const chip = within(openRow).getByText("Display check");
+    const pill = within(openRow).getByText("Waiting for you");
+    expect(chip.compareDocumentPosition(pill) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const review = within(openRow).getByRole("button", { name: "Review proposal: Write the bake time" });
+    expect(review.textContent).toBe("Review");
+    expect(review.className).toContain("b6-btn--primary");
+    const decidedRow = screen.getByRole("heading", { level: 3, name: "Older idea" }).closest("li")!;
+    expect(within(decidedRow).getByRole("button", { name: "Review proposal: Older idea" }).className).toContain("b6-btn--secondary");
+  });
+
+  it("the constraints form stays, folded into a collapsed 'Rules for Bee6 (optional)' at the bottom (R8)", async () => {
+    proposalsResult = listOk({ open: [item(2, "awaiting_supervisor", "Write the bake time")], decided: [], watch: watchOf([row("CUSTOMER_SERVICE", 2, "proposed")]) });
+    const { container } = renderScreen();
+    await screen.findByText("Write the bake time");
+    await screen.findByRole("heading", { name: "Constraints", hidden: true });
+    const rules = container.querySelector("details")!;
+    expect(rules).not.toBeNull();
+    expect(rules.open).toBe(false);
+    expect(rules.querySelector("summary")!.textContent).toBe("Rules for Bee6 (optional)");
+    expect(rules.className).toContain("b6-card");
+    expect(rules.querySelector("section")!.textContent).toContain("Constraints");
+    // last block of the page, after the list
+    expect(container.lastElementChild).toBe(rules);
+    rules.open = true; // it opens on the summary tap; nothing else about the panel changes
+    expect(within(rules).getByRole("button", { name: "Add constraint" })).not.toBeNull();
+  });
+
+  it("demo: the watch panel shows both problem rows 'Not seen yet'; the pilot does not", async () => {
+    const first = renderScreen(undefined, undefined, true);
+    await waitFor(() => expect(screen.getAllByText("Not seen yet")).toHaveLength(2));
+    expect(screen.getByRole("button", { name: "Not enough evidence yet" })).not.toBeNull();
+    first.unmount();
+    renderScreen();
+    await screen.findByText("WHAT BEE6 IS WATCHING");
+    expect(screen.queryByText("Not seen yet")).toBeNull();
+  });
+
+  it("the one status line under the watch panel is a live region that is still there while it is empty", async () => {
+    renderScreen();
+    await screen.findByText("WHAT BEE6 IS WATCHING");
+    const lines = screen.getAllByRole("status").filter((el) => el.tagName === "P");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.textContent).toBe("");
+    expect(lines[0]!.getAttribute("aria-live")).toBe("polite");
   });
 
   it("a failed load shows the generic message", async () => {
@@ -183,14 +239,14 @@ describe("SupervisorProposals — ask (D2-03d)", () => {
     const ask = await screen.findByRole("button", { name: "Ask Bee6 for a proposal" });
     fireEvent.click(ask);
     expect(authedPostJson).toHaveBeenCalledWith(AUTH, "/api/v1/proposals/generate", { from_date: "2026-10-05", to_date: "2026-10-11" }, expect.anything());
-    expect(screen.getByText("Asking Bee6…", { selector: "p" })).not.toBeNull();
+    expect(screen.getByText("Bee6 is writing a proposal", { selector: "p" })).not.toBeNull();
     expect((screen.getByRole("button", { name: "Asking Bee6…" }) as HTMLButtonElement).disabled).toBe(true);
 
     proposalsResult = listOk({ open: [item(3, "awaiting_supervisor", "Write the bake time")], decided: [], watch: watchOf([row("CUSTOMER_SERVICE", 2, "proposed")]) });
     resolveFn({ kind: "ok", data: { proposal: view(3, "awaiting_supervisor", "Write the bake time"), reused: false } });
     await waitFor(() => expect(screen.getByText("Write the bake time")).not.toBeNull());
     expect(screen.getByText("Bee6 wrote a proposal. Open it to read the evidence.")).not.toBeNull();
-    expect(screen.queryByText("Asking Bee6…", { selector: "p" })).toBeNull();
+    expect(screen.queryByText("Bee6 is writing a proposal", { selector: "p" })).toBeNull();
     expect(getsTo("/api/v1/proposals")).toBe(2);
   });
 
@@ -209,7 +265,7 @@ describe("SupervisorProposals — ask (D2-03d)", () => {
     fireEvent.click(ask);
     await waitFor(() => expect(getsTo("/api/v1/proposals")).toBe(2));
     // the POST has answered, the GET has not: still asking, no written line, no row
-    expect(screen.getByText("Asking Bee6…", { selector: "p" })).not.toBeNull();
+    expect(screen.getByText("Bee6 is writing a proposal", { selector: "p" })).not.toBeNull();
     expect(screen.queryByText("Bee6 wrote a proposal. Open it to read the evidence.")).toBeNull();
     expect(screen.queryByText("Write the bake time")).toBeNull();
     await act(async () => {
@@ -217,7 +273,7 @@ describe("SupervisorProposals — ask (D2-03d)", () => {
     });
     expect(screen.getByText("Write the bake time")).not.toBeNull();
     expect(screen.getByText("Bee6 wrote a proposal. Open it to read the evidence.")).not.toBeNull();
-    expect(screen.queryByText("Asking Bee6…", { selector: "p" })).toBeNull();
+    expect(screen.queryByText("Bee6 is writing a proposal", { selector: "p" })).toBeNull();
     // The line takes focus (and scrolls into view) one painted frame AFTER the rows landed: Chrome counts a scroll
     // that lands in the same frame as the rows as a layout shift of whatever the scroll uncovers.
     expect(document.activeElement).toBe(document.body);
@@ -241,7 +297,7 @@ describe("SupervisorProposals — ask (D2-03d)", () => {
     // tall) stands in for the list, so the block must grow by 200 px.
     let panelReads = 0;
     const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-      const isPanel = this.tagName === "SECTION" && (this.textContent ?? "").includes("Constraints");
+      const isPanel = this.tagName === "DETAILS" && (this.textContent ?? "").includes("Constraints");
       const top = isPanel ? (panelReads++ === 0 ? 900 : 700) : 400;
       const height = this.querySelector("[role='status']") ? 250 : 351;
       return { top, height, bottom: top + height, left: 0, right: 360, width: 360, x: 0, y: top, toJSON: () => ({}) } as DOMRect;
@@ -251,7 +307,7 @@ describe("SupervisorProposals — ask (D2-03d)", () => {
     } finally {
       rect.mockRestore();
     }
-    const block = screen.getByText("Asking Bee6…", { selector: "p" }).closest("[role='status']") as HTMLElement;
+    const block = screen.getByText("Bee6 is writing a proposal", { selector: "p" }).closest("[role='status']") as HTMLElement;
     expect(block.style.minHeight).toBe("450px");
   });
 
@@ -313,7 +369,7 @@ describe("SupervisorProposals — ask (D2-03d)", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(screen.getByText("Asking Bee6…", { selector: "p" })).not.toBeNull();
+    expect(screen.getByText("Bee6 is writing a proposal", { selector: "p" })).not.toBeNull();
     expect(getsTo("/api/v1/proposals")).toBe(1);
 
     proposalsResult = listOk({ open: [item(3, "awaiting_supervisor", "Written elsewhere")], decided: [], watch: watchOf([row("CUSTOMER_SERVICE", 2, "proposed")]) });
@@ -326,7 +382,7 @@ describe("SupervisorProposals — ask (D2-03d)", () => {
       await Promise.resolve();
     });
     expect(screen.getByText("Written elsewhere")).not.toBeNull();
-    expect(screen.queryByText("Asking Bee6…", { selector: "p" })).toBeNull();
+    expect(screen.queryByText("Bee6 is writing a proposal", { selector: "p" })).toBeNull();
   });
 
   it("409 GENERATION_IN_PROGRESS gives up after two model timeouts with the still-working line", async () => {
@@ -345,8 +401,72 @@ describe("SupervisorProposals — ask (D2-03d)", () => {
       vi.advanceTimersByTime(120_000);
       await Promise.resolve();
     });
-    expect(screen.queryByText("Asking Bee6…", { selector: "p" })).toBeNull();
+    expect(screen.queryByText("Bee6 is writing a proposal", { selector: "p" })).toBeNull();
     expect(screen.getByText("Bee6 is still working. Reload this page in a moment.")).not.toBeNull();
+  });
+});
+
+// R-24 D11 (plan 3.11): the estimated wait belongs to THIS tab's own Ask only; a 409 never shows it.
+describe("SupervisorProposals — estimated wait while asking (R-24 D11)", () => {
+  const ESTIMATE: AskEstimate = { min_s: 10, max_s: 30 };
+  const FAKE: { toFake: ("setTimeout" | "clearTimeout" | "setInterval" | "clearInterval")[] } = {
+    toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"],
+  };
+
+  async function clickAsk() {
+    await act(async () => {
+      await Promise.resolve();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ask Bee6 for a proposal" }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+  }
+
+  it("calling with an estimate: the range, not 'up to a minute'; the overrun line after max_s", async () => {
+    vi.useFakeTimers(FAKE);
+    proposalsResult = listOk({ open: [], decided: [], watch: watchOf([row("CUSTOMER_SERVICE", 2, "ready")]) });
+    authedPostJson.mockImplementationOnce(() => new Promise(() => {}));
+    renderScreen(undefined, ESTIMATE);
+    await clickAsk();
+    const block = screen.getByText("Bee6 is writing a proposal", { selector: "p" }).closest("[role='status']") as HTMLElement;
+    expect(block.textContent).toContain("Usually 10–30 seconds");
+    expect(block.textContent).not.toContain("up to a minute");
+    await act(async () => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(block.textContent).toContain("Taking longer than usual. Bee6 is still working. Keep this page open.");
+  });
+
+  it("calling without an estimate (flag off): today's body line, never the range", async () => {
+    vi.useFakeTimers(FAKE);
+    proposalsResult = listOk({ open: [], decided: [], watch: watchOf([row("CUSTOMER_SERVICE", 2, "ready")]) });
+    authedPostJson.mockImplementationOnce(() => new Promise(() => {}));
+    renderScreen(undefined, null);
+    await clickAsk();
+    const block = screen.getByText("Bee6 is writing a proposal", { selector: "p" }).closest("[role='status']") as HTMLElement;
+    expect(block.textContent).toContain("This can take up to a minute. Please keep this page open.");
+    expect(block.textContent).not.toContain("Usually");
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(block.textContent).not.toContain("Taking longer than usual");
+  });
+
+  it("409 waiting with an estimate: the plain body, no range, and no overrun line however long it waits", async () => {
+    vi.useFakeTimers(FAKE);
+    proposalsResult = listOk({ open: [], decided: [], watch: watchOf([row("CUSTOMER_SERVICE", 2, "ready")]) });
+    authedPostJson.mockResolvedValue({ kind: "conflict", code: "GENERATION_IN_PROGRESS" });
+    renderScreen(undefined, ESTIMATE);
+    await clickAsk();
+    const block = screen.getByText("Bee6 is writing a proposal", { selector: "p" }).closest("[role='status']") as HTMLElement;
+    expect(block.textContent).toContain("This can take up to a minute. Please keep this page open.");
+    expect(block.textContent).not.toContain("Usually");
+    await act(async () => {
+      vi.advanceTimersByTime(40_000);
+    });
+    expect(block.textContent).toContain("This can take up to a minute.");
+    expect(block.textContent).not.toContain("Taking longer than usual");
   });
 });
 
@@ -359,12 +479,12 @@ describe("SupervisorProposals — detail, feasible, reject", () => {
     });
     const bridge = vi.fn();
     renderScreen(bridge);
-    fireEvent.click(await screen.findByRole("button", { name: "Open proposal: Write the bake time" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Review proposal: Write the bake time" }));
     await screen.findByRole("heading", { level: 1, name: "Write the bake time" });
     return bridge;
   }
 
-  it("Open shows the detail; ‹ Proposals returns to the list", async () => {
+  it("Review shows the detail; ‹ Proposals returns to the list", async () => {
     await openFirst();
     expect(screen.queryByText("WHAT BEE6 IS WATCHING")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "‹ Proposals" }));

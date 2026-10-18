@@ -1,205 +1,64 @@
 /*
- * Owner Home (R-19 PR-8 §9.2; page-1 W4; boards D2-07, D2-07c) on the PR-0b tokens (app/globals.css). Mist ground
- * behind everything (position: relative page, content above it). Mobile-first: one column at 360 px in the board's
- * reading order (greeting, waiting list, progress, today in five lines, next review, cost, reset); from 900 px a
- * two-column grid (left: waiting + today; right: progress, next review, cost). Every control is at least 44 px tall.
+ * Owner Home (R-25 T13; boards D2-07, D2-07c) on the page-2 tokens (app/globals.css). The page frame is WebShell's
+ * (`main.b6-main`: a flex column with a 22 px gap, padding 22/32/56 from 900 px), so this file only styles the blocks
+ * inside it. Mobile-first: one column at 360 px in the board's reading order (greeting, progress, waiting, today in five
+ * lines, next review, cost); from 900 px the bottom row is two columns (five lines left, review + cost right). Every
+ * control and link target is at least 44 px tall.
  */
-
-/* cancels the browser's default 8px body margin on this page only, so the ground colour reaches the screen edge */
-:global(body):has(.page) {
-  margin: 0;
-}
-
-.page {
-  position: relative;
-  min-height: 100dvh;
-  background: var(--b6-ground);
-  color: var(--b6-ink);
-  font-family: var(--b6-font-sans);
-}
-
-.main {
-  position: relative;
-  box-sizing: border-box;
-  max-width: 1040px;
-  margin: 0 auto;
-  /* 16 px at the top like every page under the top bar: the brand's 44 px box overhangs its row by 13 px (shell.module.css) */
-  padding: 16px 16px 32px;
-  padding-left: max(16px, env(safe-area-inset-left));
-  padding-right: max(16px, env(safe-area-inset-right));
-}
 
 .status {
   margin: 8px 0;
 }
 
 .retry {
-  margin-top: 8px;
+  align-self: flex-start;
 }
 
-.head {
-  margin: 12px 0 16px;
-}
-
-.h1 {
-  margin: 0;
-  font-size: 30px;
-  font-weight: 600;
-  line-height: 1.15;
-  letter-spacing: -0.5px;
+/* ---- greeting: board h1 44px/300/-0.7px and a 17px muted line (PageHead supplies the h1 + sub elements) ---- */
+.hello h1 {
+  font-size: 36px;
+  letter-spacing: -0.6px;
   overflow-wrap: anywhere;
 }
 
-.date {
-  margin: 4px 0 0;
-  font-size: var(--b6-fs-body);
-  color: var(--b6-muted);
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  grid-template-areas:
-    "waiting"
-    "progress"
-    "today"
-    "review"
-    "cost";
-  gap: 12px;
-}
-
-.waiting {
-  grid-area: waiting;
-}
-.progress {
-  grid-area: progress;
-}
-.today {
-  grid-area: today;
-}
-.review {
-  grid-area: review;
-}
-.cost {
-  grid-area: cost;
+.hello p {
+  margin-top: 6px;
+  font-size: 16px;
 }
 
 @media (min-width: 900px) {
-  .grid {
-    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-    grid-template-areas:
-      "waiting progress"
-      "today review"
-      "today cost";
-    align-items: start;
-    gap: 16px;
+  .hello h1 {
+    font-size: 44px;
+    line-height: 1.1;
+    letter-spacing: -0.7px;
+  }
+
+  .hello p {
+    font-size: 17px;
   }
 }
 
-.card {
+.kick {
+  margin: 0;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+/* ---- progress (glass) ---- */
+.progress {
   box-sizing: border-box;
-  padding: 18px 20px 20px;
-}
-
-.cardTitle {
-  margin: 0 0 12px;
-  font-size: var(--b6-fs-title);
-  font-weight: 600;
-  line-height: 1.3;
-  overflow-wrap: anywhere;
-}
-
-.line {
-  margin: 0 0 8px;
-  font-size: var(--b6-fs-body);
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-
-.muted {
-  color: var(--b6-muted);
-}
-
-/* The empty state sits inside a card: no outer margin. */
-.emptyInCard {
-  margin: 0;
-}
-
-/* ---- waiting list ---- */
-.rows {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.row {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px 12px;
-  padding: 12px 0;
-  border-top: 1px solid var(--b6-line);
-}
-
-.row:first-child {
-  border-top: 0;
-  padding-top: 0;
-}
-
-.rowText {
-  display: flex;
-  flex: 1 1 200px;
   flex-direction: column;
-  gap: 2px;
-  min-width: 0;
+  gap: 12px;
+  padding: 18px 20px;
 }
 
-.rowTitle {
-  font-size: var(--b6-fs-lead);
-  font-weight: 600;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
-}
-
-.rowNote {
-  font-size: var(--b6-fs-small);
-  color: var(--b6-muted);
-}
-
-/* Text link that keeps the 44 x 48 px target (CLAUDE.md §2 global constraint) whatever the copy: "Tinjau" (the
-   Bahasa Review) is 38 px wide on its own (integration QA, 360 px), so the box, not the label, sets the width. */
-.link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 44px;
-  min-height: 48px;
-  color: var(--b6-teal-ink);
-  font-size: var(--b6-fs-ui);
-  font-weight: 500;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-.link:focus-visible {
-  outline: 2px solid var(--b6-focus);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-
-/* ---- progress ---- */
 .progressHead {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px 12px;
-  margin-bottom: 12px;
-}
-
-.progressHead .cardTitle {
-  margin: 0;
 }
 
 .switch {
@@ -207,35 +66,281 @@
   max-width: 100%;
 }
 
-.tiles {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 10px;
+.progressBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-/* ---- today in five lines ---- */
-.lines {
+.progressLine {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 300;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.tick {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--b6-teal-bg);
+  color: var(--b6-teal-ink);
+}
+
+.progressSub {
+  margin: 0;
+  font-size: var(--b6-fs-ui);
+  line-height: 1.5;
+  color: var(--b6-muted);
+}
+
+@media (min-width: 900px) {
+  .progress {
+    padding: 20px 26px;
+  }
+
+  .progressLine {
+    font-size: 20px;
+  }
+}
+
+/* ---- waiting for your approval (card) ---- */
+.waiting {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.waitingEmpty {
+  gap: 6px;
+  padding: 18px 20px;
+}
+
+.waitingDone {
+  margin: 0;
+  font-size: var(--b6-fs-lead);
+  line-height: 1.4;
+}
+
+.waitingHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px 14px;
+}
+
+.waitingTitles {
+  display: flex;
+  flex: 1 1 220px;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.waitingSub {
+  font-size: var(--b6-fs-ui);
+  line-height: 1.45;
+  color: var(--b6-muted);
+}
+
+p.waitingSub {
+  margin: 0;
+}
+
+.inOrder {
+  flex: 0 0 auto;
+}
+
+.rows {
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.lineItem {
-  padding: 10px 0;
-  border-top: 1px solid var(--b6-line);
+.rowItem {
+  border-top: 1px solid var(--b6-line-soft);
 }
 
-.lineItem:first-child {
-  border-top: 0;
-  padding-top: 0;
+.row {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 56px;
+  padding: 14px 20px;
+  color: var(--b6-ink);
+  text-decoration: none;
 }
 
-.lineMeta {
-  margin: 0 0 2px;
+.row:hover {
+  background: var(--b6-surface-soft);
+}
+
+.row:focus-visible,
+.softLink:focus-visible {
+  outline: 2px solid var(--b6-focus);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+.rowNo {
+  flex: 0 0 auto;
   font-family: var(--b6-font-mono);
-  font-size: var(--b6-fs-kicker);
-  letter-spacing: 0.3px;
+  font-size: var(--b6-fs-small);
   color: var(--b6-muted);
+}
+
+.rowTitle {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: var(--b6-fs-lead);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.rowArrow {
+  flex: none;
+  font-size: 18px;
+  color: var(--b6-muted);
+}
+
+.moreLine {
+  margin: 0;
+  padding: 0 20px;
+  border-top: 1px solid var(--b6-line-soft);
+}
+
+.oneAtATime {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 4px 12px 12px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--b6-surface-soft);
+  box-shadow: inset 0 0 0 1px var(--b6-line);
+}
+
+.oneIcon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--b6-muted);
+}
+
+.oneText {
+  margin: 0;
+  font-size: var(--b6-fs-ui);
+  line-height: 1.55;
+  color: var(--b6-ink-soft);
+}
+
+.oneLead {
+  margin-right: 0.28em;
+  font-weight: 600;
+}
+
+@media (min-width: 900px) {
+  .waitingEmpty {
+    padding: 22px 26px;
+  }
+
+  .waitingHead {
+    padding: 22px 26px 16px;
+  }
+
+  .row {
+    padding: 16px 26px;
+  }
+
+  .moreLine {
+    padding: 0 26px;
+  }
+
+  .oneAtATime {
+    margin: 4px 16px 16px;
+    padding: 14px 18px;
+  }
+}
+
+/* A quiet text link that keeps a 44 px tall target whatever its copy. */
+.softLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--b6-muted);
+  font-size: var(--b6-fs-ui);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.softLink:hover {
+  color: var(--b6-ink);
+}
+
+/* ---- today in five lines / next review / cost ---- */
+.bottom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px 24px;
+}
+
+.today {
+  box-sizing: border-box;
+  display: flex;
+  flex: 2 1 420px;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 18px 20px;
+}
+
+.side {
+  display: flex;
+  flex: 1 1 260px;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: var(--b6-fs-title);
+  font-weight: 500;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  margin: 0;
+  font-size: var(--b6-fs-ui);
+  color: var(--b6-muted);
+}
+
+.lines {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 0;
+  padding-left: 20px;
+  font-size: var(--b6-fs-body);
+  line-height: 1.5;
+  color: var(--b6-ink-soft);
+}
+
+.lines li {
+  overflow-wrap: anywhere;
 }
 
 .lineText {
@@ -249,11 +354,52 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0 20px;
-  margin-top: 4px;
 }
 
-/* ---- reset area (PR-7 control, demo owner only; renders nothing elsewhere) ---- */
-.reset {
-  margin-top: 24px;
-  max-width: 360px;
+.review {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 20px;
+}
+
+.reviewMain {
+  font-size: var(--b6-fs-body);
+  overflow-wrap: anywhere;
+}
+
+.reviewMono {
+  font-family: var(--b6-font-mono);
+  font-size: var(--b6-fs-small);
+  color: var(--b6-muted);
+}
+
+.cost {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 20px;
+  border-radius: var(--b6-r-glass);
+  box-shadow: inset 0 0 0 1px var(--b6-line);
+}
+
+.costSoon {
+  font-size: var(--b6-fs-ui);
+  color: var(--b6-muted);
+}
+
+@media (min-width: 900px) {
+  .today {
+    padding: 22px 26px;
+  }
+
+  .review {
+    padding: 22px 24px;
+  }
+
+  .cost {
+    padding: 20px 24px;
+  }
 }

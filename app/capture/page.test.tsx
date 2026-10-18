@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEBRIEF_DONE_FLAG_KEY, DEBRIEF_DONE_SUMMARY_KEY } from "@/lib/debrief/constants";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
@@ -170,6 +170,9 @@ const DEMO_PROFILE = {
   open_session: null,
   next_day: { allowed: false, reason: "day_not_ended" },
 };
+
+// R-25 (ruling R10, board P2-05): on a sandbox the one red footer link replaces "Cancel session" and the header Sign out.
+const SIGN_OUT_RUNNING_LINK = "Sign out (cancels today's session)";
 
 function pinClock(iso: string) {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -546,7 +549,7 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
     fetchCaptureConfig.mockResolvedValue(demoConfig(extra));
     await renderReady();
     fireEvent.click(await screen.findByRole("button", { name: "Start" }));
-    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Listening" })).toBeTruthy());
   }
   /** Plan 5.4/5.5: "Jump to closing time" lives in the judge guide card (PR-5), which calls the page's action through the bridge. */
   async function reachClosing() {
@@ -628,11 +631,15 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
     expect((screen.getByRole("button", { name: END_LOCKED }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("after Jump to closing time the sandbox no longer offers Cancel session (the server refuses it with 409 closing_reached)", async () => {
+  it("after Jump to closing time the sandbox offers no Cancel session and no cancelling link (the server refuses it with 409 closing_reached)", async () => {
     await renderDemoRunning();
-    expect(screen.getByRole("button", { name: "Cancel session" })).toBeTruthy();
+    // R-25 R10: there is no Cancel session on a sandbox at all; before closing the footer link cancels, after it a plain Sign out.
+    expect(screen.queryByRole("button", { name: "Cancel session" })).toBeNull();
+    expect(screen.getByRole("button", { name: SIGN_OUT_RUNNING_LINK })).toBeTruthy();
     await reachClosing();
     expect(screen.queryByRole("button", { name: "Cancel session" })).toBeNull();
+    expect(screen.queryByRole("button", { name: SIGN_OUT_RUNNING_LINK })).toBeNull();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "End today" })).toBeTruthy();
   });
 
@@ -644,7 +651,7 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
     await screen.findByRole("button", { name: "Start" });
     expect(screen.getByText("Day 1 of 3 · Mon 12 Oct")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Start" }));
-    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Listening" })).toBeTruthy());
     expect(screen.getByText("Day 1 of 3 · Mon 12 Oct")).toBeTruthy();
     cleanup();
     const { demo_session: _drop, ...pilot } = demoConfig();
@@ -671,14 +678,14 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
     expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "auto_stop" });
     await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
     expect(screen.queryByText("End today's operations?")).toBeNull();
-    await waitFor(() => expect(screen.queryByText("Listening")).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Listening" })).toBeNull());
   });
 
   it("a start after close + 1 h (23:10 WIB, close 22:00) is not stopped at once: nothing before 9:58, exactly one auto_stop at 10:00", async () => {
     await renderDemoRunning("2026-10-12T16:10:00Z"); // Mon 23:10 WIB
     await vi.advanceTimersByTimeAsync(9 * 60_000 + 58_000);
     expect(postSessionEnd).not.toHaveBeenCalled();
-    expect(screen.getByText("Listening")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Listening" })).toBeTruthy();
     await vi.advanceTimersByTimeAsync(3_000);
     await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
     expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "auto_stop" });
@@ -742,6 +749,40 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
     expect(screen.queryByText(/Run today first/)).toBeNull();
   });
 
+  // R-25 idle fix (QA R25-001), case F: the page was closed during the hour, so on reload the debrief is expired
+  // and has no done flag. DebriefFlow hands the page's idle stage back instead of rendering nothing.
+  describe("an expired debrief that was never opened or finished (reload after the hour)", () => {
+    const expiredEnded = () => ({
+      ...demoConfig({ demo_session: { ...DEMO_PROFILE, days_done: 1, next_day: { allowed: true, reason: null } } }),
+      last_ended: { business_date: "2026-10-12", end_reason: "selesai", debrief_ends_at_ms: Date.parse(MON_2230_WIB) - 60_000 },
+    });
+
+    it("case F: no done flag shows the ended stage (Ended, locked Start, jump hint, one notice), not a blank page", async () => {
+      pinClock(MON_2230_WIB);
+      fetchCaptureConfig.mockResolvedValue(expiredEnded());
+      const { container } = await renderReady();
+      expect(await screen.findByRole("heading", { level: 1, name: "Ended" })).toBeTruthy();
+      expect(screen.getByText("Demo day finished. Switch to Supervisor to see it.")).toBeTruthy();
+      expect((screen.getByRole("button", { name: "Start unlocks tomorrow from 01:00" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.getByText("Use Jump to tomorrow in the judge guide")).toBeTruthy();
+      expect(screen.getAllByTestId("capture-notice")).toHaveLength(1);
+      expect(screen.queryByText("Debrief closed")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+      expect(container.querySelector(".b6-stage--done")).toBeTruthy();
+    });
+
+    it("case E guard: with the done flag the Debrief complete summary still shows, with one notice and no Ended stage", async () => {
+      pinClock(MON_2230_WIB);
+      seedDoneFlag(Date.parse(MON_2230_WIB) - 60_000);
+      fetchCaptureConfig.mockResolvedValue(expiredEnded());
+      await renderReady();
+      expect(await screen.findByRole("heading", { level: 1, name: "Debrief complete" })).toBeTruthy();
+      expect(screen.getByText("Use Jump to tomorrow in the judge guide")).toBeTruthy();
+      expect(screen.getAllByTestId("capture-notice")).toHaveLength(1);
+      expect(screen.queryByRole("heading", { name: "Ended" })).toBeNull();
+    });
+  });
+
   it("item 8: after End the sandbox never offers a 'tap Start again <date>' line", async () => {
     stubPreparingQuestions();
     await renderDemoRunning();
@@ -764,19 +805,38 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
     await screen.findByText("Day 1 of 3 · Mon 12 Oct");
     const mulai = screen.getAllByRole("button", { name: "Start" }).find((b) => !panel.contains(b))!;
     fireEvent.click(mulai);
-    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Listening" })).toBeTruthy());
     act(() => {
       lastCallbacks?.onEvent?.({ type: "segment_accepted", lines: 2 });
       lastCallbacks?.onEvent?.({ type: "segment_accepted", lines: 3 });
     });
     await waitFor(() => expect(screen.getByTestId("dev-readouts").textContent).toMatch(/Lines heard: 5/));
+    // R-25 (ruling R10): a sandbox has no Cancel session to retake the day, so the "a new Start resets the count"
+    // half runs on the pilot screen, where Cancel still exists (the reset is in handleMulaiTap, not mode-specific).
+    cleanup();
+    vi.setSystemTime(new Date("2026-10-12T03:00:00Z")); // Mon 10:00 WIB, inside the pilot's Mulai window
+    const { demo_session: _sandboxOnly, ...pilot } = demoConfig();
+    fetchCaptureConfig.mockResolvedValue(pilot);
+    await renderReady();
+    const pilotPanel = await screen.findByTestId("dev-panel");
+    const pilotMulai = () => screen.getAllByRole("button", { name: "Start" }).find((b) => !pilotPanel.contains(b))!;
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Start" }).some((b) => !pilotPanel.contains(b))).toBe(true));
+    fireEvent.click(pilotMulai());
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    act(() => {
+      lastCallbacks?.onEvent?.({ type: "segment_accepted", lines: 2 });
+    });
+    await waitFor(() => expect(screen.getByTestId("dev-readouts").textContent).toMatch(/Lines heard: 2/));
     await vi.advanceTimersByTimeAsync(1_000);
     fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
     await vi.advanceTimersByTimeAsync(1_000);
     fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
     await waitFor(() => expect(postSessionDiscard).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.getAllByRole("button", { name: "Start" }).some((b) => !panel.contains(b))).toBe(true));
-    fireEvent.click(screen.getAllByRole("button", { name: "Start" }).find((b) => !panel.contains(b))!);
+    // the pilot offers Start again from the next day's 01:00; move the clock there and let the page's 30 s tick see it
+    vi.setSystemTime(new Date("2026-10-12T18:00:00Z"));
+    await vi.advanceTimersByTimeAsync(30_000);
+    await waitFor(() => expect(pilotMulai().getAttribute("aria-disabled")).toBeNull());
+    fireEvent.click(pilotMulai());
     await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
     expect(screen.getByTestId("dev-readouts").textContent).toMatch(/Lines heard: 0/);
     cleanup();
@@ -833,7 +893,7 @@ describe("CapturePage judge-guide bridge (R-19 PR-5, sandbox only)", () => {
   async function renderDemoRunning() {
     const view = await renderDemoIdle();
     fireEvent.click(view.start);
-    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Listening" })).toBeTruthy());
     return view;
   }
   const END_LOCKED = "End · available at closing time (22:00)";
@@ -971,7 +1031,7 @@ describe("CapturePage judge-guide bridge (R-19 PR-5, sandbox only)", () => {
       await bridge().actions.refetchConfig();
     });
     fireEvent.click(await screen.findByRole("button", { name: "Start" }));
-    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Listening" })).toBeTruthy());
     expect(screen.queryByText(LOST)).toBeNull();
     act(() => lastCallbacks?.onStatus?.({ ...okStatus, droppedCount: 1, lostSinceSuccess: true }));
     expect(screen.getByText(LOST)).toBeTruthy();
@@ -1002,11 +1062,12 @@ describe("CapturePage judge-guide bridge (R-19 PR-5, sandbox only)", () => {
     });
     expect(fetchCaptureConfig).toHaveBeenCalledTimes(callsBefore + 1);
     const start = await screen.findByRole("button", { name: "Start" });
-    expect(screen.getByText("Day 2 of 3 · Mon 12 Oct")).toBeTruthy();
+    // R-25 T5b: the debrief-mounted dayLine was above DebriefFlow; now DebriefPreparing owns it. The timeout
+    // state has no day line visible (only Preparing does); the Start button still shows via the footer.
     await waitFor(() => expect(bridge().state.phase).toBe("ready"));
     expect(bridge().state.profile.day).toBe(2);
     fireEvent.click(start);
-    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Listening" })).toBeTruthy());
     const locked = screen.getByRole("button", { name: END_LOCKED }) as HTMLButtonElement;
     expect(locked.disabled).toBe(true);
     expect(screen.queryByRole("button", { name: "End today" })).toBeNull();
@@ -1070,33 +1131,39 @@ describe("CapturePage judge-guide bridge (R-19 PR-5, sandbox only)", () => {
       </LangProvider>,
     );
     fireEvent.click(await screen.findByRole("button", { name: "Start" }));
-    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
-    const handle = await screen.findByRole("button", { name: /Open the judge guide/ });
-    expect(handle.getAttribute("aria-expanded")).toBe("false");
-    expect(handle.textContent).toContain("Read this card aloud");
-    expect(handle.textContent).toContain("Day 1 of 3");
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Listening" })).toBeTruthy());
+    // Item 9: the guide auto-opens on Mulai (ready → listening transition)
+    const handle = await screen.findByRole("button", { name: /Close the judge guide/ });
+    expect(handle.getAttribute("aria-expanded")).toBe("true");
+    // The open guide shows the script card; collapse it to check the handle title
+    fireEvent.click(handle);
+    const closedHandle = screen.getByRole("button", { name: /Open the judge guide/ });
+    expect(closedHandle.getAttribute("aria-expanded")).toBe("false");
+    // R-25 T6: the handle title names the card on screen ("Read card n of 5 aloud"), not the card heading.
+    expect(closedHandle.textContent).toContain("Read card 1 of 5 aloud");
+    expect(closedHandle.textContent).toContain("Day 1 of 3");
     const reserve = container.querySelector("[data-testid='guide-sheet-reserve']") as HTMLElement;
     expect(reserve.style.height).toBe(`calc(${SHEET_RESERVE_PX}px + env(safe-area-inset-bottom))`);
     const precedes = (el: Element) => Boolean(el.compareDocumentPosition(reserve) & Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(precedes(screen.getByText("Listening"))).toBe(true);
+    expect(precedes(screen.getByRole("heading", { name: "Listening" }))).toBe(true);
     expect(precedes(screen.getByRole("button", { name: END_LOCKED }))).toBe(true);
-    expect(precedes(screen.getByRole("button", { name: "Cancel session" }))).toBe(true);
+    expect(precedes(screen.getByRole("button", { name: SIGN_OUT_RUNNING_LINK }))).toBe(true);
     for (let el: HTMLElement | null = screen.getByRole("button", { name: END_LOCKED }); el; el = el.parentElement) {
       expect(el.style.position).not.toBe("fixed");
     }
     expect(document.querySelector("[inert], [aria-hidden='true'] button")).toBeNull();
     // the card: 5 cards, 1 heard line each, then Jump to closing time calls the page and End unlocks
-    fireEvent.click(handle);
+    fireEvent.click(closedHandle);
     for (let i = 1; i <= 5; i += 1) {
       expect(screen.getByText(`Card ${i} of 5`)).toBeTruthy();
       act(() => lastCallbacks?.onEvent?.({ type: "segment_accepted", lines: 1 }));
-      await waitFor(() => expect((screen.getByRole("button", { name: "I have spoken this" }) as HTMLButtonElement).disabled).toBe(false));
-      fireEvent.click(screen.getByRole("button", { name: "I have spoken this" }));
+      await waitFor(() => expect((screen.getByRole("button", { name: /I have spoken this/ }) as HTMLButtonElement).disabled).toBe(false));
+      fireEvent.click(screen.getByRole("button", { name: /I have spoken this/ }));
     }
     fireEvent.click(screen.getByRole("button", { name: "Jump to closing time" }));
     await waitFor(() => expect(postDemoClosing).toHaveBeenCalledTimes(1));
     expect((await screen.findByRole("button", { name: "End today" }) as HTMLButtonElement).disabled).toBe(false);
-    await waitFor(() => expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("Tap End today"));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("All cards spoken · jump to closing"));
   });
 
   it("pilot: no script drawer, no guide bridge, and the page container style is the unchanged pilot style", async () => {
@@ -1143,7 +1210,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
     fetchCaptureConfig.mockResolvedValue(demoConfig());
     await renderReady();
     fireEvent.click(await screen.findByRole("button", { name: "Start" }));
-    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Listening" })).toBeTruthy());
   }
   /** "Jump to closing time" now lives in the judge guide (PR-5): the test calls the action the guide calls. */
   async function reachClosing() {
@@ -1158,7 +1225,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
     });
 
   describe("sign-out button", () => {
-    it("is on the top bar of a sandbox device, and absent on the pilot", async () => {
+    it("is a footer link on a sandbox device (no header button), and absent on the pilot", async () => {
       pinClock(MON_2230_WIB);
       fetchCaptureConfig.mockResolvedValue(pilotConfig());
       await renderReady();
@@ -1186,31 +1253,31 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
 
     it("before closing, running: asks first; Keep listening changes nothing", async () => {
       await startDemoSession();
-      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      fireEvent.click(screen.getByRole("button", { name: SIGN_OUT_RUNNING_LINK }));
       expect(screen.getByRole("dialog", { name: "Sign out and cancel today?" })).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: "Keep listening" }));
       expect(screen.queryByRole("dialog")).toBeNull();
       expect(clearDeviceAuth).not.toHaveBeenCalled();
       expect(postSessionDiscard).not.toHaveBeenCalled();
       expect(fakeSessions[0]!.stop).not.toHaveBeenCalled();
-      expect(screen.getByText("Listening")).toBeTruthy();
+      expect(screen.getByRole("heading", { name: "Listening" })).toBeTruthy();
     });
 
-    it("the dialog takes focus on open and gives it back to the top-bar Sign out button on dismiss (a11y)", async () => {
+    it("the dialog takes focus on open and gives it back to the footer sign-out link on dismiss (a11y)", async () => {
       await startDemoSession();
-      const signOut = screen.getByRole("button", { name: "Sign out" });
+      const signOut = screen.getByRole("button", { name: SIGN_OUT_RUNNING_LINK });
       signOut.focus();
       fireEvent.click(signOut);
       expect(document.activeElement).toBe(screen.getByRole("button", { name: "Keep listening" }));
       fireEvent.keyDown(document.body, { key: "Escape" }); // Escape works anywhere while the dialog is open
       expect(screen.queryByRole("dialog")).toBeNull();
-      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Sign out" }));
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: SIGN_OUT_RUNNING_LINK }));
     });
 
     it("before closing: Sign out and cancel calls the existing discard route, stops the engine, THEN clears the device and leaves", async () => {
       await startDemoSession();
       const sessionId = startCaptureSession.mock.calls[0]![3];
-      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      fireEvent.click(screen.getByRole("button", { name: SIGN_OUT_RUNNING_LINK }));
       fireEvent.click(screen.getByRole("button", { name: "Sign out and cancel" }));
       await waitFor(() => expect(replace).toHaveBeenCalledWith("/"));
       expect(postSessionDiscard).toHaveBeenCalledTimes(1);
@@ -1224,7 +1291,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
     it("a failed discard keeps the judge here: the error shows, the session keeps listening, nothing is cleared", async () => {
       await startDemoSession();
       postSessionDiscard.mockImplementationOnce(async () => ({ ok: false, status: 409, code: "session_ended" }));
-      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      fireEvent.click(screen.getByRole("button", { name: SIGN_OUT_RUNNING_LINK }));
       fireEvent.click(screen.getByRole("button", { name: "Sign out and cancel" }));
       await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
       expect(screen.getByRole("dialog")).toBeTruthy();
@@ -1236,7 +1303,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
     it("discard 409 closing_reached (the server already marked closing): the dialog becomes the after-closing one, nothing is deleted or cleared", async () => {
       await startDemoSession();
       postSessionDiscard.mockImplementationOnce(async () => ({ ok: false, status: 409, code: "closing_reached" }));
-      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      fireEvent.click(screen.getByRole("button", { name: SIGN_OUT_RUNNING_LINK }));
       fireEvent.click(screen.getByRole("button", { name: "Sign out and cancel" }));
       await screen.findByRole("dialog", { name: "Sign out?" });
       expect(clearDeviceAuth).not.toHaveBeenCalled();
@@ -1331,7 +1398,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
 
     it("the running dialog goes away when the 10-min auto-stop ends the session underneath it; no discard, no sign-out", async () => {
       await startDemoSession();
-      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      fireEvent.click(screen.getByRole("button", { name: SIGN_OUT_RUNNING_LINK }));
       expect(screen.getByRole("dialog", { name: "Sign out and cancel today?" })).toBeTruthy();
       // The sandbox hard stop: start + max_ms (10 min), seen by the 1 s demo tick.
       await act(async () => {
@@ -1348,7 +1415,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       await startDemoSession();
       let resolveEnd: (v: { ok: true }) => void = () => {};
       postSessionEnd.mockImplementationOnce(() => new Promise((resolve) => { resolveEnd = resolve; }));
-      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      fireEvent.click(screen.getByRole("button", { name: SIGN_OUT_RUNNING_LINK }));
       await act(async () => {
         await vi.advanceTimersByTimeAsync(600_000 + 2_000);
       });
@@ -1364,7 +1431,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
 
     it("never shows a device id anywhere on the screen", async () => {
       await startDemoSession();
-      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      fireEvent.click(screen.getByRole("button", { name: SIGN_OUT_RUNNING_LINK }));
       expect(document.body.textContent).not.toContain("deviceId");
     });
   });
@@ -1388,8 +1455,8 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       expect(clearDeviceAuth).not.toHaveBeenCalled();
       expect(replace).not.toHaveBeenCalled();
       resolveStart({ ok: true });
-      await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
-      expect((screen.getByRole("button", { name: "Sign out" }) as HTMLButtonElement).disabled).toBe(false);
+      await waitFor(() => expect(screen.getByRole("heading", { name: "Listening" })).toBeTruthy());
+      expect((screen.getByRole("button", { name: SIGN_OUT_RUNNING_LINK }) as HTMLButtonElement).disabled).toBe(false);
     });
 
     it("Sign out is disabled while the engine is still starting (startCaptureSession pending)", async () => {
@@ -1403,7 +1470,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       expect(clearDeviceAuth).not.toHaveBeenCalled();
       const session: FakeSession = { stop: vi.fn(() => Promise.resolve({ droppedCount: 0, queuedCount: 0 })) };
       resolveEngine(session);
-      await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+      await waitFor(() => expect(screen.getByRole("heading", { name: "Listening" })).toBeTruthy());
       expect(session.stop).not.toHaveBeenCalled();
     });
 
@@ -1428,10 +1495,97 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       postSessionEnd.mockImplementationOnce(() => new Promise((resolve) => { resolveEnd = resolve; }));
       await renderReady();
       fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+      fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
       await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
       expect((screen.getByRole("button", { name: "Sign out" }) as HTMLButtonElement).disabled).toBe(true);
       resolveEnd({ ok: true });
       await waitFor(() => expect((screen.getByRole("button", { name: "Sign out" }) as HTMLButtonElement).disabled).toBe(false));
+    });
+  });
+
+  // R25-003 (boards L2-*): from 900 px the one sign-out control is the header's secondary button, no footer link.
+  describe("sign-out at >= 900 px (R25-003)", () => {
+    beforeEach(() => {
+      vi.stubGlobal("matchMedia", (q: string) => ({
+        matches: q === "(min-width: 900px)",
+        media: q,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }));
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    const headerOf = (container: HTMLElement) => within(container.querySelector("header")!);
+    const mainOf = (container: HTMLElement) => within(container.querySelector("main")!);
+
+    it("idle: the header carries Sign out and the footer has none; the header button signs out at once", async () => {
+      pinClock(MON_2230_WIB);
+      fetchCaptureConfig.mockResolvedValue(demoConfig());
+      const { container } = await renderReady();
+      await screen.findByRole("button", { name: "Start" });
+      expect(headerOf(container).getByRole("button", { name: "Sign out" })).toBeTruthy();
+      expect(mainOf(container).queryByRole("button", { name: /Sign out/ })).toBeNull();
+      fireEvent.click(headerOf(container).getByRole("button", { name: "Sign out" }));
+      expect(screen.queryByRole("dialog")).toBeNull(); // no session: nothing to ask
+      expect(clearDeviceAuth).toHaveBeenCalledTimes(1);
+      expect(replace).toHaveBeenCalledWith("/");
+    });
+
+    it("running before closing: the header button opens the cancel-today dialog; no red footer link anywhere", async () => {
+      await startDemoSession();
+      const container = document.body;
+      expect(headerOf(container).getByRole("button", { name: "Sign out" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: SIGN_OUT_RUNNING_LINK })).toBeNull();
+      expect(mainOf(container).queryByRole("button", { name: /Sign out/ })).toBeNull();
+      fireEvent.click(headerOf(container).getByRole("button", { name: "Sign out" }));
+      expect(screen.getByRole("dialog", { name: "Sign out and cancel today?" })).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Keep listening" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(postSessionDiscard).not.toHaveBeenCalled();
+    });
+
+    it("after closing: the header button opens the closed dialog (nothing is deleted)", async () => {
+      await startDemoSession();
+      await reachClosing();
+      const header = headerOf(document.body);
+      fireEvent.click(header.getByRole("button", { name: "Sign out" }));
+      expect(screen.getByRole("dialog", { name: "Sign out?" })).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Stay" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(postSessionDiscard).not.toHaveBeenCalled();
+      expect(clearDeviceAuth).not.toHaveBeenCalled();
+    });
+
+    it("open-session view: the header carries Sign out, the footer has none", async () => {
+      vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+      vi.setSystemTime(new Date(MON_2230_WIB));
+      fetchCaptureConfig.mockResolvedValue(demoConfig({ open_session: open({ closing_reached: true }), closing_reached: true }));
+      const { container } = await renderReady();
+      await screen.findByRole("heading", { name: "Today's session is still open" });
+      expect(headerOf(container).getByRole("button", { name: "Sign out" })).toBeTruthy();
+      expect(mainOf(container).queryByRole("button", { name: /Sign out/ })).toBeNull();
+    });
+
+    it("the header button is disabled while the Start request is in flight", async () => {
+      vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+      vi.setSystemTime(new Date(MON_2230_WIB));
+      fetchCaptureConfig.mockResolvedValue(demoConfig());
+      let resolveStart: (v: { ok: boolean; status?: number }) => void = () => {};
+      postSessionStart.mockImplementationOnce(() => new Promise((resolve) => { resolveStart = resolve; }));
+      const { container } = await renderReady();
+      fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+      await waitFor(() => expect(postSessionStart).toHaveBeenCalledTimes(1));
+      expect((headerOf(container).getByRole("button", { name: "Sign out" }) as HTMLButtonElement).disabled).toBe(true);
+      resolveStart({ ok: false, status: 500 });
+      await waitFor(() => expect((headerOf(container).getByRole("button", { name: "Sign out" }) as HTMLButtonElement).disabled).toBe(false));
+    });
+
+    it("pilot (no sandbox): no header Sign out even when wide", async () => {
+      pinClock(MON_2230_WIB);
+      fetchCaptureConfig.mockResolvedValue(pilotConfig());
+      await renderReady();
+      await screen.findByRole("button", { name: "Start" });
+      expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
     });
   });
 
@@ -1447,7 +1601,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
 
     it("replaces the idle Start whenever open_session exists (even though Start would be offered): no way to start a second session", async () => {
       await renderWithOpen(open());
-      await screen.findByRole("heading", { name: "Today's session was interrupted." });
+      await screen.findByRole("heading", { name: "Today's session was interrupted" });
       expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
       expect(screen.queryByText("Tap Start to begin today's session.")).toBeNull();
       expect(startCaptureSession).not.toHaveBeenCalled();
@@ -1455,7 +1609,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
 
     it("the page never resumes listening into the old session", async () => {
       await renderWithOpen(open({ closing_reached: true }));
-      await screen.findByRole("heading", { name: "Today's session is still open." });
+      await screen.findByRole("heading", { name: "Today's session is still open" });
       expect(startCaptureSession).not.toHaveBeenCalled();
       expect(postSessionStart).not.toHaveBeenCalled();
     });
@@ -1464,13 +1618,14 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       stubPreparingQuestions();
       await renderWithOpen(open({ closing_reached: true }));
       fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+      fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
       await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
       const [, id, body] = postSessionEnd.mock.calls[0]! as [unknown, string, { started_at_ms: number; ended_at_ms: number; end_reason: string }];
       expect(id).toBe(SID);
       expect(body).toMatchObject({ started_at_ms: STARTED, end_reason: "selesai" });
       expect(body.ended_at_ms).toBe(Date.parse(MON_2230_WIB));
       await waitFor(() => expect(screen.getByText("Preparing your questions")).toBeTruthy());
-      expect(screen.queryByRole("heading", { name: "Today's session is still open." })).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Today's session is still open" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
     });
 
@@ -1478,6 +1633,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       stubPreparingQuestions();
       await renderWithOpen(open({ closing_reached: true }));
       fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+      fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
       await waitFor(() => expect(screen.getByText("Preparing your questions")).toBeTruthy());
       expect(screen.queryByRole("button", { name: "Answer questions" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
@@ -1492,29 +1648,83 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       expect(postSessionDiscard.mock.calls[0]![2]).toMatchObject({ started_at_ms: STARTED });
       expect(postSessionEnd).not.toHaveBeenCalled();
       await screen.findByRole("button", { name: "Start" });
-      expect(screen.queryByRole("heading", { name: "Today's session was interrupted." })).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Today's session was interrupted" })).toBeNull();
     });
 
     it("a failed End keeps the view and shows the generic line; a retry is possible", async () => {
       await renderWithOpen(open({ closing_reached: true }));
       postSessionEnd.mockImplementationOnce(async () => ({ ok: false, status: 500 }));
       fireEvent.click(await screen.findByRole("button", { name: "End today" }));
-      await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Could not process that. Try again."));
-      expect(screen.getByRole("heading", { name: "Today's session is still open." })).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
+      // R25-002: the error shows inside the sheet (once), the sheet stays and "Yes, end" is enabled for the retry.
+      const dialog = await screen.findByRole("dialog", { name: "End today's operations?" });
+      await waitFor(() => expect(within(dialog).getByRole("alert").textContent).toBe("Could not process that. Try again."));
+      expect(screen.getAllByRole("alert")).toHaveLength(1);
+      expect((within(dialog).getByRole("button", { name: "Yes, end" }) as HTMLButtonElement).disabled).toBe(false);
+      fireEvent.click(within(dialog).getByRole("button", { name: "Not yet, keep going" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.queryByRole("alert")).toBeNull(); // dismissing the sheet clears the End error
+      expect(screen.getByRole("heading", { name: "Today's session is still open" })).toBeTruthy();
       expect((screen.getByRole("button", { name: "End today" }) as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it("End today opens the End confirm first; Not yet keeps the open session, nothing posted", async () => {
+      await renderWithOpen(open({ closing_reached: true }));
+      fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+      const dialog = screen.getByRole("dialog", { name: "End today's operations?" });
+      expect(within(dialog).getByText("The 1-hour debrief starts now. This cannot be undone.")).toBeTruthy();
+      expect(postSessionEnd).not.toHaveBeenCalled();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Not yet, keep going" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.getByRole("button", { name: "End today" })).toBeTruthy();
+      expect(postSessionEnd).not.toHaveBeenCalled();
+    });
+
+    it("Yes, end ends THAT session once (selesai) and the debrief follows", async () => {
+      stubPreparingQuestions();
+      await renderWithOpen(open({ closing_reached: true }));
+      fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+      fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
+      await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+      const [, id, body] = postSessionEnd.mock.calls[0]! as [unknown, string, { end_reason: string }];
+      expect(id).toBe(SID);
+      expect(body.end_reason).toBe("selesai");
+      await waitFor(() => expect(screen.getByText("Preparing your questions")).toBeTruthy());
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Today's session is still open" })).toBeNull();
+    });
+
+    it("the sheet goes with the view when the 30 s re-poll drops the open session under it", async () => {
+      await renderWithOpen(open({ closing_reached: true }));
+      fireEvent.click(await screen.findByRole("button", { name: "End today" }));
+      expect(screen.getByRole("dialog", { name: "End today's operations?" })).toBeTruthy();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000);
+      });
+      await waitFor(() => expect(screen.queryByRole("heading", { name: "Today's session is still open" })).toBeNull());
+      expect(screen.queryByRole("dialog", { name: "End today's operations?" })).toBeNull();
+      expect(postSessionEnd).not.toHaveBeenCalled();
+    });
+
+    it("Cancel today stays a single tap (no confirm)", async () => {
+      await renderWithOpen(open({ closing_reached: false }));
+      fireEvent.click(await screen.findByRole("button", { name: "Cancel today" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      await waitFor(() => expect(postSessionDiscard).toHaveBeenCalledTimes(1));
+      expect(screen.queryByRole("dialog")).toBeNull();
     });
 
     it("Cancel today refused with 409 closing_reached (closing was marked meanwhile) becomes End today", async () => {
       await renderWithOpen(open());
       postSessionDiscard.mockImplementationOnce(async () => ({ ok: false, status: 409, code: "closing_reached" }));
       fireEvent.click(await screen.findByRole("button", { name: "Cancel today" }));
-      await screen.findByRole("heading", { name: "Today's session is still open." });
+      await screen.findByRole("heading", { name: "Today's session is still open" });
       expect(screen.getByRole("button", { name: "End today" })).toBeTruthy();
     });
 
     it("signing out with the closing-reached view asks first (the session stays open); with the interrupted view it leaves at once", async () => {
       await renderWithOpen(open({ closing_reached: true }));
-      await screen.findByRole("heading", { name: "Today's session is still open." });
+      await screen.findByRole("heading", { name: "Today's session is still open" });
       fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
       expect(screen.getByRole("dialog", { name: "Sign out?" })).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: "Sign out anyway" }));
@@ -1525,7 +1735,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       replace.mockClear();
       clearDeviceAuth.mockClear();
       await renderWithOpen(open());
-      await screen.findByRole("heading", { name: "Today's session was interrupted." });
+      await screen.findByRole("heading", { name: "Today's session was interrupted" });
       fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
       expect(screen.queryByRole("dialog")).toBeNull();
       expect(replace).toHaveBeenCalledWith("/");
@@ -1566,16 +1776,17 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
     });
 
-    it("after Cancel session on a sandbox the config is fetched again", async () => {
-      await startDemoSession();
-      fetchCaptureConfig.mockClear();
-      fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
-      await waitFor(() => expect(screen.getByRole("button", { name: "Yes, delete session" })).toBeTruthy());
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(1_200);
-      });
-      fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
-      await waitFor(() => expect(fetchCaptureConfig).toHaveBeenCalledTimes(1));
+    // R-25 (ruling R10): a sandbox has no Cancel session during a run, so the retake path that changes the session
+    // under the page is the open-session view's Cancel today (an interrupted session found again on return).
+    it("after Cancel today (an interrupted session) on a sandbox the config is fetched again", async () => {
+      vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+      vi.setSystemTime(new Date(MON_2230_WIB));
+      fetchCaptureConfig.mockResolvedValueOnce(demoConfig({ open_session: open(), closing_reached: false }));
+      fetchCaptureConfig.mockResolvedValue(demoConfig({}));
+      await renderReady();
+      fireEvent.click(await screen.findByRole("button", { name: "Cancel today" }));
+      await waitFor(() => expect(postSessionDiscard).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(fetchCaptureConfig).toHaveBeenCalledTimes(2));
     });
 
     it("pilot: End never triggers a config fetch (the page behaves as before)", async () => {
@@ -1690,14 +1901,9 @@ describe("CapturePage debrief wiring (R-18 Check button; R-19 §6.3: a sandbox o
   }
   afterEach(() => vi.unstubAllGlobals());
 
-  it("a sandbox device's debrief opens itself and offers 'Check for new questions'", async () => {
+  it("R-25 idle fix: the privacy notice moved into DebriefFlow's `note` prop; it must sit under the question", async () => {
     await openDebrief(true);
-    expect(screen.getByRole("button", { name: "Check for new questions" })).toBeTruthy();
-  });
-
-  it("pilot: the entry card must be tapped and the same debrief has no such button", async () => {
-    await openDebrief(false);
-    expect(screen.queryByRole("button", { name: "Check for new questions" })).toBeNull();
+    expect(screen.getAllByTestId("capture-notice")).toHaveLength(1);
   });
 });
 

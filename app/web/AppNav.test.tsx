@@ -10,10 +10,15 @@ import { AppNav, NAV, type NavItemId } from "@/app/web/AppNav";
 
 afterEach(cleanup);
 
-function renderNav(role: "supervisor" | "owner", current?: NavItemId, lang: "en" | "id" = "en") {
+function renderNav(
+  role: "supervisor" | "owner",
+  current?: NavItemId,
+  lang: "en" | "id" = "en",
+  extra: { variant?: "rail" | "row"; proposalsBadge?: number } = {},
+) {
   return render(
     <LangProvider initial={lang}>
-      <AppNav role={role} current={current} />
+      <AppNav role={role} current={current} {...extra} />
     </LangProvider>,
   );
 }
@@ -57,6 +62,31 @@ describe("AppNav (R-19 PR-6 §8.2, D-9)", () => {
     expect(names()).toEqual(["Beranda", "Persetujuan", "SOP", "Tinjauan"]);
   });
 
+  it("draws no badge unless a count is given, and never a zero (the shell fetches no count)", () => {
+    renderNav("supervisor", "day");
+    expect(document.querySelector(".b6-badge")).toBeNull();
+    cleanup();
+    renderNav("supervisor", "day", "en", { proposalsBadge: 0 });
+    expect(document.querySelector(".b6-badge")).toBeNull();
+  });
+
+  it("a given count is a badge on Proposals only, announced as '2 waiting' (owner: Approvals)", () => {
+    renderNav("supervisor", "day", "en", { proposalsBadge: 2 });
+    const link = screen.getByRole("link", { name: /Proposals/ });
+    expect(link.textContent).toBe("Proposals" + "2" + "2 waiting");
+    expect(link.querySelector(".b6-badge")?.getAttribute("aria-hidden")).toBe("true");
+    expect(screen.getByRole("link", { name: "SOP" }).querySelector(".b6-badge")).toBeNull();
+    cleanup();
+    renderNav("owner", "home", "id", { proposalsBadge: 1 });
+    expect(screen.getByRole("link", { name: /Persetujuan/ }).textContent).toContain("1 menunggu");
+  });
+
+  it("the rail variant is the same links in the same order; the nav carries the b6-nav contract class", () => {
+    renderNav("supervisor", "reviews", "en", { variant: "rail" });
+    expect(names()).toEqual(["Day record", "Proposals", "SOP", "Reviews", "Connected devices"]);
+    expect(screen.getByRole("navigation", { name: "Main" }).className).toContain("b6-nav");
+  });
+
   it("axe finds no violation", async () => {
     const { container } = renderNav("supervisor", "day");
     expect(await axeViolations(container)).toEqual([]);
@@ -74,7 +104,7 @@ describe("AppNav (R-19 PR-6 §8.2, D-9)", () => {
 
   it("the nav CSS fades only on request (data-fade), keeps the focus ring clear, and drops the fade from 900 px", () => {
     const css = readFileSync(join(__dirname, "shell.module.css"), "utf8");
-    const nav = css.match(/\n\.nav\s*{[^}]*}/)?.[0] ?? "";
+    const nav = css.match(/\n\.shell \.nav\s*{[^}]*}/)?.[0] ?? "";
     expect(nav).not.toMatch(/mask-image/); // never unconditional
     expect(nav).toMatch(/scroll-padding-inline:/);
     expect(css).toMatch(/\.nav\[data-fade="true"\]\s*{[^}]*mask-image:\s*linear-gradient\(to right/);
@@ -138,5 +168,58 @@ describe("AppNav edge fade states (R-19 PR-6 defect 3)", () => {
       fireEvent(window, new Event("resize"));
     });
     expect(navEl().getAttribute("data-fade")).toBe("false");
+  });
+});
+
+describe("AppNav reveals the current item on a phone (R-25 fixes-2 §5.2, QA M-004)", () => {
+  const navEl = () => screen.getByRole("navigation", { name: /Main|Menu utama/ });
+  function stubLayout(scrollWidth: number, clientWidth: number, offsets: Record<string, [number, number]>) {
+    vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(scrollWidth);
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(clientWidth);
+    vi.spyOn(HTMLElement.prototype, "offsetLeft", "get").mockImplementation(function (this: HTMLElement) {
+      return offsets[this.textContent ?? ""]?.[0] ?? 0;
+    });
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return offsets[this.textContent ?? ""]?.[1] ?? 0;
+    });
+  }
+  afterEach(() => vi.restoreAllMocks());
+
+  it("scrolls the row so an off-screen current item ends 24 px from the right edge", () => {
+    stubLayout(554, 360, { "Connected devices": [386, 168] });
+    renderNav("supervisor", "devices");
+    expect(navEl().scrollLeft).toBe(386 + 168 + 24 - 360);
+  });
+
+  it("an item already at the start leaves the row at 0 (never a negative scroll)", () => {
+    stubLayout(554, 360, { "Day record": [0, 110] });
+    renderNav("supervisor", "day");
+    expect(navEl().scrollLeft).toBe(0);
+  });
+
+  it("no overflow: nothing scrolls", () => {
+    stubLayout(360, 360, { "Connected devices": [386, 168] });
+    renderNav("supervisor", "devices");
+    expect(navEl().scrollLeft).toBe(0);
+  });
+
+  it("moves again when the current item changes", () => {
+    stubLayout(554, 360, { "Connected devices": [386, 168], "Day record": [0, 110] });
+    const { rerender } = renderNav("supervisor", "devices");
+    expect(navEl().scrollLeft).toBe(218);
+    rerender(
+      <LangProvider initial="en">
+        <AppNav role="supervisor" current="day" />
+      </LangProvider>,
+    );
+    expect(navEl().scrollLeft).toBe(0);
+  });
+
+  it("never calls scrollIntoView (it could scroll the page vertically)", () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    stubLayout(554, 360, { "Connected devices": [386, 168] });
+    renderNav("supervisor", "devices");
+    expect(scrollIntoView).not.toHaveBeenCalled();
   });
 });

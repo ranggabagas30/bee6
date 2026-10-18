@@ -114,3 +114,12 @@
   color: var(--b6-red-ink);
   overflow-wrap: anywhere;
 }
+
+.moment {
+  font-weight: 600;
+  color: var(--b6-ink);
+}
+
+.code {
+  flex: none;
+}

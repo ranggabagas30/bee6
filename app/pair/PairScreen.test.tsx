@@ -7,10 +7,17 @@ import { createMemoryStorage } from "@/lib/demo/testing/memory-storage";
 import { axeViolations } from "@/lib/testing/axe";
 import { DEMO_STATE_KEY } from "@/app/demo/demo-client";
 import { PairScreen } from "@/app/pair/PairScreen";
+import { DemoBar } from "@/app/demo/DemoBar";
+import { publishPairDone } from "@/app/demo/guide-bridge";
 
 const push = vi.fn();
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push, replace: vi.fn() }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push, replace: vi.fn() }), usePathname: () => "/pair" }));
 vi.mock("@/lib/auth/client/firebase-client", () => ({ getClientAuth: () => ({ kind: "fake-auth" }), signOut: vi.fn(), signInWithCustomToken: vi.fn() }));
+
+vi.mock("@/app/demo/guide-bridge", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/app/demo/guide-bridge")>()),
+  publishPairDone: vi.fn(() => () => {}),
+}));
 
 const startOrSwitch = vi.fn<(role: string, options: { navigate?: (path: string) => void }) => Promise<StartDemoResult>>();
 vi.mock("@/app/demo/demo-client", async (importOriginal) => ({
@@ -51,12 +58,13 @@ function renderScreen(props: { demo?: boolean; lang?: "en" | "id" } = {}) {
 }
 function fillCodeAndSubmit(code: string) {
   fireEvent.change(screen.getByLabelText(/6-digit code|Kode 6 digit/), { target: { value: code } });
-  fireEvent.click(screen.getByRole("button", { name: /^Set up$|^Pasang$/ }));
+  fireEvent.click(screen.getByRole("button", { name: /^Set up$|^Siapkan$/ }));
 }
 
 beforeEach(() => {
   vi.stubGlobal("localStorage", createMemoryStorage());
   startOrSwitch.mockReset();
+  vi.mocked(publishPairDone).mockClear();
   push.mockClear();
 });
 afterEach(() => {
@@ -69,15 +77,18 @@ describe("PairScreen on the pilot (demo=false): Set up this device, pilot copy u
   it("shows the heading, the help line and no demo box or demo text", () => {
     renderScreen();
     expect(screen.getByRole("heading", { level: 1, name: "Set up this device" })).toBeTruthy();
-    expect(screen.getByText("Enter the 6-digit code from the person who set up this phone.")).toBeTruthy();
+    expect(screen.getByText("Ask your supervisor for the 6-digit code. It works once, for 10 minutes.")).toBeTruthy();
     expect(document.body.innerHTML).not.toMatch(/demo|000000|judge/i);
+    // the pilot bar is just the logo and the ID | EN switch: no outlet line, no chips, no Sign out
+    expect(screen.getByRole("banner").textContent).not.toMatch(/Bakery|STAFF|DATA|Sign out/i);
+    expect(screen.getByRole("group", { name: "Choose language" })).toBeTruthy();
   });
 
   it("maps a server error code to dictionary text and never renders the server message", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => json({ error: { code: "UNAUTHORIZED", message: "Invalid or expired pairing code" } }, 401)));
     renderScreen();
     fillCodeAndSubmit("123456");
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Code not recognized or already used."));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Code not recognized, expired or already used."));
     expect(document.body.textContent).not.toContain("Invalid or expired pairing code");
   });
 
@@ -92,6 +103,7 @@ describe("PairScreen on the pilot (demo=false): Set up this device, pilot copy u
     renderScreen({ lang: "id" });
     fillCodeAndSubmit("123456");
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Tidak ada koneksi."));
+    expect(screen.getByRole("alert").textContent).toContain("Coba lagi saat sinyal stabil.");
   });
 
   it("success: 'Phone set up', the outlet line, the four pilot steps (step 3 ends at the Mulai window end) and a link to /capture", async () => {
@@ -129,7 +141,7 @@ describe("PairScreen on the pilot (demo=false): Set up this device, pilot copy u
     expect(screen.getByRole("link", { name: "Open the listening page" })).toBeTruthy();
   });
 
-  it("after pairing, the card is a named region (its aria-labelledby points at the heading)", async () => {
+  it("after pairing, the content is a named region (its aria-labelledby points at the heading)", async () => {
     pinOpenDay();
     stubPairThenConfig(200);
     renderScreen();
@@ -139,7 +151,7 @@ describe("PairScreen on the pilot (demo=false): Set up this device, pilot copy u
     expect(screen.getByRole("region", { name: "Phone set up" })).toBeTruthy();
   });
 
-  it("a code set the way the judge guide's Fill in sets it (native setter + input event on #pairing-code) shows in the six boxes and enables the button", () => {
+  it("a code set the way the judge guide's Fill in sets it (native setter + input event on #pairing-code) shows in the one code field and enables the button", () => {
     renderScreen();
     const input = document.getElementById("pairing-code") as HTMLInputElement;
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
@@ -147,7 +159,7 @@ describe("PairScreen on the pilot (demo=false): Set up this device, pilot copy u
       setter.call(input, "000000");
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    expect(screen.getAllByTestId("pair-box").map((b) => b.textContent).join("")).toBe("000000");
+    expect(input.value).toBe("000000");
     expect((screen.getByRole("button", { name: "Set up" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
@@ -173,21 +185,42 @@ describe("PairScreen on the pilot (demo=false): Set up this device, pilot copy u
 });
 
 describe("PairScreen on the demo (demo=true): the demo code opens a sandbox, then Device set up with the demo steps", () => {
-  it("shows the same Set up this device screen with the demo box, but no code, no Fill in and no fresh-demo control", async () => {
+  it("shows the same Set up this device screen with NO Demo access box (R5), no code, no Fill in and no fresh-demo control", async () => {
     renderScreen({ demo: true });
     await screen.findByTestId("demo-status");
     expect(screen.getByRole("heading", { level: 1, name: "Set up this device" })).toBeTruthy();
-    expect(screen.getByText(/Each sign-in opens your own private copy of a fictional shop for 2 hours/)).toBeTruthy();
+    expect(screen.queryByText(/Demo access/)).toBeNull();
+    expect(screen.queryByText(/Each sign-in opens your own private copy/)).toBeNull();
     expect(document.body.textContent).not.toContain("000000");
     expect(screen.queryByRole("button", { name: /Fill in|Start a fresh demo/ })).toBeNull();
   });
 
-  it("an ended demo: the demo box does not repeat the ended sentence (the DemoBar shows it), the form stays usable", async () => {
-    window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: "A".repeat(43), expires_at_ms: 1_000, role: "staff" }));
+  it("the staff top bar shows the outlet line and the STAFF and DEMO DATA chips on a demo; the 2 h expiry rides in the outlet line", async () => {
+    window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: "A".repeat(43), expires_at_ms: Date.now() + 3_600_000, role: "staff" }));
     renderScreen({ demo: true });
+    await screen.findByTestId("demo-status");
+    const bar = screen.getByRole("banner");
+    expect(bar.textContent).toContain("Demo Bakery · Outlet 1");
+    expect(bar.textContent).toMatch(/ends \d\d:\d\d/);
+    expect(bar.textContent).toContain("Staff");
+    expect(bar.textContent).toContain("DEMO DATA");
+    expect(screen.getByRole("group", { name: "Choose language" })).toBeTruthy();
+  });
+
+  it("an ended demo: /pair shows no ended-session text anywhere (neither the demo bar nor the status line), no amber box, the form stays usable", async () => {
+    window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: "A".repeat(43), expires_at_ms: 1_000, role: "staff" }));
+    const { container } = render(
+      <LangProvider initial="en">
+        <DemoBar config={null} />
+        <PairScreen demo config={null} />
+      </LangProvider>,
+    );
     const status = await screen.findByTestId("demo-status");
-    expect(screen.queryByText("Your demo session has ended.")).toBeNull();
+    expect(container.textContent).not.toContain("Your demo session has ended.");
+    expect(container.textContent).not.toContain("Sesi demo Anda sudah berakhir.");
+    expect(container.querySelector(".b6-alert")).toBeNull();
     expect(status.textContent).toBe("");
+    expect(screen.queryByTestId("demo-bar-status")).toBeNull(); // the bar leaves no empty live region behind
     expect(screen.getByRole("button", { name: "Set up" })).toBeTruthy();
   });
 
@@ -205,16 +238,21 @@ describe("PairScreen on the demo (demo=true): the demo code opens a sandbox, the
     expect(typeof startOrSwitch.mock.calls[0]![1].navigate).toBe("function"); // the screen shows the next step itself
     expect(fetchMock).not.toHaveBeenCalled();
     expect(await screen.findByRole("heading", { level: 1, name: "Device set up" })).toBeTruthy();
-    expect(screen.getByText("Keep this page open while you run the demo.")).toBeTruthy();
-    expect(screen.getByText("Allow the microphone when asked.")).toBeTruthy();
-    expect(screen.getByText("Tap Start, then speak the script cards in the judge guide.")).toBeTruthy();
-    expect(screen.getByText("End becomes available at closing time: use Jump to closing time in the judge guide.")).toBeTruthy();
+    expect(screen.getByText("For Demo Bakery · Outlet 1")).toBeTruthy();
+    const steps = screen.getAllByRole("listitem").map((li) => li.textContent);
+    expect(steps).toEqual([
+      "Leave the device in one fixed place and plug in the charger.",
+      "Keep the screen on and this page open. Closing the page means not listening.",
+      "Tap Start to begin the day, then read the script cards in the judge guide.",
+      "End unlocks at closing time. In this demo the guide can jump to it after every card is spoken.",
+    ]);
     expect(screen.getByRole("link", { name: "Open the listening page" }).getAttribute("href")).toBe("/capture");
     expect(screen.queryByText(/For outlet/)).toBeNull();
-    expect(document.body.textContent).not.toMatch(/000000|charger|4 hours after Start/);
+    expect(document.body.textContent).not.toMatch(/000000|4 hours after Start/);
+    expect(publishPairDone).toHaveBeenCalledTimes(1); // R12: the guide moves on from the pair card
   });
 
-  it("a refusal is explained in the demo box and the form is usable again", async () => {
+  it("a refusal is explained under the form (no demo box) and the form is usable again", async () => {
     startOrSwitch.mockResolvedValue({ kind: "daily_cap", retryAfterSeconds: 7200 });
     renderScreen({ demo: true });
     await screen.findByTestId("demo-status");
@@ -249,7 +287,7 @@ describe("PairScreen on the demo (demo=true): the demo code opens a sandbox, the
     expect(startOrSwitch).not.toHaveBeenCalled();
   });
 
-  it("axe finds no violation with the demo box and on Device set up", async () => {
+  it("axe finds no violation on the demo form and on Device set up", async () => {
     startOrSwitch.mockResolvedValue({ kind: "started" });
     const { container } = renderScreen({ demo: true });
     await screen.findByTestId("demo-status");
@@ -259,5 +297,21 @@ describe("PairScreen on the demo (demo=true): the demo code opens a sandbox, the
     });
     await screen.findByRole("heading", { level: 1, name: "Device set up" });
     expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("R-25 fixes-2 §1: typing six digits one by one into the real /pair tree lands every digit and enables Set up", async () => {
+    renderScreen({ demo: true });
+    const field = (await screen.findByLabelText("6-digit code")) as HTMLInputElement;
+    field.focus();
+    let next = "";
+    for (const d of "123456") {
+      next += d;
+      fireEvent.keyDown(field, { key: d });
+      fireEvent.input(field, { target: { value: next } });
+      fireEvent.keyUp(field, { key: d });
+      expect(field.value).toBe(next);
+      expect(document.activeElement).toBe(field);
+    }
+    expect((screen.getByRole("button", { name: "Set up" }) as HTMLButtonElement).disabled).toBe(false);
   });
 });

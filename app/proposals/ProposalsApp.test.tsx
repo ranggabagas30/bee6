@@ -6,6 +6,7 @@ import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import type { AuthUserState } from "@/lib/auth/client/use-auth-user";
 import { PROPOSALS_PROGRESS_EVENT, PROPOSALS_SCREEN_EVENT, publishProposalsScreen, readProposalsProgressVersion, readProposalsScreen } from "@/lib/demo/proposals-signal";
 import { ProposalsApp } from "@/app/proposals/ProposalsApp";
+import type { AskEstimate } from "@/lib/proposals/v4/flag";
 
 /**
  * /proposals is one route with two screens by role (R-19 PR-12a supervisor, PR-12b owner). This suite covers the
@@ -101,10 +102,10 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function renderApp(lang: "en" | "id" = "en") {
+function renderApp(lang: "en" | "id" = "en", askEstimate?: AskEstimate | null) {
   return render(
     <LangProvider initial={lang}>
-      <ProposalsApp config={CONFIG} />
+      <ProposalsApp config={CONFIG} askEstimate={askEstimate} />
     </LangProvider>,
   );
 }
@@ -149,13 +150,13 @@ describe("ProposalsApp — auth / role gate", () => {
     proposalsResult = { kind: "ok", data: { open: [waiting(1), waiting(2)], decided: [], watch: EMPTY_WATCH } };
     search = `?id=${uuid(2)}`;
     renderApp();
-    expect(await screen.findByRole("heading", { level: 2, name: "Proposal 2" })).not.toBeNull();
-    expect(screen.queryByRole("heading", { level: 2, name: "Proposal 1" })).toBeNull();
+    expect(await screen.findByRole("heading", { level: 1, name: "Proposal 2" })).not.toBeNull();
+    expect(screen.queryByRole("heading", { level: 1, name: "Proposal 1" })).toBeNull();
     cleanup();
 
     search = "?id=not-a-uuid";
     renderApp();
-    expect(await screen.findByRole("heading", { level: 2, name: "Proposal 1" })).not.toBeNull();
+    expect(await screen.findByRole("heading", { level: 1, name: "Proposal 1" })).not.toBeNull();
   });
 
   it("supervisor claims: the supervisor screen renders (watch panel, no approvals head)", async () => {
@@ -165,6 +166,44 @@ describe("ProposalsApp — auth / role gate", () => {
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Proposals");
     expect(screen.queryByRole("link", { name: "‹ Back to home" })).toBeNull();
     expect(screen.getByRole("navigation")).not.toBeNull();
+  });
+
+  // R-24 D11: the page's `askEstimate` prop reaches the supervisor's Ask screen; no prop (flag off) keeps today's copy.
+  it("supervisor: the askEstimate prop reaches the Ask screen; without it the body line is today's", async () => {
+    getIdTokenResult.mockResolvedValue({ claims: { role: "supervisor" } });
+    const watch = { ...EMPTY_WATCH, categories: [{ category: "CUSTOMER_SERVICE", facts: 2, dates: 2, need_dates: 2, state: "ready" }] };
+    proposalsResult = { kind: "ok", data: { open: [], decided: [], watch } };
+    authedPostJson.mockImplementation(() => new Promise(() => {}));
+
+    renderApp("en", { min_s: 10, max_s: 30 });
+    fireEvent.click(await screen.findByRole("button", { name: "Ask Bee6 for a proposal" }));
+    expect((await screen.findByText(/Usually 10–30 seconds/)).closest("[role='status']")).not.toBeNull();
+    expect(screen.queryByText(/up to a minute/)).toBeNull();
+    cleanup();
+
+    renderApp("en");
+    fireEvent.click(await screen.findByRole("button", { name: "Ask Bee6 for a proposal" }));
+    expect(await screen.findByText("This can take up to a minute. Please keep this page open.")).not.toBeNull();
+    expect(screen.queryByText(/Usually/)).toBeNull();
+  });
+
+  it("supervisor: one main landmark inside the page-2 shell, with the nav on 'Proposals'", async () => {
+    getIdTokenResult.mockResolvedValue({ claims: { role: "supervisor" } });
+    renderApp();
+    await waitFor(() => expect(screen.getByText("WHAT BEE6 IS WATCHING")).not.toBeNull());
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+    expect(screen.getByRole("navigation").querySelector("[aria-current='page']")?.textContent).toContain("Proposals");
+  });
+
+  it("supervisor on a demo sandbox (demo_exp_ms claim): both problem rows are there before anything is seen; a pilot supervisor gets none", async () => {
+    getIdTokenResult.mockResolvedValue({ claims: { role: "supervisor", demo_exp_ms: Date.now() + 60_000 } });
+    renderApp();
+    await waitFor(() => expect(screen.getAllByText("Not seen yet")).toHaveLength(2));
+    cleanup();
+    getIdTokenResult.mockResolvedValue({ claims: { role: "supervisor" } });
+    renderApp();
+    await waitFor(() => expect(screen.getByText("WHAT BEE6 IS WATCHING")).not.toBeNull());
+    expect(screen.queryByText("Not seen yet")).toBeNull();
   });
 
   it("a staff-role token shows the forbidden message and neither screen", async () => {
@@ -228,7 +267,7 @@ describe("ProposalsApp — the judge guide signal", () => {
     proposalsResult = { kind: "ok", data: { open: [waiting(1)], decided: [], watch: EMPTY_WATCH } };
     authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "approved", status: "approved" } });
     renderApp();
-    await screen.findByRole("heading", { level: 2, name: "Proposal 1" });
+    await screen.findByRole("heading", { level: 1, name: "Proposal 1" });
     expect(readProposalsScreen()).toBe("review");
     const before = readProposalsProgressVersion();
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));

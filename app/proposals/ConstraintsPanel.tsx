@@ -13,11 +13,13 @@ import {
   ListConstraintsResponseSchema,
   type ConstraintView,
 } from "@/lib/constraints/contract";
+import { Button } from "@/app/ui";
+import styles from "@/app/proposals/supervisor.module.css";
 
 /**
  * Manual constraints panel (R-08 Task 8.7; web spec §6.6). Mounted by
- * `ProposalsApp` below the Generate panel and result card, for owner AND
- * supervisor (Q-11 b). Every read/write goes through the API — never
+ * `SupervisorProposals` inside the collapsed "Rules for Bee6 (optional)" section at the
+ * bottom of the page (R-25 T10, R8; page-2 `.b6-field` / `.b6-btn` look). Every read/write goes through the API — never
  * Firestore, never the server-side constraint service directly (hard
  * rule #6; see `app/proposals/import-boundaries.test.ts`).
  *
@@ -43,23 +45,8 @@ type FormState =
   | { kind: "err-limit" }
   | { kind: "error" };
 
-const SECTION_STYLE: CSSProperties = { marginTop: 24, overflowWrap: "anywhere" };
-const LIST_STYLE: CSSProperties = { paddingLeft: 20, margin: "8px 0 16px 0", overflowWrap: "anywhere" };
+/** The list item's own wrap rule stays inline (a long unbroken constraint must never push the page wider than 360px). */
 const ITEM_TEXT_STYLE: CSSProperties = { overflowWrap: "anywhere" };
-const ITEM_META_STYLE: CSSProperties = { color: "#6b7280", fontSize: 14, overflowWrap: "anywhere" };
-const LABEL_STYLE: CSSProperties = { display: "block", fontSize: 16, marginBottom: 4 };
-const TEXTAREA_STYLE: CSSProperties = {
-  width: "100%",
-  maxWidth: "100%",
-  boxSizing: "border-box",
-  fontSize: 16,
-  padding: 8,
-};
-const COUNTER_STYLE: CSSProperties = { fontSize: 14, color: "#6b7280", margin: "4px 0 8px 0" };
-const BUTTON_STYLE: CSSProperties = { minHeight: 48, width: "100%", fontSize: 16, padding: "0 16px", boxSizing: "border-box" };
-const CONFIRM_ROW_STYLE: CSSProperties = { display: "flex", gap: 8, marginTop: 8 };
-const CONFIRM_BUTTON_STYLE: CSSProperties = { minHeight: 48, flex: 1, fontSize: 16, padding: "0 16px", boxSizing: "border-box" };
-const STATUS_STYLE: CSSProperties = { margin: "8px 0", overflowWrap: "anywhere" };
 
 /** The browser's own local date for a server epoch-ms timestamp — a display
  * nuance only (same idiom as `ProposalsApp`'s `todayLocalDate`), never a
@@ -186,8 +173,8 @@ export function ConstraintsPanel({
 
   if (listState.kind === "error") {
     return (
-      <section style={SECTION_STYLE}>
-        <p role="status" aria-live="polite" style={STATUS_STYLE}>
+      <section className={styles.conSection}>
+        <p role="status" aria-live="polite" className={styles.conHelp}>
           {t(lang, "C-srv-generic")}
         </p>
       </section>
@@ -204,18 +191,20 @@ export function ConstraintsPanel({
       : null;
 
   return (
-    <section style={SECTION_STYLE}>
-      <h2>{t(lang, "C-con-title")}</h2>
-      <p>{t(lang, "C-con-help")}</p>
+    <section className={styles.conSection}>
+      <h2 className={styles.conTitle}>{t(lang, "C-con-title")}</h2>
+      <p className={styles.conHelp}>{t(lang, "C-con-help")}</p>
 
       {listState.constraints.length === 0 ? (
-        <p>{t(lang, "C-con-empty")}</p>
+        <p className={styles.conHelp}>{t(lang, "C-con-empty")}</p>
       ) : (
-        <ul style={LIST_STYLE}>
+        <ul className={styles.conList}>
           {listState.constraints.map((c) => (
             <li key={c.constraint_id}>
-              <p style={ITEM_TEXT_STYLE}>{c.text}</p>
-              <p style={ITEM_META_STYLE}>
+              <p className={styles.conItem} style={ITEM_TEXT_STYLE}>
+                {c.text}
+              </p>
+              <p className={styles.conMeta}>
                 {t(lang, SOURCE_KEY[c.source])} ·{" "}
                 {dayLabel(localDateFromMs(c.created_at_ms), lang)}
               </p>
@@ -225,49 +214,49 @@ export function ConstraintsPanel({
       )}
 
       {(role === "owner" || role === "supervisor") && (
-        <form onSubmit={handleSubmit} noValidate>
-          <label style={LABEL_STYLE} htmlFor="con-add-text">
+        <form onSubmit={handleSubmit} noValidate className={styles.conForm}>
+          <label className={styles.conLabel} htmlFor="con-add-text">
             {t(lang, "C-con-add-label")}
           </label>
           <textarea
             id="con-add-text"
             ref={textareaRef}
+            className={`b6-field ${styles.conTextarea}`}
             value={text}
             maxLength={300}
             rows={3}
             disabled={busy || formState.kind === "confirm"}
             aria-describedby="con-add-hint con-add-count"
             onChange={(event) => setText(event.target.value)}
-            style={TEXTAREA_STYLE}
           />
-          <p id="con-add-hint" style={COUNTER_STYLE}>
+          <p id="con-add-hint" className={styles.conHelp}>
             {t(lang, "C-con-add-hint")}
           </p>
-          <p id="con-add-count" style={COUNTER_STYLE}>
+          <p id="con-add-count" className={styles.conHelp}>
             {t(lang, "C-con-count", { n: text.length })}
           </p>
-          <button type="submit" disabled={!canSubmit || busy} style={BUTTON_STYLE}>
+          <Button type="submit" variant="secondary" block disabled={!canSubmit || busy}>
             {t(lang, "C-con-add")}
-          </button>
+          </Button>
 
           {formState.kind === "confirm" || busy ? (
-            <div role="alertdialog" aria-label={t(lang, "C-con-confirm")}>
+            <div role="alertdialog" aria-label={t(lang, "C-con-confirm")} className={`b6-alert b6-alert--amber ${styles.conConfirm}`}>
               <p ref={confirmRef} tabIndex={-1}>
                 {t(lang, "C-con-confirm")}
               </p>
-              <div style={CONFIRM_ROW_STYLE}>
-                <button type="button" disabled={busy} onClick={() => void handleConfirmYes()} style={CONFIRM_BUTTON_STYLE}>
+              <div className={styles.conConfirmRow}>
+                <Button type="button" variant="primary" disabled={busy} onClick={() => void handleConfirmYes()}>
                   {t(lang, "C-con-confirm-yes")}
-                </button>
-                <button type="button" disabled={busy} onClick={handleCancel} style={CONFIRM_BUTTON_STYLE}>
+                </Button>
+                <Button type="button" variant="secondary" disabled={busy} onClick={handleCancel}>
                   {t(lang, "C-con-confirm-no")}
-                </button>
+                </Button>
               </div>
             </div>
           ) : null}
 
           {resultMessage !== null && (
-            <p role="status" aria-live="polite" style={STATUS_STYLE}>
+            <p role="status" aria-live="polite" className={styles.conHelp}>
               {resultMessage}
             </p>
           )}

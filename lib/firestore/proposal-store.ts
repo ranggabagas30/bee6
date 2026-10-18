@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Firestore, Transaction } from "firebase-admin/firestore";
+import { z } from "zod";
 import { adminDb } from "@/lib/firebase/admin";
 import { COLLECTIONS } from "@/lib/firestore/collections";
 import { firestoreConstraintStore } from "@/lib/firestore/constraint-store";
@@ -47,6 +48,8 @@ const THREAD_FIELDS = [
   "summary",
   "fields",
   "lines", // R-20: the work lines behind the candidate excerpt (already scrubbed + redacted at write time)
+  "confidence", // R-24: label provenance for the v4 `get_evidence` tool
+  "gate", // R-24: reduced to { verdict, fired_rule } on parse (the rest of the gate map is dropped)
 ] as const;
 
 const THREAD_ROW_SHAPE = ThreadSchema.pick({
@@ -61,7 +64,13 @@ const THREAD_ROW_SHAPE = ThreadSchema.pick({
   first_line_start_ms: true,
   summary: true,
   fields: true,
-}).extend({ lines: ThreadSchema.shape.lines.optional() }); // optional: a row without lines is still evidence, just without a quote
+}).extend({
+  lines: ThreadSchema.shape.lines.optional(), // optional: a row without lines is still evidence, just without a quote
+  // R-24: both optional so a row written without them still parses. `gate` keeps ONLY verdict + fired_rule (non-strict
+  // object: zod strips the rest, so a question id inside the stored gate never reaches the Ask).
+  confidence: ThreadSchema.shape.confidence.optional(),
+  gate: z.object({ verdict: ThreadSchema.shape.gate.shape.verdict, fired_rule: ThreadSchema.shape.gate.shape.fired_rule }).optional(),
+});
 
 const FRESH_THREAD_FIELDS = ["outlet_id", "status", "excluded_from_evidence", "label_source"] as const;
 const FRESH_THREAD_SHAPE = ThreadSchema.pick({

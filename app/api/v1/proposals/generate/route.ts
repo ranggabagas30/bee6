@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { getModelLocation } from "@/config/regions";
 import { defaultAllowDraft, loadProposalLibrary } from "@/config/proposal-library";
 import { adkProposalModel, PROPOSAL_GENERATOR_KIND } from "@/lib/agents/proposal-agent";
+import { adkProposalAgentV4 } from "@/lib/agents/proposal-agent-v4";
 import { requireClaims } from "@/lib/http/guard";
 import { enforceDemoCapsForRoute } from "@/lib/demo/route-caps";
 import { BadRequestError, ValidationError, handleApiError } from "@/lib/http/errors";
@@ -10,6 +11,7 @@ import { firestoreProposalStore } from "@/lib/firestore/proposal-store";
 import { redactBatch } from "@/lib/redact/batch";
 import { GenerateBodySchema } from "@/lib/proposals/contract";
 import { generateProposal } from "@/lib/proposals/service";
+import { isProposalAgentV4Enabled } from "@/lib/proposals/v4/flag";
 
 /**
  * POST /api/v1/proposals/generate (web spec §6.2; R-08 Task 6). The owner
@@ -58,6 +60,9 @@ export async function POST(req: NextRequest) {
         project: process.env.GOOGLE_CLOUD_PROJECT ?? "",
         resolveLocation: (m) => getModelLocation(m).location,
         newId: () => crypto.randomUUID(),
+        // R-24: read per request (a runtime Cloud Run env var). Exactly "true" turns the tool-using agent on; anything
+        // else passes null and the service runs today's v3 path.
+        agentV4: isProposalAgentV4Enabled() ? adkProposalAgentV4 : null,
       },
       {
         claims,

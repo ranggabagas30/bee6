@@ -75,6 +75,8 @@ const DEMO_CRED_KEYS = [
   "C-demo-cred-private",
   "C-demo-cred-continuing",
   "C-demo-cred-fresh",
+  "C-demo-cred-in-guide",
+  "C-signin-solo",
 ] as const satisfies readonly DictKey[];
 
 describe("R-18 P1 role sign-in and demo credential copy", () => {
@@ -100,6 +102,13 @@ describe("R-18 P1 role sign-in and demo credential copy", () => {
     expect(EN["C-signin-role-staff"]).toBe("Staff");
     expect(ID["C-signin-role-staff"]).toBe("Staf");
     expect(ID["C-signin-role-owner"]).toBe("Pemilik");
+  });
+
+  it("demo feedback 2, finding 4: the solo kicker takes the role and the box points at the Judge Guide", () => {
+    expect(t("en", "C-signin-solo", { role: "Supervisor" })).toBe("Sign in as Supervisor");
+    expect(t("id", "C-signin-solo", { role: "Pemilik" })).toBe("Masuk sebagai Pemilik");
+    expect(EN["C-demo-cred-in-guide"]).toBe("Your demo email and password are in the Judge Guide.");
+    expect(ID["C-demo-cred-in-guide"]).toBe("Email dan kata sandi demo Anda ada di Panduan Juri.");
   });
 
   it("fills the continuing placeholder", () => {

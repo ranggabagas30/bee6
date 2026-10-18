@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useSyncExternalStore, type CSSProperties } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
-import { WebTopBar } from "@/app/web/WebTopBar";
+import { WebShell } from "@/app/web/WebShell";
 import { demoSnapshot, removeDeviceKeys, subscribeDemoState, viewFromSnapshot } from "@/app/demo/demo-client";
 import { RoleSignIn } from "@/app/sign-in/RoleSignIn";
 import type { SignInRole } from "@/app/sign-in/roles";
 
 /**
- * The page shell of the official sign-in (R-06 Task 4.6, R-18 P1): the top bar and the role sign-in. The role choice, the
+ * The page shell of the official sign-in (R-06 Task 4.6, R-18 P1): the web shell (page-2 `.dtop` bar, R-25 T8) and the role sign-in. The role choice, the
  * forms and the Firebase gating live in `RoleSignIn`.
  *
  * - `/sign-in` is its only page since R-19 PR-6: the demo `/` is the W1 entry page (`app/web/EntryLanding.tsx`) and
@@ -17,8 +17,6 @@ import type { SignInRole } from "@/app/sign-in/roles";
  *   after the apps' 401 -> refresh -> 401 cycle; the demo box says the session ended when this browser's own demo state
  *   is past its expiry, and an ended demo leaves no device credential behind on this phone.
  */
-
-const PAGE_STYLE: CSSProperties = { maxWidth: 360, margin: "0 auto", padding: 24 };
 
 export interface SignInScreenProps {
   config: FirebaseWebConfig | null;
@@ -34,9 +32,8 @@ export function SignInScreen({ config, demo = false, initialRole = null }: SignI
   }, [demoEnded]);
 
   return (
-    <main style={PAGE_STYLE}>
-      <WebTopBar auth={null} showSignOut={false} />
+    <WebShell auth={null}>
       <RoleSignIn config={config} demo={demo} initialRole={initialRole} demoEnded={demoEnded} />
-    </main>
+    </WebShell>
   );
 }

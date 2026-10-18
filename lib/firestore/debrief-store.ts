@@ -91,7 +91,8 @@ export function firestoreDebriefStore(outletId: string, db: Firestore = adminDb(
       return {
         tz: outlet.timezone,
         retention_days: outlet.retention_days ?? 14,
-        ...(outlet.sandbox ? { sandbox: true as const } : {}),
+        // Sandbox only (D-1): the pilot calendar stays byte-identical.
+        ...(outlet.sandbox ? { sandbox: true as const, name: outlet.name } : {}),
       };
     },
 
@@ -119,6 +120,17 @@ export function firestoreDebriefStore(outletId: string, db: Firestore = adminDb(
       const parsed = QuestionDocSchema.safeParse(doc.data());
       if (!parsed.success) {
         logSkippedDoc("question", doc.id);
+        return null;
+      }
+      return parsed.data;
+    },
+
+    async getThread(threadId: string): Promise<Thread | null> {
+      const doc = await threads().doc(threadId).get();
+      if (!doc.exists) return null;
+      const parsed = ThreadSchema.safeParse(doc.data());
+      if (!parsed.success) {
+        logSkippedDoc("thread", doc.id);
         return null;
       }
       return parsed.data;

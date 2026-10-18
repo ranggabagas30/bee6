@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CATEGORY_LABELS, questionLines, questionText } from "@/lib/i18n/category-labels";
+import { CATEGORY_CODE, CATEGORY_LABELS, questionCategoryChip, questionLines, questionText, questionWhy } from "@/lib/i18n/category-labels";
 import type { DebriefQuestionView } from "@/lib/debrief/contract";
 import type { WorkCategory } from "@/lib/pipeline/categories";
 
@@ -114,5 +114,56 @@ describe("questionLines", () => {
   it("questionText is questionLines joined with a space", () => {
     const question = q({ kind: "gate", category: null, start_hm: "08:00", end_hm: "08:30" });
     expect(questionText("en", question)).toBe(questionLines("en", question).join(" "));
+  });
+});
+
+describe("questionWhy (R-25 T7, board P2-09 explanation line)", () => {
+  const categories = Object.keys(EN_LABELS) as WorkCategory[];
+
+  it("every category has its own non-empty sentence in EN and ID", () => {
+    const seen = new Set<string>();
+    for (const lang of ["en", "id"] as const) {
+      for (const category of categories) {
+        const line = questionWhy(lang, q({ category }));
+        expect(line.length).toBeGreaterThan(0);
+        seen.add(`${lang}:${line}`);
+      }
+    }
+    expect(seen.size).toBe(categories.length * 2);
+  });
+
+  it("is role-agnostic and never carries a placeholder, a time or a name slot", () => {
+    for (const lang of ["en", "id"] as const) {
+      for (const question of [...categories.map((category) => q({ category, start_hm: "10:40", end_hm: "10:50" })), q({ kind: "unlabelled_unit", category: null })]) {
+        const line = questionWhy(lang, question);
+        expect(line).not.toMatch(/[{}]/);
+        expect(line).not.toContain("10:40");
+        expect(line).not.toMatch(/\b(supervisor|owner|staff member named)\b/i);
+      }
+    }
+  });
+
+  it("an unlabelled block (or a gate with no category) gets the could-not-tell sentence", () => {
+    const expected = "Bee6 heard work here but could not tell what. It needs your answer to be sure.";
+    expect(questionWhy("en", q({ kind: "unlabelled_unit", category: null }))).toBe(expected);
+    expect(questionWhy("en", q({ kind: "gate", category: null }))).toBe(expected);
+  });
+});
+
+describe("questionCategoryChip (R-25 T7, board P2-09 chip)", () => {
+  it("has a distinct three-letter code for each of the 11 work categories", () => {
+    const codes = Object.values(CATEGORY_CODE).map((c) => c.code);
+    expect(codes).toHaveLength(11);
+    expect(new Set(codes).size).toBe(11);
+    for (const code of codes) expect(code).toMatch(/^[A-Z]{3}$/);
+  });
+
+  it("customer service is CST (as on the board) and is spoken by its name", () => {
+    expect(questionCategoryChip("en", q({ category: "CUSTOMER_SERVICE" }))).toEqual({ code: "CST", name: "Customer service" });
+    expect(questionCategoryChip("id", q({ category: "CUSTOMER_SERVICE" }))?.name).toBe("Layanan pelanggan");
+  });
+
+  it("no chip for a block question", () => {
+    expect(questionCategoryChip("en", q({ kind: "unlabelled_unit", category: null }))).toBeNull();
   });
 });

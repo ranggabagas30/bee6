@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Firestore } from "firebase-admin/firestore";
 import { Timestamp } from "firebase-admin/firestore";
 import { firestoreDebriefStore } from "@/lib/firestore/debrief-store";
@@ -298,6 +298,7 @@ describe("firestoreDebriefStore.getOutletCalendar", () => {
       tz: "Asia/Jakarta",
       retention_days: 14,
       sandbox: true,
+      name: "Proofed", // D-1: the sandbox calendar carries the display name (for the question-line scrub)
     });
     expect(Object.keys(await firestoreDebriefStore("pilot", db).getOutletCalendar())).toEqual(["tz", "retention_days"]);
   });
@@ -483,6 +484,29 @@ describe("firestoreDebriefStore.listLabelledLineIds (R-19 preparing)", () => {
     });
     const result = await firestoreDebriefStore(OUTLET, db).listLabelledLineIds(DEVICE);
     expect([...result].sort()).toEqual(["s1#0", "s1#1", "s1#2"]);
+  });
+});
+
+describe("firestoreDebriefStore.getThread (demo-feedback-2 item 10)", () => {
+  it("returns the parsed thread, null for a missing doc, null (and a counts-only log) for a malformed one", async () => {
+    const { db } = fakeDb({
+      [COLLECTIONS.threads]: {
+        t1: asDoc(makeThread()),
+        bad: { thread_id: "bad", lines: "nope", secret_text: "Pelanggan tanya roti" },
+      },
+    });
+    const errors: unknown[][] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => void errors.push(args));
+    try {
+      const store = firestoreDebriefStore(OUTLET, db);
+      expect((await store.getThread("t1"))?.thread_id).toBe("t1");
+      expect(await store.getThread("missing")).toBeNull();
+      expect(await store.getThread("bad")).toBeNull();
+      expect(JSON.stringify(errors)).not.toContain("Pelanggan");
+      expect(JSON.stringify(errors)).toContain("bad");
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

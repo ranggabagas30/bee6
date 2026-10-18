@@ -8,7 +8,9 @@ import type { Lang } from "@/lib/i18n/lang";
 import { t, type DictKey } from "@/lib/i18n/dict";
 import type { ListProposalsResponse, ProposalListItem } from "@/lib/proposals/review-contract";
 import { SopOverviewSchema, type SopOverview } from "@/lib/sop/contract";
+import { dayLabel } from "@/lib/i18n/format";
 import { buttonClassName, Card, Glass, Kicker, Pill } from "@/app/ui";
+import { PageHead } from "@/app/web/PageHead";
 import { EmptyState } from "@/app/web/EmptyState";
 import { ApprovalCard, datesLine, OWNER_STATUS_KEY, OWNER_STATUS_TONE } from "@/app/proposals/ApprovalCard";
 import { ApprovalDecision } from "@/app/proposals/ApprovalDecision";
@@ -18,9 +20,10 @@ import styles from "@/app/proposals/approvals.module.css";
 
 /**
  * The owner's Approvals screen = page-1 W8 "Review in order" (R-19 PR-12b, plan 9.5, decision V6; boards D2-08,
- * D2-08c, D2-08d, D2-08e). One proposal at a time in the recommended order (oldest first, `approvalsQueue`), the
- * progress segments on top, "‹ Back to home", the recommended-order list (#1, #2 … with status; tapping one shows
- * it), the proposal card and the decision card. After a decision the screen shows the answer, reloads and moves to
+ * D2-08c, D2-08d, D2-08e; page-2 look in R-25 T11). One proposal at a time in the recommended order (oldest first,
+ * `approvalsQueue`): "‹ Back to home" and the kicker, the progress bars, the proposal on the left (its title is the
+ * page's `h1`), and on the right the decision card and the recommended-order list (#1, #2 … with status; tapping one
+ * shows it). After a decision the screen shows the answer, reloads and moves to
  * the next undecided proposal; once every proposal is decided it shows the "Both decided." summary with "What
  * happens next" and the Back to home / See the SOP links. Nothing waiting and nothing decided = the PR-6 empty state.
  *
@@ -53,18 +56,22 @@ function useSopOverview(auth: Auth, enabled: boolean, reloadKey: number): SopOve
   return sop;
 }
 
-function Progress({ lang, done, total }: { lang: Lang; done: number; total: number }) {
-  const label = t(lang, "C-propa-progress", { done, total });
+/** One bar per proposal (board D2-08): approved and rejected are tinted, the open one is dark, the rest wait. */
+function Progress({ lang, queue, currentId }: { lang: Lang; queue: ProposalListItem[]; currentId: string | null }) {
+  const done = queue.filter(isOwnerDecided).length;
+  const label = t(lang, "C-propa-progress", { done, total: queue.length });
   return (
-    <div className={styles.progress}>
-      <div role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done} aria-label={label} className={styles.segments}>
-        {Array.from({ length: total }, (_, i) => (
-          <span key={i} aria-hidden="true" className={i < done ? `${styles.segment} ${styles.segmentDone}` : styles.segment} />
-        ))}
-      </div>
-      <span aria-hidden="true" className={styles.progressText}>
-        {label}
-      </span>
+    <div role="progressbar" aria-valuemin={0} aria-valuemax={queue.length} aria-valuenow={done} aria-label={label} className={styles.segments}>
+      {queue.map((item) => {
+        const state = isOwnerDecided(item)
+          ? item.proposal.status === "approved"
+            ? styles.segmentApproved
+            : styles.segmentRejected
+          : item.proposal.proposal_id === currentId
+            ? styles.segmentNow
+            : "";
+        return <span key={item.proposal.proposal_id} aria-hidden="true" className={`${styles.segment} ${state}`} />;
+      })}
     </div>
   );
 }
@@ -85,7 +92,9 @@ function OrderList({
   const id = useId();
   return (
     <Glass as="aside" aria-labelledby={id} className={styles.order}>
-      <Kicker id={id}>{t(lang, "C-propa-order")}</Kicker>
+      <Kicker id={id} className={styles.orderKicker}>
+        {t(lang, "C-propa-order")}
+      </Kicker>
       <ol aria-labelledby={id} className={styles.orderList}>
         {queue.map((item, index) => {
           const content = item.proposal.content!;
@@ -97,16 +106,21 @@ function OrderList({
               {/* Named by its visible content (#n, title, status) so the accessible name matches what is on screen (WCAG 2.5.3). */}
               <button type="button" className={styles.orderBtn} aria-current={current ? "true" : undefined} onClick={() => onPick(item.proposal.proposal_id)}>
                 <span className={styles.orderNum}>#{index + 1}</span>{" "}
-                <span className={styles.orderTitle}>{content.change_title}</span>{" "}
-                <Pill tone={decided ? OWNER_STATUS_TONE[item.proposal.status] : current ? "teal" : "amber"}>
-                  {decided ? t(lang, OWNER_STATUS_KEY[item.proposal.status]) : t(lang, current ? "C-propa-now" : "C-propa-st-waiting")}
-                </Pill>
-                {shipped && (
-                  <>
-                    {" "}
-                    <span className={styles.orderShipped}>{t(lang, "C-propa-shipped", { version: shipped.version })}</span>
-                  </>
-                )}
+                <span className={styles.orderText}>
+                  <span className={styles.orderTitle}>{content.change_title}</span>{" "}
+                  <Pill
+                    className={!decided && current ? styles.pillNow : undefined}
+                    tone={decided ? OWNER_STATUS_TONE[item.proposal.status] : current ? "teal" : "amber"}
+                  >
+                    {decided ? t(lang, OWNER_STATUS_KEY[item.proposal.status]) : t(lang, current ? "C-propa-now" : "C-propa-st-waiting")}
+                  </Pill>
+                  {shipped && (
+                    <>
+                      {" "}
+                      <span className={styles.orderShipped}>{t(lang, "C-propa-shipped", { version: shipped.version })}</span>
+                    </>
+                  )}
+                </span>
               </button>
             </li>
           );
@@ -118,31 +132,53 @@ function OrderList({
 
 function AllDecided({ lang, queue, sop }: { lang: Lang; queue: ProposalListItem[]; sop: SopOverview | null }) {
   const ids = useId();
+  const approved = queue.filter((i) => i.proposal.status === "approved").length;
+  const rejected = queue.length - approved;
+  const firstShipped = queue.map((i) => shippedChangeFor(i, sop)).find((c) => c !== null) ?? null;
+  const summary = [
+    t(lang, "C-propa-all-counts", { approved, rejected }),
+    firstShipped
+      ? t(lang, "C-propa-all-starts", { starts: dayLabel(firstShipped.effective_from_date, lang), review: dayLabel(firstShipped.review_date, lang) })
+      : null,
+  ]
+    .filter((line) => line !== null)
+    .join(" ");
   return (
-    <>
-      <Card as="section" aria-labelledby={`${ids}-h`} className={styles.summary}>
-        <h2 id={`${ids}-h`} className={styles.summaryTitle}>
+    <div className={styles.allDecided}>
+      <div className={styles.head}>
+        <h1 id={`${ids}-h`} className="b6-h1-web">
           {t(lang, queue.length === 2 ? "C-propa-all-both" : "C-propa-all")}
-        </h2>
-        <ol className={styles.summaryList}>
-          {queue.map((item) => {
+        </h1>
+        <p className="b6-sub">{summary}</p>
+      </div>
+      <Card className={styles.summary}>
+        <ol aria-labelledby={`${ids}-h`} className={styles.summaryList}>
+          {queue.map((item, index) => {
             const content = item.proposal.content!;
             const owner = item.review.owner;
+            const isApproved = item.proposal.status === "approved";
             const shipped = shippedChangeFor(item, sop);
             return (
               <li key={item.proposal.proposal_id} className={styles.summaryRow}>
-                <div className={styles.summaryHead}>
-                  <h3 className={styles.summaryRowTitle}>{content.change_title}</h3>
-                  <Pill tone={OWNER_STATUS_TONE[item.proposal.status]}>{t(lang, OWNER_STATUS_KEY[item.proposal.status])}</Pill>
+                <span className={styles.summaryNum}>#{index + 1}</span>
+                <div className={styles.summaryBody}>
+                  <h2 className={styles.summaryRowTitle}>{content.change_title}</h2>
+                  {isApproved ? (
+                    <>
+                      {shipped && <p className={styles.summaryLine}>{t(lang, "C-propa-shipped", { version: shipped.version })}</p>}
+                      <p className={styles.summaryLine}>{datesLine(lang, content, shipped)}</p>
+                    </>
+                  ) : (
+                    <p className={styles.summaryLine}>{owner?.reason ? t(lang, "C-propa-rule", { reason: owner.reason }) : t(lang, "C-propa-rule-none")}</p>
+                  )}
                 </div>
-                {item.proposal.status === "approved" ? (
-                  <>
-                    {shipped && <p className={styles.summaryLine}>{t(lang, "C-propa-shipped", { version: shipped.version })}</p>}
-                    <p className={styles.summaryLine}>{datesLine(lang, content, shipped)}</p>
-                  </>
-                ) : (
-                  <p className={styles.summaryLine}>{owner?.reason ? t(lang, "C-propa-rule", { reason: owner.reason }) : t(lang, "C-propa-rule-none")}</p>
-                )}
+                <Pill tone={OWNER_STATUS_TONE[item.proposal.status]} className={styles.summaryPill}>
+                  {isApproved
+                    ? shipped
+                      ? t(lang, "C-propa-st-approved-starts", { date: dayLabel(shipped.effective_from_date, lang) })
+                      : t(lang, OWNER_STATUS_KEY[item.proposal.status])
+                    : t(lang, "C-propa-st-rejected-rule")}
+                </Pill>
               </li>
             );
           })}
@@ -153,14 +189,14 @@ function AllDecided({ lang, queue, sop }: { lang: Lang; queue: ProposalListItem[
         <p className={styles.nextText}>{t(lang, "C-propa-next-p")}</p>
       </Glass>
       <div className={styles.links}>
-        <Link href="/home" className={buttonClassName({ variant: "secondary" })}>
+        <Link href="/home" className={buttonClassName({ variant: "primary" })}>
           {t(lang, "C-propa-home")}
         </Link>
-        <Link href="/sop" className={buttonClassName({ variant: "primary" })}>
+        <Link href="/sop" className={buttonClassName({ variant: "secondary" })}>
           {t(lang, "C-propa-see-sop")}
         </Link>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -229,32 +265,46 @@ export function ApprovalsReview({
     bridge.current?.({ type: "progress" });
   }
 
+  const left = queue.length - done;
+  const position = current ? queue.findIndex((i) => i.proposal.proposal_id === current.proposal.proposal_id) + 1 : 0;
+  const kicker = shown === "all_decided" ? t(lang, "C-propa-kicker-done") : shown === "review" ? t(lang, "C-propa-kicker", { n: position, total: queue.length, left }) : null;
+
   return (
     <div className={styles.screen}>
-      <header className={styles.head}>
+      <div className={styles.topRow}>
         <Link href="/home" className={styles.backLink}>
           {t(lang, "C-propa-back-home")}
         </Link>
-        <h1 className={styles.h1}>{t(lang, "C-web-nav-approvals")}</h1>
-        <p className={styles.sub}>{t(lang, "C-propa-sub")}</p>
-      </header>
+        {kicker && <span className="b6-kick">{kicker}</span>}
+      </div>
 
       {list.kind === "loading" && (
-        <p role="status" aria-live="polite" className={styles.statusPlain}>
-          {t(lang, "C-day-loading")}
-        </p>
+        <>
+          <PageHead title={t(lang, "C-web-nav-approvals")} sub={t(lang, "C-propa-sub")} />
+          <p role="status" aria-live="polite" className="b6-sub">
+            {t(lang, "C-day-loading")}
+          </p>
+        </>
       )}
       {list.kind === "error" && (
-        <p role="status" aria-live="polite" className={styles.statusPlain}>
-          {t(lang, list.messageKey)}
-        </p>
+        <>
+          <PageHead title={t(lang, "C-web-nav-approvals")} sub={t(lang, "C-propa-sub")} />
+          <p role="status" aria-live="polite" className="b6-sub">
+            {t(lang, list.messageKey)}
+          </p>
+        </>
       )}
 
-      {shown === "empty" && <EmptyState title={t(lang, "C-web-empty-appr-h")} detail={t(lang, "C-web-empty-appr-p")} />}
+      {shown === "empty" && (
+        <>
+          <PageHead title={t(lang, "C-web-nav-approvals")} sub={t(lang, "C-propa-sub")} />
+          <EmptyState title={t(lang, "C-web-empty-appr-h")} detail={t(lang, "C-web-empty-appr-p")} />
+        </>
+      )}
 
       {(shown === "review" || shown === "all_decided") && (
         <>
-          <Progress lang={lang} done={done} total={queue.length} />
+          <Progress lang={lang} queue={queue} currentId={current?.proposal.proposal_id ?? null} />
           {notice && (
             <p ref={noticeRef} tabIndex={-1} role="status" aria-live="polite" className={styles.status}>
               {t(lang, notice)}
@@ -264,19 +314,25 @@ export function ApprovalsReview({
             <AllDecided lang={lang} queue={queue} sop={sop} />
           ) : (
             <div className={styles.body}>
-              <OrderList
+              <ApprovalCard
                 lang={lang}
-                queue={queue}
-                currentId={current!.proposal.proposal_id}
-                sop={sop}
-                onPick={(id) => {
-                  setNotice(null);
-                  setPick({ id, from_url: false });
-                }}
+                item={current!}
+                shipped={shippedChangeFor(current!, sop)}
+                position={position}
+                othersWaiting={queue.some((i) => !isOwnerDecided(i) && i.proposal.proposal_id !== current!.proposal.proposal_id)}
               />
-              <div className={styles.main}>
-                <ApprovalCard lang={lang} item={current!} shipped={shippedChangeFor(current!, sop)} />
+              <div className={styles.side}>
                 <ApprovalDecision key={current!.proposal.proposal_id} auth={auth} lang={lang} item={current!} pending={pending} onSettled={handleSettled} />
+                <OrderList
+                  lang={lang}
+                  queue={queue}
+                  currentId={current!.proposal.proposal_id}
+                  sop={sop}
+                  onPick={(id) => {
+                    setNotice(null);
+                    setPick({ id, from_url: false });
+                  }}
+                />
               </div>
             </div>
           )}

@@ -4,18 +4,22 @@ import { useEffect, useId, useRef } from "react";
 import { canCommit, type DebriefView } from "@/lib/debrief/flow";
 import { reasonLength } from "@/lib/debrief/reason";
 import { REASON_MAX_CHARS } from "@/lib/debrief/constants";
-import { questionLines, questionText } from "@/lib/i18n/category-labels";
+import { questionCategoryChip, questionLines, questionText, questionWhy } from "@/lib/i18n/category-labels";
 import { t } from "@/lib/i18n/dict";
 import { dayLabel } from "@/lib/i18n/format";
 import type { Lang } from "@/lib/i18n/lang";
-import { CheckNewButton } from "@/app/capture/debrief/CheckNewButton";
+import { Button, Card, Chip } from "@/app/ui";
+import { cx } from "@/app/ui/cx";
+import css from "@/app/capture/debrief/debrief.module.css";
 
 /**
- * One debrief question at a time (R-07 Task 7.2, UX-03 section 4.2/5.8).
- * Purely presentational and controlled: the caller (`DebriefFlow`) owns the
- * reducer state and the Lanjut/Lewati side effects (the phone cache write,
- * the POST, the gate). Nothing here ever reads a server-supplied thread
- * line, a name or a role — only `questionText()`'s enum-mapped template.
+ * One debrief question at a time (R-07 Task 7.2, UX-03 section 4.2/5.8; page-2 look from R-25 T7, boards P2-09 /
+ * L2-08). Purely presentational and controlled: the caller (`DebriefFlow`) owns the reducer state and the
+ * Next/Skip side effects (the phone cache write, the POST, the gate). Nothing here ever reads a name or a role:
+ * only `questionText()`'s enum-mapped template, the category code and the fixed `questionWhy()` sentence. The one
+ * server-supplied text is `question.lines` (demo-feedback-2 item 10, sandbox only): already-redacted,
+ * server-scrubbed thread lines, rendered as plain text nodes in React state only (never stored, never HTML). The answer is Yes or No plus a required reason, as the route accepts (the board's
+ * "Not sure" is not offered: R-25 ruling R9).
  */
 
 export type QuestionView = Extract<DebriefView, { kind: "question" }>;
@@ -29,50 +33,40 @@ export interface QuestionScreenProps {
   onTypeReason: (reason: string) => void;
   onLanjut: () => void;
   onLewati: () => void;
-  /** R-18, sandbox only: omitted on the pilot, so no "Check for new questions" button renders there. */
-  onCheck?: () => void;
-  checking?: boolean;
   /** The debrief's own business date: the chip shows only for a question from a day strictly before it. */
   debriefDate?: string | null;
+  /**
+   * Whole minutes left in the debrief hour, for the amber chip. Passive (no live region): the container passes it
+   * from the page's ticked clock. Omitted: no chip.
+   */
+  minutesLeft?: number | null;
 }
 
-const RADIOGROUP_STYLE: React.CSSProperties = {
-  display: "flex",
-  gap: 8,
-  marginTop: 12,
-};
-
-const RADIO_BASE_STYLE: React.CSSProperties = {
-  flex: "1 1 0%",
-  minHeight: 48,
-  fontSize: 16,
-  fontWeight: 700,
-  borderWidth: 2,
-  borderStyle: "solid",
-  borderColor: "#444",
-  borderRadius: 8,
-  background: "#fff",
-};
-
-const RADIO_SELECTED_STYLE: React.CSSProperties = {
-  background: "#1a4d2e",
-  color: "#fff",
-  borderColor: "#1a4d2e",
-};
-
-export function QuestionScreen({ view, lang, uploadNote, onChoose, onTypeReason, onLanjut, onLewati, onCheck, checking = false, debriefDate = null }: QuestionScreenProps) {
+export function QuestionScreen({
+  view,
+  lang,
+  uploadNote,
+  onChoose,
+  onTypeReason,
+  onLanjut,
+  onLewati,
+  debriefDate = null,
+  minutesLeft = null,
+}: QuestionScreenProps) {
   const question = view.list[view.index];
-  const headingRef = useRef<HTMLDivElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const alertRef = useRef<HTMLDivElement>(null);
   const textareaId = useId();
+  const counterId = useId();
+  const helpId = useId();
 
-  // A fresh question (new index) moves focus to the heading (UX-03 section
-  // 4.2: "each new question moves focus to its heading").
+  // A fresh question (new index) moves focus to its heading (UX-03 section 4.2: "each new question moves focus
+  // to its heading").
   useEffect(() => {
     headingRef.current?.focus();
   }, [view.index]);
 
-  // A refused Lanjut moves focus to the first error (UX-03 section 4.2).
+  // A refused Next moves focus to the first error (UX-03 section 4.2).
   useEffect(() => {
     if (view.save_error) alertRef.current?.focus();
   }, [view.save_error]);
@@ -81,9 +75,18 @@ export function QuestionScreen({ view, lang, uploadNote, onChoose, onTypeReason,
 
   const qText = questionText(lang, question);
   const qLines = questionLines(lang, question);
+  const chip = questionCategoryChip(lang, question);
+  const quoted = question.lines && question.lines.length > 0 ? question.lines : null;
   const n = reasonLength(view.reason);
   const over = n > REASON_MAX_CHARS ? n - REASON_MAX_CHARS : 0;
   const disabled = !canCommit(view);
+
+  // Position over the whole debrief, not the current list: the counts already include every question this
+  // device answered or skipped (a reload restores them), so "2 of 5" stays 2 of 5 after a refresh or a reload.
+  const position = view.answered + view.skipped + 1;
+  const total = position - 1 + (view.list.length - view.index);
+
+  const earlierDay = Boolean(question.business_date && (debriefDate === null || question.business_date < debriefDate));
 
   function handleGroupKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
@@ -105,54 +108,77 @@ export function QuestionScreen({ view, lang, uploadNote, onChoose, onTypeReason,
     return t(lang, "C-d-help-dis");
   }
 
-  const reasonLabelLines: [string, string] =
+  const reasonLabelLines: string[] =
     view.choice === "yes"
       ? [t(lang, "C-d-r-yes"), t(lang, "C-d-r-yes-2")]
       : view.choice === "no"
         ? [t(lang, "C-d-r-no"), t(lang, "C-d-r-no-2")]
-        : ["", ""];
+        : [t(lang, "C-d2-q-reason")];
+
+  const help = disabledHelp();
 
   return (
-    <section>
-      <div ref={headingRef} tabIndex={-1} style={{ outline: "none" }}>
-        <p style={{ fontSize: 14, margin: 0, color: "#555" }}>
-          {t(lang, "C-d-prog", { N: view.index + 1, M: view.list.length })}
-        </p>
-        {question.business_date && (debriefDate === null || question.business_date < debriefDate) ? (
-          <p
-            style={{
-              display: "inline-block",
-              margin: "6px 0 0",
-              padding: "2px 8px",
-              border: "1px solid #7A4F00",
-              borderRadius: 12,
-              fontSize: 13,
-              color: "#7A4F00",
-            }}
-          >
-            {t(lang, "C-script-earlier-day", { date: dayLabel(question.business_date, lang) })}
-          </p>
-        ) : null}
-        <h2 style={{ fontSize: 18, margin: "4px 0 0" }}>
+    <section className={css.question}>
+      <div className={css.topRow}>
+        <span className="b6-kick">{t(lang, "C-d-prog", { N: position, M: total })}</span>
+        {minutesLeft !== null ? <Chip variant="amber">{t(lang, "C-d2-q-left", { k: minutesLeft })}</Chip> : null}
+      </div>
+      <ul className={css.bars} aria-label={t(lang, "C-d2-q-progress")}>
+        {Array.from({ length: total }, (_, i) => (
+          <li
+            key={i}
+            className={cx(css.bar, i < position && css.barDone)}
+            aria-current={i === position - 1 ? "step" : undefined}
+          />
+        ))}
+      </ul>
+
+      <Card as="div" className={css.card}>
+        <div className={css.tags}>
+          {chip ? (
+            <Chip>
+              <span aria-hidden="true">{chip.code}</span>
+              <span className="b6-sr-only">{chip.name}</span>
+            </Chip>
+          ) : null}
+          {earlierDay && question.business_date ? (
+            <Chip variant="amber">{t(lang, "C-script-earlier-day", { date: dayLabel(question.business_date, lang) })}</Chip>
+          ) : null}
+          <span className="b6-mono">
+            {earlierDay ? question.start_hm : t(lang, "C-d2-q-when", { hm: question.start_hm })}
+          </span>
+        </div>
+        <h2 ref={headingRef} tabIndex={-1} className={css.heading}>
           {qLines.map((line, i) => (
-            <span key={i} style={{ display: "block" }}>
+            <span key={i} className={css.headingLine}>
               {line}
             </span>
           ))}
         </h2>
-      </div>
+        {quoted ? (
+          // demo-feedback-2 item 10 (sandbox only): the device's own stored, already-redacted, name-scrubbed
+          // line(s). Plain text nodes only (never t() interpolation, never HTML); they replace the generic why.
+          <div className={css.heard}>
+            <p className={css.heardLead}>{t(lang, "C-d2-heard")}</p>
+            {quoted.map((line, i) => (
+              <p key={i} className={css.heardLine}>
+                {"\u201C"}
+                {line}
+                {"\u201D"}
+              </p>
+            ))}
+          </div>
+        ) : (
+          <p className={css.why}>{questionWhy(lang, question)}</p>
+        )}
+      </Card>
 
-      <div
-        role="radiogroup"
-        aria-label={qText}
-        style={RADIOGROUP_STYLE}
-        onKeyDown={handleGroupKeyDown}
-      >
+      <div role="radiogroup" aria-label={qText} className={css.choices} onKeyDown={handleGroupKeyDown}>
         <button
           type="button"
           role="radio"
           aria-checked={view.choice === "yes"}
-          style={view.choice === "yes" ? { ...RADIO_BASE_STYLE, ...RADIO_SELECTED_STYLE } : RADIO_BASE_STYLE}
+          className={cx(css.choice, view.choice === "yes" && css.choiceOn)}
           onClick={() => onChoose("yes")}
         >
           {view.choice === "yes" ? <span aria-hidden="true">✓ </span> : null}
@@ -162,7 +188,7 @@ export function QuestionScreen({ view, lang, uploadNote, onChoose, onTypeReason,
           type="button"
           role="radio"
           aria-checked={view.choice === "no"}
-          style={view.choice === "no" ? { ...RADIO_BASE_STYLE, ...RADIO_SELECTED_STYLE } : RADIO_BASE_STYLE}
+          className={cx(css.choice, view.choice === "no" && css.choiceOn)}
           onClick={() => onChoose("no")}
         >
           {view.choice === "no" ? <span aria-hidden="true">✓ </span> : null}
@@ -170,55 +196,61 @@ export function QuestionScreen({ view, lang, uploadNote, onChoose, onTypeReason,
         </button>
       </div>
 
-      {view.choice !== null ? (
-        <div style={{ marginTop: 12 }}>
-          <label htmlFor={textareaId} style={{ display: "block", fontSize: 14 }}>
-            <span>{reasonLabelLines[0]}</span> <span>{reasonLabelLines[1]}</span>
-          </label>
-          <textarea
-            id={textareaId}
-            rows={4}
-            autoComplete="off"
-            style={{ width: "100%", fontSize: 16, boxSizing: "border-box", marginTop: 4 }}
-            value={view.reason}
-            onChange={(e) => onTypeReason(e.target.value)}
-          />
-          <p style={{ textAlign: "right", margin: "2px 0 0", fontSize: 13, color: over > 0 || n >= 450 ? "#7A4F00" : "#555" }}>
-            {counterNode()}
-          </p>
-        </div>
-      ) : null}
+      <div className={css.reasonBlock}>
+        <label htmlFor={textareaId} className={css.reasonLabel}>
+          {reasonLabelLines.map((line, i) => (
+            <span key={i}>
+              {i > 0 ? " " : ""}
+              {line}
+            </span>
+          ))}
+        </label>
+        <textarea
+          id={textareaId}
+          rows={3}
+          autoComplete="off"
+          aria-required="true"
+          aria-describedby={counterId}
+          className={cx("b6-field", css.reason)}
+          placeholder={t(lang, "C-d2-q-ph")}
+          value={view.reason}
+          onChange={(e) => onTypeReason(e.target.value)}
+        />
+        <p id={counterId} className={cx(css.counter, (over > 0 || n >= 450) && css.counterWarn)}>
+          {counterNode()}
+        </p>
+      </div>
 
       {view.save_error ? (
-        <div ref={alertRef} role="alert" tabIndex={-1} style={{ marginTop: 12, color: "#b00020" }}>
-          <p style={{ margin: 0, fontWeight: 600 }}>{t(lang, "C-d-save-fail")}</p>
-          <p style={{ margin: "2px 0 0" }}>{t(lang, "C-d-save-fail-2")}</p>
-          <p style={{ margin: "2px 0 0" }}>{t(lang, "C-d-save-fail-3")}</p>
+        <div ref={alertRef} role="alert" tabIndex={-1} className="b6-alert b6-alert--red">
+          <span className="b6-alert__lead">{t(lang, "C-d-save-fail")}</span>
+          <span>{t(lang, "C-d-save-fail-2")}</span>
+          <span>{t(lang, "C-d-save-fail-3")}</span>
         </div>
       ) : null}
 
       {uploadNote ? (
-        <div role="status" aria-live="polite" style={{ marginTop: 12, fontSize: 14, color: "#7A4F00" }}>
+        <div role="status" aria-live="polite" className="b6-alert b6-alert--amber">
           {t(lang, uploadNote === "offline" ? "C-d-offline" : "C-d-refused")}
         </div>
       ) : null}
 
-      <div style={{ marginTop: 16, display: "flex", justifyContent: "space-between", gap: 8 }}>
-        <button type="button" style={{ minHeight: 48, padding: "0 16px" }} onClick={onLewati}>
-          {t(lang, "C-b-lewati")}
-        </button>
-        <button
-          type="button"
-          style={{ minHeight: 48, padding: "0 16px", fontWeight: 700 }}
-          onClick={onLanjut}
-          disabled={disabled}
-        >
-          {t(lang, "C-b-lanjut")}
-        </button>
+      <Button size="lg" block onClick={onLanjut} disabled={disabled} aria-describedby={help ? helpId : undefined}>
+        {t(lang, "C-d2-next")}
+      </Button>
+      {help ? (
+        <p id={helpId} className="b6-note">
+          {help}
+        </p>
+      ) : null}
+      <Button variant="text" block onClick={onLewati}>
+        {t(lang, "C-b-lewati")}
+      </Button>
+
+      <div className={css.notes}>
+        <p className="b6-note">{t(lang, "C-d2-wait-1")}</p>
+        {view.index === 0 ? <p className="b6-note">{t(lang, "C-d-locked")}</p> : null}
       </div>
-      {onCheck ? <CheckNewButton lang={lang} onCheck={onCheck} checking={checking} /> : null}
-      {disabledHelp() ? <p style={{ fontSize: 13, color: "#555" }}>{disabledHelp()}</p> : null}
-      {view.index === 0 ? <p style={{ fontSize: 13, color: "#555" }}>{t(lang, "C-d-locked")}</p> : null}
     </section>
   );
 }

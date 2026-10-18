@@ -52,24 +52,24 @@ function renderActions(t: SupervisorThread, onDone: () => void = () => {}, lang:
 }
 
 describe("ThreadActions", () => {
-  it("awaiting_supervisor row shows three buttons: Confirm, Change category, Reject", () => {
+  it("awaiting_supervisor row shows three buttons: Confirm, Change label, Reject", () => {
     renderActions(thread({ display_status: "awaiting_supervisor" }));
     expect(screen.queryByText("Confirm")).not.toBeNull();
-    expect(screen.queryByText("Change category")).not.toBeNull();
+    expect(screen.queryByText("Change label")).not.toBeNull();
     expect(screen.queryByText("Reject")).not.toBeNull();
   });
 
-  it("fact_staff_confirmed row shows Change category + Reject (no Confirm)", () => {
+  it("fact_staff_confirmed row shows Change label + Reject (no Confirm)", () => {
     renderActions(thread({ display_status: "fact_staff_confirmed" }));
     expect(screen.queryByText("Confirm")).toBeNull();
-    expect(screen.queryByText("Change category")).not.toBeNull();
+    expect(screen.queryByText("Change label")).not.toBeNull();
     expect(screen.queryByText("Reject")).not.toBeNull();
   });
 
-  it("rejected_by_supervisor row shows Confirm + Change category (no Reject)", () => {
+  it("rejected_by_supervisor row shows Confirm + Change label (no Reject)", () => {
     renderActions(thread({ display_status: "rejected_by_supervisor" }));
     expect(screen.queryByText("Confirm")).not.toBeNull();
-    expect(screen.queryByText("Change category")).not.toBeNull();
+    expect(screen.queryByText("Change label")).not.toBeNull();
     expect(screen.queryByText("Reject")).toBeNull();
   });
 
@@ -92,12 +92,12 @@ describe("ThreadActions", () => {
     expect(onDone).toHaveBeenCalledTimes(1);
   });
 
-  it("Change category opens the label dialog (R-19 PR-12a); pick COMPLAINT -> Save label sends { action: 'override', category }; Save is disabled while the current category is selected", async () => {
+  it("Change label opens the label dialog (R-19 PR-12a); pick COMPLAINT -> Save label sends { action: 'override', category }; Save is disabled while the current category is selected", async () => {
     authedPostJson.mockResolvedValueOnce({ kind: "ok", data: {} });
     const onDone = vi.fn();
     renderActions(thread({ category: "ROUTINE_OPS" }), onDone);
 
-    fireEvent.click(screen.getByText("Change category"));
+    fireEvent.click(screen.getByText("Change label"));
     const dialog = screen.getByRole("dialog", { name: "Change label" });
     // Save disabled while the selection equals the current category.
     expect((screen.getByText("Save label") as HTMLButtonElement).disabled).toBe(true);
@@ -119,21 +119,21 @@ describe("ThreadActions", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("Cancel closes the dialog, sends no request and returns focus to Change category", () => {
+  it("Cancel closes the dialog, sends no request and returns focus to Change label", () => {
     renderActions(thread());
-    const change = screen.getByText("Change category");
+    const change = screen.getByText("Change label");
     change.focus(); // a tap or Enter focuses the opener; jsdom's click does not
     fireEvent.click(change);
     fireEvent.click(screen.getByText("Cancel"));
     expect(authedPostJson).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(document.activeElement).toBe(screen.getByText("Change category"));
+    expect(document.activeElement).toBe(screen.getByText("Change label"));
   });
 
   it("GATE_BLOCKED on a label change keeps the dialog open with the blocked line inside it", async () => {
     authedPostJson.mockResolvedValueOnce({ kind: "conflict", code: "GATE_BLOCKED" });
     renderActions(thread({ category: "ROUTINE_OPS" }));
-    fireEvent.click(screen.getByText("Change category"));
+    fireEvent.click(screen.getByText("Change label"));
     fireEvent.click(screen.getByRole("radio", { name: /Customer complaint/ }));
     fireEvent.click(screen.getByText("Save label"));
     const alert = await screen.findByRole("alert");
@@ -145,7 +145,7 @@ describe("ThreadActions", () => {
     authedPostJson.mockResolvedValueOnce({ kind: "conflict", code: "NOT_REVIEWABLE" });
     const onDone = vi.fn();
     renderActions(thread({ category: "ROUTINE_OPS" }), onDone);
-    fireEvent.click(screen.getByText("Change category"));
+    fireEvent.click(screen.getByText("Change label"));
     fireEvent.click(screen.getByRole("radio", { name: /Customer complaint/ }));
     fireEvent.click(screen.getByText("Save label"));
     const status = await screen.findByRole("status");
@@ -207,7 +207,7 @@ describe("ThreadActions", () => {
 
   it("ID toggle switches the dialog's labels", () => {
     renderActions(thread({ category: "COMPLAINT" }), () => {}, "id");
-    fireEvent.click(screen.getByText("Ubah kategori"));
+    fireEvent.click(screen.getByText("Ubah label"));
     expect(screen.getByRole("dialog", { name: "Ubah label" })).not.toBeNull();
     expect(screen.getByRole("radio", { name: /Keluhan pelanggan/ })).not.toBeNull();
   });
@@ -267,18 +267,18 @@ describe("ThreadActions", () => {
       await Promise.resolve();
     });
 
-    it("opening Change category closes an open reject panel", () => {
+    it("opening Change label closes an open reject panel", () => {
       renderActions(thread());
       fireEvent.click(screen.getByText("Reject"));
       expect(screen.queryByText("Reject this note? It will not count as evidence.")).not.toBeNull();
-      fireEvent.click(screen.getByText("Change category"));
+      fireEvent.click(screen.getByText("Change label"));
       expect(screen.queryByText("Reject this note? It will not count as evidence.")).toBeNull();
       expect(screen.queryByRole("dialog")).not.toBeNull();
     });
 
     it("opening Reject closes an open change-category panel", () => {
       renderActions(thread());
-      fireEvent.click(screen.getByText("Change category"));
+      fireEvent.click(screen.getByText("Change label"));
       expect(screen.queryByRole("dialog")).not.toBeNull();
       fireEvent.click(screen.getByText("Reject"));
       expect(screen.queryByRole("dialog")).toBeNull();

@@ -20,7 +20,8 @@ import {
   type Proposal,
   type SopVersion,
 } from "@/lib/firestore/schema";
-import type { ProposalModel, ProposalModelResult } from "@/lib/agents/proposal-agent";
+import type { ProposalModel, ProposalModelResult, ProposalModelUsage } from "@/lib/agents/proposal-agent";
+import type { ProposalAgentV4, ProposalAgentV4Result } from "@/lib/agents/proposal-agent-v4";
 import type { ProposalThreadRow } from "@/lib/proposals/candidates";
 import {
   csDay1,
@@ -32,6 +33,27 @@ import {
   weakCs2,
 } from "@/lib/proposals/testing/rehearsal-fixture";
 import { generateProposal, type FreshThread, type ProposalDeps, type ProposalStore } from "@/lib/proposals/service";
+import { PROPOSAL_RULES } from "@/lib/firestore/schema";
+import { V4_RULES, type V4Outcome, type V4Session, type V4Trace } from "@/lib/proposals/v4/types";
+import type { ProposalDraftV4 } from "@/lib/proposals/v4/draft-schema";
+import { buildV4Tools } from "@/lib/proposals/v4/tools";
+import { buildProposalPromptV4 } from "@/lib/proposals/v4/prompt";
+import { buildProposalDraftV4Schema } from "@/lib/proposals/v4/draft-schema";
+import { V4_ASK_BUDGET_MS, V4_TIMEOUT_MS, PROPOSAL_LEASE_MS } from "@/lib/proposals/constants";
+
+// R-24 B4: pass-through spies on the v4 modules, so a test can prove the flag-off path never reaches them.
+vi.mock("@/lib/proposals/v4/tools", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/proposals/v4/tools")>();
+  return { ...actual, buildV4Tools: vi.fn(actual.buildV4Tools) };
+});
+vi.mock("@/lib/proposals/v4/prompt", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/proposals/v4/prompt")>();
+  return { ...actual, buildProposalPromptV4: vi.fn(actual.buildProposalPromptV4) };
+});
+vi.mock("@/lib/proposals/v4/draft-schema", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/proposals/v4/draft-schema")>();
+  return { ...actual, buildProposalDraftV4Schema: vi.fn(actual.buildProposalDraftV4Schema) };
+});
 
 const TZ = "Asia/Jakarta";
 const OUTLET_ID = "o1";
@@ -1437,5 +1459,453 @@ describe("generateProposal: R-20 two-focus Ask", () => {
     const result = await r20Gen(store, deps);
     expect(redact).toHaveBeenCalledTimes(1);
     expect(result.proposal.content?.change_title.endsWith("[R]")).toBe(true);
+  });
+});
+
+// ── R-24 B4: the v4 (tool-using) agent behind `deps.agentV4` ─────────────────
+describe("generateProposal: R-24 v4 agent", () => {
+  const USAGE: ProposalModelUsage = { input_tokens: 1000, output_tokens: 100, thoughts_tokens: 10 };
+  const NO_USAGE: ProposalModelUsage = { input_tokens: null, output_tokens: null, thoughts_tokens: null };
+  const traceOf = (overrides: Partial<V4Trace> = {}): V4Trace => ({
+    model_calls: 7,
+    tool_calls: [
+      { name: "list_sop_sections", ok: true },
+      { name: "check_proposal", ok: true },
+    ],
+    check_rounds: 1,
+    ms: 9_000,
+    ended_by: "decided",
+    ...overrides,
+  });
+
+  /** A draft the real check would accept for ROW_1 + ROW_2 on `SOP` (one degenerate "all" section). */
+  const DRAFT: ProposalDraftV4 = {
+    section_id: "all",
+    target_step_id: "stock-01",
+    intervention_id: "change_quantity_time",
+    rubric_criterion_ids: ["observable"],
+    evidence: ["E1", "E2"],
+    evidence_quotes: [
+      { alias: "E1", quote: "FACT-SENTINEL-1" },
+      { alias: "E2", quote: "FACT-SENTINEL-2" },
+    ],
+    change_title: "Check more often",
+    change_text: "Check the display every 30 minutes.",
+    rationale: "Two dates show the issue.",
+    metric_category: "CUSTOMER_SERVICE",
+    metric_direction: "decrease",
+    metric_description: "Requests per day.",
+    failure_condition: "Requests do not fall.",
+    review_after_days: 7,
+  };
+  const ALL_CHECKS = [...PROPOSAL_RULES.slice(0, 8), ...V4_RULES].map((rule) => ({ rule, passed: true }));
+
+  const decided = (outcome: V4Outcome, trace: V4Trace = traceOf(), usage = USAGE): ProposalAgentV4Result => ({
+    kind: "decided",
+    outcome,
+    usage,
+    trace,
+  });
+  const failed = (error_class: string, trace: V4Trace, usage = NO_USAGE): ProposalAgentV4Result => ({
+    kind: "error",
+    error_class,
+    usage,
+    trace,
+  });
+  const ACCEPTED: V4Outcome = { kind: "accepted", draft: DRAFT, checks: ALL_CHECKS };
+
+  /** A fake runner: sets `session.outcome` like the tools would, then returns `result`. */
+  function agentReturning(result: (session: V4Session, call: number) => ProposalAgentV4Result) {
+    let call = 0;
+    return vi.fn<ProposalAgentV4>(async (input) => {
+      const r = result(input.session, call++);
+      if (r.kind === "decided") input.session.outcome = r.outcome;
+      return r;
+    });
+  }
+
+  const v4Gen = (store: ProposalStore, deps: ProposalDeps) =>
+    generateProposal(store, deps, { claims: claims(), from_date: "2026-10-01", to_date: "2026-10-02", now_ms: NOW_MS });
+  const PROBLEM = [csDay1, csDay2, phoneDay2, phoneDay3];
+  const generatedLog = () => infoSpy.mock.calls.find((c) => c[0] === "[proposal] generated")?.[1] as Record<string, unknown>;
+
+  it("flag off: the v3 model is called exactly as before, the v4 modules are never touched, and the stored doc has no v4 field", async () => {
+    vi.mocked(buildV4Tools).mockClear();
+    vi.mocked(buildProposalPromptV4).mockClear();
+    vi.mocked(buildProposalDraftV4Schema).mockClear();
+    const { store, state } = makeFakeStore();
+    const { deps, model } = makeDeps(); // no `agentV4` key at all
+    model.mockResolvedValueOnce(okModelResult(validWireText(), USAGE));
+    const result = await v4Gen(store, deps);
+
+    expect(result.proposal.status).toBe("awaiting_supervisor");
+    expect(model).toHaveBeenCalledTimes(1);
+    const arg = model.mock.calls[0]![0] as { systemInstruction: string; userContent: string; responseJsonSchema: unknown };
+    expect(Object.keys(arg).sort()).toEqual(["responseJsonSchema", "systemInstruction", "userContent"]);
+    expect(arg.userContent).not.toContain("PREVIOUS ANSWER REJECTED");
+    expect(model.mock.calls[0]![1]).toEqual({ project: "bee6-playground", location: "asia-southeast1", timeoutMs: 60_000 });
+    expect(buildV4Tools).not.toHaveBeenCalled();
+    expect(buildProposalPromptV4).not.toHaveBeenCalled();
+    expect(buildProposalDraftV4Schema).not.toHaveBeenCalled();
+
+    const gen = state.written[0]!.proposal.generator;
+    expect(Object.keys(gen).sort()).toEqual(
+      ["agent_version", "attempts", "floor_version", "gate_version", "kind", "library_version", "location", "model", "sop_version_id"],
+    );
+    expect(gen.agent_version).toBe("proposal-v3");
+    expect(state.written[0]!.proposal.gate.checks.some((c) => (V4_RULES as readonly string[]).includes(c.rule))).toBe(false);
+    // the log line carries none of the R-24 fields
+    expect(Object.keys(generatedLog())).not.toContain("agent_version");
+    expect(Object.keys(generatedLog())).not.toContain("v4_model_calls");
+  });
+
+  it("flag off: `agentV4: null` stores exactly the same doc and log as no key at all", async () => {
+    const runs = [] as Array<{ proposal: Proposal; log: Record<string, unknown> }>;
+    for (const extra of [{}, { agentV4: null }] as Array<Partial<ProposalDeps>>) {
+      infoSpy.mockClear();
+      const { store, state } = makeFakeStore();
+      const { deps, model } = makeDeps(extra);
+      model.mockResolvedValueOnce(okModelResult(validWireText(), USAGE));
+      await v4Gen(store, deps);
+      runs.push({ proposal: state.written[0]!.proposal, log: generatedLog() });
+    }
+    expect(runs[1]!.proposal).toEqual(runs[0]!.proposal);
+    expect(runs[1]!.log).toEqual(runs[0]!.log);
+  });
+
+  it("accepted: awaiting_supervisor, proposal-v4, pcheck-v4, 18 + evidence_stale checks, fell_back false, attempts 1, v3 model unused, quotes never stored", async () => {
+    const { store, state } = makeFakeStore();
+    const agentV4 = agentReturning(() => decided({ ...ACCEPTED, draft: { ...DRAFT, evidence_quotes: [{ alias: "E1", quote: "QUOTE-SENTINEL-aaa" }, { alias: "E2", quote: "QUOTE-SENTINEL-bbb" }] } }));
+    const { deps, model } = makeDeps({ agentV4 });
+    const result = await v4Gen(store, deps);
+
+    expect(result.proposal.status).toBe("awaiting_supervisor");
+    expect(model).not.toHaveBeenCalled();
+    expect(agentV4).toHaveBeenCalledTimes(1);
+    const doc = state.written[0]!.proposal;
+    expect(doc.generator.agent_version).toBe("proposal-v4");
+    expect(doc.generator.check_version).toBe("pcheck-v4");
+    expect(doc.generator.attempts).toBe(1);
+    expect(doc.generator.v4).toEqual({ ...traceOf(), fell_back: false });
+    expect(doc.gate.checks).toHaveLength(19);
+    expect(doc.gate.checks.at(-1)).toEqual({ rule: "evidence_stale", passed: true });
+    expect(doc.content?.target_step_id).toBe("stock-01");
+    expect(doc.content?.change_text).toBe("Check the display every 30 minutes.");
+    expect(ProposalSchema.parse(doc)).toEqual(doc);
+    expect(JSON.stringify(doc)).not.toContain("QUOTE-SENTINEL");
+    expect(JSON.stringify(generatedLog())).not.toContain("QUOTE-SENTINEL");
+    expect(generatedLog()).toMatchObject({
+      status: "awaiting_supervisor",
+      attempts: 1,
+      agent_version: "proposal-v4",
+      v4_model_calls: 7,
+      v4_fell_back: false,
+      input_tokens: 1000,
+      output_tokens: 100,
+      thoughts_tokens: 10,
+    });
+  });
+
+  it("the runner gets the v4 prompt, the seven tools, the session and the model location from deps (never hard-coded)", async () => {
+    const { store } = makeFakeStore();
+    const agentV4 = agentReturning(() => decided(ACCEPTED));
+    const { deps } = makeDeps({ agentV4, resolveLocation: () => "asia-southeast1" });
+    await v4Gen(store, deps);
+    const [input, ctx] = agentV4.mock.calls[0]!;
+    expect(ctx).toEqual({ project: "bee6-playground", location: "asia-southeast1", timeoutMs: V4_TIMEOUT_MS });
+    expect(input.tools.map((t) => t.name)).toEqual([
+      "list_sop_sections",
+      "get_sop_section",
+      "get_evidence",
+      "get_intervention",
+      "get_rubric",
+      "check_proposal",
+      "decline",
+    ]);
+    expect(input.userContent).toContain("FACTS (index; call get_evidence for detail)");
+    expect(input.userContent).not.toContain("Check hourly."); // no SOP text in the v4 prompt
+    expect(input.userContent).not.toContain(DEVICE_ID);
+    expect(input.userContent).not.toContain("unit_");
+    expect(input.systemInstruction).not.toMatch(/[{}]/);
+  });
+
+  it("end to end through the REAL tools: a runner that calls them in order is accepted by the real check", async () => {
+    const { store, state } = makeFakeStore();
+    const agentV4 = vi.fn<ProposalAgentV4>(async (input) => {
+      const call = (name: string, args: unknown) => {
+        const t = input.tools.find((x) => x.name === name)!;
+        return t.execute(t.parameters.parse(args));
+      };
+      call("list_sop_sections", {});
+      call("get_sop_section", { section_id: "all" });
+      call("get_evidence", { alias: "E1" });
+      call("get_evidence", { alias: "E2" });
+      call("get_intervention", { id: "change_quantity_time" });
+      const verdict = call("check_proposal", DRAFT) as { passed: boolean; reasons: string[] };
+      expect(verdict.reasons).toEqual([]);
+      return decided(input.session.outcome!, traceOf({ tool_calls: input.session.toolCalls }));
+    });
+    const { deps } = makeDeps({ agentV4 });
+    const result = await v4Gen(store, deps);
+    expect(result.proposal.status).toBe("awaiting_supervisor");
+    const gen = state.written[0]!.proposal.generator;
+    expect(gen.agent_version).toBe("proposal-v4");
+    expect(gen.v4?.tool_calls.map((t) => t.name)).toEqual([
+      "list_sop_sections",
+      "get_sop_section",
+      "get_evidence",
+      "get_evidence",
+      "get_intervention",
+      "check_proposal",
+    ]);
+  });
+
+  it("declined: suppressed model_declined with the v4 reason; the doc is still a v4 doc; attempts 1", async () => {
+    const { store, state } = makeFakeStore();
+    const agentV4 = agentReturning(() => decided({ kind: "declined", reason: "evidence_conflicts" }));
+    const { deps, model } = makeDeps({ agentV4 });
+    const result = await v4Gen(store, deps);
+    expect(result.proposal.status).toBe("suppressed");
+    expect(result.proposal.suppression?.reason).toBe("model_declined");
+    expect(result.proposal.suppression?.model_reason).toBe("evidence_conflicts");
+    expect(model).not.toHaveBeenCalled();
+    const doc = state.written[0]!.proposal;
+    expect(doc.generator).toMatchObject({ agent_version: "proposal-v4", attempts: 1, v4: { fell_back: false } });
+  });
+
+  it("blocked: a v4 rule is stored as the fired rule with the full check list, content null", async () => {
+    const { store, state } = makeFakeStore();
+    const checks = ALL_CHECKS.map((c) => (c.rule === "scope_unsupported" ? { ...c, passed: false } : c));
+    const agentV4 = agentReturning(() =>
+      decided({ kind: "blocked", rule: "scope_unsupported", checks }, traceOf({ check_rounds: 3 })),
+    );
+    const { deps } = makeDeps({ agentV4 });
+    const result = await v4Gen(store, deps);
+    expect(result.proposal.status).toBe("blocked");
+    expect(result.proposal.blocked_rule).toBe("scope_unsupported");
+    const doc = state.written[0]!.proposal;
+    expect(doc.gate.fired_rule).toBe("scope_unsupported");
+    expect(doc.gate.checks).toEqual(checks);
+    expect(doc.content).toBeNull();
+    expect(doc.generator.v4?.check_rounds).toBe(3);
+    expect(ProposalSchema.parse(doc)).toEqual(doc);
+  });
+
+  describe("fallback to v3 (ONE attempt)", () => {
+    const ERRORS: Array<[string, V4Trace["ended_by"], string]> = [
+      ["no decision", "model_done", "no_decision"],
+      ["call limit", "limit", "limit"],
+      ["timeout", "timeout", "timeout"],
+      ["backstop", "timeout", "backstop"],
+      ["adk error", "error", "adk_unknown_error"],
+    ];
+    it.each(ERRORS)("%s -> one v3 call, proposal-v3, fell_back true, attempts 2, logged by class only", async (_label, endedBy, errorClass) => {
+      const { store, state } = makeFakeStore();
+      const agentV4 = agentReturning(() => failed(errorClass, traceOf({ ended_by: endedBy, model_calls: 4 }), USAGE));
+      const { deps, model } = makeDeps({ agentV4 });
+      model.mockResolvedValueOnce(okModelResult(validWireText(), { input_tokens: 500, output_tokens: 50, thoughts_tokens: 5 }));
+      const result = await v4Gen(store, deps);
+
+      expect(result.proposal.status).toBe("awaiting_supervisor");
+      expect(agentV4).toHaveBeenCalledTimes(1);
+      expect(model).toHaveBeenCalledTimes(1);
+      expect((model.mock.calls[0]![0] as { userContent: string }).userContent).not.toContain("PREVIOUS ANSWER REJECTED");
+      const doc = state.written[0]!.proposal;
+      expect(doc.generator.agent_version).toBe("proposal-v3");
+      expect(doc.generator.check_version).toBeUndefined();
+      expect(doc.generator.attempts).toBe(2);
+      expect(doc.generator.v4).toEqual({ ...traceOf({ ended_by: endedBy, model_calls: 4 }), fell_back: true });
+      expect(doc.gate.checks.some((c) => (V4_RULES as readonly string[]).includes(c.rule))).toBe(false);
+      expect(errorSpy).toHaveBeenCalledWith("[proposal] v4 error", { outlet_id: OUTLET_ID, error_class: errorClass, ended_by: endedBy });
+      // the failed v4 run's tokens count (cost guards) next to the v3 call's
+      expect(generatedLog()).toMatchObject({ agent_version: "proposal-v3", v4_model_calls: 4, v4_fell_back: true, input_tokens: 1500, output_tokens: 150, thoughts_tokens: 15 });
+    });
+
+    it("a runner that throws is a v4 failure too (class logged, v3 answers)", async () => {
+      const { store, state } = makeFakeStore();
+      const agentV4 = vi.fn<ProposalAgentV4>(async () => {
+        throw new TypeError("secret shop text must not be logged");
+      });
+      const { deps, model } = makeDeps({ agentV4 });
+      model.mockResolvedValueOnce(okModelResult(validWireText()));
+      const result = await v4Gen(store, deps);
+      expect(result.proposal.status).toBe("awaiting_supervisor");
+      expect(state.written[0]!.proposal.generator.v4).toMatchObject({ fell_back: true, ended_by: "error", model_calls: 0 });
+      expect(errorSpy).toHaveBeenCalledWith("[proposal] v4 error", { outlet_id: OUTLET_ID, error_class: "TypeError", ended_by: "error" });
+      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("secret shop text");
+    });
+
+    it("v3 declines after the fallback -> suppressed, proposal-v3, attempts 2; v3 gate failure -> blocked after that ONE attempt", async () => {
+      const { store: s1, state: st1 } = makeFakeStore();
+      const { deps: d1, model: m1 } = makeDeps({ agentV4: agentReturning(() => failed("no_decision", traceOf({ ended_by: "model_done" }))) });
+      m1.mockResolvedValueOnce(okModelResult(DECLINE_WIRE()));
+      const r1 = await v4Gen(s1, d1);
+      expect(r1.proposal.status).toBe("suppressed");
+      expect(st1.written[0]!.proposal.generator).toMatchObject({ agent_version: "proposal-v3", attempts: 2, v4: { fell_back: true } });
+
+      const { store: s2, state: st2 } = makeFakeStore();
+      const { deps: d2, model: m2 } = makeDeps({ agentV4: agentReturning(() => failed("limit", traceOf({ ended_by: "limit" }))) });
+      m2.mockResolvedValue(okModelResult(validWireText({ evidence: ["E1"] }))); // evidence_min
+      const r2 = await v4Gen(s2, d2);
+      expect(r2.proposal.status).toBe("blocked");
+      expect(r2.proposal.blocked_rule).toBe("evidence_min");
+      expect(m2).toHaveBeenCalledTimes(1); // not the usual two attempts
+      expect(st2.written[0]!.proposal.generator.attempts).toBe(2);
+    });
+
+    it("v4 error then v3 model error -> ServiceUnavailableError, nothing written, lease released", async () => {
+      const { store, state } = makeFakeStore();
+      const { deps, model } = makeDeps({ agentV4: agentReturning(() => failed("timeout", traceOf({ ended_by: "timeout" }))) });
+      model.mockResolvedValueOnce({ kind: "error", error_class: "timeout" });
+      await expect(v4Gen(store, deps)).rejects.toThrow(ServiceUnavailableError);
+      expect(model).toHaveBeenCalledTimes(1);
+      expect(state.written).toHaveLength(0);
+      expect(state.lockHeld).toBe(false);
+      expect(state.releaseCalls).toHaveLength(1);
+    });
+
+    it("tools that cannot be built are a v4 failure, not a 500: v3 runs once, the runner is never called", async () => {
+      vi.mocked(buildV4Tools).mockImplementationOnce(() => {
+        throw new RangeError("boom");
+      });
+      const { store, state } = makeFakeStore();
+      const agentV4 = agentReturning(() => decided(ACCEPTED));
+      const { deps, model } = makeDeps({ agentV4 });
+      model.mockResolvedValueOnce(okModelResult(validWireText()));
+      const result = await v4Gen(store, deps);
+      expect(result.proposal.status).toBe("awaiting_supervisor");
+      expect(agentV4).not.toHaveBeenCalled();
+      expect(model).toHaveBeenCalledTimes(1);
+      expect(state.written[0]!.proposal.generator.agent_version).toBe("proposal-v3");
+      expect(state.written[0]!.proposal.generator.v4).toBeUndefined();
+      expect(errorSpy).toHaveBeenCalledWith("[proposal] v4 setup error", { outlet_id: OUTLET_ID, error_class: "RangeError" });
+    });
+  });
+
+  describe("per-Ask budget (focus 2 runs v4 only if elapsed <= 160 s)", () => {
+    const ELAPSED_LIMIT_MS = V4_ASK_BUDGET_MS - V4_TIMEOUT_MS - (60_000 + 5_000); // 160 000
+
+    it("the constants give a 160 s line and two worst-case focuses (115 s each) fit the lease", () => {
+      expect(ELAPSED_LIMIT_MS).toBe(160_000);
+      expect(2 * (V4_TIMEOUT_MS + 5_000 + 60_000 + 5_000)).toBe(230_000);
+      expect(230_000).toBeLessThanOrEqual(V4_ASK_BUDGET_MS);
+      expect(V4_ASK_BUDGET_MS).toBeLessThan(PROPOSAL_LEASE_MS);
+    });
+
+    function twoFocus(elapsedAfterFocus1: number) {
+      let nowMs = 1_000_000;
+      const { store, state } = makeFakeStore({ rows: PROBLEM });
+      const agentV4 = agentReturning((_s, call) => {
+        if (call === 0) nowMs += elapsedAfterFocus1;
+        return decided({ kind: "declined", reason: "no_clear_pattern" });
+      });
+      const { deps, model } = makeDeps({ agentV4, clockMs: () => nowMs });
+      model.mockResolvedValue(okModelResult(DECLINE_WIRE("no_matching_intervention")));
+      return { store, state, agentV4, deps, model };
+    }
+
+    it("exactly 160 s elapsed -> focus 2 still runs v4", async () => {
+      const { store, state, agentV4, deps, model } = twoFocus(ELAPSED_LIMIT_MS);
+      await r20Gen(store, deps);
+      expect(agentV4).toHaveBeenCalledTimes(2);
+      expect(model).not.toHaveBeenCalled();
+      expect(state.written[0]!.proposal.generator.agent_version).toBe("proposal-v4");
+    });
+
+    it("160.001 s elapsed -> focus 2 goes straight to v3 with ONE attempt (no v4 call, no PREVIOUS ANSWER retry)", async () => {
+      const { store, state, agentV4, deps, model } = twoFocus(ELAPSED_LIMIT_MS + 1);
+      const result = await r20Gen(store, deps);
+      expect(agentV4).toHaveBeenCalledTimes(1);
+      expect(model).toHaveBeenCalledTimes(1);
+      expect(result.proposal.status).toBe("suppressed");
+      expect(result.proposal.suppression?.model_reason).toBe("no_matching_intervention");
+      const doc = state.written[0]!.proposal;
+      expect(doc.generator).toMatchObject({ agent_version: "proposal-v3", attempts: 2 });
+      expect(doc.generator.v4).toBeUndefined(); // focus 2 never ran v4: nothing to trace
+    });
+
+    it("two worst-case focuses (v4 timeout + backstop, then a slow v3, 115 s each) both run v4 and end at 230 s, inside the lease", async () => {
+      let nowMs = 5_000_000;
+      const start = nowMs;
+      const { store, state } = makeFakeStore({ rows: PROBLEM });
+      const agentV4 = agentReturning(() => {
+        nowMs += V4_TIMEOUT_MS + 5_000;
+        return failed("backstop", traceOf({ ended_by: "timeout" }));
+      });
+      const { deps, model } = makeDeps({ agentV4, clockMs: () => nowMs });
+      model.mockImplementation(async () => {
+        nowMs += 60_000 + 5_000;
+        return okModelResult(DECLINE_WIRE());
+      });
+      const result = await r20Gen(store, deps);
+      expect(agentV4).toHaveBeenCalledTimes(2);
+      expect(model).toHaveBeenCalledTimes(2);
+      expect(nowMs - start).toBe(230_000);
+      expect(nowMs - start).toBeLessThanOrEqual(V4_ASK_BUDGET_MS);
+      expect(nowMs - start).toBeLessThan(PROPOSAL_LEASE_MS);
+      expect(result.proposal.status).toBe("suppressed");
+      expect(state.written[0]!.proposal.generator.attempts).toBe(4);
+      expect(state.written[0]!.proposal.generator.v4?.fell_back).toBe(true);
+    });
+  });
+
+  it("usage is summed over both focuses and a failed run's tokens are counted", async () => {
+    const { store } = makeFakeStore({ rows: PROBLEM });
+    const agentV4 = agentReturning((_s, call) =>
+      call === 0
+        ? decided({ kind: "declined", reason: "no_clear_pattern" }, traceOf(), { input_tokens: 100, output_tokens: 10, thoughts_tokens: 1 })
+        : failed("timeout", traceOf({ ended_by: "timeout" }), { input_tokens: 200, output_tokens: 20, thoughts_tokens: 2 }),
+    );
+    const { deps, model } = makeDeps({ agentV4 });
+    model.mockResolvedValueOnce(okModelResult(DECLINE_WIRE(), { input_tokens: 300, output_tokens: 30, thoughts_tokens: 3 }));
+    await r20Gen(store, deps);
+    expect(generatedLog()).toMatchObject({ input_tokens: 600, output_tokens: 60, thoughts_tokens: 6, focuses_tried: 2 });
+  });
+
+  it("usage stays null when no run reported any", async () => {
+    const { store } = makeFakeStore();
+    const { deps } = makeDeps({ agentV4: agentReturning(() => decided(ACCEPTED, traceOf(), NO_USAGE)) });
+    await v4Gen(store, deps);
+    expect(generatedLog()).toMatchObject({ input_tokens: null, output_tokens: null, thoughts_tokens: null });
+  });
+
+  it("the stored trace is counts and enums only: exactly the schema's keys, tool names from the allow-list shape", async () => {
+    const { store, state } = makeFakeStore();
+    const { deps } = makeDeps({ agentV4: agentReturning(() => decided(ACCEPTED)) });
+    await v4Gen(store, deps);
+    const v4 = state.written[0]!.proposal.generator.v4!;
+    expect(Object.keys(v4).sort()).toEqual(["check_rounds", "ended_by", "fell_back", "model_calls", "ms", "tool_calls"]);
+    for (const t of v4.tool_calls) expect(Object.keys(t).sort()).toEqual(["name", "ok"]);
+  });
+
+  it("an insufficient-evidence Ask never reaches the runner and carries no v4 field", async () => {
+    const { store, state } = makeFakeStore({ rows: [ROW_1] });
+    const agentV4 = agentReturning(() => decided(ACCEPTED));
+    const { deps } = makeDeps({ agentV4 });
+    const result = await v4Gen(store, deps);
+    expect(result.proposal.status).toBe("suppressed");
+    expect(agentV4).not.toHaveBeenCalled();
+    expect(state.written[0]!.proposal.generator.agent_version).toBe("proposal-v3");
+    expect(state.written[0]!.proposal.generator.v4).toBeUndefined();
+  });
+
+  it("reuse and role/outlet checks are unchanged on the v4 path (a staff claim is Forbidden before any runner call)", async () => {
+    const { store } = makeFakeStore();
+    const agentV4 = agentReturning(() => decided(ACCEPTED));
+    const { deps } = makeDeps({ agentV4 });
+    await expect(
+      generateProposal(store, deps, { claims: claims({ role: "staff" }), from_date: "2026-10-01", to_date: "2026-10-02", now_ms: NOW_MS }),
+    ).rejects.toThrow(ForbiddenError);
+    expect(agentV4).not.toHaveBeenCalled();
+  });
+
+  it("the lease is released after a v4 accept, decline and block", async () => {
+    for (const outcome of [ACCEPTED, { kind: "declined", reason: "no_clear_pattern" } as V4Outcome, { kind: "blocked", rule: "scope_unsupported", checks: ALL_CHECKS } as V4Outcome]) {
+      const { store, state } = makeFakeStore();
+      const { deps } = makeDeps({ agentV4: agentReturning(() => decided(outcome)) });
+      await v4Gen(store, deps);
+      expect(state.lockHeld).toBe(false);
+      expect(state.releaseCalls).toHaveLength(1);
+    }
   });
 });

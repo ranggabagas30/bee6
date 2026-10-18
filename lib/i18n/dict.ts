@@ -30,14 +30,18 @@ export const ID_BASE = {
   "C-lang-said": "Bahasa Indonesia dipilih.",
 
   // /pair
-  "C-pair-title": "Pasang perangkat ini",
-  "C-pair-help": "Masukkan 6 digit kode dari orang yang memasang HP ini.",
+  "C-pair-title": "Siapkan perangkat ini", // PROVISIONAL (R-25 T4)
+  "C-pair-help": "Minta kode 6 digit dari supervisor Anda. Berlaku sekali, selama 10 menit.", // PROVISIONAL (R-25 T4)
   "C-pair-label": "Kode 6 digit",
-  "C-pair-need": "Isi 6 digit untuk bisa memasang.",
-  "C-b-pasang": "Pasang",
-  "C-pair-busy": "Memasangkan…",
-  "C-pair-refused": "Kode tidak dikenali atau sudah dipakai. Minta kode baru dari orang yang memasang HP ini.",
+  "C-pair-need": "Masukkan 6 digit untuk menyiapkan.", // PROVISIONAL (R-25 T4)
+  "C-b-pasang": "Siapkan", // PROVISIONAL (R-25 T4)
+  "C-pair-busy": "Menyiapkan…", // PROVISIONAL (R-25 T4)
+  "C-pair-refused": "Kode tidak dikenali, kedaluwarsa, atau sudah dipakai. Minta kode baru ke supervisor Anda.", // PROVISIONAL (R-25 T4)
+  "C-pair-refused-lead": "Kode tidak dikenali, kedaluwarsa, atau sudah dipakai.", // PROVISIONAL (R-25 T4)
+  "C-pair-refused-rest": "Minta kode baru ke supervisor Anda.", // PROVISIONAL (R-25 T4)
   "C-pair-net": "Tidak ada koneksi. Coba lagi saat sinyal stabil.",
+  "C-pair-net-lead": "Tidak ada koneksi.",
+  "C-pair-net-rest": "Coba lagi saat sinyal stabil.",
   "C-pair-ok-h": "HP terpasang",
   "C-pair-ok-line": "Untuk outlet {outlet_id}",
   "C-pair-srv": "Server belum bisa memproses ini. Coba lagi sebentar.", // PROVISIONAL: not in the copy sheet (server 5xx line)
@@ -46,6 +50,14 @@ export const ID_BASE = {
   "C-pair-step-3": "Mulai bisa ditekan 01:00 sampai {until}, tiap hari buka.",
   "C-pair-step-4": "Selesai muncul 4 jam setelah Mulai.",
   "C-b-buka-mendengarkan": "Buka halaman mendengarkan",
+  // R-25 T4 (UI-002, UI-020): the staff top bar's demo line and the demo "Device set up" steps (board P2-03).
+  "C-pair-outlet-demo": "Demo Bakery · Outlet 1",
+  "C-pair-ends-at": "berakhir {time}", // PROVISIONAL
+  "C-pair-demo-for": "Untuk Demo Bakery · Outlet 1", // PROVISIONAL
+  "C-pair-demo-step-1": "Letakkan perangkat di tempat tetap dan colokkan charger.", // PROVISIONAL
+  "C-pair-demo-step-2": "Biarkan layar menyala dan halaman ini terbuka. Menutup halaman berarti tidak mendengarkan.", // PROVISIONAL
+  "C-pair-demo-step-3": "Ketuk Mulai untuk memulai hari, lalu bacakan kartu naskah di panduan juri.", // PROVISIONAL
+  "C-pair-demo-step-4": "Selesai terbuka saat jam tutup. Di demo ini, panduan bisa melompat ke sana setelah semua kartu dibacakan.", // PROVISIONAL
 
   // /capture headline, states and helpers
   "C-cap-title": "HP toko", // one fixed neutral heading on every state (UX-03, 7 Oct)
@@ -209,6 +221,9 @@ export const ID_BASE = {
   "C-demo-cred-private": "Setiap masuk membuka salinan pribadi toko fiktif selama 2 jam. Yang Anda lakukan tidak memengaruhi orang lain.", // PROVISIONAL
   "C-demo-cred-continuing": "Anda melanjutkan demo Anda (berakhir pukul {time}).", // PROVISIONAL
   "C-demo-cred-fresh": "Mulai demo baru dari awal", // PROVISIONAL
+  // Demo feedback 2, finding 4: the sign-in page shows no credentials; the judge guide does. PROVISIONAL.
+  "C-demo-cred-in-guide": "Email dan kata sandi demo Anda ada di Panduan Juri.", // PROVISIONAL
+  "C-signin-solo": "Masuk sebagai {role}", // PROVISIONAL
   "C-srv-generic": "Ada masalah. Coba lagi.", // PROVISIONAL
   "C-web-signout": "Keluar", // PROVISIONAL
 
@@ -440,8 +455,8 @@ export const ID_BASE = {
   "C-rev-window-before-none": "Sebelum ({from} s.d. {to}): tidak ada hari terekam", // PROVISIONAL
   "C-rev-window-after-none": "Sesudah ({from} s.d. {to}): tidak ada hari terekam", // PROVISIONAL
   "C-rev-short-window": "Ini jangka waktu pendek, jadi baca angkanya dengan hati-hati.", // PROVISIONAL
-  "C-rev-suggest": "Saran bee6: {verdict}", // PROVISIONAL
-  "C-rev-suggest-none": "bee6 tidak punya saran: {why}", // PROVISIONAL
+  "C-rev-suggest": "Saran Bee6: {verdict}", // PROVISIONAL
+  "C-rev-suggest-none": "Bee6 tidak punya saran: {why}", // PROVISIONAL
   "C-rev-why-not_enough_days": "kurang dari 2 hari terekam di salah satu jangka waktu", // PROVISIONAL
   "C-rev-why-no_baseline": "tidak ada sebelum perubahan", // PROVISIONAL
   "C-rev-why-improved": "jumlah per hari bergerak ke arah yang benar sebesar {pct}%", // PROVISIONAL
@@ -482,8 +497,6 @@ export const ID_BASE = {
   "C-script-end-b": "Debrief 1 jam dimulai sekarang. Tidak bisa dikembalikan.", // PROVISIONAL
   "C-script-day-ended": "Hari demo selesai. Ganti ke Supervisor untuk melihatnya.", // PROVISIONAL
   "C-script-earlier-day": "Hari sebelumnya · {date}", // PROVISIONAL
-  "C-script-check-new": "Cek pertanyaan baru", // PROVISIONAL
-  "C-script-checking": "Memeriksa…", // PROVISIONAL
   // R-12 PR-B: demo landing, demo bar, sign-in link. All PROVISIONAL (plan copy; UX-03 did not design these screens).
   "C-demo-title": "bee6: Agen Perbaikan SOP", // PROVISIONAL
   "C-demo-intro": "bee6 mendengarkan hari kerja toko kecil lewat ponsel yang dipasangkan, mengubah ucapan menjadi catatan kerja singkat (audio tidak pernah disimpan), menanyakan momen yang kurang jelas kepada staf, dan mengusulkan perubahan SOP yang dicek supervisor dan disetujui pemilik. Toko demo ini fiktif. Kunjungan Anda mendapat salinan sendiri selama 2 jam.", // PROVISIONAL
@@ -532,13 +545,17 @@ export const EN_BASE: Record<keyof typeof ID_BASE, string> = {
   "C-lang-said": "English selected.",
 
   "C-pair-title": "Set up this device",
-  "C-pair-help": "Enter the 6-digit code from the person who set up this phone.",
+  "C-pair-help": "Ask your supervisor for the 6-digit code. It works once, for 10 minutes.",
   "C-pair-label": "6-digit code",
   "C-pair-need": "Enter all 6 digits to set up.",
   "C-b-pasang": "Set up",
   "C-pair-busy": "Setting up…",
-  "C-pair-refused": "Code not recognized or already used. Ask the person who set up this phone for a new code.",
+  "C-pair-refused": "Code not recognized, expired or already used. Ask your supervisor for a new code.",
+  "C-pair-refused-lead": "Code not recognized, expired or already used.",
+  "C-pair-refused-rest": "Ask your supervisor for a new code.",
   "C-pair-net": "No connection. Try again when the signal is steady.",
+  "C-pair-net-lead": "No connection.",
+  "C-pair-net-rest": "Try again when the signal is steady.",
   "C-pair-ok-h": "Phone set up",
   "C-pair-ok-line": "For outlet {outlet_id}",
   "C-pair-srv": "The server could not finish this. Try again in a moment.", // PROVISIONAL: not in the copy sheet (server 5xx line)
@@ -547,6 +564,14 @@ export const EN_BASE: Record<keyof typeof ID_BASE, string> = {
   "C-pair-step-3": "You can tap Start from 01:00 until {until}, on each open day.",
   "C-pair-step-4": "The End button appears 4 hours after Start.",
   "C-b-buka-mendengarkan": "Open the listening page",
+  // R-25 T4 (UI-002, UI-020): the staff top bar's demo line and the demo "Device set up" steps (board P2-03).
+  "C-pair-outlet-demo": "Demo Bakery · Outlet 1",
+  "C-pair-ends-at": "ends {time}",
+  "C-pair-demo-for": "For Demo Bakery · Outlet 1",
+  "C-pair-demo-step-1": "Leave the device in one fixed place and plug in the charger.",
+  "C-pair-demo-step-2": "Keep the screen on and this page open. Closing the page means not listening.",
+  "C-pair-demo-step-3": "Tap Start to begin the day, then read the script cards in the judge guide.",
+  "C-pair-demo-step-4": "End unlocks at closing time. In this demo the guide can jump to it after every card is spoken.",
 
   "C-cap-title": "Shop phone", // one fixed neutral heading on every state (UX-03, 7 Oct)
   "C-h-loading": "Loading…",
@@ -696,6 +721,9 @@ export const EN_BASE: Record<keyof typeof ID_BASE, string> = {
   "C-demo-cred-private": "Each sign-in opens your own private copy of a fictional shop for 2 hours. Nothing you do affects anyone else.", // PROVISIONAL
   "C-demo-cred-continuing": "You are continuing your demo (ends {time}).", // PROVISIONAL
   "C-demo-cred-fresh": "Start a fresh demo", // PROVISIONAL
+  // Demo feedback 2, finding 4: the sign-in page shows no credentials; the judge guide does. PROVISIONAL.
+  "C-demo-cred-in-guide": "Your demo email and password are in the Judge Guide.", // PROVISIONAL
+  "C-signin-solo": "Sign in as {role}", // PROVISIONAL
   "C-srv-generic": "Something went wrong. Try again.",
   "C-web-signout": "Sign out",
 
@@ -925,8 +953,8 @@ export const EN_BASE: Record<keyof typeof ID_BASE, string> = {
   "C-rev-window-before-none": "Before ({from} to {to}): no captured days", // PROVISIONAL
   "C-rev-window-after-none": "After ({from} to {to}): no captured days", // PROVISIONAL
   "C-rev-short-window": "This is a short window, so read the numbers with care.", // PROVISIONAL
-  "C-rev-suggest": "bee6 suggests: {verdict}", // PROVISIONAL
-  "C-rev-suggest-none": "bee6 has no suggestion: {why}", // PROVISIONAL
+  "C-rev-suggest": "Bee6 suggests: {verdict}", // PROVISIONAL
+  "C-rev-suggest-none": "Bee6 has no suggestion: {why}", // PROVISIONAL
   "C-rev-why-not_enough_days": "fewer than 2 captured days in one of the windows", // PROVISIONAL
   "C-rev-why-no_baseline": "there were none before the change", // PROVISIONAL
   "C-rev-why-improved": "the count per day moved the right way by {pct}%", // PROVISIONAL
@@ -967,8 +995,6 @@ export const EN_BASE: Record<keyof typeof ID_BASE, string> = {
   "C-script-end-b": "The 1-hour debrief starts now. This cannot be undone.", // PROVISIONAL
   "C-script-day-ended": "Demo day finished. Switch to Supervisor to see it.", // PROVISIONAL
   "C-script-earlier-day": "Earlier day · {date}", // PROVISIONAL
-  "C-script-check-new": "Check for new questions", // PROVISIONAL
-  "C-script-checking": "Checking…", // PROVISIONAL
   // R-12 PR-B: demo landing, demo bar, sign-in link. All PROVISIONAL (plan copy; UX-03 did not design these screens).
   "C-demo-title": "bee6: the SOP Improvement Agent", // PROVISIONAL
   "C-demo-intro": "bee6 listens to a small shop's working day through a paired phone, turns speech into short work notes (audio is never stored), asks staff about unclear moments, and proposes SOP changes that a supervisor checks and the owner approves. This demo shop is fictional. Your visit gets its own copy for 2 hours.", // PROVISIONAL

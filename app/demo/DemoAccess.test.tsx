@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import { LangProvider } from "@/lib/i18n/context";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import type { StartDemoResult } from "@/app/demo/demo-client";
@@ -30,6 +30,7 @@ vi.mock("@/app/demo/demo-client", async (importOriginal) => ({
 
 import { DemoAccess } from "@/app/demo/DemoAccess";
 import { DEMO_STATE_KEY, readDemoState } from "@/app/demo/demo-client";
+import { readSignInRole } from "@/app/demo/guide-bridge";
 
 const FAKE_AUTH = { kind: "fake-auth" };
 
@@ -42,19 +43,17 @@ function Panel() {
   });
   return <div data-testid="panel" />;
 }
-const onFill = vi.fn();
 
-function renderAccess(opts: { role?: SignInRole; lang?: "en" | "id"; config?: FirebaseWebConfig | null; barShowsEnded?: boolean } = {}) {
+function renderAccess(opts: { role?: SignInRole; lang?: "en" | "id"; config?: FirebaseWebConfig | null; suppressEnded?: boolean } = {}) {
   return render(
     <LangProvider initial={opts.lang ?? "en"}>
-      <DemoAccess role={opts.role ?? "staff"} onFill={onFill} config={opts.config === undefined ? CONFIG : opts.config} barShowsEnded={opts.barShowsEnded}>
+      <DemoAccess role={opts.role ?? "staff"} config={opts.config === undefined ? CONFIG : opts.config} suppressEnded={opts.suppressEnded}>
         <Panel />
       </DemoAccess>
     </LangProvider>,
   );
 }
 const status = () => screen.getByTestId("demo-status");
-const button = (name: RegExp | string) => screen.getByRole("button", { name });
 const live = (role: string = "owner", ms = 3_600_000) =>
   window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: Date.now() + ms, role }));
 
@@ -70,7 +69,6 @@ beforeEach(() => {
   getClientAuth.mockReturnValue(FAKE_AUTH);
   signOut.mockReset().mockResolvedValue(undefined);
   hooks = {};
-  onFill.mockReset();
   consoleSpies = ["log", "info", "warn", "error"].map((m) => vi.spyOn(console, m as "log").mockImplementation(() => {}));
 });
 afterEach(() => {
@@ -82,54 +80,54 @@ afterEach(() => {
 });
 
 describe("DemoAccess box", () => {
-  it("for staff shows the private-copy line only: no code and no Fill in (W8: the judge guide carries 000000)", () => {
-    renderAccess({ role: "staff" });
-    expect(screen.getByRole("region", { name: "Demo access" })).toBeTruthy();
-    expect(screen.queryByText("000000")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Fill in" })).toBeNull();
-    expect(screen.getByText("Each sign-in opens your own private copy of a fictional shop for 2 hours. Nothing you do affects anyone else.")).toBeTruthy();
-  });
-
-  it.each([
-    ["supervisor", "supervisor.judge@example.com"],
-    ["owner", "owner.judge@example.com"],
-  ] as const)("shows the %s email and the shared password", (role, email) => {
-    renderAccess({ role });
-    expect(screen.getByText(email)).toBeTruthy();
-    expect(screen.getByText("bee6-demo")).toBeTruthy();
-  });
-
-  it("the credentials are selectable text in one tap", () => {
-    renderAccess({ role: "owner" });
-    expect(screen.getByText("owner.judge@example.com").style.userSelect).toBe("all");
-  });
+  it.each(["staff", "supervisor", "owner"] as const)(
+    "for %s prints no credential and has no Fill in; it points at the Judge Guide (demo feedback 2, finding 4)",
+    (role) => {
+      renderAccess({ role });
+      expect(screen.getByRole("region", { name: "Demo access" })).toBeTruthy();
+      expect(screen.queryByText(/judge@example\.com/)).toBeNull();
+      expect(screen.queryByText("bee6-demo")).toBeNull();
+      expect(screen.queryByText("000000")).toBeNull();
+      expect(screen.queryByRole("button", { name: /Fill in/ })).toBeNull();
+      expect(screen.getByText("Your demo email and password are in the Judge Guide.")).toBeTruthy();
+      expect(screen.getByText("Each sign-in opens your own private copy of a fictional shop for 2 hours. Nothing you do affects anyone else.")).toBeTruthy();
+    },
+  );
 
   it("is in Bahasa when the language says so", () => {
     renderAccess({ lang: "id", role: "owner" });
     expect(screen.getByRole("region", { name: "Akses demo" })).toBeTruthy();
-    expect(screen.getByText(/Kata sandi/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Isi otomatis" })).toBeTruthy();
+    expect(screen.getByText(/Panduan Juri/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Isi otomatis" })).toBeNull();
   });
 
-  it.each([
-    ["supervisor", { email: "supervisor.judge@example.com", password: "bee6-demo" }],
-    ["owner", { email: "owner.judge@example.com", password: "bee6-demo" }],
-  ] as const)("Fill in hands the %s credential to the panel (every tap), says so, and never submits", (role, values) => {
-    renderAccess({ role });
-    fireEvent.click(button("Fill in"));
-    fireEvent.click(button("Fill in"));
-    expect(onFill).toHaveBeenCalledTimes(2);
-    expect(onFill).toHaveBeenLastCalledWith(values);
-    expect(status().textContent).toBe("Filled in. Submit to continue.");
-    expect(startOrSwitch).not.toHaveBeenCalled();
+  it("publishes the panel's role to the guide bridge while mounted, follows a role change, and clears it on unmount", () => {
+    expect(readSignInRole()).toBeNull();
+    const view = renderAccess({ role: "supervisor" });
+    expect(readSignInRole()).toBe("supervisor");
+    view.rerender(
+      <LangProvider initial="en">
+        <DemoAccess role="owner" config={CONFIG}>
+          <Panel />
+        </DemoAccess>
+      </LangProvider>,
+    );
+    expect(readSignInRole()).toBe("owner");
+    view.unmount();
+    expect(readSignInRole()).toBeNull();
   });
 
-  it("the Filled in line goes away when a demo is started", async () => {
-    startOrSwitch.mockResolvedValue({ kind: "started" });
-    renderAccess({ role: "owner" });
-    fireEvent.click(button("Fill in"));
-    await act(async () => void (await hooks.interceptEmail!("owner.judge@example.com", "bee6-demo")));
-    expect(status().textContent).not.toContain("Filled in");
+  it("the bare box (/pair) publishes the role too, and clears it on unmount", () => {
+    const view = render(
+      <LangProvider initial="en">
+        <DemoAccess role="staff" config={CONFIG} bare>
+          <Panel />
+        </DemoAccess>
+      </LangProvider>,
+    );
+    expect(readSignInRole()).toBe("staff");
+    view.unmount();
+    expect(readSignInRole()).toBeNull();
   });
 
   it("onStarted (R-19 PR-6, /pair): a started demo hands the start a no-op navigation and calls onStarted; the screen shows the next step itself", async () => {
@@ -137,7 +135,7 @@ describe("DemoAccess box", () => {
     const onStarted = vi.fn();
     render(
       <LangProvider initial="en">
-        <DemoAccess role="staff" onFill={onFill} config={CONFIG} onStarted={onStarted}>
+        <DemoAccess role="staff" config={CONFIG} onStarted={onStarted}>
           <Panel />
         </DemoAccess>
       </LangProvider>,
@@ -152,7 +150,7 @@ describe("DemoAccess box", () => {
     const onStarted = vi.fn();
     render(
       <LangProvider initial="en">
-        <DemoAccess role="staff" onFill={onFill} config={CONFIG} onStarted={onStarted}>
+        <DemoAccess role="staff" config={CONFIG} onStarted={onStarted}>
           <Panel />
         </DemoAccess>
       </LangProvider>,
@@ -304,9 +302,9 @@ describe("DemoAccess with an earlier visit in this browser", () => {
     expect(status().textContent).toContain("Your demo session has ended.");
   });
 
-  it("with the DemoBar showing the ended sentence (/pair) the box does not repeat it", () => {
+  it("on /pair (suppressEnded) the box does not say the session ended either, and leaves no text behind", () => {
     window.localStorage.setItem(DEMO_STATE_KEY, JSON.stringify({ sandbox_key: KEY, expires_at_ms: 1_000, role: "staff" }));
-    renderAccess({ role: "staff", barShowsEnded: true });
+    renderAccess({ role: "staff", suppressEnded: true });
     expect(screen.queryByText("Your demo session has ended.")).toBeNull();
     expect(status().textContent).toBe("");
   });

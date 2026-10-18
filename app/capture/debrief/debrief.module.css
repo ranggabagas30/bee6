@@ -1,0 +1,191 @@
+/*
+ * The page-2 debrief screens (R-25 T7, boards P2-08..P2-10b and their laptop twins L2-07..L2-09b).
+ * One column, 360 px first; the page owns the max width. Tokens only (no hex): the shared look comes from the
+ * G0 classes (.b6-h1-display, .b6-sub, .b6-mono, .b6-note, .b6-alert, .b6-field, .b6-btn); this file holds the
+ * few debrief-only layouts (progress bars, the answer pair) that no primitive covers.
+ */
+
+/* ---- stage screens: Preparing, Checking, Complete, Closed ---- */
+.foot {
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+.title {
+  /* the heading takes focus when the screen appears; it is not a control, so no ring */
+  outline: none;
+}
+
+.lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* ---- question screen ---- */
+.question {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 14px 4px 0;
+  box-sizing: border-box;
+}
+
+.topRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bars {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bar {
+  flex: 1 1 0%;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--b6-line);
+}
+
+.barDone {
+  background: var(--b6-teal-ink);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px 20px 18px;
+  box-sizing: border-box;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.heading {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.3;
+  font-weight: 500;
+  outline: none;
+}
+
+.headingLine {
+  display: block;
+}
+
+.why {
+  margin: 0;
+  font-size: var(--b6-fs-ui);
+  line-height: 1.5;
+  color: var(--b6-muted);
+}
+
+/* demo-feedback-2 item 10: the quoted line(s) that replace .why on a sandbox question */
+.heard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.heardLead {
+  margin: 0;
+  font-size: var(--b6-fs-small);
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--b6-muted);
+}
+
+.heardLine {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--b6-line);
+  font-size: var(--b6-fs-ui);
+  line-height: 1.5;
+  color: var(--b6-ink-soft);
+  /* a long unbroken token (a URL, an id) must wrap inside the 360 px card, not push it wider */
+  overflow-wrap: anywhere;
+}
+
+.choices {
+  display: flex;
+  gap: 10px;
+}
+
+.choice {
+  flex: 1 1 0%;
+  box-sizing: border-box;
+  min-height: 56px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--b6-r-btn);
+  background: var(--b6-surface);
+  box-shadow: inset 0 0 0 1px var(--b6-line);
+  color: var(--b6-ink);
+  font-family: inherit;
+  font-size: var(--b6-fs-lead);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.choiceOn {
+  background: var(--b6-ink);
+  box-shadow: none;
+  color: var(--b6-on-dark);
+}
+
+.choice:focus-visible {
+  outline: 2px solid var(--b6-focus);
+  outline-offset: 2px;
+}
+
+.reasonBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reasonLabel {
+  font-size: var(--b6-fs-small);
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--b6-ink-soft);
+}
+
+.reason {
+  display: block;
+  min-height: 64px;
+  resize: vertical;
+}
+
+.counter {
+  margin: 0;
+  text-align: right;
+  font-size: var(--b6-fs-small);
+  color: var(--b6-muted);
+}
+
+.counterWarn {
+  color: var(--b6-amber-ink);
+}
+
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}

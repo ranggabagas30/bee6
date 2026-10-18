@@ -5,13 +5,12 @@ import { FIRST_PAINT_SCRIPT } from "@/app/demo/first-paint";
 import { createMemoryStorage } from "@/lib/demo/testing/memory-storage";
 
 /**
- * R-19 PR-5: the inline script the root layout emits (DEMO_MODE only) before anything below it paints. It marks
- * <html> so CSS can hold the room of the two fixed demo chrome pieces that mount only after hydration:
- * - `b6-topbar-reserved` (the demo bar's slot) exactly where DemoBar will show: a LIVE state on any route but `/`,
- *   an ENDED state on any route but `/` and `/sign-in` (the bar hides its ended line there, round-4 D1);
- * - `b6-panel-reserved` (round-3 D1: the judge guide's collapsed pill at >= 900 px, 70 px of body padding) on the
+ * R-19 PR-5 / R-25 R6: the inline script the root layout emits (DEMO_MODE only) before anything below it paints. It
+ * marks <html> so CSS can hold the room of the one piece of demo chrome that mounts only after hydration:
+ * - `b6-panel-reserved` (round-3 D1: the judge guide's collapsed pill at >= 900 px, held as right-hand room in the .b6-pill-room headers) on the
  *   entry routes (/, /sign-in, /pair: the guide is always there) and wherever a LIVE demo state exists (an ended
  *   one signs the judge out: no guide on a web route).
+ * `b6-topbar-reserved` (the old demo bar's slot) is gone with the bar (R6): it is never set, live or ended.
  * Run for real here: the script is plain ES5 executed against jsdom's document, localStorage and location.
  */
 
@@ -35,6 +34,19 @@ afterEach(() => {
 });
 
 describe("FIRST_PAINT_SCRIPT", () => {
+  it("never sets the retired b6-topbar-reserved class, live or ended, on any route", () => {
+    expect(FIRST_PAINT_SCRIPT).not.toContain("b6-topbar-reserved");
+    for (const state of [live(), ended()]) {
+      for (const p of ["/", "/day", "/pair", "/sign-in", "/capture"]) {
+        go(p);
+        document.documentElement.className = "";
+        window.localStorage.setItem(DEMO_STATE_KEY, state);
+        run();
+        expect(classes(), `${p}`).not.toContain("b6-topbar-reserved");
+      }
+    }
+  });
+
   it("is small, self-contained ES5 (no imports, no template literals), names the demo state key, never logs and swallows errors", () => {
     expect(FIRST_PAINT_SCRIPT.length).toBeLessThan(600);
     expect(FIRST_PAINT_SCRIPT).toContain(JSON.stringify(DEMO_STATE_KEY));
@@ -47,10 +59,10 @@ describe("FIRST_PAINT_SCRIPT", () => {
     expect(classes()).toEqual([]);
   });
 
-  it("with a live demo state on a web route it reserves both the top bar and the pill", () => {
+  it("with a live demo state on a web route it reserves the pill only (no top bar room any more)", () => {
     window.localStorage.setItem(DEMO_STATE_KEY, live());
     run();
-    expect(classes()).toEqual(["b6-panel-reserved", "b6-topbar-reserved"]);
+    expect(classes()).toEqual(["b6-panel-reserved"]);
   });
 
   it.each(["/", "/sign-in", "/pair", "/sign-in/", "/pair/"])("on the entry route %s with no demo state it reserves the pill only (the guide is always there)", (p) => {
@@ -67,14 +79,14 @@ describe("FIRST_PAINT_SCRIPT", () => {
     expect(classes()).toEqual(["b6-panel-reserved"]);
   });
 
-  it("on / with a live demo state it reserves both (the bar's slot reserves nothing there by itself)", () => {
+  it("on / with a live demo state it reserves the pill", () => {
     go("/");
     window.localStorage.setItem(DEMO_STATE_KEY, live());
     run();
-    expect(classes()).toEqual(["b6-panel-reserved", "b6-topbar-reserved"]);
+    expect(classes()).toEqual(["b6-panel-reserved"]);
   });
 
-  it("R-21 D5: a LIVE state on /sign-in reserves the pill only, topbar is not reserved (the bar hides)", () => {
+  it("a LIVE state on /sign-in reserves the pill only", () => {
     go("/sign-in");
     window.localStorage.setItem(DEMO_STATE_KEY, live());
     run();
@@ -96,17 +108,17 @@ describe("FIRST_PAINT_SCRIPT", () => {
     expect(classes()).toEqual(["b6-panel-reserved"]);
   });
 
-  it.each(["/pair", "/pair/"])("an ENDED state on %s reserves both: the bar shows 'Your demo session has ended' there", (p) => {
+  it.each(["/pair", "/pair/"])("an ENDED state on %s reserves the pill only (the entry-route rule); the ended box reserves nothing", (p) => {
     go(p);
     window.localStorage.setItem(DEMO_STATE_KEY, ended());
     run();
-    expect(classes()).toEqual(["b6-panel-reserved", "b6-topbar-reserved"]);
+    expect(classes()).toEqual(["b6-panel-reserved"]);
   });
 
-  it("an ENDED state on a web route reserves the top bar only (the ended line shows; the judge is signed out, so no guide)", () => {
+  it("an ENDED state on a web route reserves nothing (the judge is signed out, so no guide, and the ended box holds no room)", () => {
     window.localStorage.setItem(DEMO_STATE_KEY, ended());
     run();
-    expect(classes()).toEqual(["b6-topbar-reserved"]);
+    expect(classes()).toEqual([]);
   });
 
   it("an ENDED state on / reserves the pill only (the bar hides on the entry page)", () => {
@@ -153,7 +165,7 @@ describe("FIRST_PAINT_SCRIPT", () => {
     document.documentElement.className = "font-a font-b";
     window.localStorage.setItem(DEMO_STATE_KEY, live());
     run();
-    expect(classes()).toEqual(["b6-panel-reserved", "b6-topbar-reserved", "font-a", "font-b"]);
+    expect(classes()).toEqual(["b6-panel-reserved", "font-a", "font-b"]);
   });
 
   it("a storage that throws is not an error: the entry-route rule still applies", () => {

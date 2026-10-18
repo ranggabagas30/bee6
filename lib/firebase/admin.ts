@@ -32,8 +32,20 @@ export function adminAuth() {
   return getAuth(getAdminApp());
 }
 
+/**
+ * Firestore database id. `FIRESTORE_DATABASE_ID` (server env only, never a
+ * `NEXT_PUBLIC_` var) selects a named database so the staging service
+ * (`web-develop`) can run on its own data. Unset or empty means the default
+ * database, exactly as before. Read per call (not at import) so tests and
+ * scripts can set it late; `getFirestore` caches one client per database id.
+ */
+const DEFAULT_DATABASE_ID = "(default)";
+
 export function adminDb(): Firestore {
-  return getFirestore(getAdminApp());
+  return getFirestore(
+    getAdminApp(),
+    process.env.FIRESTORE_DATABASE_ID || DEFAULT_DATABASE_ID,
+  );
 }
 
 /** A verified ID token's identity plus any of our custom claims it carries. */

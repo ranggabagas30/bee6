@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState, type CSSProperties } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { FirebaseWebConfig } from "@/lib/auth/web-config";
 import { getClientAuth, type Auth } from "@/lib/auth/client/firebase-client";
@@ -10,7 +10,9 @@ import { t } from "@/lib/i18n/dict";
 import type { Lang } from "@/lib/i18n/lang";
 import { publishProposalsProgress, publishProposalsScreen } from "@/lib/demo/proposals-signal";
 import { ProposalIdSchema } from "@/lib/proposals/review-contract";
-import { WebTopBar } from "@/app/web/WebTopBar";
+import type { AskEstimate } from "@/lib/proposals/v4/flag";
+import { WebShell } from "@/app/web/WebShell";
+import { PageHead } from "@/app/web/PageHead";
 import { ApprovalsReview, type ApprovalsBridgeEvent } from "@/app/proposals/ApprovalsReview";
 import { SupervisorProposals, type ProposalsBridgeEvent } from "@/app/proposals/SupervisorProposals";
 
@@ -30,8 +32,6 @@ import { SupervisorProposals, type ProposalsBridgeEvent } from "@/app/proposals/
 
 type Role = "owner" | "supervisor" | "other";
 
-const PAGE_STYLE: CSSProperties = { maxWidth: 720, margin: "0 auto", padding: 16, boxSizing: "border-box" };
-
 /** The page's bridge events, mapped onto the signal; the same function for both screens (their shapes coincide). */
 function publishBridgeEvent(event: ProposalsBridgeEvent | ApprovalsBridgeEvent): void {
   if (event.type === "screen") publishProposalsScreen(event.screen);
@@ -50,7 +50,14 @@ function OwnerApprovals({ auth, lang, onBridge }: { auth: Auth; lang: Lang; onBr
   return <ApprovalsReview auth={auth} lang={lang} initialId={parsed.success ? parsed.data : null} onBridge={onBridge} />;
 }
 
-export function ProposalsApp({ config }: { config: FirebaseWebConfig | null }) {
+export function ProposalsApp({
+  config,
+  askEstimate = null,
+}: {
+  config: FirebaseWebConfig | null;
+  /** R-24 D11: the Ask's estimated wait (v4 flag on), or `null`. Only the supervisor screen uses it. */
+  askEstimate?: AskEstimate | null;
+}) {
   const { lang } = useLang();
   const router = useRouter();
   const auth: Auth | null = config ? getClientAuth(config) : null;
@@ -94,65 +101,49 @@ export function ProposalsApp({ config }: { config: FirebaseWebConfig | null }) {
 
   if (!config || !auth) {
     return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={null} showSignOut={false} />
-        <p role="status" aria-live="polite">
+      <WebShell auth={null}>
+        <p role="status" aria-live="polite" className="b6-sub">
           {t(lang, "C-signin-config")}
         </p>
-      </main>
+      </WebShell>
     );
   }
 
-  if (authUser.status === "loading" || authUser.status === "signed_out") {
+  if (authUser.status === "loading" || authUser.status === "signed_out" || role === null) {
     return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut current="proposals" />
-        <p role="status" aria-live="polite">
+      <WebShell auth={auth} current="proposals">
+        <p role="status" aria-live="polite" className="b6-sub">
           {t(lang, "C-day-loading")}
         </p>
-      </main>
-    );
-  }
-
-  if (role === null) {
-    return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut current="proposals" />
-        <p role="status" aria-live="polite">
-          {t(lang, "C-day-loading")}
-        </p>
-      </main>
+      </WebShell>
     );
   }
 
   if (role === "other") {
     return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut current="proposals" />
-        <h1>{t(lang, "C-prop-title")}</h1>
-        <p role="status" aria-live="polite">
+      <WebShell auth={auth} current="proposals">
+        <PageHead title={t(lang, "C-prop-title")} />
+        <p role="status" aria-live="polite" className="b6-sub">
           {t(lang, "C-prop-err-forbidden")}
         </p>
-      </main>
+      </WebShell>
     );
   }
 
   if (role === "supervisor") {
     return (
-      <main style={PAGE_STYLE}>
-        <WebTopBar auth={auth} showSignOut current="proposals" />
-        <SupervisorProposals auth={auth} lang={lang} onBridge={onBridge} />
-      </main>
+      <WebShell auth={auth} current="proposals">
+        <SupervisorProposals auth={auth} lang={lang} onBridge={onBridge} askEstimate={askEstimate} demo={claim?.demo === true} />
+      </WebShell>
     );
   }
 
-  // Owner: page-1 W8 "Review in order" (PR-12b).
+  // Owner: page-1 W8 "Review in order" (PR-12b), page-2 layout in R-25 T11: the screen fills the shell's `main`.
   return (
-    <main style={PAGE_STYLE}>
-      <WebTopBar auth={auth} showSignOut current="proposals" />
+    <WebShell auth={auth} current="proposals">
       <Suspense fallback={null}>
         <OwnerApprovals auth={auth} lang={lang} onBridge={onBridge} />
       </Suspense>
-    </main>
+    </WebShell>
   );
 }

@@ -90,6 +90,21 @@ function LangToggle() {
 }
 
 describe("SignInScreen", () => {
+  it("sits in the page-2 web shell: the .dtop bar with the language switch, no nav, no Sign out, one main with the one h1 (R-25 T8)", () => {
+    renderScreen();
+    const bar = screen.getByRole("banner");
+    expect(bar.className).toContain("b6-dtop");
+    expect(screen.getByRole("link", { name: "Bee6" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Choose language" })).toBeTruthy();
+    expect(screen.queryByRole("navigation")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    // flow unchanged: the native role radios and the email form are still there
+    expect(screen.getAllByRole("radio")).toHaveLength(3);
+    expect(screen.getByLabelText("Email")).toBeTruthy();
+  });
+
   it("authUser.status === 'loading' shows no form (avoids the sign-in flash on reload)", () => {
     authUserState = { status: "loading" };
     renderScreen();
@@ -409,10 +424,10 @@ describe("SignInScreen", () => {
 describe("SignInScreen shell and the demo deployment (R-12 Task 8.5, R-18 P1)", () => {
   const DEMO_KEY = "A".repeat(43);
 
-  function renderDemo(demo: boolean | undefined) {
+  function renderDemo(demo: boolean | undefined, role: "staff" | "supervisor" = "supervisor") {
     return render(
       <LangProvider initial="en">
-        <SignInScreen config={CONFIG} demo={demo} initialRole={demo ? "supervisor" : null} />
+        <SignInScreen config={CONFIG} demo={demo} initialRole={demo ? role : null} />
       </LangProvider>,
     );
   }
@@ -421,13 +436,21 @@ describe("SignInScreen shell and the demo deployment (R-12 Task 8.5, R-18 P1)", 
   afterEach(() => void vi.unstubAllGlobals());
 
   it("is the one page: a main landmark with the Sign in heading and the role choice, no Try-as buttons, no old restart link", async () => {
-    renderDemo(true);
+    renderDemo(true, "staff");
     expect(screen.getByRole("main")).toBeTruthy();
     expect(screen.getByRole("heading", { level: 1, name: "Sign in" })).toBeTruthy();
     expect(screen.getAllByRole("radio")).toHaveLength(3);
     await screen.findByText("Demo access");
     expect(screen.queryByRole("link", { name: "Start a new demo" })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Try/ })).toBeNull();
+  });
+
+  it("on the demo supervisor path it is solo: the heading, no role choice, the Sign in as Supervisor line and the demo box", async () => {
+    renderDemo(true, "supervisor");
+    expect(screen.getByRole("heading", { level: 1, name: "Sign in" })).toBeTruthy();
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
+    expect(screen.getByText("Sign in as Supervisor")).toBeTruthy();
+    await screen.findByText("Demo access");
   });
 
   it("shows no demo text or box on the pilot (no demo prop, or false)", () => {

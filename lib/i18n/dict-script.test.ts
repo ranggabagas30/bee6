@@ -3,10 +3,9 @@ import { EN, ID, t, type DictKey } from "@/lib/i18n/dict";
 
 /**
  * R-18 P2 copy that survives R-19 PR-5 (the script drawer's own strings went with the drawer; the judge guide's
- * copy lives in lib/i18n/v2/journey.ts): the sandbox End dialog line, the carried-question chip and the debrief
- * refresh button.
+ * copy lives in lib/i18n/v2/journey.ts): the sandbox End dialog line and the carried-question chip.
  */
-const SCRIPT_KEYS = ["C-script-end-b", "C-script-day-ended", "C-script-earlier-day", "C-script-check-new", "C-script-checking"] as const satisfies readonly DictKey[];
+const SCRIPT_KEYS = ["C-script-end-b", "C-script-day-ended", "C-script-earlier-day"] as const satisfies readonly DictKey[];
 
 describe("R-18 P2 script copy block (post PR-5)", () => {
   it("defines every key in both languages, non-empty", () => {
