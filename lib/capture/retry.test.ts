@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_MAX_ATTEMPTS,
   backoffDelayMs,
   classifyUploadResult,
-  nextUploadAction,
 } from "@/lib/capture/retry";
 
 describe("classifyUploadResult", () => {
@@ -54,37 +52,5 @@ describe("backoffDelayMs", () => {
 
   it("floors a fractional attempt to at least 1", () => {
     expect(backoffDelayMs(0, { jitter: false, baseMs: 500 })).toBe(500);
-  });
-});
-
-describe("nextUploadAction", () => {
-  const noJitter = { jitter: false, baseMs: 500, factor: 2, maxMs: 30_000 };
-
-  it("returns success on 200 with no delay", () => {
-    expect(nextUploadAction(200, 1)).toEqual({ action: "success" });
-  });
-
-  it("drops immediately on a permanent 4xx", () => {
-    expect(nextUploadAction(413, 1)).toEqual({ action: "drop" });
-  });
-
-  it("retries a transient failure with a backoff delay", () => {
-    expect(nextUploadAction(503, 2, noJitter)).toEqual({
-      action: "retry",
-      delayMs: 1_000,
-    });
-  });
-
-  it("gives up (drop) once max attempts is reached", () => {
-    expect(
-      nextUploadAction(503, DEFAULT_MAX_ATTEMPTS, noJitter),
-    ).toEqual({ action: "drop" });
-  });
-
-  it("retries a network error (null status) before the cap", () => {
-    expect(nextUploadAction(null, 1, noJitter)).toEqual({
-      action: "retry",
-      delayMs: 500,
-    });
   });
 });

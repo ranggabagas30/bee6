@@ -104,6 +104,8 @@ const startCaptureSession = vi.fn(
     return session;
   },
 );
+/** 18 Oct: the page hard-aborts every live engine on sign-out and unmount. */
+const abortAllCaptureUploads = vi.fn();
 vi.mock("@/lib/capture/browser/session", () => ({
   startCaptureSession: (
     auth: unknown,
@@ -111,6 +113,7 @@ vi.mock("@/lib/capture/browser/session", () => ({
     cb: FakeCallbacks,
     sessionId?: string,
   ) => startCaptureSession(auth, config, cb, sessionId),
+  abortAllCaptureUploads: () => abortAllCaptureUploads(),
 }));
 
 let uuidCounter = 0;
@@ -1386,7 +1389,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       fireEvent.click(screen.getByRole("button", { name: "Sign out anyway" }));
       await settle();
       expect(screen.getByText("Finishing uploads…")).toBeTruthy();
-      expect(fakeSessions[0]!.stop).toHaveBeenCalledWith({ drainMs: 15_000 });
+      expect(fakeSessions[0]!.stop).toHaveBeenCalledWith({ mode: "finish", drainMs: 15_000 });
       // With the engine's 5 s default the page would already be gone here.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(14_000);
@@ -2086,5 +2089,133 @@ describe("CapturePage: debrief entry card (R-07, technical spec §8.10)", () => 
     await renderReady();
     await waitFor(() => expect(screen.getByRole("button", { name: "Start" })).toBeTruthy());
     expect(screen.queryByText("Debrief running")).toBeNull();
+  });
+});
+
+// 18 Oct (capture-retry-after-end): which stop mode each page trigger asks for. "finish" keeps retrying server refusals
+// in the background; "hard" starts no new upload. Sign-out and unmount also hard-abort every live engine.
+describe("CapturePage stop modes (18 Oct: retry after End)", () => {
+  const MON_2230_WIB = "2026-10-12T15:30:00Z";
+  const pilotConfig = () =>
+    config({ sun: null, mon: { open: "08:00", close: "22:00" }, tue: { open: "08:00", close: "22:00" } });
+  const demoConfig = () => ({ ...pilotConfig(), capture_mode: "room", demo_session: DEMO_PROFILE });
+
+  async function renderPilotRunning() {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date("2026-10-12T01:00:00Z")); // Mon 08:00 WIB
+    fetchCaptureConfig.mockResolvedValue(pilotConfig());
+    const view = await renderReady();
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
+    return view;
+  }
+  async function renderDemoRunning() {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date(MON_2230_WIB));
+    fetchCaptureConfig.mockResolvedValue(demoConfig());
+    const view = await renderReady();
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Listening" })).toBeTruthy());
+    return view;
+  }
+  async function pilotSelesai() {
+    await advance(4 * 60 * 60_000);
+    fireEvent.click(screen.getByRole("button", { name: "End" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
+    await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
+  }
+  const settle = () =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+  it("Selesai stops in finish mode and does not abort the other engines", async () => {
+    await renderPilotRunning();
+    await pilotSelesai();
+    expect(fakeSessions[0]!.stop).toHaveBeenCalledWith({ mode: "finish" });
+    expect(abortAllCaptureUploads).not.toHaveBeenCalled();
+  });
+
+  it("the pilot auto-stop stops in finish mode", async () => {
+    await renderPilotRunning();
+    await advance(15 * 60 * 60_000 + 30_000);
+    await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
+    expect(fakeSessions[0]!.stop).toHaveBeenCalledWith({ mode: "finish" });
+  });
+
+  it("the sandbox 10:00 hard stop stops in finish mode", async () => {
+    await renderDemoRunning();
+    await advance(10 * 60_000 + 3_000);
+    await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
+    expect(fakeSessions[0]!.stop).toHaveBeenCalledWith({ mode: "finish" });
+  });
+
+  it("Batalkan (discard) stops in hard mode", async () => {
+    await renderPilotRunning();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
+    await advance(1_000);
+    fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
+    await waitFor(() => expect(postSessionDiscard).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
+    expect(fakeSessions[0]!.stop).toHaveBeenCalledWith({ mode: "hard" });
+  });
+
+  it("sandbox sign-out before closing stops hard, then aborts every engine before leaving", async () => {
+    await renderDemoRunning();
+    fireEvent.click(screen.getByRole("button", { name: SIGN_OUT_RUNNING_LINK }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign out and cancel" }));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/"));
+    expect(fakeSessions[0]!.stop).toHaveBeenCalledWith({ mode: "hard" });
+    expect(abortAllCaptureUploads).toHaveBeenCalledTimes(1);
+    expect(abortAllCaptureUploads.mock.invocationCallOrder[0]!).toBeLessThan(replace.mock.invocationCallOrder[0]!);
+  });
+
+  it("sandbox sign-out after closing drains in finish mode for 15 s, then aborts what is left", async () => {
+    await renderDemoRunning();
+    await waitForBridgePhase("listening");
+    act(() => readCaptureBridge()!.actions.jumpToClosing());
+    await screen.findByRole("button", { name: "End today" });
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign out anyway" }));
+    await settle();
+    expect(replace).toHaveBeenCalledWith("/");
+    const stop = fakeSessions[0]!.stop;
+    expect(stop).toHaveBeenCalledWith({ mode: "finish", drainMs: 15_000 });
+    expect(abortAllCaptureUploads).toHaveBeenCalled();
+    expect(stop.mock.invocationCallOrder[0]!).toBeLessThan(abortAllCaptureUploads.mock.invocationCallOrder[0]!);
+  });
+
+  it("unmounting while running stops hard and aborts every engine", async () => {
+    const { unmount } = await renderPilotRunning();
+    unmount();
+    expect(fakeSessions[0]!.stop).toHaveBeenCalledWith({ mode: "hard" });
+    expect(abortAllCaptureUploads).toHaveBeenCalled();
+  });
+
+  it("unmounting after Selesai (no running session) still kills the background drain", async () => {
+    const { unmount } = await renderPilotRunning();
+    await pilotSelesai();
+    expect(abortAllCaptureUploads).not.toHaveBeenCalled();
+    unmount();
+    expect(abortAllCaptureUploads).toHaveBeenCalled();
+  });
+
+  it("a new Start after a finish-mode stop leaves the old engine to drain: one stop, no abort", async () => {
+    isDevControlsEnabled.mockReturnValue(true);
+    fetchCaptureConfig.mockResolvedValue(config({ sun: null }));
+    await renderReady();
+    const panel = await screen.findByTestId("dev-panel");
+    await screen.findByText("Not started");
+    fireEvent.click(within(panel).getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
+    fireEvent.click(within(panel).getByRole("button", { name: /^pause$/i }));
+    await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
+    fireEvent.click(within(panel).getByRole("button", { name: /^start$/i }));
+    await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(2));
+    expect(fakeSessions[0]!.stop).toHaveBeenCalledTimes(1);
+    expect(fakeSessions[0]!.stop).toHaveBeenCalledWith({ mode: "finish" });
+    expect(abortAllCaptureUploads).not.toHaveBeenCalled();
   });
 });

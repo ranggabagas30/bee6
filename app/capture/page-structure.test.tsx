@@ -37,6 +37,7 @@ vi.mock("@/lib/capture/browser/session", () => ({
     lastCallbacks = cb;
     return { stop: vi.fn(async () => ({ droppedCount: 0, queuedCount: 0 })) };
   },
+  abortAllCaptureUploads: vi.fn(),
 }));
 
 vi.stubGlobal("crypto", { randomUUID: () => "11111111-1111-1111-1111-000000000001" });

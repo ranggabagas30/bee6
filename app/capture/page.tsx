@@ -46,6 +46,7 @@ import {
   readDeviceAuth,
 } from "@/lib/capture/browser/client";
 import {
+  abortAllCaptureUploads,
   startCaptureSession,
   type CaptureSession,
   type CaptureStopOptions,
@@ -448,7 +449,7 @@ export default function CapturePage() {
           end_reason: "auto_stop",
           debrief_ends_at_ms: endedAt + DEBRIEF_DURATION_MS,
         });
-        stopRunningSession();
+        stopRunningSession({ mode: "finish" });
         setSession(null);
         // autoStopInFlightRef stays true until the next Mulai: this session is over, and a render that still
         // holds it (a tick between the render and the effect flush) must not end it a second time.
@@ -518,7 +519,9 @@ export default function CapturePage() {
       sessionGenRef.current += 1;
       const s = sessionRef.current;
       sessionRef.current = null;
-      void s?.stop();
+      void s?.stop({ mode: "hard" });
+      // Also kills any engine still finishing in the background after an End: leaving the page ends the drain.
+      abortAllCaptureUploads();
     };
   }, []);
 
@@ -609,7 +612,7 @@ export default function CapturePage() {
     // branch, or navigation): this session has no owner, so release the mic now instead of uploading from a dead
     // page.
     if (gen !== sessionGenRef.current) {
-      void captureSession.stop();
+      void captureSession.stop({ mode: "hard" });
       return;
     }
     sessionRef.current = captureSession;
@@ -660,7 +663,7 @@ export default function CapturePage() {
       end_reason: "selesai",
       debrief_ends_at_ms: endedAt + DEBRIEF_DURATION_MS,
     });
-    stopRunningSession();
+    stopRunningSession({ mode: "finish" });
     setSession(null);
     if (config?.demo_session !== undefined) afterSessionChanged();
   }
@@ -779,7 +782,7 @@ export default function CapturePage() {
       end_reason: "discarded",
       debrief_ends_at_ms: null,
     });
-    stopRunningSession();
+    stopRunningSession({ mode: "hard" });
     setSession(null);
     if (config?.demo_session !== undefined) afterSessionChanged();
   }
@@ -849,6 +852,8 @@ export default function CapturePage() {
 
   // ── R-19 PR-4b: demo staff sign-out (plan 5.7; local) ───────────────────────
   function finishSignOut() {
+    // Every sign-out path ends all uploads on this page, including an older session still draining after its End.
+    abortAllCaptureUploads();
     clearDeviceAuth();
     router.replace("/");
   }
@@ -898,7 +903,7 @@ export default function CapturePage() {
         return;
       }
       configGenRef.current += 1;
-      void stopRunningSession();
+      void stopRunningSession({ mode: "hard" });
       finishSignOut();
       return;
     }
@@ -908,7 +913,7 @@ export default function CapturePage() {
     // should the stop promise itself hang (it never waits on an upload beyond `drainMs`).
     setSignOutFinishing(session !== null);
     configGenRef.current += 1;
-    const drain = stopRunningSession({ drainMs: SIGN_OUT_DRAIN_MAX_MS });
+    const drain = stopRunningSession({ mode: "finish", drainMs: SIGN_OUT_DRAIN_MAX_MS });
     if (session !== null) {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const result = await Promise.race([
@@ -949,7 +954,7 @@ export default function CapturePage() {
         const captureSession = await startCaptureSession(auth, config, engineCallbacks(gen));
         if (!captureSession) return;
         if (devStopRequestedRef.current) {
-          await captureSession.stop();
+          await captureSession.stop({ mode: "hard" });
           return;
         }
         sessionRef.current = captureSession;
@@ -961,7 +966,7 @@ export default function CapturePage() {
   };
   const handleDevStop = () => {
     devStopRequestedRef.current = true;
-    stopRunningSession();
+    stopRunningSession({ mode: "finish" });
   };
 
   // ── R-25 T5: sandbox screen pieces ───────────────────────────────────────────

@@ -7,6 +7,7 @@ import { authedGetJson } from "@/lib/auth/client/api";
 import { getClientAuth } from "@/lib/auth/client/firebase-client";
 import { useAuthUser } from "@/lib/auth/client/use-auth-user";
 import { postDemoNextDay, readDeviceAuth } from "@/lib/capture/browser/client";
+import { abortAllCaptureUploads, hasPendingCaptureUploads, waitForCaptureUploads } from "@/lib/capture/browser/session";
 import { DEMO_DAYS_TOTAL } from "@/lib/demo/constants";
 import { DemoProgressResponseSchema, type NextDayRefusal } from "@/lib/demo/contract";
 import { DEMO_EMAILS, DEMO_PASSWORD, DEMO_STAFF_CODE } from "@/lib/demo/credentials";
@@ -798,12 +799,16 @@ function JumpClosing({ lang, bridge }: { lang: Lang; bridge: CaptureBridge }) {
   );
 }
 
+/** Longest Jump to tomorrow waits for day-1 uploads still finishing after End (Fb22). */
+const UPLOAD_WAIT_MS = 25_000;
+
 /** Debrief / done (plan 4.4, 7.2): Jump to tomorrow, the lock reason, and the inline unanswered confirm. */
 function JumpTomorrow({ lang, bridge }: { lang: Lang; bridge: CaptureBridge }) {
   const { profile, nextDate } = bridge.state;
   const { refetchConfig } = bridge.actions;
   const busyRef = useRef(false);
   const [busy, setBusy] = useState(false);
+  const [finishing, setFinishing] = useState(false); // waiting (bounded) for day-1 notes still uploading
   const [confirm, setConfirm] = useState<number | null>(null);
   const [errorKey, setErrorKey] = useState<DictKey | null>(null);
   const [jumpedTo, setJumpedTo] = useState<number | null>(null);
@@ -834,6 +839,18 @@ function JumpTomorrow({ lang, bridge }: { lang: Lang; bridge: CaptureBridge }) {
     setErrorKey(null);
     setConfirm(null);
     setPostReason(null);
+    // The shift moves stored day-1 docs back 24 h; a day-1 note still retrying after End must not land after it.
+    // Give it a bounded chance to finish first, then hard-abort whatever is left.
+    if (hasPendingCaptureUploads()) {
+      setFinishing(true);
+      try {
+        await waitForCaptureUploads(UPLOAD_WAIT_MS);
+      } catch {
+        /* never strand the button: fall through to the abort and the shift */
+      }
+      setFinishing(false);
+    }
+    abortAllCaptureUploads();
     const result = await postDemoNextDay(auth, { expected_day: profile.day, confirm_unanswered: confirmUnanswered });
     busyRef.current = false;
     setBusy(false);
@@ -876,7 +893,7 @@ function JumpTomorrow({ lang, bridge }: { lang: Lang; bridge: CaptureBridge }) {
     content = (
       <div className={styles.ctlWrap}>
         <Ctl
-          label={busy ? t(lang, "C-journey-jump-tomorrow-busy") : nextDate ? t(lang, "C-journey-jump-tomorrow-on", { date: dayLabel(nextDate, lang) }) : t(lang, "C-journey-jump-tomorrow")}
+          label={finishing ? t(lang, "C-journey-jump-tomorrow-finishing") : busy ? t(lang, "C-journey-jump-tomorrow-busy") : nextDate ? t(lang, "C-journey-jump-tomorrow-on", { date: dayLabel(nextDate, lang) }) : t(lang, "C-journey-jump-tomorrow")}
           glyph="»"
           disabled={busy || postReason !== null}
           onClick={() => void jump(false)}
