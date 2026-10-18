@@ -142,8 +142,9 @@ flowchart LR
 **Models and regions.** Each model's location comes from [`config/regions.yaml`](config/regions.yaml) (written by
 `npm run probe`), never hard-coded. Transcription and the Flash-Lite label call use the `global` endpoint, the Flash
 model uses `asia-southeast1` (Singapore), and Sensitive Data Protection runs in `asia-southeast2`. Services and stored
-data are in Jakarta; model processing may happen outside it. The probe ran against the demo project only. The Debrief
-and Review agents also run on the two Flash models, at the locations in the table. The table is generated: after a
+data are in Jakarta; model processing may happen outside it. The probe ran against the demo project only. By agent:
+Proposal runs on `gemini-3.5-flash` (`asia-southeast1`); Debrief and Review run on `gemini-3.5-flash-lite` (`global`).
+The table is generated: after a
 re-probe run `npm run readme:regions` and paste the output between the markers (a test fails if they differ).
 
 <!-- regions:start -->
