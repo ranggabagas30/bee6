@@ -23,6 +23,13 @@ export const DEBRIEF_AGENT_MAX_MODEL_CALLS = 4;
 export const DEBRIEF_AGENT_TIMEOUT_MS = 8_000;
 /** Extra wall time past the timeout before the backstop gives up on a runner that ignores the abort signal. */
 export const DEBRIEF_AGENT_BACKSTOP_MARGIN_MS = 3_000;
+/**
+ * The most wall time ONE unit's agent step can add: the per-question timeout plus the backstop margin. The (at most
+ * 3) questions of a unit run in parallel (`Promise.all`), so the unit pays this once, not per question. The tick
+ * runs the agent only while the unit has at least this much of its own budget left (word.ts), so a unit never
+ * exceeds the per-unit budget the 30 min lease is sized on (service.ts `UNIT_BUDGET_MS`).
+ */
+export const DEBRIEF_AGENT_UNIT_BUDGET_MS = DEBRIEF_AGENT_TIMEOUT_MS + DEBRIEF_AGENT_BACKSTOP_MARGIN_MS;
 export const DEBRIEF_AGENT_MAX_PER_UNIT = 3;
 export const DEBRIEF_AGENT_MAX_LINES = 6;
 /** === the quoted-line cap of the read path: imported, never redefined. */
