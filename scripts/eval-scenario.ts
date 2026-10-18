@@ -624,6 +624,7 @@ export function formatReport(report: ScenarioReport): string {
     const s = c.summary;
     const detail = [
       ...c.failures,
+      c.status === "INCONCLUSIVE" ? `${s.retryable_failures} unit(s) kept failing with a retryable error` : null,
       s.a_applicable ? `A landed as ${dist(s.a_categories)}` : null,
       s.b_applicable ? `B landed as ${dist(s.b_categories)}` : null,
     ].filter(Boolean);

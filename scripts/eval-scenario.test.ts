@@ -791,6 +791,12 @@ describe("runScenario on the after days (fake label model)", () => {
     expect(exitCodeFor(report)).toBe(3);
   });
 
+  it("an INCONCLUSIVE row says why instead of printing an empty detail", async () => {
+    const quota: LabelCall = async () => ({ kind: "retryable_error", error: { class: "http_429" } });
+    const report = await runScenario({ ...after, days: [5], variants: ["exact"], unitings: ["U1"] }, { label: quota, sleep: async () => {}, random: () => 0 });
+    expect(formatReport(report)).toMatch(/INCONCLUSIVE day 5 exact U1: 2 unit\(s\) kept failing with a retryable error/);
+  });
+
   it("no day-4 cell in the selection: after_b is null", async () => {
     const report = await runScenario({ ...after, days: [5] }, { label: model(), sleep: async () => {} });
     expect(report.after_b).toBeNull();
