@@ -260,6 +260,30 @@ describe("ProposalDetail — inline reject (D2-03f)", () => {
   });
 });
 
+describe("ProposalDetail — review date wording by status (R-FB-15)", () => {
+  it("awaiting_supervisor shows the estimate wording with (confirmed when approved)", () => {
+    renderDetail(item("awaiting_supervisor"));
+    expect(screen.getByText("Review about Wed 21 Oct (confirmed when approved)")).not.toBeNull();
+  });
+
+  it("awaiting_owner shows the estimate wording with (confirmed when approved)", () => {
+    renderDetail(item("awaiting_owner"));
+    expect(screen.getByText("Review about Wed 21 Oct (confirmed when approved)")).not.toBeNull();
+  });
+
+  it("approved shows just the bare date without (confirmed when approved)", () => {
+    renderDetail(item("approved"));
+    expect(screen.getByText("Wed 21 Oct")).not.toBeNull();
+    expect(screen.queryByText(/confirmed when approved/)).toBeNull();
+  });
+
+  it("rejected shows just the bare date without (confirmed when approved)", () => {
+    renderDetail(item("rejected"));
+    expect(screen.getByText("Wed 21 Oct")).not.toBeNull();
+    expect(screen.queryByText(/confirmed when approved/)).toBeNull();
+  });
+});
+
 describe("ProposalDetail — read-only and hand-over", () => {
   it("a proposal not awaiting the supervisor shows no actions", () => {
     renderDetail(item("awaiting_owner"));
