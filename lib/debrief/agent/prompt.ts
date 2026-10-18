@@ -45,7 +45,11 @@ export function REASON_TEXT(rule: GateRule): string {
   return REASONS[rule] ?? FALLBACK_REASON;
 }
 
-/** The one user message for a moment. `moment` is already scrubbed, cut and capped by `buildMoment`. */
+/**
+ * The one user message for a moment. `moment` is already scrubbed, cut and capped by `buildMoment`. The stored summary
+ * is deliberately NOT shown: it is the label model's text and can carry an attacker's spoken words; the model words the
+ * question from the moment's own lines only (QA 18 Oct, D-1).
+ */
 export function buildUserContent(moment: DebriefQuestionMoment): string {
   return [
     `Category: ${moment.category_label_en} (${moment.category})`,
@@ -53,6 +57,5 @@ export function buildUserContent(moment: DebriefQuestionMoment): string {
     `Time: ${moment.start_hm} to ${moment.end_hm}`,
     "What the notes say (already redacted):",
     ...moment.lines.map((line) => `- ${line}`),
-    `Summary: ${moment.summary.length > 0 ? moment.summary : "(none)"}`,
   ].join("\n");
 }

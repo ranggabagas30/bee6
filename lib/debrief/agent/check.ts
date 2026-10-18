@@ -160,7 +160,10 @@ function isYesNo(q: string): boolean {
 }
 
 function allowedPrefixes(moment: DebriefQuestionMoment): Set<string> {
-  const sources = [...moment.lines, moment.summary, moment.category_label_en, ...QUESTION_ALLOW_WORDS];
+  // ONLY the moment's own redacted line texts (+ the category label and the fixed allow-list). The stored summary is
+  // the label model's text and can repeat an attacker's spoken words ("prompt injection ... theft"): it is never a
+  // source, so a word that appears only there is `word_not_in_input` (QA 18 Oct, D-1).
+  const sources = [...moment.lines, moment.category_label_en, ...QUESTION_ALLOW_WORDS];
   const prefixes = new Set<string>();
   for (const source of sources) {
     for (const word of source.replace(BRACKET_SPAN, " ").match(LETTER_RUNS) ?? []) {
@@ -196,10 +199,9 @@ export function checkQuestion(draft: unknown, ctx: CheckContext): CheckResult {
   if (!times.includes(moment.start_hm)) fail("time_missing");
   if (times.some((t) => t !== moment.start_hm && t !== moment.end_hm)) fail("time_foreign");
 
-  // Digit runs outside the two allowed clock times must be whole runs of the notes.
+  // Digit runs outside the two allowed clock times must be whole runs of the LINES (never the stored summary).
   const withoutTimes = q.replace(CLOCK_TIME, (t) => (t === moment.start_hm || t === moment.end_hm ? " " : t));
-  const inputText = `${moment.lines.join(" ")} ${moment.summary}`;
-  const inputRuns = new Set(inputText.match(DIGIT_RUN) ?? []);
+  const inputRuns = new Set(moment.lines.join(" ").match(DIGIT_RUN) ?? []);
   const freeRuns = withoutTimes.match(DIGIT_RUN) ?? [];
   if (freeRuns.some((run) => !inputRuns.has(run))) fail("number_not_in_input");
   // Runs of the notes can be chained into a phone number ("0812 3456 7890"): cap the digits outside the two times.

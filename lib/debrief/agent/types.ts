@@ -18,6 +18,9 @@ export interface DebriefQuestionMoment {
   fired_rule: GateRule;
   /** 1..6 lines, each 1..160 code points. */
   lines: string[];
-  /** 0..300 code points. */
+  /**
+   * 0..300 code points. NOT shown to the model and NOT an allowed-word or number source for the checker (QA 18 Oct,
+   * D-1); it only widens the negated-notes skip (`notesHaveNegation`), which can only keep the template.
+   */
   summary: string;
 }

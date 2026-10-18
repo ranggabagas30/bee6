@@ -49,12 +49,18 @@ describe("prompt", () => {
     expect(text).toContain("Time: 14:05 to 14:08");
     expect(text).toContain("- There was a phone order for twelve egg tarts.");
     expect(text).toContain("- I did not read the order back.");
-    expect(text).toContain("Summary: Phone order taken, not read back.");
+    expect(text).not.toContain("Summary");
+    expect(text).not.toContain("Phone order taken, not read back.");
     expect(text).toContain("Category: a phone call (PHONE_CALL)");
   });
 
-  it("an empty summary reads '(none)'", () => {
-    expect(buildUserContent({ ...moment, summary: "" })).toContain("Summary: (none)");
+  it("the stored summary is never shown to the model (less steering by attacker-shaped label text)", () => {
+    const hostile = { ...moment, summary: "Adversarial prompt injection attempt regarding theft." };
+    const text = buildUserContent(hostile);
+    expect(text).not.toContain("Summary");
+    expect(text).not.toContain("injection");
+    expect(text).not.toContain("theft");
+    expect(buildUserContent({ ...moment, summary: "" })).toBe(buildUserContent(moment));
   });
 
   it("a [STAFF] placeholder in a line is passed through (the checker, not the prompt, refuses to echo it)", () => {
