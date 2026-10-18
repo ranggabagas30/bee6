@@ -16,6 +16,7 @@ import {
   cardState,
   currentStage,
   guideKeyFor,
+  phoneJourney,
   stageIndex,
   todoDoneCount,
   type Bilingual,
@@ -40,7 +41,7 @@ import { GUIDE_CONTROLS } from "@/app/demo/guide-controls";
  * layout ONLY when DEMO_MODE is on (through JudgeGuideLoader, a lazy chunk), so the pilot never renders it.
  *
  * - Phone (< 900 px): a collapsed bottom-sheet handle (kicker + stage chip, the card's one-line title, the day clock);
- *   laptop (>= 900 px): a "JUDGE GUIDE [STAGE n OF 5] v" pill top-right opening a 360 px side panel. Collapsed by
+ *   laptop (>= 900 px): a "JUDGE GUIDE [STAGE n OF 7] v" pill top-right opening a 360 px side panel. Collapsed by
  *   default, after every route change and after every card change (except listening -> all spoken, one flow).
  *   Non-modal, no focus trap.
  * - Contents (R-25 T6, board look): the stage label, then the ONE card of `guideKeyFor(route, state)` in a card box.
@@ -276,9 +277,8 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
   const card = guideCard(key, day, { openClosingReached });
 
   const journey: JourneyProgress = useMemo(() => {
-    if (bridge) {
-      return { day: bridge.state.profile.day, days_done: bridge.state.profile.days_done, proposals_with_content: 0, feasible: 0, owner_decided: 0, approved: 0, reviews_open: 0, reviews_confirmed: 0, supervisor_visited: visited };
-    }
+    // The phone knows only its own day; from day 4 on the approve_first guard implies an approved change (phoneJourney).
+    if (bridge) return phoneJourney(bridge.state.profile, visited);
     return progress ? { ...progress, supervisor_visited: visited } : { day: 1, days_done: 0, proposals_with_content: 0, feasible: 0, owner_decided: 0, approved: 0, reviews_open: 0, reviews_confirmed: 0, supervisor_visited: visited };
   }, [bridge, progress, visited]);
   // R-25 R7: on a supervisor web page right after day 1 the stage stays "Supervisor · look around".

@@ -903,16 +903,16 @@ describe("/capture: the debrief cards and Jump to tomorrow (plan 4.4, 7.2)", () 
     renderGuide();
     const handle = screen.getByRole("button", { name: /Open the judge guide/ });
     expect(handle.textContent).toContain("Jump to tomorrow for day 2");
-    expect(handle.textContent).toContain("STAGE 2 OF 5"); // days_done 1 on the phone, supervisor not visited: stage 2
+    expect(handle.textContent).toContain("STAGE 2 OF 7"); // days_done 1 on the phone, supervisor not visited: stage 2
     openGuide();
     expect(screen.getByRole("heading", { name: "Today is done" })).toBeTruthy();
     expect(screen.getByText("Supervisor · look around")).toBeTruthy(); // the stage label (UI-040)
     expect(screen.getByText("NEXT")).toBeTruthy();
-    expect(screen.getByText(/Day 1 of 3 is done\. First sign out and look around as Supervisor/)).toBeTruthy();
+    expect(screen.getByText(/Day 1 of 5 is done\. First sign out and look around as Supervisor/)).toBeTruthy();
     expect(screen.queryByText(/After day 3, sign out and continue as Supervisor/)).toBeNull();
     expect(screen.getByRole("button", { name: "Jump to tomorrow" })).toBeTruthy();
     act(() => publishCaptureBridge(debrief({ allowed: true, reason: null }, "debrief_done", 2)));
-    expect(screen.queryByText(/Day 1 of 3 is done/)).toBeNull();
+    expect(screen.queryByText(/Day 1 of 5 is done/)).toBeNull();
     expect(screen.getByText(/Jump to tomorrow to run day 3/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Close the judge guide/ })); // the open handle has no title line
     expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("Jump to tomorrow for day 3");
@@ -969,7 +969,7 @@ describe("web routes: progress and the supervisor-visited flag", () => {
     await waitFor(() => expect(window.localStorage.getItem(SUPERVISOR_SEEN_KEY)).toBe("1"));
     await waitFor(() => expect(fetch).toHaveBeenCalled());
     await act(async () => {});
-    expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("STAGE 2 OF 5");
+    expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("STAGE 2 OF 7");
     openGuide();
     expect(screen.getByRole("heading", { name: "The day record" })).toBeTruthy();
     // R-25 T6 (D2-02-open): the stage label and a "Do this now" list, first row current, no 5-row journey list
@@ -998,10 +998,10 @@ describe("web routes: progress and the supervisor-visited flag", () => {
     const { rerender } = render(view());
     await act(async () => {});
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("STAGE 1 OF 5");
+    expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("STAGE 1 OF 7");
     authStatus = "signed_in";
     rerender(view());
-    await waitFor(() => expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("STAGE 4 OF 5"));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("STAGE 4 OF 7"));
     const progressCalls = vi.mocked(fetch).mock.calls.filter(([u]) => String(u) === "/api/v1/demo/progress");
     expect(progressCalls).toHaveLength(1);
   });
@@ -1015,7 +1015,7 @@ describe("web routes: progress and the supervisor-visited flag", () => {
     seedWeb("owner");
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 2, feasible: 2, owner_decided: 0, approved: 0, reviews_open: 0, reviews_confirmed: 0 } }), { status: 200 }));
     renderGuide();
-    await waitFor(() => expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("STAGE 5 OF 5"));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("STAGE 5 OF 7"));
     expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("Approve or reject each proposal");
   });
 
@@ -1139,7 +1139,7 @@ describe("web routes: progress and the supervisor-visited flag", () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
     expect(String(vi.mocked(fetch).mock.calls[1]![0])).toBe("/api/v1/demo/progress");
     // the stage list moved on the fresh counters (every proposal feasible: Owner · approve)
-    await waitFor(() => expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("STAGE 5 OF 5"));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("STAGE 5 OF 7"));
   });
 
   it("a failed progress fetch keeps the default card (no error text from the server)", async () => {
@@ -1324,7 +1324,7 @@ describe("R-25 contracts: supervisor stage 2 and the paired card", () => {
       renderGuide();
       await waitFor(() => expect(fetch).toHaveBeenCalled());
       await act(async () => {});
-      expect(stageText(), route).toContain("STAGE 2 OF 5");
+      expect(stageText(), route).toContain("STAGE 2 OF 7");
     }
   });
 
@@ -1333,7 +1333,7 @@ describe("R-25 contracts: supervisor stage 2 and the paired card", () => {
     pathname = "/capture";
     act(() => publishCaptureBridge(bridge({ profile: profile({ day: 2, days_done: 1 }) })));
     renderGuide();
-    expect(stageText()).toContain("STAGE 3 OF 5");
+    expect(stageText()).toContain("STAGE 3 OF 7");
   });
 
   it("the pair card says Fill in the code until the paired checklist reports, then points at the listening page (and not for another route)", () => {
@@ -1551,10 +1551,10 @@ describe("R-25 T6: the board chrome (handle, web panel, Do this now)", () => {
     await waitFor(() => expect(fetch).toHaveBeenCalled());
     await act(async () => {});
     const pill = screen.getByRole("button", { name: /Open the judge guide/ });
-    expect(pill.textContent).toContain("STAGE 5 OF 5");
+    expect(pill.textContent).toContain("STAGE 5 OF 7");
     fireEvent.click(pill);
     const panel = screen.getByRole("complementary", { name: "Judge guide" });
-    expect(within(panel).getByText("STAGE 5 OF 5")).toBeTruthy();
+    expect(within(panel).getByText("STAGE 5 OF 7")).toBeTruthy();
     expect(within(panel).getByText("Owner · approve")).toBeTruthy();
     const rows = within(within(panel).getByRole("list", { name: "Do this now" })).getAllByRole("listitem");
     expect(rows).toHaveLength(3);
@@ -1569,7 +1569,7 @@ describe("R-25 T6: the board chrome (handle, web panel, Do this now)", () => {
     renderGuide();
     const handle = screen.getByRole("button", { name: /Open the judge guide/ });
     expect(handle.querySelector(".b6-clock")?.textContent).toBe("Day 3 of 5");
-    expect(handle.querySelector(".b6-chip--teal")?.textContent).toBe("STAGE 3 OF 5");
+    expect(handle.querySelector(".b6-chip--teal")?.textContent).toBe("STAGE 3 OF 7");
     expect(handle.textContent).not.toMatch(/Tap Start, then read the cards · Day/);
     // open: the title line goes away, the clock stays (board: the open handle row is kicker + chip, clock, chevron)
     fireEvent.click(handle);
@@ -1585,5 +1585,191 @@ describe("R-25 T6: the board chrome (handle, web panel, Do this now)", () => {
     renderGuide();
     openGuide();
     expect(screen.getByRole("button", { name: "Jump to closing time · 21:00" })).toBeTruthy();
+  });
+});
+
+// Review-agent plan 3.6-3.8 (PR-3): the 7-stage guide, the after-day phone cards and the Reviews cards. The 3-day path
+// (stages 1-5, the base cards) is covered by the suites above; these tests add only what the after days change.
+describe("after days: stages 6-7, the phone cards and the Reviews cards", () => {
+  const pill = () => screen.getByRole("button", { name: /the judge guide/ });
+  const debriefAt = (day: 1 | 2 | 3 | 4 | 5, days_done: number, next_day: DemoSessionProfile["next_day"], phase: CaptureBridgeState["phase"] = "debrief_done") =>
+    bridge({ phase, profile: profile({ day, days_done, next_day }) });
+  const progressOf = (over: Partial<Record<"days_done" | "approved" | "reviews_open" | "reviews_confirmed", number>>) =>
+    new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 2, feasible: 2, owner_decided: 2, approved: 2, reviews_open: 0, reviews_confirmed: 0, ...over } }), { status: 200 });
+
+  it("day 3 after End: the drawer line says Days 4 and 5 open after the Owner approves (approve_first), never offers the button, and never calls the route", () => {
+    pathname = "/capture";
+    act(() => publishCaptureBridge(debriefAt(3, 3, { allowed: false, reason: "approve_first" })));
+    renderGuide();
+    expect(pill().textContent).toContain("Sign out and continue as Supervisor");
+    openGuide();
+    expect(screen.getByText("Days 4 and 5 open after the Owner approves a change. Sign out and continue as Supervisor.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Jump to tomorrow" })).toBeNull();
+    expect(screen.getByText("That was day 3 of 5. Next, sign out and continue as Supervisor. Days 4 and 5 unlock after the Owner approves a change.")).toBeTruthy();
+    expect(postDemoNextDay).not.toHaveBeenCalled();
+  });
+
+  it("a refused jump from the route shows its own line for approve_first and review_exists (never server text)", async () => {
+    pathname = "/capture";
+    for (const [code, line] of [
+      ["approve_first", "Days 4 and 5 open after the Owner approves a change. Sign out and continue as Supervisor."],
+      ["review_exists", "A review already exists, so the demo days are finished. Sign out and open Reviews."],
+    ] as const) {
+      postDemoNextDay.mockResolvedValueOnce({ ok: false, status: 409, code, details: null });
+      act(() => publishCaptureBridge(debriefAt(3, 3, { allowed: true, reason: null })));
+      renderGuide();
+      openGuide();
+      fireEvent.click(screen.getByRole("button", { name: "Jump to tomorrow" }));
+      expect(await screen.findByText(line)).toBeTruthy();
+      cleanup();
+    }
+  });
+
+  it("review_exists from the config shows its line in place of the button, on a day that is not the last", () => {
+    pathname = "/capture";
+    act(() => publishCaptureBridge(debriefAt(4, 4, { allowed: false, reason: "review_exists" })));
+    renderGuide();
+    openGuide();
+    expect(screen.getByText("A review already exists, so the demo days are finished. Sign out and open Reviews.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Jump to tomorrow" })).toBeNull();
+  });
+
+  it("day 4 after End: Jump to tomorrow for day 5 (expected_day 4); day 5 after End: the last-day card sends the judge to Reviews and the route is never called", async () => {
+    pathname = "/capture";
+    act(() => publishCaptureBridge(debriefAt(4, 4, { allowed: true, reason: null })));
+    renderGuide();
+    expect(pill().textContent).toContain("Jump to tomorrow for day 5");
+    openGuide();
+    expect(screen.getByText("Day 4 of 5 is done. Jump to tomorrow to run day 5. After day 5, sign out and continue as Supervisor.")).toBeTruthy();
+    postDemoNextDay.mockResolvedValueOnce({ ok: true, data: { day: 5 } });
+    fireEvent.click(screen.getByRole("button", { name: "Jump to tomorrow" }));
+    await waitFor(() => expect(postDemoNextDay).toHaveBeenCalledWith(expect.anything(), { expected_day: 4, confirm_unanswered: false }));
+    postDemoNextDay.mockClear();
+    act(() => publishCaptureBridge(debriefAt(5, 5, { allowed: false, reason: "max_days" })));
+    expect(screen.getByText("That was the last demo day. Sign out, continue as Supervisor, and open Reviews.")).toBeTruthy();
+    expect(screen.getByText("All 5 demo days are done. Sign out and continue as Supervisor.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Jump to tomorrow" })).toBeNull();
+    expect(postDemoNextDay).not.toHaveBeenCalled();
+  });
+
+  it("the debrief questions card on day 4 names the read-back; on day 5 it hands over like day 3", () => {
+    pathname = "/capture";
+    act(() => publishCaptureBridge(debriefAt(4, 3, { allowed: true, reason: null }, "debrief_question")));
+    renderGuide();
+    openGuide();
+    expect(screen.getByText(/The phone order did happen and was read back, so answer Yes/)).toBeTruthy();
+    act(() => publishCaptureBridge(debriefAt(5, 4, { allowed: true, reason: null }, "debrief_question")));
+    expect(screen.getByText("When your questions are answered, sign out and continue as Supervisor.")).toBeTruthy();
+    expect(screen.queryByText(/read back, so answer Yes/)).toBeNull();
+  });
+
+  it("the phone shows STAGE 6 OF 7 (Staff · days 4-5) while days 4 and 5 run, and STAGE 7 OF 7 once day 5 is done", () => {
+    pathname = "/capture";
+    act(() => publishCaptureBridge(bridge({ phase: "ready", profile: profile({ day: 4, days_done: 3 }) })));
+    renderGuide();
+    expect(pill().textContent).toContain("STAGE 6 OF 7");
+    openGuide();
+    expect(screen.getByText("Staff · days 4-5")).toBeTruthy();
+    expect(document.querySelector(".b6-clock")?.textContent).toBe("Day 4 of 5");
+    act(() => publishCaptureBridge(bridge({ phase: "ready", profile: profile({ day: 5, days_done: 4 }) })));
+    expect(pill().textContent).toContain("STAGE 6 OF 7");
+    act(() => publishCaptureBridge(bridge({ phase: "debrief_done", profile: profile({ day: 5, days_done: 5, next_day: { allowed: false, reason: "max_days" } }) })));
+    expect(pill().textContent).toContain("STAGE 7 OF 7");
+  });
+
+  it("day 3 on the phone still reads as before: STAGE 4 (Supervisor · decide) until the web counters say otherwise", () => {
+    pathname = "/capture";
+    act(() => publishCaptureBridge(bridge({ phase: "debrief_done", profile: profile({ day: 3, days_done: 3, next_day: { allowed: false, reason: "approve_first" } }) })));
+    renderGuide();
+    expect(pill().textContent).toContain("STAGE 4 OF 7");
+  });
+
+  it("a web page after the Owner approved: STAGE 6 OF 7 with the after-days line on the SOP and approvals-done screens", async () => {
+    pathname = "/proposals";
+    seedWeb("owner");
+    vi.mocked(fetch).mockImplementation(async () => progressOf({}));
+    renderGuide();
+    await waitFor(() => expect(pill().textContent).toContain("STAGE 6 OF 7"));
+    openGuide();
+    expect(screen.getByText("Staff · days 4-5")).toBeTruthy();
+    expect(screen.getByText(/sign out, pick Staff, and run days 4 and 5 with the new SOP; then open Reviews/)).toBeTruthy();
+  });
+
+  it("/reviews walks the four cards from the counters: base, ready (with the do-now rows), verdict, done; STAGE 7 OF 7 once day 5 is done", async () => {
+    pathname = "/reviews";
+    seedWeb("supervisor");
+    const cases = [
+      { over: { days_done: 3 }, heading: "Reviews", stage: "STAGE 6 OF 7", text: /run days 4 and 5 as Staff first/ },
+      { over: { days_done: 5 }, heading: "Fast-forward to the review date", stage: "STAGE 7 OF 7", text: /Days 4 and 5 are captured/ },
+      { over: { days_done: 5, reviews_open: 2 }, heading: "Give your verdict", stage: "STAGE 7 OF 7", text: /The Supervisor decides first/ },
+      { over: { days_done: 5, reviews_confirmed: 2 }, heading: "The loop is closed", stage: "STAGE 7 OF 7", text: /That is one full cycle of Bee6/ },
+    ];
+    for (const c of cases) {
+      vi.mocked(fetch).mockImplementation(async () => progressOf(c.over));
+      const { unmount } = renderGuide();
+      await waitFor(() => expect(pill().textContent).toContain(c.stage));
+      openGuide();
+      await waitFor(() => expect(screen.getByRole("heading", { name: c.heading })).toBeTruthy());
+      expect(screen.getByText(c.text)).toBeTruthy();
+      unmount();
+    }
+  });
+
+  it("reviews_ready: three do-now rows (the first is current), the second change keeps the first row ticked; the verdict card carries the second-change footnote", async () => {
+    pathname = "/reviews";
+    seedWeb("owner");
+    vi.mocked(fetch).mockImplementation(async () => progressOf({ days_done: 5 }));
+    const first = renderGuide();
+    await waitFor(() => expect(pill().textContent).toContain("Fast-forward to the review date"));
+    openGuide();
+    const rows = within(screen.getByRole("list", { name: "Do this now" })).getAllByRole("listitem");
+    expect(rows.map((r) => r.textContent)).toEqual([
+      expect.stringContaining("Tap Fast-forward to the review date"),
+      expect.stringContaining("Read Bee6's review and the before/after counts"),
+      expect.stringContaining("Give the Supervisor verdict, then confirm as Owner"),
+    ]);
+    expect(rows[0]!.getAttribute("aria-current")).toBe("step");
+    first.unmount();
+    vi.mocked(fetch).mockImplementation(async () => progressOf({ days_done: 5, reviews_confirmed: 1 }));
+    renderGuide();
+    await waitFor(() => expect(pill().textContent).toContain("Fast-forward to the review date"));
+    openGuide();
+    const again = within(screen.getByRole("list", { name: "Do this now" })).getAllByRole("listitem");
+    expect(again[0]!.textContent).toContain("done");
+    expect(again[1]!.getAttribute("aria-current")).toBe("step");
+  });
+
+  it("Bahasa: the stage names, the Reviews cards and the day-5 handle render in Indonesian", async () => {
+    pathname = "/reviews";
+    seedWeb("supervisor");
+    vi.mocked(fetch).mockImplementation(async () => progressOf({ days_done: 5 }));
+    renderGuide("id");
+    await waitFor(() => expect(screen.getByRole("button", { name: /Buka panduan juri/ }).textContent).toContain("TAHAP 7 DARI 7"));
+    fireEvent.click(screen.getByRole("button", { name: /Buka panduan juri/ }));
+    expect(screen.getByText("Tinjauan · tutup siklus")).toBeTruthy();
+    expect(screen.getByText("Ketuk Percepat ke tanggal tinjauan")).toBeTruthy();
+  });
+
+  it("axe finds no violation on the new cards (Reviews ready, verdict, done; the day-5 phone card), EN and ID", async () => {
+    vi.useRealTimers();
+    for (const lang of ["en", "id"] as const) {
+      const open = lang === "en" ? /Open the judge guide/ : /Buka panduan juri/;
+      for (const over of [{ days_done: 5 }, { days_done: 5, reviews_open: 1 }, { days_done: 5, reviews_confirmed: 2 }]) {
+        pathname = "/reviews";
+        seedWeb("supervisor");
+        vi.mocked(fetch).mockImplementation(async () => progressOf(over));
+        const { container, unmount } = renderGuide(lang);
+        await waitFor(() => expect(screen.getByRole("button", { name: open }).textContent).toMatch(/7/));
+        fireEvent.click(screen.getByRole("button", { name: open }));
+        expect(await axeViolations(container)).toEqual([]);
+        unmount();
+      }
+      pathname = "/capture";
+      act(() => publishCaptureBridge(debriefAt(5, 5, { allowed: false, reason: "max_days" })));
+      const { container, unmount } = renderGuide(lang);
+      fireEvent.click(screen.getByRole("button", { name: open }));
+      expect(await axeViolations(container)).toEqual([]);
+      unmount();
+    }
   });
 });
