@@ -314,8 +314,8 @@ export const GUIDE: Readonly<Record<GuideKey, GuideCard>> = z
       title: bi("Ask Bee6 for a proposal", "Minta usulan ke Bee6"),
       body: [
         bi(
-          "Evidence is ready. Tap Ask Bee6 once: it writes one proposal for each problem that has enough evidence (about 20 seconds).",
-          "Bukti sudah siap. Ketuk Minta usulan dari Bee6 sekali: ia menulis satu usulan untuk setiap masalah yang buktinya cukup (sekitar 20 detik).",
+          "Evidence is ready. Tap Ask Bee6 once: it writes and checks one proposal for each problem that has enough evidence (this can take up to a minute).",
+          "Bukti sudah siap. Ketuk Minta usulan dari Bee6 sekali: ia menulis dan memeriksa satu usulan untuk setiap masalah yang buktinya cukup (bisa memakan waktu sampai satu menit).",
         ),
         bi(
           "Once a proposal exists, the demo days can't be run again.",
@@ -325,7 +325,7 @@ export const GUIDE: Readonly<Record<GuideKey, GuideCard>> = z
     }),
     proposals_generating: card({
       title: bi("Asking Bee6", "Bertanya ke Bee6"),
-      body: [bi("Keep this page open. The proposals appear in about half a minute.", "Biarkan halaman ini terbuka. Usulan muncul sekitar setengah menit lagi.")],
+      body: [bi("Keep this page open. The proposals appear in about a minute.", "Biarkan halaman ini terbuka. Usulan muncul sekitar satu menit lagi.")],
     }),
     proposal_detail: card({
       title: bi("Check each proposal", "Periksa tiap usulan"),
