@@ -17,6 +17,7 @@ import { checkReason, reasonLength } from "@/lib/debrief/reason";
 import { scrubReason } from "@/lib/debrief/scrub";
 import { scrubQuestionLine, stripInvisibleChars } from "@/lib/debrief/question-line";
 import { rankQuestions } from "@/lib/debrief/rank";
+import { isDebriefAgentEnabled } from "@/lib/debrief/agent/flag";
 import { agentTextFor } from "@/lib/debrief/agent/view";
 import {
   planAnswerCommit,
@@ -207,7 +208,12 @@ export async function listDebriefQuestions(
   const questions: DebriefQuestionView[] = ranked.map((q) => {
     // DebriefAgent (sandbox only): the stored wording, shown only while it still matches this question's category and
     // start time (`agentTextFor`); otherwise absent and the phone keeps the template. A pilot response never has it.
-    const agentText = calendar.sandbox === true ? agentTextFor(q, calendar.tz) : undefined;
+    // The flag is checked on the READ path too: removing `DEBRIEF_AGENT` is the kill, so stored wording is ignored
+    // the moment the flag is off (risk review M2).
+    const agentText =
+      calendar.sandbox === true && isDebriefAgentEnabled(process.env, claims.outlet_id)
+        ? agentTextFor(q, calendar.tz)
+        : undefined;
     return {
       question_id: q.question_id,
       kind: q.kind,
