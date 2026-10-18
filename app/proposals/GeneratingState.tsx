@@ -19,15 +19,20 @@ import styles from "@/app/proposals/supervisor.module.css";
  * `max_s`, where it stays until the server answers. The block mounts when the Ask starts, so its mount time is the
  * Ask's start. No ticking counter (it would re-announce every second in the live region) and no progress bar (there
  * is no progress signal to show). Absent or `null`: exactly the screen before R-24.
+ *
+ * `round` (demo feedback 2 item 18): present while the demo sandbox's chained Ask runs; when it has two or more rounds one
+ * extra line says "Writing proposal n of total…" (inside the same single live region). Absent, `null` or one round: no line.
  */
 export function GeneratingState({
   lang,
   minHeight,
   estimate,
+  round,
 }: {
   lang: Lang;
   minHeight?: number;
   estimate?: AskEstimate | null;
+  round?: { n: number; total: number } | null;
 }) {
   const maxS = estimate ? estimate.max_s : null;
   // The `max_s` whose time has elapsed; "over" is derived, so a changed or removed estimate never shows a stale line.
@@ -57,6 +62,7 @@ export function GeneratingState({
             : t(lang, "C-propg-est", { min: estimate.min_s, max: estimate.max_s })
           : t(lang, "C-propg-body")}
       </p>
+      {round && round.total >= 2 && <p className={styles.generatingBody}>{t(lang, "C-propg-round", { n: round.n, total: round.total })}</p>}
     </Glass>
   );
 }

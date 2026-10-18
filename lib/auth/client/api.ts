@@ -14,7 +14,7 @@ export type AuthedResult<T> =
   | { kind: "forbidden" } // 403
   | { kind: "invalid" } // 422 (bad or future date)
   | { kind: "conflict"; code: string } // 409 (PR-5: NOT_REVIEWABLE, GATE_BLOCKED)
-  | { kind: "error" }; // 5xx, network, non-JSON, or schema mismatch
+  | { kind: "error"; code?: string }; // 5xx, network, non-JSON, or schema mismatch; `code` only on a 429 that names one (a demo cap)
 
 interface ErrorBody {
   error?: { code?: unknown };
@@ -92,6 +92,16 @@ async function authedRequest<T>(
 
   if (res.status === 403) return { kind: "forbidden" };
   if (res.status === 422) return { kind: "invalid" };
+  if (res.status === 429) {
+    // A cap or a lockout: still the plain error for every caller, but it names the server's code when there is one,
+    // so a caller that wants to say "limit reached" can (demo feedback 2 item 18).
+    try {
+      const code = conflictCode(await readJsonBody(res));
+      return code === "CONFLICT" ? { kind: "error" } : { kind: "error", code };
+    } catch {
+      return { kind: "error" };
+    }
+  }
   if (res.status === 409) {
     try {
       const body = await readJsonBody(res);

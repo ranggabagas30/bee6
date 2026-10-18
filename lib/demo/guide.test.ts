@@ -99,6 +99,15 @@ describe("STAGES and GUIDE data", () => {
     expect(JSON.stringify(c)).not.toMatch(/Fill in|Set up/);
   });
 
+  // Demo feedback 2 item 18: one tap of Ask writes every proposal the evidence allows; the card no longer says "one at a time".
+  it("the proposals_ready card says one tap writes a proposal for each problem with enough evidence; the generating card says proposals", () => {
+    const ready = GUIDE.proposals_ready.body.map((b) => b.en).join(" ");
+    expect(ready).toMatch(/Tap Ask Bee6 once: it writes one proposal for each problem that has enough evidence/);
+    expect(ready).not.toMatch(/one at a time|Ask for another/);
+    expect(GUIDE.proposals_ready.body.map((b) => b.id).join(" ")).not.toMatch(/sekali waktu|Minta lagi/);
+    expect(GUIDE.proposals_generating.body.map((b) => b.en).join(" ")).toBe("Keep this page open. The proposals appear in about half a minute.");
+  });
+
   it("never hard-codes which proposal comes first (focus order is ready, most facts, most dates, category order)", () => {
     const text = [GUIDE.proposals_ready, GUIDE.proposal_detail, GUIDE.proposals_feasible, GUIDE.approvals, GUIDE.approvals_done]
       .map((c) => JSON.stringify(c))

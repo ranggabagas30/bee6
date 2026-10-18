@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { GeneratingState } from "@/app/proposals/GeneratingState";
+import { axeViolations } from "@/lib/testing/axe";
 
 afterEach(() => {
   cleanup();
@@ -24,6 +25,24 @@ describe("GeneratingState (D2-03d)", () => {
     expect(stage).not.toBeNull();
     expect(stage!.getAttribute("aria-hidden")).toBe("true");
     expect(stage!.closest("[role='status']")).not.toBeNull();
+  });
+
+  // Demo feedback 2 item 18: a chained ask names which proposal is being written; one round shows no such line.
+  it("a chain of two or more rounds adds one 'Writing proposal n of total…' line inside the same single live region", () => {
+    const { container } = render(<GeneratingState lang="en" round={{ n: 2, total: 3 }} />);
+    expect(screen.getByRole("status").textContent).toContain("Writing proposal 2 of 3…");
+    expect(container.querySelectorAll("[aria-live], [role='status'], [role='alert']")).toHaveLength(1);
+  });
+
+  it.each([[null], [undefined], [{ n: 1, total: 1 }]])("no round line for %j", (round) => {
+    render(<GeneratingState lang="en" round={round} />);
+    expect(screen.getByRole("status").textContent).not.toMatch(/Writing proposal/);
+  });
+
+  it("the round line has an ID version and the page has no axe violations", async () => {
+    const { container } = render(<GeneratingState lang="id" round={{ n: 1, total: 2 }} />);
+    expect(screen.getByRole("status").textContent).toContain("Menulis usulan 1 dari 2…");
+    expect(await axeViolations(container)).toEqual([]);
   });
 
   it("ID copy", () => {

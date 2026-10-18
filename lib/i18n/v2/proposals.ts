@@ -127,6 +127,13 @@ export const proposalsID = {
   "C-propa-all-starts": "Perubahan yang disetujui mulai {starts} dan ditinjau pada {review}.", // PROVISIONAL
   "C-propa-st-approved-starts": "Disetujui · mulai {date}", // PROVISIONAL
   "C-propa-st-rejected-rule": "Ditolak · kini menjadi aturan", // PROVISIONAL
+  // ── Demo feedback 2, item 18: one tap asks for every proposal the evidence allows (demo sandbox only). Append-only. ──
+  "C-propw-ask-all": "Minta semua usulan dari Bee6", // PROVISIONAL
+  "C-propg-round": "Menulis usulan {n} dari {total}…", // PROVISIONAL
+  "C-propg-wrote-n": "Bee6 menulis {n} usulan. Buka satu per satu untuk membaca buktinya.", // PROVISIONAL
+  "C-propg-wrote-partial": "Bee6 menulis {n} dari {total} usulan, tetapi sisanya belum bisa ditulis sekarang. Ketuk Minta usulan lain untuk mencoba lagi.", // PROVISIONAL
+  "C-propg-cap": "Demo ini sudah mencapai batas usulan, jadi Bee6 tidak bisa menulis usulan lagi sekarang.", // PROVISIONAL
+  "C-propg-wrote-cap": "Bee6 menulis {n} dari {total} usulan. Batas usulan demo tercapai, jadi berhenti di situ.", // PROVISIONAL
 } as const satisfies Record<string, string>;
 
 export const proposalsEN: Record<keyof typeof proposalsID, string> = {
@@ -234,4 +241,10 @@ export const proposalsEN: Record<keyof typeof proposalsID, string> = {
   "C-propa-all-starts": "The approved change starts on {starts} and is reviewed on {review}.",
   "C-propa-st-approved-starts": "Approved · starts {date}",
   "C-propa-st-rejected-rule": "Rejected · now a rule",
+  "C-propw-ask-all": "Ask Bee6 for proposals",
+  "C-propg-round": "Writing proposal {n} of {total}…",
+  "C-propg-wrote-n": "Bee6 wrote {n} proposals. Open each to read the evidence.",
+  "C-propg-wrote-partial": "Bee6 wrote {n} of {total} proposals, but the rest could not be written right now. Tap Ask for another proposal to try again.",
+  "C-propg-cap": "This demo has reached its proposal limit, so Bee6 can't write more proposals now.",
+  "C-propg-wrote-cap": "Bee6 wrote {n} of {total} proposals. The demo's proposal limit was reached, so it stopped there.",
 };
