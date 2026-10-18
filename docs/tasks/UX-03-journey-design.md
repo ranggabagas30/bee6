@@ -13,7 +13,7 @@ Sources (read only): `docs/specs/technical-specification.md` §8.3, §8.5, §8.7
 §8.19 (and §8.9 for cancel copy, §8.16 for the notice line); `docs/specs/web-backend-rbac.md` §6.6.3; this file's sections 4, 8 and 8.0 as agreed;
 `CLAUDE.md` §2 and §4; `docs/tasks/R-07-ux-notes.md` for the debrief notes.
 
-Canvas: the Claude Design artifact `https://claude.ai/artifact/JcpEnDgLLb6wWhRHCbCrSx` could not be opened or
+Canvas: the Claude Design artifact `<PRIVATE_DESIGN_LINK>` could not be opened or
 refreshed from this session (no Artifact tool). The local export in `.claude/canvas-ux03/project/` is stale
 (see section 13). Refresh is a follow-up for a session with the Artifact tool.
 
@@ -188,6 +188,9 @@ does not jump.
 5. **Dates and times are always written out.** "Kam 15 Okt pukul 01:00". Never "hari ini", "besok",
    "nanti" for a time that may be tomorrow (at 00:30 those are ambiguous).
 6. **No transcript, no audio word in a sentence that implies content.** Question text is a template.
+   *Amended, Rangga 18 Oct (demo-feedback-2 item 10): on the SANDBOX (demo) the phone shows up to 2 already-redacted
+   lines of the flagged thread under the question (read-time staff-name scrub, fail closed); the pilot keeps the
+   template-only question.*
 7. **Sentence case, plain verbs, no filler.**
 8. **Name the action, not the navigation (ux-copy).** A button that commits names what it does (`Ya, selesai`,
    `Ya, hapus sesi`, `Tetap simpan sesi`, `Belum, lanjut`). `Kembali` only moves the user to a previous screen.
@@ -198,7 +201,9 @@ does not jump.
 ## 4. Hard-rule checks (every screen)
 
 - No transcript or quoted thread line on the phone. Debrief questions are templates. History shows event
-  types and times, never content.
+  types and times, never content. *Exception, Rangga 18 Oct (demo-feedback-2 item 10): on the SANDBOX (demo) the
+  phone shows up to 2 already-redacted lines of the flagged thread under the question (read-time staff-name scrub,
+  fail closed); the pilot keeps the template-only question.*
 - No audio on screen. The notice line is the only mention of storage.
 - No Firestore in the browser: every read and write is an API call (`/api/v1/capture/*`, debrief routes).
 - No staff name anywhere. No staff sign-in in MVP 1.
@@ -267,6 +272,18 @@ Rules for the headline:
   `loading` and `idle` are never green.
 - `role="status"` (polite). `mic_error` is announced once on transition as `role="alert"`; `stalled` once
   as polite status. Neither is re-announced on the 30 s poll (section 7).
+
+**Decided by UI/UX, 7 Oct (two QA questions on the capture page; delegated to UI/UX by Rangga).** Skills: `ux-copy`, `accessibility`.
+
+- **Q1. After the planned close, the status banner stays (option a).** Prod shows the same headline structure as Dev Stop. Only the headline and the note change; the banner never disappears, and the outside-hours note sits under it.
+  - Why: §5.2 says the state word is always shown, and the one slot is how staff read the phone at a glance. With the banner gone the phone shows no state word at all.
+  - Why: an outside-hours section alone cannot tell "closed for the day" from "broken". The headline names the state; the note names the next Start.
+  - Which headline. No session today: `C-h-idle` ("Not started") with `C-m-closed` (day closed) or `C-m-window-passed` (cut-off passed), whichever applies. A session ran today and the planned close auto-stopped it: `C-h-ended-auto` ("Ended automatically at {HH:MM}"), never "Not started", which would be false. Tone stays muted in both cases; no green.
+  - Next action (one line, in the primary slot note): "Nothing to do now. Tap Start on the day and time shown below." Uses the existing Mulai note; no new key.
+- **Q2. The page heading is fixed and neutral on every state (option b).** Not a state-dependent heading.
+  - Why: the state word already sits in the state headline, so a second state word above it repeats the same message and competes for the glance.
+  - Why: a fixed heading does not change under the screen reader or the layout as state changes (accessibility: no announcement on state change beyond the state headline). The listening word then appears only in the `listening` headline, as §5.2 requires.
+  - Copy: `C-cap-title`, EN "Shop phone", ID "HP toko" (section 6). Replaces the provisional "Shop listening" / "Mendengarkan toko" in code.
 
 **Note under the headline** (one slot, muted, 16 px body, up to two sentences). The one that applies:
 
@@ -381,7 +398,7 @@ Order inside the block, top to bottom (Decision A: lost line first):
 | Row | Condition | Copy key | Visual | Notes |
 |---|---|---|---|---|
 | 0 (new, G5) | session start POST not yet confirmed by server after the phone's retries | `C-u-start-fail` | warn ▲ | Technical spec §8.8 needs this row. Tech-lead to confirm detection (section 10, T4) |
-| L (lost line) | a segment was dropped (prune, server refusal, 4xx drop) and no 2xx has cleared it | `C-u-lost` + cause helper (below) | warn ▲, bold | Beside row 1 or 2; shown first in the block. Clears on the next 2xx (B). Announced once on first appearance, never on the poll |
+| L (lost line) | a segment was dropped (prune, server refusal, 4xx drop) and no 2xx has cleared it | `C-u-lost` + `C-u-lost-help` (below) | warn ▲, bold | Beside row 1 or 2; shown first in the block. Clears on the next 2xx (B). Announced once on first appearance, never on the poll |
 | 1 | queued, last attempt failed (network, server, auth) | `C-u-retry` (proposed; "Belum terkirim", G6) | warn ▲, count grows (2x), (3x) | Count only goes up. Never shows "berhasil" while the head still fails |
 | 1a | hint: server error while online | `C-u-server` | muted, under row 1 | Only for a real server error while `navigator.onLine` |
 | 1b | hint: auth error and 3 or more tries | `C-u-auth` | warn, under row 1 | Only for auth at N ≥ 3 |
@@ -390,15 +407,19 @@ Order inside the block, top to bottom (Decision A: lost line first):
 | 4 | queue empty, last segment dropped | the lost line (L) | warn ▲ | Same as L. Row 4 copy is the lost line, not "dilewati" (C) |
 | 5 | nothing uploaded since page load | (hidden) | none | |
 
-**Lost-line cause helpers** (one line each, under the lost value, in the current language; both languages in section 6):
+**Lost-line helper (decided 6 Oct, UI/UX; tech-lead feasibility answer pending, see §8 F).** One line under the
+lost value, the same for every drop cause, key `C-u-lost-help`: "Catatan itu jadi tidak lengkap. Tidak bisa dipulihkan." /
+"That note is now incomplete. It cannot be recovered." It is true for prune, server refusal and 4xx drops alike, and it
+tells staff not to chase the audio. It does not name a cause, because the phone does not yet record which drop cause
+applied (no `lastDropCause`). Showing a cause-specific line on a drop would be a guess.
 
-| Cause (gap ledger) | Helper | Key |
-|---|---|---|
-| `queue_full` (cap prune, or P3 refusal) | "Hubungkan ke internet agar antrean terkirim." | `C-u-lost-qfull` (value, D, P3) and `C-u-lost-qfull-act` (helper) |
-| `server_error` drop, or 4xx drop | "Server menolak sebagian rekaman. Catatan itu jadi tidak lengkap." | `C-u-lost-drop` |
+**Known-cause path (P3 refusal only).** At the P3 refusal site the cause is known, so the queue line stays:
+`C-u-lost-qfull` (value D, "Antrean HP penuh · suara baru tidak tercatat / Phone queue full · new speech not
+captured") and `C-u-lost-qfull-act` ("Hubungkan ke internet agar antrean terkirim."). P1 prune and all drops use
+`C-u-lost-help`.
 
-The P3 value line (D) is "Antrean HP penuh · suara baru tidak tercatat / Phone queue full · new speech not
-captured". The P1 prune uses the generic lost value with the queue helper, because the cause is the same.
+**Deferred: `C-u-lost-drop`** ("Server menolak sebagian rekaman. Catatan itu jadi tidak lengkap. Tidak bisa dipulihkan.", second line aligned to `C-u-lost-help`, Decided by UI/UX, 7 Oct). It shows only
+after the engine records `lastDropCause` at each drop site and the P2 gap write exists. Not shown in P1.
 
 **Success toast (C10, open).** Design default shown in the 4 Oct version: one 3 s polite message on the
 transition from a retry row back to row 3, `C-u-toast`. Technical spec §8.8 says success is a line state only.
@@ -407,6 +428,29 @@ Not decided (Q-U12). Routine uploads never toast.
 **Lost line clears on the next 2xx (decision B).** Staff cannot recover dropped audio, so no acknowledge
 button. The loss stays in the gap ledger for the supervisor (`queue_full` / `segment_dropped`), not on the
 phone. Dependency: the gap write (P2) must exist before this clearing rule ships (tech-lead order, section 10).
+
+**Late drop from a stopped session (tech-lead ruling, 7 Oct, delegated by Rangga; option a kept).** A segment
+captured before Stop can still be uploading after a new session starts and has already had a 2xx. If that
+segment then really fails (the stopped engine's `lostSinceSuccess` flips false to true), the lost line comes back.
+That audio is truly gone, and a drop that happens after the last 2xx is a new loss that no 2xx has cleared yet,
+which is exactly row L's condition. Decision B is still met: the line clears on the next 2xx from the newest
+session. Only the newest session's 2xx clears it; a stopped session's late 2xx never does, and a stopped
+session's report that was already losing (true to true) raises nothing. Built in
+`app/capture/upload-retention.ts` (`retainEngineStatus`, older-generation branch); no code change.
+
+**Screen-reader structure of the block (Decided by UI/UX, 7 Oct; option b, one region).** The whole upload
+block is one `role="status"` (polite) region, mounted once on `/capture` and never remounted. The lost value and
+its helper `C-u-lost-help` sit inside it and are read. The helper is **not** `aria-hidden`: "cannot be recovered"
+is the fact that stops staff chasing audio, so hiding it would remove the one actionable line for screen-reader
+users. The retry row's count `(2x)` sits in its own span marked `aria-hidden`, so a count change is never read
+(section 7: count alone is noise). Option (a), two regions as built, is rejected: the retry row's text is read
+again on each text change, and a lost line that appears with a retry row can announce as two utterances.
+
+What a screen-reader user hears: (1) on first appearance of the lost line, one polite announcement: the lost
+value, then the helper ("That note is now incomplete. It cannot be recovered."), once; nothing on the 30 s
+poll or on count growth. (2) A new retry row (row 1) is announced once as its words only; a count change
+is silent. Test on VoiceOver (iOS) and TalkBack or NVDA: if the count is still read, move it out of the region
+(not a design change). Matches the one-block rule (section 5.7 intro): yes.
 
 ### 5.8 Debrief: entry card, questions, done, timeout
 
@@ -427,7 +471,9 @@ The debrief belongs to this device, not to a person. It starts at Selesai or the
 **Question screen (one per screen, no scroll list):**
 - Progress `C-d-prog`, as text.
 - Question, a template only: `C-d-q-step` (labelled step) or `C-d-q-block` (no labelled step). Never a name,
-  role or quoted thread line.
+  role or quoted thread line. *Rangga 18 Oct (demo-feedback-2 item 10): on the SANDBOX (demo) the phone shows up to
+  2 already-redacted lines of the flagged thread under the question (lead-in `C-d2-heard`, replacing the generic
+  why line; read-time staff-name scrub, fail closed); the pilot keeps the template-only question.*
 - Choice: `role="radiogroup"` with two `role="radio"` buttons `C-d-yes` and `C-d-no`, side by side at 360 px
   (about 170 px each), 48 px tall, `aria-checked`. Nothing preselected. A tap selects and does **not** advance.
   Selected state uses a fill and a check glyph, never colour alone. Arrow keys move within the group.
@@ -742,6 +788,27 @@ g. **Switch on a screen with no content yet** (`loading`, `error`, `unsupported`
 
 ## 6. Copy sheet (every string; EN and ID columns, EN first; measured by script in section 9a)
 
+**Decided by UI/UX, 7 Oct: lost-help wording (final).** `C-u-lost-help` keeps the two sentences, EN "That note is
+now incomplete. It cannot be recovered." (52 characters) and ID "Catatan itu jadi tidak lengkap. Tidak bisa
+dipulihkan." (54 characters). "Now" marks the change from complete; "cannot be recovered" stops staff chasing audio.
+The one-sentence line that was in `C-u-lost-drop` (deferred key) now carries the same second sentence, so the
+two keys match. No other key changes.
+
+**Approval status (6 Oct).** Rangga approved the copy already in this sheet on 6 Oct, which covers the EN column
+(previously "UI/UX draft"), the ID column, the EN singular forms and the EN debrief category labels. Every existing
+key carries the mark "Approved by Rangga 6 Oct" in the Status column. Approval does not cover the formal technical
+spec §8.16 privacy sign-off (still needed before the pilot page), the ID debrief category labels (Q-U23, still
+pending), or the supervisor and owner strings in section 14. The provisional strings named in the approval
+(`C-pair-srv`, the capture headline and the hours copy) are not in this doc: no key carries a PROVISIONAL tag, and
+`C-pair-srv` is not a key in this sheet. The capture headline and hours keys are `C-h-*`, `C-n-open` and `C-m-*`,
+all approved above. New keys added 6 Oct under delegation are marked "Written by UI/UX 6 Oct, approved by Rangga
+(delegated)". Their dictionary form is in `docs/tasks/UX-03-copy-keys.md`.
+
+**Added 7 Oct (delegated to UI/UX by Rangga, marked "Written by UI/UX 7 Oct, delegated to UI/UX by Rangga"):**
+`C-h-idle-help` and `C-u-inet`. **Decided by UI/UX, 7 Oct:** `C-cap-title` (page heading, section 5.2 Q2). The sheet is now 134 keys. Capture privacy notice: no new key. The approved
+final line (§12 / Q-U24) is already keyed as `C-notice-demo-1` to `C-notice-demo-6` (demo outlet, both columns) and
+`C-notice-pilot` (pilot, approved 6 Oct). Both are reused unchanged; the formal technical spec §8.16 sign-off is still open.
+
 Revision 4 (language toggle, section 5.12). Revision 5: the **EN** column (English, the default) is the primary column and comes first; the **ID** column
 (Bahasa Indonesia) is second and is unchanged from rev 4. The phone shows one column at a time, chosen by the language switch. Rules: every key exists
 in both columns; no line mixes languages; no `/` pairs and no gloss (this replaces C9, section 3 rule 1); each
@@ -753,139 +820,145 @@ that language's abbreviations; `{N}`, `{M}` counts; `{mm}` minutes; `{langkah}` 
 label, mapped from its enum code in each language (section 5.12.3, Q-U23); `{outlet_id}` raw id; `{N}` in an
 EN count with the value 1 uses the singular form (section 5.12.4). `{HH:MM}` window end where stated.
 
-| Key | EN L1 | EN L2 | EN L3 | ID L1 | ID L2 | ID L3 |
-|---|---|---|---|---|---|---|
-| C-pair-title | Set up this device |  |  | Pasang perangkat ini |  |  |
-| C-pair-help | Enter the 6-digit code from the person who | set up this phone. |  | Masukkan 6 digit kode dari orang yang memasang HP ini. |  |  |
-| C-pair-label | 6-digit code |  |  | Kode 6 digit |  |  |
-| C-pair-need | Enter all 6 digits to set up. |  |  | Isi 6 digit untuk bisa memasang. |  |  |
-| C-b-pasang | Set up |  |  | Pasang |  |  |
-| C-pair-busy | Setting up… |  |  | Memasangkan… |  |  |
-| C-pair-refused | Code not recognized or already used. | Ask the person who set up this phone for a new code. |  | Kode tidak dikenali atau sudah dipakai. | Minta kode baru dari orang yang memasang HP ini. |  |
-| C-pair-net | No connection. | Try again when the signal is steady. |  | Tidak ada koneksi. | Coba lagi saat sinyal stabil. |  |
-| C-pair-ok-h | Phone set up |  |  | HP terpasang |  |  |
-| C-pair-ok-line | For outlet {outlet_id} |  |  | Untuk outlet {outlet_id} |  |  |
-| C-pair-step-1 | Leave the phone in one fixed place and plug in the charger. |  |  | Letakkan HP di tempat tetap dan colokkan charger. |  |  |
-| C-pair-step-2 | Keep the screen on and this page open. | Closing the page means not listening. |  | Layar tetap menyala dan halaman ini tetap terbuka. | Menutup halaman berarti tidak mendengarkan. |  |
-| C-pair-step-3 | You can tap Start from 01:00 until {HH:MM}, | on each open day. |  | Mulai bisa ditekan 01:00 sampai {HH:MM}, tiap hari buka. |  |  |
-| C-pair-step-4 | The End button appears 4 hours after Start. |  |  | Selesai muncul 4 jam setelah Mulai. |  |  |
-| C-b-buka-mendengarkan | Open the listening page |  |  | Buka halaman mendengarkan |  |  |
-| C-h-loading | Loading… |  |  | Memuat… |  |  |
-| C-h-error | Opening hours not loaded yet |  |  | Jam buka belum termuat |  |  |
-| C-h-error-help | Opening hours have not loaded yet. | Connect to the internet once, then reopen. |  | Jam buka belum termuat. Sambung internet sekali, lalu buka. |  |  |
-| C-h-unsupported | This browser is not supported |  |  | Browser ini belum didukung |  |  |
-| C-h-unsupported-help | Open this page in another browser, | then try again. |  | Buka halaman ini di browser lain, lalu coba lagi. |  |  |
-| C-h-tabbusy | Open in another tab |  |  | Sudah terbuka di tab lain |  |  |
-| C-h-tabbusy-help | Close the other tab, then tap Try again. |  |  | Tutup tab lain, lalu ketuk Coba lagi. |  |  |
-| C-h-idle | Not started |  |  | Belum mulai |  |  |
-| C-h-listening | Listening |  |  | Mendengarkan |  |  |
-| C-h-mic | Microphone problem · not listening |  |  | Mikrofon bermasalah · tidak mendengarkan |  |  |
-| C-h-mic-help | Check the microphone permission in the browser, | then try again. |  | Cek izin mikrofon di browser, lalu coba lagi. |  |  |
-| C-h-stalled | Recording stopped · retrying |  |  | Rekaman terhenti · mencoba lagi |  |  |
-| C-h-stalled-help | Wait a moment. If it has not come back, | tap Try again. |  | Tunggu sebentar. Jika belum kembali, ketuk Coba lagi. |  |  |
-| C-h-interrupted | Not listening · session still open |  |  | Tidak mendengarkan · sesi masih terbuka |  |  |
-| C-h-interrupted-help | Tap Continue to resume the same session. |  |  | Ketuk Lanjutkan untuk melanjutkan sesi yang sama. |  |  |
-| C-h-ended | Ended |  |  | Selesai |  |  |
-| C-h-ended-auto | Ended automatically at {HH:MM} |  |  | Selesai otomatis pukul {HH:MM} |  |  |
-| C-h-discarded | Session cancelled |  |  | Sesi dibatalkan |  |  |
-| C-n-open | Opening time. Tap Start to begin listening. | You can tap Start until {HH:MM}. |  | Sudah jam buka. Tekan Mulai untuk mulai mendengarkan. | Mulai bisa ditekan sampai pukul {HH:MM}. |  |
-| C-n-selesai-from | You can tap End from {HH:MM}. |  |  | Selesai bisa ditekan mulai pukul {HH:MM}. |  |  |
-| C-n-closing | Closing time has passed. Tap End when operations are done. | Recording stops automatically at {HH:MM}. |  | Sudah jam tutup. Tekan Selesai bila operasional selesai. | Rekaman berhenti otomatis pukul {HH:MM}. |  |
-| C-n-autostop-soon | Recording stops automatically at {HH:MM} ({N} min left). |  |  | Rekaman berhenti otomatis pukul {HH:MM} ({N} menit lagi). |  |  |
-| C-m-day-ended | The business day {Wed 14 Oct} has ended. | You can tap Start again {Thu 15 Oct} at {HH:MM}. |  | Hari operasional {Rab 14 Okt} sudah selesai. | Mulai bisa ditekan lagi {Kam 15 Okt} pukul {HH:MM}. |  |
-| C-m-debrief | The debrief runs until {HH:MM}. | You can tap Start again {Thu 15 Oct} at {HH:MM}. |  | Debrief berlangsung sampai pukul {HH:MM}. | Mulai bisa ditekan lagi {Kam 15 Okt} pukul {HH:MM}. |  |
-| C-m-window-passed | The Start cut-off today passed at {HH:MM}. | Today is recorded as a day off. | Next Start {Thu 15 Oct} at 01:00. | Batas Mulai hari ini sudah lewat pukul {HH:MM}. | Hari ini dicatat libur. | Mulai lagi {Kam 15 Okt} pukul 01:00. |
-| C-m-closed | Closed today. Next Start {Fri 16 Oct} at 01:00. |  |  | Hari ini tutup. Mulai berikutnya {Jum 16 Okt} pukul 01:00. |  |  |
-| C-b-mulai | Start |  |  | Mulai |  |  |
-| C-b-mulai-busy | Starting… |  |  | Memulai… |  |  |
-| C-b-selesai | End |  |  | Selesai |  |  |
-| C-b-batalkan | Cancel session |  |  | Batalkan sesi |  |  |
-| C-b-kembali | Back |  |  | Kembali |  |  |
-| C-b-belum-lanjut | Not yet, keep going |  |  | Belum, lanjut |  |  |
-| C-b-tetap-simpan | Keep the session |  |  | Tetap simpan sesi |  |  |
-| C-b-ya-selesai | Yes, end |  |  | Ya, selesai |  |  |
-| C-b-ya-hapus | Yes, delete session |  |  | Ya, hapus sesi |  |  |
-| C-b-lanjutkan | Continue |  |  | Lanjutkan |  |  |
-| C-b-coba | Try again |  |  | Coba lagi |  |  |
-| C-b-lewati | Skip |  |  | Lewati |  |  |
-| C-b-lanjut | Next |  |  | Lanjut |  |  |
-| C-b-riwayat | View history |  |  | Lihat riwayat |  |  |
-| C-c-selesai-h | End today’s operations? |  |  | Akhiri operasional hari ini? |  |  |
-| C-c-selesai-b | The 1-hour debrief starts now. This cannot be undone. | You can tap Start again {Thu 15 Oct} at {HH:MM}. |  | Debrief 1 jam dimulai sekarang. Tidak bisa dikembalikan. | Mulai baru bisa ditekan lagi {Kam 15 Okt} pukul {HH:MM}. |  |
-| C-c-cancel-h | Cancel the session started at {HH:MM}? |  |  | Batalkan sesi yang dimulai pukul {HH:MM}? |  |  |
-| C-c-cancel-b | Its audio and notes will be deleted. | This cannot be undone. Today does not count. | You can tap Start again {Thu 15 Oct} at 01:00. | Suara dan catatan sesi ini akan dihapus. | Tidak bisa dikembalikan. Hari ini tidak dihitung. | Mulai baru bisa ditekan lagi {Kam 15 Okt} pukul 01:00. |
-| C-c-cancel-b-now | Its audio and notes will be deleted. | This cannot be undone. Today does not count. | You can tap Start again straight away. | Suara dan catatan sesi ini akan dihapus. | Tidak bisa dikembalikan. Hari ini tidak dihitung. | Mulai baru bisa ditekan segera. |
-| C-c-autoclose | The panel closed. Nothing has changed. |  |  | Panel ditutup. Tidak ada yang berubah. |  |  |
-| C-srv-pending | Removing from server… |  |  | Menghapus dari server… |  |  |
-| C-srv-offline | Will be removed when online |  |  | Akan dihapus saat online |  |  |
-| C-srv-done | Removed |  |  | Sudah dihapus |  |  |
-| C-u-start-fail | Session not on the server yet | Will be sent when online. |  | Sesi belum tercatat di server | Akan dikirim saat online. |  |
-| C-u-retry | Not sent yet · retrying ({N}x) |  |  | Belum terkirim · mencoba lagi ({N}x) |  |  |
-| C-u-server | Server busy |  |  | Server sibuk |  |  |
-| C-u-auth | Contact the supervisor |  |  | Hubungi supervisor |  |  |
-| C-u-up | Uploading |  |  | Mengunggah |  |  |
-| C-u-ok | Upload succeeded |  |  | Unggah berhasil |  |  |
-| C-u-lost | Some speech was not captured |  |  | Sebagian suara tidak tercatat |  |  |
-| C-u-lost-qfull | Phone queue full · new speech not captured |  |  | Antrean HP penuh · suara baru tidak tercatat |  |  |
-| C-u-lost-qfull-act | Connect to the internet so the queue can send. |  |  | Hubungkan ke internet agar antrean terkirim. |  |  |
-| C-u-lost-drop | The server refused some recordings. | That note is now incomplete. |  | Server menolak sebagian rekaman. | Catatan itu jadi tidak lengkap. |  |
-| C-u-toast | Upload working again |  |  | Unggah berhasil lagi |  |  |
-| C-d-entry-h | Debrief running |  |  | Debrief berjalan |  |  |
-| C-d-entry-left | {mm} minutes left. |  |  | Sisa {mm} menit. |  |  |
-| C-d-entry-n | {N} questions. |  |  | {N} pertanyaan. |  |  |
-| C-d-btn | Answer questions |  |  | Jawab pertanyaan |  |  |
-| C-d-takes | Takes about 5 minutes. |  |  | Butuh sekitar 5 menit. |  |  |
-| C-d-next | You can tap Start again {Thu 15 Oct} at {HH:MM}. |  |  | Mulai bisa ditekan lagi {Kam 15 Okt} pukul {HH:MM}. |  |  |
-| C-d-load | Loading questions… | Usually takes a few seconds. |  | Memuat pertanyaan… | Biasanya beberapa detik. |  |
-| C-d-err | Questions could not load yet. | Check the connection, then try again. |  | Pertanyaan belum bisa dimuat. | Cek koneksi, lalu coba lagi. |  |
-| C-d-empty-h | There are no questions today. | Thank you. |  | Tidak ada pertanyaan hari ini. | Terima kasih. |  |
-| C-d-prog | Question {N} of {M} |  |  | Pertanyaan {N} dari {M} |  |  |
-| C-d-q-step | Around {HH:MM} there was {step}. Is that right? |  |  | Sekitar pukul {HH:MM} ada {langkah}. Benar? |  |  |
-| C-d-q-block | Between {HH:MM} and {HH:MM} there was work. | Is that right? |  | Sekitar pukul {HH:MM}–{HH:MM} ada kegiatan kerja. Benar? |  |  |
-| C-d-yes | Yes |  |  | Ya |  |  |
-| C-d-no | No |  |  | Tidak |  |  |
-| C-d-r-yes | Did it follow the SOP? If not, why? | Required. No names. |  | Sudah sesuai SOP? Kalau belum, kenapa? | Wajib diisi, tanpa nama. |  |
-| C-d-r-no | Why not? Tell us briefly. | Required. No names. |  | Kenapa tidak? Ceritakan singkat. | Wajib diisi, tanpa nama. |  |
-| C-d-count | {N}/500 |  |  | {N}/500 |  |  |
-| C-d-count-warn | {N}/500 · {M} left |  |  | {N}/500 · {M} lagi |  |  |
-| C-d-over | Too long. Remove {N} characters. |  |  | Terlalu panjang. Kurangi {N} karakter. |  |  |
-| C-d-help-dis | Choose Yes or No, then give a reason. |  |  | Pilih Ya atau Tidak, lalu isi alasan. |  |  |
-| C-d-locked | An answer sent with Next cannot be changed. |  |  | Jawaban yang sudah Lanjut tidak bisa diubah. |  |  |
-| C-d-save-fail | The answer is not saved on this phone yet. | The phone could not save it. Your text is still here. | Try Next again. | Jawaban belum tersimpan di HP ini. | HP tidak bisa menyimpan. Teks kamu masih ada. | Coba Lanjut lagi. |
-| C-d-refused | Not sent yet. It will be retried automatically. | The answer stays saved on this phone. |  | Belum terkirim. Akan dicoba lagi otomatis. | Jawaban tetap tersimpan di HP ini. |  |
-| C-d-offline | Saved on the phone. Will be sent when online. |  |  | Tersimpan di HP. Akan dikirim saat online. |  |  |
-| C-d-done-h | Debrief complete. Thank you. |  |  | Debrief selesai. Terima kasih. |  |  |
-| C-d-done-l | Your answers are saved. |  |  | Jawabanmu sudah tersimpan. |  |  |
-| C-d-done-unsent | {N} answers are not sent yet. | They will be sent when online. |  | Masih ada {N} jawaban belum terkirim. | Akan dikirim saat online. |  |
-| C-d-done-skip | {N} questions skipped. | You can answer them until {HH:MM}. |  | {N} pertanyaan dilewati. | Bisa dijawab sampai pukul {HH:MM}. |  |
-| C-d-done-mulai | You can tap Start again {Thu 15 Oct} at {HH:MM}. |  |  | Mulai bisa ditekan lagi {Kam 15 Okt} pukul {HH:MM}. |  |  |
-| C-d-timeout | The debrief time ran out at {HH:MM}. | Answers sent with Next are kept. | Text not sent with Next is not saved. | Waktu debrief habis pukul {HH:MM}. | Jawaban yang sudah Lanjut tetap tersimpan. | Teks yang belum Lanjut tidak tersimpan. |
-| C-r-title | History |  |  | Riwayat |  |  |
-| C-r-help | Events on this phone. No audio or answers. |  |  | Kejadian di HP ini. Tidak ada isi suara atau jawaban. |  |  |
-| C-r-empty | No history yet. | History appears after Start is tapped the first time. |  | Belum ada riwayat. | Riwayat muncul setelah Mulai ditekan pertama kali. |  |
-| C-r-load | Loading history… |  |  | Memuat riwayat… |  |  |
-| C-r-err | History could not load yet. | Try again. |  | Riwayat belum bisa dimuat. | Coba lagi. |  |
-| C-r-keep | History is deleted after 14 days. |  |  | Riwayat dihapus setelah 14 hari. |  |  |
-| C-r-ev-start | Start tapped |  |  | Mulai ditekan |  |  |
-| C-r-ev-end | End tapped |  |  | Selesai ditekan |  |  |
-| C-r-ev-auto | Stopped automatically |  |  | Berhenti otomatis |  |  |
-| C-r-ev-debrief | Debrief until {HH:MM} |  |  | Debrief sampai {HH:MM} |  |  |
-| C-r-ev-answers | {N} answers sent |  |  | {N} jawaban terkirim |  |  |
-| C-r-ev-disc | Session cancelled · today does not count |  |  | Sesi dibatalkan · hari ini tidak dihitung |  |  |
-| C-r-ev-ok | Upload succeeded ({N}x) |  |  | Unggah berhasil ({N}x) |  |  |
-| C-r-ev-retry | Not sent yet · retrying |  |  | Belum terkirim · mencoba lagi |  |  |
-| C-r-ev-lost | Some speech was not captured |  |  | Sebagian suara tidak tercatat |  |  |
-| C-lang-group | Choose language |  |  | Pilih bahasa |  |  |
-| C-lang-id | Bahasa Indonesia |  |  | Bahasa Indonesia |  |  |
-| C-lang-en | English |  |  | English |  |  |
-| C-lang-said | English selected. |  |  | Bahasa Indonesia dipilih. |  |  |
-| C-notice-pilot | Speech becomes short work notes. | Audio is not kept. |  | Suara diubah jadi catatan kerja singkat. | Rekaman suara tidak disimpan. |  |
-| C-notice-demo-1 | Speech becomes short work notes. |  |  | Suara diubah jadi catatan kerja singkat. |  |  |
-| C-notice-demo-2 | Audio is never stored on our servers. |  |  | Rekaman suara tidak disimpan di server. |  |  |
-| C-notice-demo-3 | If the internet drops, audio waits on this phone |  |  | Bila internet putus, rekaman menunggu di ponsel ini |  |  |
-| C-notice-demo-4 | (encrypted when saved) until sent, then deleted. |  |  | (terenkripsi bila tersimpan) sampai terkirim, lalu dihapus. |  |  |
-| C-notice-demo-5 | Audio that can’t be sent is deleted after 24 hours. |  |  | Rekaman yang tidak terkirim dihapus setelah 24 jam. |  |  |
-| C-notice-demo-6 | Work notes are deleted after 14 days. |  |  | Catatan kerja dihapus setelah 14 hari. |  |  |
+| Key | EN L1 | EN L2 | EN L3 | ID L1 | ID L2 | ID L3 | Status |
+|---|---|---|---|---|---|---|---|
+| C-pair-title | Set up this device |  |  | Pasang perangkat ini |  |  | Approved by Rangga 6 Oct |
+| C-pair-help | Enter the 6-digit code from the person who | set up this phone. |  | Masukkan 6 digit kode dari orang yang memasang HP ini. |  |  | Approved by Rangga 6 Oct |
+| C-pair-label | 6-digit code |  |  | Kode 6 digit |  |  | Approved by Rangga 6 Oct |
+| C-pair-need | Enter all 6 digits to set up. |  |  | Isi 6 digit untuk bisa memasang. |  |  | Approved by Rangga 6 Oct |
+| C-b-pasang | Set up |  |  | Pasang |  |  | Approved by Rangga 6 Oct |
+| C-pair-busy | Setting up… |  |  | Memasangkan… |  |  | Approved by Rangga 6 Oct |
+| C-pair-refused | Code not recognized or already used. | Ask the person who set up this phone for a new code. |  | Kode tidak dikenali atau sudah dipakai. | Minta kode baru dari orang yang memasang HP ini. |  | Approved by Rangga 6 Oct |
+| C-pair-net | No connection. | Try again when the signal is steady. |  | Tidak ada koneksi. | Coba lagi saat sinyal stabil. |  | Approved by Rangga 6 Oct |
+| C-pair-ok-h | Phone set up |  |  | HP terpasang |  |  | Approved by Rangga 6 Oct |
+| C-pair-ok-line | For outlet {outlet_id} |  |  | Untuk outlet {outlet_id} |  |  | Approved by Rangga 6 Oct |
+| C-pair-step-1 | Leave the phone in one fixed place and plug in the charger. |  |  | Letakkan HP di tempat tetap dan colokkan charger. |  |  | Approved by Rangga 6 Oct |
+| C-pair-step-2 | Keep the screen on and this page open. | Closing the page means not listening. |  | Layar tetap menyala dan halaman ini tetap terbuka. | Menutup halaman berarti tidak mendengarkan. |  | Approved by Rangga 6 Oct |
+| C-pair-step-3 | You can tap Start from 01:00 until {HH:MM}, | on each open day. |  | Mulai bisa ditekan 01:00 sampai {HH:MM}, tiap hari buka. |  |  | Approved by Rangga 6 Oct |
+| C-pair-step-4 | The End button appears 4 hours after Start. |  |  | Selesai muncul 4 jam setelah Mulai. |  |  | Approved by Rangga 6 Oct |
+| C-b-buka-mendengarkan | Open the listening page |  |  | Buka halaman mendengarkan |  |  | Approved by Rangga 6 Oct |
+| C-h-loading | Loading… |  |  | Memuat… |  |  | Approved by Rangga 6 Oct |
+| C-h-error | Opening hours not loaded yet |  |  | Jam buka belum termuat |  |  | Approved by Rangga 6 Oct |
+| C-h-error-help | Opening hours have not loaded yet. | Connect to the internet once, then reopen. |  | Jam buka belum termuat. Sambung internet sekali, lalu buka. |  |  | Approved by Rangga 6 Oct |
+| C-h-unsupported | This browser is not supported |  |  | Browser ini belum didukung |  |  | Approved by Rangga 6 Oct |
+| C-h-unsupported-help | Open this page in another browser, | then try again. |  | Buka halaman ini di browser lain, lalu coba lagi. |  |  | Approved by Rangga 6 Oct |
+| C-h-tabbusy | Open in another tab |  |  | Sudah terbuka di tab lain |  |  | Approved by Rangga 6 Oct |
+| C-h-tabbusy-help | Close the other tab, then tap Try again. |  |  | Tutup tab lain, lalu ketuk Coba lagi. |  |  | Approved by Rangga 6 Oct |
+| C-h-idle | Not started |  |  | Belum mulai |  |  | Approved by Rangga 6 Oct |
+| C-h-idle-help | Tap Start to begin today's session. |  |  | Ketuk Mulai untuk memulai sesi hari ini. |  |  | Written by UI/UX 7 Oct, delegated to UI/UX by Rangga. Shown only when Mulai is offered (5.2); otherwise the Mulai reason note from 5.4 |
+| C-cap-title | Shop phone |  |  | HP toko |  |  | Decided by UI/UX, 7 Oct (5.2 Q2). Fixed page heading on every state. Replaces the provisional "Shop listening" / "Mendengarkan toko" |
+| C-h-listening | Listening |  |  | Mendengarkan |  |  | Approved by Rangga 6 Oct |
+| C-h-mic | Microphone problem · not listening |  |  | Mikrofon bermasalah · tidak mendengarkan |  |  | Approved by Rangga 6 Oct |
+| C-h-mic-help | Check the microphone permission in the browser, | then try again. |  | Cek izin mikrofon di browser, lalu coba lagi. |  |  | Approved by Rangga 6 Oct |
+| C-h-stalled | Recording stopped · retrying |  |  | Rekaman terhenti · mencoba lagi |  |  | Approved by Rangga 6 Oct |
+| C-h-stalled-help | Wait a moment. If it has not come back, | tap Try again. |  | Tunggu sebentar. Jika belum kembali, ketuk Coba lagi. |  |  | Approved by Rangga 6 Oct |
+| C-h-interrupted | Not listening · session still open |  |  | Tidak mendengarkan · sesi masih terbuka |  |  | Approved by Rangga 6 Oct |
+| C-h-interrupted-help | Tap Continue to resume the same session. |  |  | Ketuk Lanjutkan untuk melanjutkan sesi yang sama. |  |  | Approved by Rangga 6 Oct |
+| C-h-ended | Ended |  |  | Selesai |  |  | Approved by Rangga 6 Oct |
+| C-h-ended-auto | Ended automatically at {HH:MM} |  |  | Selesai otomatis pukul {HH:MM} |  |  | Approved by Rangga 6 Oct |
+| C-h-discarded | Session cancelled |  |  | Sesi dibatalkan |  |  | Approved by Rangga 6 Oct |
+| C-n-open | Opening time. Tap Start to begin listening. | You can tap Start until {HH:MM}. |  | Sudah jam buka. Tekan Mulai untuk mulai mendengarkan. | Mulai bisa ditekan sampai pukul {HH:MM}. |  | Approved by Rangga 6 Oct |
+| C-n-selesai-from | You can tap End from {HH:MM}. |  |  | Selesai bisa ditekan mulai pukul {HH:MM}. |  |  | Approved by Rangga 6 Oct |
+| C-n-closing | Closing time has passed. Tap End when operations are done. | Recording stops automatically at {HH:MM}. |  | Sudah jam tutup. Tekan Selesai bila operasional selesai. | Rekaman berhenti otomatis pukul {HH:MM}. |  | Approved by Rangga 6 Oct |
+| C-n-autostop-soon | Recording stops automatically at {HH:MM} ({N} min left). |  |  | Rekaman berhenti otomatis pukul {HH:MM} ({N} menit lagi). |  |  | Approved by Rangga 6 Oct |
+| C-m-day-ended | The business day {Wed 14 Oct} has ended. | You can tap Start again {Thu 15 Oct} at {HH:MM}. |  | Hari operasional {Rab 14 Okt} sudah selesai. | Mulai bisa ditekan lagi {Kam 15 Okt} pukul {HH:MM}. |  | Approved by Rangga 6 Oct |
+| C-m-debrief | The debrief runs until {HH:MM}. | You can tap Start again {Thu 15 Oct} at {HH:MM}. |  | Debrief berlangsung sampai pukul {HH:MM}. | Mulai bisa ditekan lagi {Kam 15 Okt} pukul {HH:MM}. |  | Approved by Rangga 6 Oct |
+| C-m-window-passed | The Start cut-off today passed at {HH:MM}. | Today is recorded as a day off. | Next Start {Thu 15 Oct} at 01:00. | Batas Mulai hari ini sudah lewat pukul {HH:MM}. | Hari ini dicatat libur. | Mulai lagi {Kam 15 Okt} pukul 01:00. | Approved by Rangga 6 Oct |
+| C-m-closed | Closed today. Next Start {Fri 16 Oct} at 01:00. |  |  | Hari ini tutup. Mulai berikutnya {Jum 16 Okt} pukul 01:00. |  |  | Approved by Rangga 6 Oct |
+| C-b-mulai | Start |  |  | Mulai |  |  | Approved by Rangga 6 Oct |
+| C-b-mulai-busy | Starting… |  |  | Memulai… |  |  | Approved by Rangga 6 Oct |
+| C-b-selesai | End |  |  | Selesai |  |  | Approved by Rangga 6 Oct |
+| C-b-batalkan | Cancel session |  |  | Batalkan sesi |  |  | Approved by Rangga 6 Oct |
+| C-b-kembali | Back |  |  | Kembali |  |  | Approved by Rangga 6 Oct |
+| C-b-belum-lanjut | Not yet, keep going |  |  | Belum, lanjut |  |  | Approved by Rangga 6 Oct |
+| C-b-tetap-simpan | Keep the session |  |  | Tetap simpan sesi |  |  | Approved by Rangga 6 Oct |
+| C-b-ya-selesai | Yes, end |  |  | Ya, selesai |  |  | Approved by Rangga 6 Oct |
+| C-b-ya-hapus | Yes, delete session |  |  | Ya, hapus sesi |  |  | Approved by Rangga 6 Oct |
+| C-b-lanjutkan | Continue |  |  | Lanjutkan |  |  | Approved by Rangga 6 Oct |
+| C-b-coba | Try again |  |  | Coba lagi |  |  | Approved by Rangga 6 Oct |
+| C-b-lewati | Skip |  |  | Lewati |  |  | Approved by Rangga 6 Oct |
+| C-b-lanjut | Next |  |  | Lanjut |  |  | Approved by Rangga 6 Oct |
+| C-b-riwayat | View history |  |  | Lihat riwayat |  |  | Approved by Rangga 6 Oct |
+| C-c-selesai-h | End today’s operations? |  |  | Akhiri operasional hari ini? |  |  | Approved by Rangga 6 Oct |
+| C-c-selesai-b | The 1-hour debrief starts now. This cannot be undone. | You can tap Start again {Thu 15 Oct} at {HH:MM}. |  | Debrief 1 jam dimulai sekarang. Tidak bisa dikembalikan. | Mulai baru bisa ditekan lagi {Kam 15 Okt} pukul {HH:MM}. |  | Approved by Rangga 6 Oct |
+| C-c-cancel-h | Cancel the session started at {HH:MM}? |  |  | Batalkan sesi yang dimulai pukul {HH:MM}? |  |  | Approved by Rangga 6 Oct |
+| C-c-cancel-b | Its audio and notes will be deleted. | This cannot be undone. Today does not count. | You can tap Start again {Thu 15 Oct} at 01:00. | Suara dan catatan sesi ini akan dihapus. | Tidak bisa dikembalikan. Hari ini tidak dihitung. | Mulai baru bisa ditekan lagi {Kam 15 Okt} pukul 01:00. | Approved by Rangga 6 Oct |
+| C-c-cancel-b-now | Its audio and notes will be deleted. | This cannot be undone. Today does not count. | You can tap Start again straight away. | Suara dan catatan sesi ini akan dihapus. | Tidak bisa dikembalikan. Hari ini tidak dihitung. | Mulai baru bisa ditekan segera. | Approved by Rangga 6 Oct |
+| C-c-autoclose | The panel closed. Nothing has changed. |  |  | Panel ditutup. Tidak ada yang berubah. |  |  | Approved by Rangga 6 Oct |
+| C-srv-pending | Removing from server… |  |  | Menghapus dari server… |  |  | Approved by Rangga 6 Oct |
+| C-srv-offline | Will be removed when online |  |  | Akan dihapus saat online |  |  | Approved by Rangga 6 Oct |
+| C-srv-done | Removed |  |  | Sudah dihapus |  |  | Approved by Rangga 6 Oct |
+| C-u-start-fail | Session not on the server yet | Will be sent when online. |  | Sesi belum tercatat di server | Akan dikirim saat online. |  | Approved by Rangga 6 Oct |
+| C-u-retry | Not sent yet · retrying ({N}x) |  |  | Belum terkirim · mencoba lagi ({N}x) |  |  | Approved by Rangga 6 Oct |
+| C-u-retry-help | It sends by itself once the phone can reach the server. |  |  | Terkirim sendiri saat HP bisa menjangkau server. |  |  | Written by UI/UX 6 Oct, approved by Rangga (delegated) |
+| C-u-server | Server busy |  |  | Server sibuk |  |  | Approved by Rangga 6 Oct |
+| C-u-server-help | It will try again on its own. No action needed. |  |  | Akan dicoba lagi sendiri. Tidak perlu tindakan. |  |  | Written by UI/UX 6 Oct, approved by Rangga (delegated) |
+| C-u-inet | No internet. Connect so the queued items can send. |  |  | Tidak ada internet. Sambungkan agar antrean terkirim. |  |  | Written by UI/UX 7 Oct, delegated to UI/UX by Rangga. Shown when the browser reports no connection (upload block, 5.7) |
+| C-u-auth | Contact the supervisor |  |  | Hubungi supervisor |  |  | Approved by Rangga 6 Oct |
+| C-u-up | Uploading |  |  | Mengunggah |  |  | Approved by Rangga 6 Oct |
+| C-u-ok | Upload succeeded |  |  | Unggah berhasil |  |  | Approved by Rangga 6 Oct |
+| C-u-lost | Some speech was not captured |  |  | Sebagian suara tidak tercatat |  |  | Approved by Rangga 6 Oct |
+| C-u-lost-qfull | Phone queue full · new speech not captured |  |  | Antrean HP penuh · suara baru tidak tercatat |  |  | Approved by Rangga 6 Oct |
+| C-u-lost-qfull-act | Connect to the internet so the queue can send. |  |  | Hubungkan ke internet agar antrean terkirim. |  |  | Approved by Rangga 6 Oct |
+| C-u-lost-drop | The server refused some recordings. | That note is now incomplete. It cannot be recovered. |  | Server menolak sebagian rekaman. | Catatan itu jadi tidak lengkap. Tidak bisa dipulihkan. |  | Approved by Rangga 6 Oct. Line 2 aligned to C-u-lost-help, Decided by UI/UX, 7 Oct. Deferred: not shown in P1 (5.7, §8 F) |
+| C-u-lost-help | That note is now incomplete. It cannot be recovered. |  |  | Catatan itu jadi tidak lengkap. Tidak bisa dipulihkan. |  |  | Decided by UI/UX, 6 Oct; wording final, Decided by UI/UX, 7 Oct (tech-lead feasibility answer pending) |
+| C-u-toast | Upload working again |  |  | Unggah berhasil lagi |  |  | Approved by Rangga 6 Oct |
+| C-d-entry-h | Debrief running |  |  | Debrief berjalan |  |  | Approved by Rangga 6 Oct |
+| C-d-entry-left | {mm} minutes left. |  |  | Sisa {mm} menit. |  |  | Approved by Rangga 6 Oct |
+| C-d-entry-n | {N} questions. |  |  | {N} pertanyaan. |  |  | Approved by Rangga 6 Oct |
+| C-d-btn | Answer questions |  |  | Jawab pertanyaan |  |  | Approved by Rangga 6 Oct |
+| C-d-takes | Takes about 5 minutes. |  |  | Butuh sekitar 5 menit. |  |  | Approved by Rangga 6 Oct |
+| C-d-next | You can tap Start again {Thu 15 Oct} at {HH:MM}. |  |  | Mulai bisa ditekan lagi {Kam 15 Okt} pukul {HH:MM}. |  |  | Approved by Rangga 6 Oct |
+| C-d-load | Loading questions… | Usually takes a few seconds. |  | Memuat pertanyaan… | Biasanya beberapa detik. |  | Approved by Rangga 6 Oct |
+| C-d-err | Questions could not load yet. | Check the connection, then try again. |  | Pertanyaan belum bisa dimuat. | Cek koneksi, lalu coba lagi. |  | Approved by Rangga 6 Oct |
+| C-d-empty-h | There are no questions today. | Thank you. |  | Tidak ada pertanyaan hari ini. | Terima kasih. |  | Approved by Rangga 6 Oct |
+| C-d-prog | Question {N} of {M} |  |  | Pertanyaan {N} dari {M} |  |  | Approved by Rangga 6 Oct |
+| C-d-q-step | Around {HH:MM} there was {step}. Is that right? |  |  | Sekitar pukul {HH:MM} ada {langkah}. Benar? |  |  | Approved by Rangga 6 Oct |
+| C-d-q-block | Between {HH:MM} and {HH:MM} there was work. | Is that right? |  | Sekitar pukul {HH:MM}–{HH:MM} ada kegiatan kerja. Benar? |  |  | Approved by Rangga 6 Oct |
+| C-d-yes | Yes |  |  | Ya |  |  | Approved by Rangga 6 Oct |
+| C-d-no | No |  |  | Tidak |  |  | Approved by Rangga 6 Oct |
+| C-d-r-yes | Did it follow the SOP? If not, why? | Required. No names. |  | Sudah sesuai SOP? Kalau belum, kenapa? | Wajib diisi, tanpa nama. |  | Approved by Rangga 6 Oct |
+| C-d-r-no | Why not? Tell us briefly. | Required. No names. |  | Kenapa tidak? Ceritakan singkat. | Wajib diisi, tanpa nama. |  | Approved by Rangga 6 Oct |
+| C-d-count | {N}/500 |  |  | {N}/500 |  |  | Approved by Rangga 6 Oct |
+| C-d-count-warn | {N}/500 · {M} left |  |  | {N}/500 · {M} lagi |  |  | Approved by Rangga 6 Oct |
+| C-d-over | Too long. Remove {N} characters. |  |  | Terlalu panjang. Kurangi {N} karakter. |  |  | Approved by Rangga 6 Oct |
+| C-d-help-dis | Choose Yes or No, then give a reason. |  |  | Pilih Ya atau Tidak, lalu isi alasan. |  |  | Approved by Rangga 6 Oct |
+| C-d-locked | An answer sent with Next cannot be changed. |  |  | Jawaban yang sudah Lanjut tidak bisa diubah. |  |  | Approved by Rangga 6 Oct |
+| C-d-save-fail | The answer is not saved on this phone yet. | The phone could not save it. Your text is still here. | Try Next again. | Jawaban belum tersimpan di HP ini. | HP tidak bisa menyimpan. Teks kamu masih ada. | Coba Lanjut lagi. | Approved by Rangga 6 Oct |
+| C-d-refused | Not sent yet. It will be retried automatically. | The answer stays saved on this phone. |  | Belum terkirim. Akan dicoba lagi otomatis. | Jawaban tetap tersimpan di HP ini. |  | Approved by Rangga 6 Oct |
+| C-d-offline | Saved on the phone. Will be sent when online. |  |  | Tersimpan di HP. Akan dikirim saat online. |  |  | Approved by Rangga 6 Oct |
+| C-d-done-h | Debrief complete. Thank you. |  |  | Debrief selesai. Terima kasih. |  |  | Approved by Rangga 6 Oct |
+| C-d-done-l | Your answers are saved. |  |  | Jawabanmu sudah tersimpan. |  |  | Approved by Rangga 6 Oct |
+| C-d-done-unsent | {N} answers are not sent yet. | They will be sent when online. |  | Masih ada {N} jawaban belum terkirim. | Akan dikirim saat online. |  | Approved by Rangga 6 Oct |
+| C-d-done-skip | {N} questions skipped. | You can answer them until {HH:MM}. |  | {N} pertanyaan dilewati. | Bisa dijawab sampai pukul {HH:MM}. |  | Approved by Rangga 6 Oct |
+| C-d-done-mulai | You can tap Start again {Thu 15 Oct} at {HH:MM}. |  |  | Mulai bisa ditekan lagi {Kam 15 Okt} pukul {HH:MM}. |  |  | Approved by Rangga 6 Oct |
+| C-d-timeout | The debrief time ran out at {HH:MM}. | Answers sent with Next are kept. | Text not sent with Next is not saved. | Waktu debrief habis pukul {HH:MM}. | Jawaban yang sudah Lanjut tetap tersimpan. | Teks yang belum Lanjut tidak tersimpan. | Approved by Rangga 6 Oct |
+| C-r-title | History |  |  | Riwayat |  |  | Approved by Rangga 6 Oct |
+| C-r-help | Events on this phone. No audio or answers. |  |  | Kejadian di HP ini. Tidak ada isi suara atau jawaban. |  |  | Approved by Rangga 6 Oct |
+| C-r-empty | No history yet. | History appears after Start is tapped the first time. |  | Belum ada riwayat. | Riwayat muncul setelah Mulai ditekan pertama kali. |  | Approved by Rangga 6 Oct |
+| C-r-load | Loading history… |  |  | Memuat riwayat… |  |  | Approved by Rangga 6 Oct |
+| C-r-err | History could not load yet. | Try again. |  | Riwayat belum bisa dimuat. | Coba lagi. |  | Approved by Rangga 6 Oct |
+| C-r-keep | History is deleted after 14 days. |  |  | Riwayat dihapus setelah 14 hari. |  |  | Approved by Rangga 6 Oct |
+| C-r-ev-start | Start tapped |  |  | Mulai ditekan |  |  | Approved by Rangga 6 Oct |
+| C-r-ev-end | End tapped |  |  | Selesai ditekan |  |  | Approved by Rangga 6 Oct |
+| C-r-ev-auto | Stopped automatically |  |  | Berhenti otomatis |  |  | Approved by Rangga 6 Oct |
+| C-r-ev-debrief | Debrief until {HH:MM} |  |  | Debrief sampai {HH:MM} |  |  | Approved by Rangga 6 Oct |
+| C-r-ev-answers | {N} answers sent |  |  | {N} jawaban terkirim |  |  | Approved by Rangga 6 Oct |
+| C-r-ev-disc | Session cancelled · today does not count |  |  | Sesi dibatalkan · hari ini tidak dihitung |  |  | Approved by Rangga 6 Oct |
+| C-r-ev-ok | Upload succeeded ({N}x) |  |  | Unggah berhasil ({N}x) |  |  | Approved by Rangga 6 Oct |
+| C-r-ev-retry | Not sent yet · retrying |  |  | Belum terkirim · mencoba lagi |  |  | Approved by Rangga 6 Oct |
+| C-r-ev-lost | Some speech was not captured |  |  | Sebagian suara tidak tercatat |  |  | Approved by Rangga 6 Oct |
+| C-lang-group | Choose language |  |  | Pilih bahasa |  |  | Approved by Rangga 6 Oct |
+| C-lang-id | Bahasa Indonesia |  |  | Bahasa Indonesia |  |  | Approved by Rangga 6 Oct |
+| C-lang-en | English |  |  | English |  |  | Approved by Rangga 6 Oct |
+| C-lang-said | English selected. |  |  | Bahasa Indonesia dipilih. |  |  | Approved by Rangga 6 Oct |
+| C-notice-pilot | Speech becomes short work notes. | Audio is not kept. |  | Suara diubah jadi catatan kerja singkat. | Rekaman suara tidak disimpan. |  | Approved by Rangga 6 Oct |
+| C-notice-demo-1 | Speech becomes short work notes. |  |  | Suara diubah jadi catatan kerja singkat. |  |  | Approved by Rangga 6 Oct |
+| C-notice-demo-2 | Audio is never stored on our servers. |  |  | Rekaman suara tidak disimpan di server. |  |  | Approved by Rangga 6 Oct |
+| C-notice-demo-3 | If the internet drops, audio waits on this phone |  |  | Bila internet putus, rekaman menunggu di ponsel ini |  |  | Approved by Rangga 6 Oct |
+| C-notice-demo-4 | (encrypted when saved) until sent, then deleted. |  |  | (terenkripsi bila tersimpan) sampai terkirim, lalu dihapus. |  |  | Approved by Rangga 6 Oct |
+| C-notice-demo-5 | Audio that can’t be sent is deleted after 24 hours. |  |  | Rekaman yang tidak terkirim dihapus setelah 24 jam. |  |  | Approved by Rangga 6 Oct |
+| C-notice-demo-6 | Work notes are deleted after 14 days. |  |  | Catatan kerja dihapus setelah 14 hari. |  |  | Approved by Rangga 6 Oct |
 
 **EN singular forms (count = 1).** Used only where the EN string has a count. The ID column has no plural. Keys as above; ID unchanged.
 
@@ -956,6 +1029,7 @@ nothing (5.12.5). The language line itself is a separate polite region, empty un
 | C. Lost line copy "Sebagian suara tidak tercatat / Some speech was not captured" | 5.7, copy sheet | Applied. Q14 sign-off needed |
 | D. P3 queue-full value line, action line under it, both clear on next 2xx | 5.7 cause helpers, copy sheet | Applied. P3 is off on the pilot until signed off |
 | E. mic_error and stalled copy and next step; no green; announced once | 5.2 table, copy sheet | Applied. "tidak mendengarkan" in mic_error read as negated (Q-U10); 30 s threshold is a guess to confirm (T5) |
+| F. Lost-line cause text (Decided by UI/UX, 6 Oct; tech-lead feasibility answer pending): one generic helper `C-u-lost-help` for every drop; no cause-specific drop line in P1; P3 refusal keeps its known queue-full line. Tech-lead feasibility: no reply (session not reachable); read-only check of `lib/capture/browser/engine.ts` (`dropHead` shared by 4xx drop and retry exhaustion) and `lib/capture/queue.ts` (`prune`): causes are distinguishable in code, but no `lastDropCause` exists. Engine change not needed for P1 copy; see §10 T3 | 5.7 helpers, copy sheet, §10 | Applied. Rangga to ratify. Tech-lead answer to confirm |
 
 | F. Language toggle, Bahasa Indonesia / English, on the shop phone (rev 4) | 5.12, section 3 rule 1, section 6 | **Confirmed by Rangga 4 Oct** (rows G1 to G8). Supersedes C9 (below) |
 | G1. Precedence rule: UI/UX wins on presentation; the technical spec §8 and web spec §6.6 win on functional and technical behaviour; conflicts named for the tech-lead | section 0 | **Confirmed by Rangga 4 Oct** |
@@ -1079,7 +1153,7 @@ Questions for the tech-lead (technical only):
 | T1: no event log exists in P1 | Riwayat ships with session start, end, cancel and debrief times only (from the local session store). Upload events are removed from 5.9 until P2 |
 | T1: history needs a server read | 5.9 gets an offline state for "not loaded, showing this phone's events" and a retry. Riwayat stays local-only until then |
 | T2: 14-day purge conflicts with §12 | Remove the retention line `C-r-keep`; purge rule moves to the tech-lead's version |
-| T3: no gap ledger in P1 | Lost line (5.7) ships only with P2. In P1 the upload line shows row 4 "Sebagian suara tidak tercatat" with no cause helper, or no lost line at all, and P1 says so in technical spec §8.8 |
+| T3: no gap ledger in P1 | Lost line (5.7) ships only with P2 for the clear-on-2xx rule. In P1 the lost line shows with `C-u-lost-help` (decision F, 6 Oct; no gap ledger needed for the copy). Clearing without P2 is still open. P1 says so in technical spec §8.8 |
 | T4: start failure not detectable | Row 0 is removed. The start failure is shown in dev mode only |
 | T5: stalled not automatic | `stalled` shows "Rekaman terhenti" with "Coba lagi" as the first action, not a 30 s wait |
 | T6: next-offer needs a server call offline | The note shows "Mulai bisa ditekan lagi, cek saat online" when the day is unknown. Rule 5.4 says the honest day is shown only when computed |
@@ -1150,7 +1224,7 @@ That plan was removed on 6 Oct; its rules now live in `docs/specs/technical-spec
 | Q-U8 | Mulai note in the debrief card after a same-day Selesai: the reason is `day_ended`, so the card shows the next day. Is "Mulai bisa ditekan lagi Kam 15 Okt pukul 01:00" the right honest line, or should the card point to the debrief end time? | Next-day line (honest) |
 | Q-U9 | `stalled` tone: danger (E) or warn? It recovers on its own within 30 s, so warn may read more truthfully. E says danger. | Danger, per E |
 | Q-U10 | "tidak mendengarkan" in mic_error and interrupted (negated form, not positive Mendengarkan). Is the negated form allowed by E? | Allowed |
-| Q-U11 | Lost-line cause helpers (`C-u-lost-drop`, and the queue helper) are new copy. Approve, and Q14 sign-off for all upload copy. | Proposed |
+| Q-U11 | Lost-line helpers are new copy. Approve, and Q14 sign-off for all upload copy. | Replaced 6 Oct by decision F: new `C-u-lost-help` (generic); `C-u-lost-drop` deferred. Needs Rangga ratification |
 | Q-U12 | C10 success toast ("Unggah berhasil lagi"): keep the 3 s toast on recovery, or line-state only as technical spec §8.8 says? | Toast kept as the 4 Oct default, open |
 | Q-U13 | Unsent debrief draft in `localStorage` per viewer: allowed as convenience or not at all in MVP 1? | Not used; text lost on reload (stated) |
 | Q-U14 | Unsupported browser helper: "Buka halaman ini di browser lain" is generic. Which browsers are supported (not in the session rules)? | Generic |
@@ -1168,7 +1242,7 @@ That plan was removed on 6 Oct; its rules now live in `docs/specs/technical-spec
 ## 13. Not done in this session (and why)
 
 - **Claude Design / Artifact canvas:** not opened, not refreshed. No Artifact tool in this session. The
-  canvas (`https://claude.ai/artifact/JcpEnDgLLb6wWhRHCbCrSx`) is stale, and its local export
+  canvas (`<PRIVATE_DESIGN_LINK>`) is stale, and its local export
   `.claude/canvas-ux03/project/` still has the amber queue-full headline in `capture-problems.dc.html`, the
   "Gagal unggah, dilewati" row in `upload-line.dc.html`, and the 4 Oct-superseded copy. Refresh from a session
   with the Artifact tool, using section 5 and section 6 as the source.
