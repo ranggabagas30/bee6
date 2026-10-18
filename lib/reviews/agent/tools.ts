@@ -45,9 +45,9 @@ const CHECK_REVIEW_DESCRIPTION =
   REVIEW_AGENT_MAX_ROUNDS +
   " submissions count.";
 
-function movedOf(ratio: number | null): "up" | "down" | "flat" | null {
+function movedOf(ratio: number | null): "more" | "fewer" | "same" | null {
   if (ratio === null) return null;
-  return ratio > 0 ? "up" : ratio < 0 ? "down" : "flat";
+  return ratio > 0 ? "more" : ratio < 0 ? "fewer" : "same";
 }
 
 export function buildReviewTools(

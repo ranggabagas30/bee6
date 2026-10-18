@@ -71,13 +71,13 @@ describe("buildReviewTools", () => {
 
   it("get_counts states which way the metric should move and which way the per-day count moved (facts, not the verdict)", () => {
     const worked = setup().call("get_counts") as Record<string, unknown>;
-    expect(worked).toMatchObject({ metric_should: "decrease", per_day_moved: "down" });
+    expect(worked).toMatchObject({ metric_should: "decrease", per_day_moved: "fewer" });
     const worse = setup({ before: { days: 3, count: 2 }, after: { days: 2, count: 2 } }).call("get_counts") as Record<string, unknown>;
-    expect(worse).toMatchObject({ metric_should: "decrease", per_day_moved: "up", change_pct: 50 });
+    expect(worse).toMatchObject({ metric_should: "decrease", per_day_moved: "more", change_pct: 50 });
     const inc = setup({ direction: "increase", before: { days: 3, count: 1 }, after: { days: 2, count: 2 } }).call("get_counts") as Record<string, unknown>;
-    expect(inc).toMatchObject({ metric_should: "increase", per_day_moved: "up" });
+    expect(inc).toMatchObject({ metric_should: "increase", per_day_moved: "more" });
     const flat = setup({ before: { days: 3, count: 3 }, after: { days: 2, count: 2 } }).call("get_counts") as Record<string, unknown>;
-    expect(flat).toMatchObject({ per_day_moved: "flat" });
+    expect(flat).toMatchObject({ per_day_moved: "same" });
     const none = setup({ before: { days: 3, count: 0 }, after: { days: 0, count: 0 } }).call("get_counts") as Record<string, unknown>;
     expect(none.per_day_moved).toBeNull();
     for (const o of [worked, worse, inc, flat, none]) expect(JSON.stringify(o)).not.toMatch(/"(worked|revise|revert)"/);

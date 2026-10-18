@@ -26,6 +26,20 @@ describe("checkReview", () => {
     expect(checkReview(goodDraft(), ctx())).toEqual({ passed: true, reasons: [] });
   });
 
+  it("the four fixed closing sentences of the prompt trip no rule", () => {
+    const body =
+      "The change added baking times to the tray labels. Before it, 2 moments of this kind were noted over 3 captured days, 0.67 per day, and after it 0 over 2 captured days, 0 per day, 100 percent fewer. ";
+    for (const [closing, verdict] of [
+      ["By the rule, this points to Worked.", "worked"],
+      ["By the rule, this points to Revise.", "worked"],
+      ["By the rule, this points to Revert.", "worked"],
+      ["The rule gives no suggestion.", "worked"],
+    ] as const) {
+      const reasons = reasonsOf({ ...goodDraft(), suggested_verdict: verdict, quoted_numbers: [2, 3, 0.67, 0, 2, 0, 100], narrative_en: body + closing });
+      expect(reasons).toEqual([]);
+    }
+  });
+
   it("schema_invalid short-circuits and nothing else is reported", () => {
     expect(reasonsOf({ nope: 1 })).toEqual(["schema_invalid"]);
     expect(reasonsOf(null)).toEqual(["schema_invalid"]);

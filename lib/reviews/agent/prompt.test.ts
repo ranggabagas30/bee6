@@ -19,6 +19,8 @@ describe("REVIEW_SYSTEM_INSTRUCTION", () => {
       "Write a percent change without a minus sign",
       "with no minus sign (25, not -25)",
       "call decline",
+      "By the rule, this points to Worked.",
+      "never next to the raw counts",
     ]) {
       expect(REVIEW_SYSTEM_INSTRUCTION).toContain(phrase);
     }
