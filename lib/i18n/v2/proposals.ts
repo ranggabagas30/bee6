@@ -34,7 +34,7 @@ export const proposalsID = {
   // ── Generating state and ask results ────────────────────────────────────────────────────────────────────
   "C-propg-title": "Bee6 sedang menulis usulan", // PROVISIONAL
   "C-propg-body": "Ini bisa memakan waktu sampai satu menit. Mohon biarkan halaman ini terbuka.", // PROVISIONAL
-  "C-propg-est": "Biasanya {min}–{max} detik: Bee6 membaca SOP dan buktinya dulu sebelum menulis. Biarkan halaman ini terbuka.", // PROVISIONAL (R-24: shown only while the v4 flag is on)
+  "C-propg-est": "Bee6 menulis dan memeriksa setiap usulan. Biasanya {min}–{max} detik, kadang sampai satu menit. Biarkan halaman ini terbuka.", // PROVISIONAL (R-24: shown only while the v4 flag is on)
   "C-propg-over": "Lebih lama dari biasanya. Bee6 masih bekerja. Biarkan halaman ini terbuka.", // PROVISIONAL (R-24: after the range has passed)
   "C-propg-wrote": "Bee6 menulis sebuah usulan. Buka untuk membaca buktinya.", // PROVISIONAL
   "C-propg-none-other": "Belum ada masalah lain yang siap.", // PROVISIONAL
@@ -153,7 +153,7 @@ export const proposalsEN: Record<keyof typeof proposalsID, string> = {
   "C-propw-days": "Days seen",
   "C-propg-title": "Bee6 is writing a proposal",
   "C-propg-body": "This can take up to a minute. Please keep this page open.",
-  "C-propg-est": "Usually {min}–{max} seconds: Bee6 reads the SOP and the evidence before it writes. Keep this page open.",
+  "C-propg-est": "Bee6 is writing and checking each proposal. Usually {min}–{max} seconds, sometimes up to a minute. Keep this page open.",
   "C-propg-over": "Taking longer than usual. Bee6 is still working. Keep this page open.",
   "C-propg-wrote": "Bee6 wrote a proposal. Open it to read the evidence.",
   "C-propg-none-other": "No other problem is ready yet.",

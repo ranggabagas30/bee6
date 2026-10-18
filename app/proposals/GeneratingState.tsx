@@ -15,9 +15,10 @@ import styles from "@/app/proposals/supervisor.module.css";
  * not pulled up while Bee6 works and pushed back down when the rows return (a layout shift on a 360 px phone).
  *
  * `estimate` (R-24 D11, plan 3.11): present only while the v4 agent flag is on and this tab's own Ask is running.
- * The body then names the range ("Usually 10–30 seconds…"), and switches ONCE to "Taking longer than usual…" after
- * `max_s`, where it stays until the server answers. The block mounts when the Ask starts, so its mount time is the
- * Ask's start. No ticking counter (it would re-announce every second in the live region) and no progress bar (there
+ * The body then says Bee6 writes AND checks each proposal and names the range ("Usually 10–30 seconds, sometimes up to
+ * a minute"), and switches ONCE to "Taking longer than usual…" after `max_s`, where it stays until the server answers.
+ * The timer starts when the body line mounts, which is the start of each round: a chained Ask keeps this block mounted
+ * across its rounds, so the line is keyed by the round and every round gets its own `max_s`. No ticking counter (it would re-announce every second in the live region) and no progress bar (there
  * is no progress signal to show). Absent or `null`: exactly the screen before R-24.
  *
  * `round` (demo feedback 2 item 18): present while the demo sandbox's chained Ask runs; when it has two or more rounds one
@@ -34,16 +35,6 @@ export function GeneratingState({
   estimate?: AskEstimate | null;
   round?: { n: number; total: number } | null;
 }) {
-  const maxS = estimate ? estimate.max_s : null;
-  // The `max_s` whose time has elapsed; "over" is derived, so a changed or removed estimate never shows a stale line.
-  const [elapsedFor, setElapsedFor] = useState<number | null>(null);
-  useEffect(() => {
-    if (maxS === null) return;
-    const timer = setTimeout(() => setElapsedFor(maxS), maxS * 1000);
-    return () => clearTimeout(timer);
-  }, [maxS]);
-  const over = maxS !== null && elapsedFor === maxS;
-
   return (
     <Glass
       as="div"
@@ -55,14 +46,33 @@ export function GeneratingState({
       {/* The page-2 amber orb with its spinner (board D2-03d), scaled to 0.8 in a 200px box. Decorative: the Stage is aria-hidden. */}
       <Stage tone="amber" className={styles.generatingStage} />
       <p className={styles.generatingTitle}>{t(lang, "C-propg-title")}</p>
-      <p className={styles.generatingBody}>
-        {estimate
-          ? over
-            ? t(lang, "C-propg-over")
-            : t(lang, "C-propg-est", { min: estimate.min_s, max: estimate.max_s })
-          : t(lang, "C-propg-body")}
-      </p>
+      {/* Keyed by the round: each round of a chained Ask restarts the estimate (and drops a stale overrun line). Only this
+          line remounts, so the one live region, the orb and the reserved height stay put. */}
+      <WaitLine key={round?.n ?? 0} lang={lang} estimate={estimate ?? null} />
       {round && round.total >= 2 && <p className={styles.generatingBody}>{t(lang, "C-propg-round", { n: round.n, total: round.total })}</p>}
     </Glass>
+  );
+}
+
+/** The body line. Its `max_s` timer starts on mount, so the parent re-keys it per round. */
+function WaitLine({ lang, estimate }: { lang: Lang; estimate: AskEstimate | null }) {
+  const maxS = estimate ? estimate.max_s : null;
+  // The `max_s` whose time has elapsed; "over" is derived, so a changed or removed estimate never shows a stale line.
+  const [elapsedFor, setElapsedFor] = useState<number | null>(null);
+  useEffect(() => {
+    if (maxS === null) return;
+    const timer = setTimeout(() => setElapsedFor(maxS), maxS * 1000);
+    return () => clearTimeout(timer);
+  }, [maxS]);
+  const over = maxS !== null && elapsedFor === maxS;
+
+  return (
+    <p className={styles.generatingBody}>
+      {estimate
+        ? over
+          ? t(lang, "C-propg-over")
+          : t(lang, "C-propg-est", { min: estimate.min_s, max: estimate.max_s })
+        : t(lang, "C-propg-body")}
+    </p>
   );
 }
