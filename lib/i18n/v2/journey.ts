@@ -64,6 +64,7 @@ export const journeyID = {
   "C-journey-jump-locked": "Terkunci sampai semua {total} kartu diucapkan ({k} dari {total} selesai).", // PROVISIONAL
   "C-journey-jump-tomorrow": "Lompat ke besok", // PROVISIONAL
   "C-journey-jump-tomorrow-busy": "Melompat…", // PROVISIONAL
+  "C-journey-jump-tomorrow-finishing": "Menyelesaikan unggahan…", // PROVISIONAL
   "C-journey-jumped": "Sekarang hari {n} dari {total}. Ketuk Mulai.", // PROVISIONAL
   "C-journey-fill-code": "Isi {code}", // PROVISIONAL
   "C-journey-filled": "Sudah terisi. Ketuk Pasang.", // PROVISIONAL
@@ -146,6 +147,7 @@ export const journeyEN: Record<keyof typeof journeyID, string> = {
   "C-journey-jump-locked": "Locked until all {total} cards are spoken ({k} of {total} done).",
   "C-journey-jump-tomorrow": "Jump to tomorrow",
   "C-journey-jump-tomorrow-busy": "Jumping…",
+  "C-journey-jump-tomorrow-finishing": "Finishing uploads…",
   "C-journey-jumped": "It is now day {n} of {total}. Tap Start.",
   "C-journey-fill-code": "Fill in {code}",
   "C-journey-filled": "Filled in. Tap Set up.",

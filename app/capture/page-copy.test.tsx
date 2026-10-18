@@ -39,6 +39,7 @@ vi.mock("@/lib/capture/browser/session", () => ({
     cb.onMicSource("built-in");
     return { stop: vi.fn(async () => {}) };
   },
+  abortAllCaptureUploads: vi.fn(),
 }));
 
 afterEach(() => {
