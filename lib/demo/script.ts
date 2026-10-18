@@ -22,10 +22,10 @@ import { z } from "zod";
  */
 
 /**
- * Longest spoken line of a card. 240 until the after days: the day-4 read-back order (d4-c3, 363 characters) is ONE line
- * on purpose (no pause inside it, review-agent plan 3.4), so the cap is 400.
+ * Longest spoken line of a card. Keep it short: the segment batcher hard-cuts at 15 s (`maxSegmentMs` in
+ * `lib/capture/batcher.ts`), so a longer line would be split mid-sentence when a real person reads it.
  */
-export const SCRIPT_LINE_MAX = 400;
+export const SCRIPT_LINE_MAX = 240;
 
 const Bilingual = (max: number) => z.object({ en: z.string().min(1).max(max), id: z.string().min(1).max(max) }).strict();
 
@@ -209,9 +209,8 @@ const DAY_4: readonly ScriptCardV2[] = DaySchema.parse([
     id: "d4-c3",
     title: same("A phone order, read back"),
     lines: [
-      staff(
-        "Hello, Demo Bakery, thanks for calling. Thirty croissants for Friday morning, pickup at nine. Let me read that back to you: thirty croissants, Friday, pickup at nine o'clock. Yes? Great, thank you, bye. That was a phone order for Friday, and this time I read the whole order back to the caller before hanging up, so the quantity and the pickup time are confirmed.",
-      ),
+      staff("Hello, Demo Bakery, thanks for calling. Thirty croissants for Friday, pickup at nine. Let me read that back: thirty croissants, Friday, nine o'clock. Yes? Great, bye."),
+      staff("That was a phone order for Friday. This time I read the whole order back to the caller before hanging up, so the quantity and the pickup time are confirmed."),
     ],
     problem: "B_after",
   },

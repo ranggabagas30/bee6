@@ -156,7 +156,7 @@ describe("bakery-v2 script (R-19)", () => {
       ]);
     });
 
-    it("are staff voice only (no customer, no caller), carry no digit, no person and no id, and the read-back card is ONE line with no pause inside it", () => {
+    it("are staff voice only (no customer, no caller), carry no digit, no person and no id, and the read-back card is two staff lines in the d2-c3 shape", () => {
       for (const day of AFTER) {
         for (const c of SCRIPT_V2[day]) {
           expect(c.lines.every((l) => l.speaker === "staff"), c.id).toBe(true);
@@ -166,10 +166,19 @@ describe("bakery-v2 script (R-19)", () => {
           }
         }
       }
-      expect(scriptCard("d4-c3").lines).toHaveLength(1);
+      expect(scriptCard("d4-c3").lines).toHaveLength(2);
       expect(scriptCard("d4-c3").lines[0]!.text.en).toMatch(/^Hello, Demo Bakery, thanks for calling\./);
+      expect(scriptCard("d4-c3").lines[1]!.text.en).toContain("read the whole order back");
       const all = JSON.stringify([SCRIPT_V2[4], SCRIPT_V2[5]]).toLowerCase();
       for (const s of DEMO_SEED.staff) expect(all, s.name).not.toMatch(new RegExp(`\\b${s.name.split(/\s+/)[0]!.toLowerCase()}\\b`));
+    });
+
+    it("every day-4/5 line is at most 200 characters (about 13 s at reading pace, under the 15 s segment batcher cut)", () => {
+      for (const day of AFTER) {
+        for (const c of SCRIPT_V2[day]) {
+          for (const l of c.lines) expect(l.text.en.length, `${c.id}: "${l.text.en}"`).toBeLessThanOrEqual(200);
+        }
+      }
     });
 
     it("day 5 has no phone moment at all (the B metric's after window is the day-4 read-back only)", () => {
