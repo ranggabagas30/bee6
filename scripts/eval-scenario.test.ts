@@ -16,7 +16,7 @@ import {
   type RunOutcome,
 } from "@/scripts/eval-scenario";
 
-const day = (n: 1 | 2 | 3) => SCENARIO_V2.find((d) => d.day === n)!;
+const day = (n: 1 | 2 | 3 | 4 | 5) => SCENARIO_V2.find((d) => d.day === n)!;
 
 /** Wire output for one planned unit: one thread per card, category chosen by `categoryOf(card)`. */
 function wireFor(
@@ -45,11 +45,11 @@ function wireFor(
 }
 
 const perfect = (card: ScenarioCard) =>
-  card.kind === "problem_a" ? "CUSTOMER_SERVICE" : card.kind === "problem_b" ? "PHONE_CALL" : "ROUTINE_OPS";
+  card.kind === "problem_a" ? "CUSTOMER_SERVICE" : card.kind === "problem_b" || card.kind === "after_b" ? "PHONE_CALL" : "ROUTINE_OPS";
 
 describe("scenario fixture", () => {
-  it("has 3 days x 5 variants, 5 cards each, and the expected problem cards", () => {
-    expect(SCENARIO_V2.map((d) => d.day)).toEqual([1, 2, 3]);
+  it("has 5 days x 5 variants, 5 cards each, and the expected problem cards", () => {
+    expect(SCENARIO_V2.map((d) => d.day)).toEqual([1, 2, 3, 4, 5]);
     for (const d of SCENARIO_V2) {
       for (const v of VARIANT_IDS) {
         expect(d.variants[v]).toHaveLength(5);
@@ -57,10 +57,22 @@ describe("scenario fixture", () => {
         expect([...d.variants[v].map((c) => c.id)].sort()).toEqual([...d.variants.exact.map((c) => c.id)].sort());
       }
     }
-    const kinds = (n: 1 | 2 | 3) => day(n).variants.exact.filter((c) => c.kind !== "routine").map((c) => c.kind);
+    const kinds = (n: 1 | 2 | 3 | 4 | 5) => day(n).variants.exact.filter((c) => c.kind !== "routine").map((c) => c.kind);
     expect(kinds(1)).toEqual(["problem_a"]);
     expect(kinds(2)).toEqual(["problem_a", "problem_b"]);
     expect(kinds(3)).toEqual(["problem_b"]);
+    // the after days (review-agent plan 3.4): A_after cards, ONE read-back phone order on day 4, none on day 5
+    expect(kinds(4)).toEqual(["after_a", "after_b", "after_a"]);
+    expect(kinds(5)).toEqual(["after_a", "after_a"]);
+  });
+
+  it("the day-4 read-back card is two staff lines in every variant but v4 (three), and no day-5 line mentions a phone", () => {
+    const lines = (v: (typeof VARIANT_IDS)[number]) => day(4).variants[v].find((c) => c.kind === "after_b")!.lines;
+    for (const v of ["exact", "v1", "v2"] as const) expect(lines(v), v).toHaveLength(2);
+    expect(lines("v4")).toHaveLength(3);
+    expect(lines("exact")[1]).toContain("read the whole order back");
+    for (const v of VARIANT_IDS)
+      expect(day(5).variants[v].flatMap((c) => c.lines).join(" ").toLowerCase(), v).not.toMatch(/phone|call|caller|order/);
   });
 
   it("the exact variant carries the script's problem lines verbatim", () => {
@@ -269,6 +281,10 @@ describe("summarizeRuns and judgeCell", () => {
   const ok = (over: Partial<RunOutcome> = {}): RunOutcome => ({
     a: { correct: true, as_fact: true, category: "CUSTOMER_SERVICE", one_thread: true },
     b: { correct: true, as_fact: false, category: "PHONE_CALL", one_thread: true },
+    after_b: null,
+    cs_facts: 0,
+    phone_threads: 0,
+    after_a_landed: {},
     contaminated: false,
     questions: 2,
     failed_calls: 0,
@@ -306,7 +322,7 @@ describe("summarizeRuns and judgeCell", () => {
     expect(judgeCell({ variant: "exact", day: 1, summary: s }).pass).toBe(true);
   });
 
-  const judge = (variant: "exact" | "v1", day_: 1 | 2 | 3, s: CellSummary) => judgeCell({ variant, day: day_, summary: s });
+  const judge = (variant: "exact" | "v1", day_: 1 | 2 | 3 | 4 | 5, s: CellSummary) => judgeCell({ variant, day: day_, summary: s });
 
   it("exact: needs A and B 5/5, contamination 0, questions<=5 in 5/5", () => {
     expect(judge("exact", 2, summarizeRuns(five())).pass).toBe(true);
@@ -402,7 +418,8 @@ describe("runScenario (fake label model)", () => {
   /** A model that always gets it right, keyed on the fixture's own line text. */
   const perfectModel: LabelCall = async ({ unit }) => {
     const kinds = unit.lines.map((l) => lineKind.get(l.text)!);
-    const cat = (k: ScenarioCard["kind"]) => (k === "problem_a" ? "CUSTOMER_SERVICE" : k === "problem_b" ? "PHONE_CALL" : "ROUTINE_OPS");
+    const cat = (k: ScenarioCard["kind"]) =>
+      k === "problem_a" ? "CUSTOMER_SERVICE" : k === "problem_b" || k === "after_b" ? "PHONE_CALL" : "ROUTINE_OPS";
     // one thread per contiguous run of the same kind
     const wire: LabelWireOutput = { lines: [], threads: [], non_work_lines: [] };
     let current = "";
@@ -422,8 +439,8 @@ describe("runScenario (fake label model)", () => {
   it("passes with a perfect model and prints a table of counts only", async () => {
     const report = await runScenario({ runs: 2, config, concurrency: 4 }, { label: perfectModel, sleep: async () => {} });
     expect(report.pass).toBe(true);
-    // 3 days x 5 variants x 2 unitings
-    expect(report.cells).toHaveLength(30);
+    // 5 days x 5 variants x 2 unitings
+    expect(report.cells).toHaveLength(50);
     const text = formatReport(report);
     expect(text).toContain("PASS");
     expect(text).not.toMatch(/egg tart|croissant|Bakery/i);
@@ -500,7 +517,7 @@ describe("runScenario (fake label model)", () => {
     const base = { runs: 1, config, concurrency: 1, days: [1] as const, variants: ["exact"] as const, unitings: ["U1"] as const };
     expect(exitCodeFor(await runScenario(base, { label: perfectModel, sleep: async () => {} }))).toBe(0);
     const statuses = (xs: Array<"PASS" | "FAIL" | "INCONCLUSIVE">) =>
-      exitCodeFor({ runs: 1, pass: false, call_errors: {}, cells: xs.map((status) => ({ status }) as never) });
+      exitCodeFor({ runs: 1, pass: false, after_b: null, call_errors: {}, cells: xs.map((status) => ({ status }) as never) });
     expect(statuses(["PASS", "INCONCLUSIVE"])).toBe(3);
     expect(statuses(["INCONCLUSIVE", "FAIL"])).toBe(2);
   });
@@ -524,7 +541,10 @@ describe("runScenario (fake label model)", () => {
 
 describe("parseArgs", () => {
   it("defaults to the full matrix with 5 runs", () => {
-    expect(parseArgs([])).toMatchObject({ runs: 5, days: [1, 2, 3], variants: [...VARIANT_IDS], unitings: ["U1", "U2"] });
+    expect(parseArgs([])).toMatchObject({ runs: 5, days: [1, 2, 3, 4, 5], variants: [...VARIANT_IDS], unitings: ["U1", "U2"] });
+  });
+  it("accepts the after days 4 and 5", () => {
+    expect(parseArgs(["--days", "4,5"])).toMatchObject({ days: [4, 5] });
   });
   it("parses filters", () => {
     expect(parseArgs(["--runs", "3", "--days", "2,3", "--variants", "exact,v3", "--uniting", "U2", "--concurrency", "2"])).toMatchObject({
@@ -536,9 +556,243 @@ describe("parseArgs", () => {
     });
   });
   it("rejects unknown values", () => {
-    expect(() => parseArgs(["--days", "4"])).toThrow();
+    expect(() => parseArgs(["--days", "6"])).toThrow();
     expect(() => parseArgs(["--variants", "v9"])).toThrow();
     expect(() => parseArgs(["--runs", "0"])).toThrow();
     expect(() => parseArgs(["--bogus"])).toThrow();
+  });
+});
+
+describe("classifyRun on the after days (review-agent plan 3.5)", () => {
+  const cards4 = day(4).variants.exact;
+  const byId4 = new Map(cards4.map((c) => [c.id, c]));
+  const cards5 = day(5).variants.exact;
+  const byId5 = new Map(cards5.map((c) => [c.id, c]));
+
+  it("a perfect day 4: the read-back card is one PHONE_CALL thread (a question), the only phone thread, no CUSTOMER_SERVICE fact", () => {
+    for (const uniting of ["U1", "U2"] as const) {
+      const out = classifyRun(
+        cards4,
+        buildUnits(cards4, uniting, "t").map((plan) => ({ plan, wire: wireFor(plan, byId4, perfect) })),
+      );
+      expect(out.after_b).toEqual({ correct: true, as_fact: false, category: "PHONE_CALL", one_thread: true });
+      expect(out.phone_threads).toBe(1);
+      expect(out.cs_facts).toBe(0);
+      expect(out.contaminated).toBe(false);
+      expect(out.a).toBeNull();
+      expect(out.b).toBeNull();
+      // the after-A cards (d4-c2, d4-c4) landed as ROUTINE_OPS facts
+      expect(out.after_a_landed).toEqual({ "ROUTINE_OPS/fact": 2 });
+      expect(out.questions).toBe(1);
+    }
+  });
+
+  it("an after-A card labelled CUSTOMER_SERVICE with a fact-level confidence is a CUSTOMER_SERVICE fact; below the gate it is a question and not counted", () => {
+    const [plan] = buildUnits(cards4, "U1", "t");
+    const csA = (c: ScenarioCard) => (c.kind === "after_a" ? "CUSTOMER_SERVICE" : perfect(c));
+    const fact = classifyRun(cards4, [{ plan: plan!, wire: wireFor(plan!, byId4, csA) }]);
+    expect(fact.cs_facts).toBe(2);
+    expect(fact.after_a_landed).toEqual({ "CUSTOMER_SERVICE/fact": 2 });
+    const question = classifyRun(cards4, [{ plan: plan!, wire: wireFor(plan!, byId4, csA, 0.6) }]);
+    expect(question.cs_facts).toBe(0);
+    expect(question.after_a_landed).toEqual({ "CUSTOMER_SERVICE/question": 2 });
+  });
+
+  it("the read-back card split into two PHONE_CALL threads is two phone threads and not one thread (the Revert risk)", () => {
+    const [plan] = buildUnits(cards4, "U1", "t");
+    const bCard = cards4.find((c) => c.kind === "after_b")!;
+    expect(bCard.lines).toHaveLength(2);
+    const wire = wireFor(plan!, byId4, perfect);
+    const bLines = plan!.unit.lines.flatMap((l, i) => (plan!.cardOfLine.get(l.line_id) === bCard.id ? [i] : []));
+    const bThread = wire.threads.find((t) => t.id === wire.lines[bLines[0]!]!.thread)!;
+    bThread.evidence = [bLines[0]!];
+    wire.lines[bLines[1]!]!.thread = "T9";
+    wire.threads.push({ id: "T9", category: "PHONE_CALL", confidence: 0.95, evidence: [bLines[1]!], summary: "fixture summary" });
+    const out = classifyRun(cards4, [{ plan: plan!, wire }]);
+    expect(out.phone_threads).toBe(2);
+    expect(out.after_b).toMatchObject({ correct: true, one_thread: false });
+  });
+
+  it("the read-back card labelled CORRECTION is not correct and opens no phone thread", () => {
+    const [plan] = buildUnits(cards4, "U1", "t");
+    const wire = wireFor(plan!, byId4, (c) => (c.kind === "after_b" ? "CORRECTION" : perfect(c)));
+    const out = classifyRun(cards4, [{ plan: plan!, wire }]);
+    expect(out.after_b).toMatchObject({ correct: false, category: "CORRECTION" });
+    expect(out.phone_threads).toBe(0);
+  });
+
+  it("a failed label call leaves the read-back card unclassified", () => {
+    const out = classifyRun(
+      cards4,
+      buildUnits(cards4, "U2", "t").map((plan) => ({ plan, wire: plan.unit.lines[0]!.line_id.includes("c3") ? null : wireFor(plan, byId4, perfect) })),
+    );
+    expect(out.after_b).toEqual({ correct: false, as_fact: false, category: null, one_thread: false });
+    expect(out.phone_threads).toBe(0);
+  });
+
+  it("day 5 has no read-back card (after_b null); a phone thread anywhere on day 5 is counted", () => {
+    const [plan] = buildUnits(cards5, "U1", "t");
+    const clean = classifyRun(cards5, [{ plan: plan!, wire: wireFor(plan!, byId5, perfect) }]);
+    expect(clean.after_b).toBeNull();
+    expect(clean.phone_threads).toBe(0);
+    const drift = classifyRun(cards5, [{ plan: plan!, wire: wireFor(plan!, byId5, (c) => (c.id === "d5-c4" ? "PHONE_CALL" : perfect(c))) }]);
+    expect(drift.phone_threads).toBe(1);
+    expect(drift.contaminated).toBe(true);
+  });
+
+  it("on days 1-3 the new counts still read the threads (the A fact is one CUSTOMER_SERVICE fact) and after_b is null", () => {
+    const cards2 = day(2).variants.exact;
+    const [plan] = buildUnits(cards2, "U1", "t");
+    const out = classifyRun(cards2, [{ plan: plan!, wire: wireFor(plan!, new Map(cards2.map((c) => [c.id, c])), perfect) }]);
+    expect(out.after_b).toBeNull();
+    expect(out.cs_facts).toBe(1);
+    expect(out.phone_threads).toBe(1);
+    expect(out.after_a_landed).toEqual({});
+  });
+});
+
+describe("judging the after days (review-agent plan 3.5)", () => {
+  const readBack = { correct: true, as_fact: false, category: "PHONE_CALL", one_thread: true };
+  const day4 = (over: Partial<RunOutcome> = {}): RunOutcome => ({
+    a: null,
+    b: null,
+    after_b: readBack,
+    cs_facts: 0,
+    phone_threads: 1,
+    after_a_landed: { "ROUTINE_OPS/fact": 2 },
+    contaminated: false,
+    questions: 1,
+    failed_calls: 0,
+    retryable_failures: 0,
+    ...over,
+  });
+  const day5 = (over: Partial<RunOutcome> = {}): RunOutcome => day4({ after_b: null, phone_threads: 0, ...over });
+  const runs = (n: number, make: () => RunOutcome, ...bad: RunOutcome[]) => [...bad, ...Array.from({ length: n - bad.length }, make)];
+
+  it("summarizes read-back runs, CUSTOMER_SERVICE-fact runs, phone-thread runs and the after-A histogram", () => {
+    const s = summarizeRuns(
+      runs(5, day4, day4({ phone_threads: 2, after_b: { ...readBack, one_thread: false } }), day4({ cs_facts: 1, after_a_landed: { "CUSTOMER_SERVICE/fact": 1, "ROUTINE_OPS/fact": 1 } })),
+    );
+    expect(s).toMatchObject({
+      after_b_applicable: true,
+      after_b_ok: 4,
+      cs_fact_runs: 1,
+      phone_runs: 5,
+      after_a_landed: { "ROUTINE_OPS/fact": 9, "CUSTOMER_SERVICE/fact": 1 },
+    });
+    expect(summarizeRuns(runs(5, day5))).toMatchObject({ after_b_applicable: false, after_b_ok: 0, phone_runs: 0 });
+  });
+
+  it("a read-back run counts only when it is one correct PHONE_CALL thread AND the day's only phone thread", () => {
+    expect(summarizeRuns([day4({ after_b: { ...readBack, category: "CORRECTION", correct: false } })]).after_b_ok).toBe(0);
+    expect(summarizeRuns([day4({ phone_threads: 2 })]).after_b_ok).toBe(0);
+    expect(summarizeRuns([day4()]).after_b_ok).toBe(1);
+  });
+
+  it("days 4-5: a CUSTOMER_SERVICE fact in ANY run fails the cell, exact or variant; days 1-3 ignore it", () => {
+    const s = summarizeRuns(runs(5, day4, day4({ cs_facts: 1 })));
+    for (const variant of ["exact", "v1"] as const) {
+      expect(judgeCell({ variant, day: 4, summary: s })).toMatchObject({ status: "FAIL", failures: ["CUSTOMER_SERVICE fact in 1/5 runs (max 0)"] });
+      expect(judgeCell({ variant, day: 5, summary: s }).failures).toContain("CUSTOMER_SERVICE fact in 1/5 runs (max 0)");
+    }
+    expect(judgeCell({ variant: "exact", day: 2, summary: summarizeRuns(runs(5, () => day4({ a: { correct: true, as_fact: true, category: "CUSTOMER_SERVICE", one_thread: true }, b: readBack, after_b: null, cs_facts: 1 }))) }).pass).toBe(true);
+  });
+
+  it("day 5: a phone thread in ANY run fails the cell (the after window has exactly one call)", () => {
+    const s = summarizeRuns(runs(5, day5, day5({ phone_threads: 1 })));
+    expect(judgeCell({ variant: "v2", day: 5, summary: s })).toMatchObject({ status: "FAIL", failures: ["PHONE_CALL thread in 1/5 runs (max 0)"] });
+    expect(judgeCell({ variant: "exact", day: 5, summary: summarizeRuns(runs(5, day5)) }).pass).toBe(true);
+  });
+
+  it("day 4: a split read-back card does not fail the cell by itself (the 95 % bar is judged over the day, see runScenario)", () => {
+    const s = summarizeRuns(runs(5, day4, day4({ phone_threads: 2, after_b: { ...readBack, one_thread: false } })));
+    expect(judgeCell({ variant: "exact", day: 4, summary: s })).toMatchObject({ status: "PASS", failures: [] });
+  });
+
+  it("day 4: routine contamination and the question cap keep their existing rules", () => {
+    expect(judgeCell({ variant: "exact", day: 4, summary: summarizeRuns(runs(5, day4, day4({ contaminated: true }))) }).failures).toEqual([
+      "contamination 1/5 (max 0)",
+    ]);
+    expect(judgeCell({ variant: "exact", day: 4, summary: summarizeRuns(runs(5, day4, day4({ questions: 6 }))) }).pass).toBe(false);
+  });
+});
+
+describe("runScenario on the after days (fake label model)", () => {
+  const config = loadCategoriesConfig();
+  const lineKind = new Map<string, ScenarioCard["kind"]>();
+  for (const d of SCENARIO_V2) for (const v of VARIANT_IDS) for (const c of d.variants[v]) for (const l of c.lines) lineKind.set(l, c.kind);
+
+  /** One thread per card, category by kind; `afterA` overrides the after-A category, `splitUnits` (unit ids, or "all") splits the read-back card's second line into its own PHONE_CALL thread. */
+  const model = (opts: { afterA?: "CUSTOMER_SERVICE"; splitUnits?: readonly string[] | "all" } = {}): LabelCall => {
+    return async ({ unit }) => {
+      const wire: LabelWireOutput = { lines: [], threads: [], non_work_lines: [] };
+      const cardOfIdx = unit.lines.map((l) => l.seg_id);
+      const doSplit = opts.splitUnits === "all" || (opts.splitUnits?.includes(unit.unit_id) ?? false);
+      let n = 0;
+      unit.lines.forEach((l, i) => {
+        const kind = lineKind.get(l.text)!;
+        const newCard = i === 0 || cardOfIdx[i - 1] !== cardOfIdx[i];
+        const secondBLine = kind === "after_b" && !newCard && doSplit;
+        if (newCard || secondBLine) {
+          n += 1;
+          const category =
+            kind === "after_a" ? (opts.afterA ?? "ROUTINE_OPS") : kind === "after_b" ? "PHONE_CALL" : kind === "problem_a" ? "CUSTOMER_SERVICE" : kind === "problem_b" ? "PHONE_CALL" : "ROUTINE_OPS";
+          wire.threads.push({ id: `T${n}`, category, confidence: 0.95, evidence: [], summary: "s" });
+        }
+        wire.threads.at(-1)!.evidence.push(i);
+        wire.lines.push({ i, reply_to: null, thread: `T${n}` });
+      });
+      return { kind: "ok", wire };
+    };
+  };
+  const after = { runs: 2, config, concurrency: 4, days: [4, 5] as const, variants: ["exact", "v1"] as const };
+
+  it("a perfect model passes, the report carries the day-4 read-back line and the after-A histogram, and prints counts only", async () => {
+    const report = await runScenario(after, { label: model(), sleep: async () => {} });
+    expect(report.pass).toBe(true);
+    expect(report.after_b).toEqual({ runs: 8, ok: 8, pass: true });
+    expect(exitCodeFor(report)).toBe(0);
+    const text = formatReport(report);
+    expect(text).toContain("day-4 read-back: exactly one PHONE_CALL thread in 8/8 runs");
+    expect(text).toMatch(/after-A cards, day 4: ROUTINE_OPS\/factx/);
+    expect(text).toMatch(/after-A cards, day 5: ROUTINE_OPS\/factx/);
+    expect(text).not.toMatch(/egg tart|croissant|Bakery/i);
+  });
+
+  it("a CUSTOMER_SERVICE fact on an after-A card fails the run (exit 2) and the row says so", async () => {
+    const report = await runScenario(after, { label: model({ afterA: "CUSTOMER_SERVICE" }), sleep: async () => {} });
+    expect(report.pass).toBe(false);
+    expect(exitCodeFor(report)).toBe(2);
+    expect(formatReport(report)).toContain("CUSTOMER_SERVICE fact in 2/2 runs (max 0)");
+  });
+
+  it("the 95 % read-back bar is over all day-4 runs: 1 split in 40 passes the bar, 3 in 40 fails it (exit 2) even though every cell passes", async () => {
+    const big = { runs: 5, config, concurrency: 8, days: [4] as const, variants: ["exact", "v1", "v2", "v4"] as const };
+    const none = await runScenario(big, { label: model(), sleep: async () => {} });
+    expect(none.after_b).toEqual({ runs: 40, ok: 40, pass: true });
+    const one = await runScenario(big, { label: model({ splitUnits: ["d4-exact-U1-r0-u1"] }), sleep: async () => {} });
+    expect(one.after_b).toEqual({ runs: 40, ok: 39, pass: true });
+    const three = await runScenario(big, {
+      label: model({ splitUnits: ["d4-exact-U1-r0-u1", "d4-exact-U1-r1-u1", "d4-v1-U2-r0-u3"] }),
+      sleep: async () => {},
+    });
+    expect(three.after_b).toEqual({ runs: 40, ok: 37, pass: false });
+    expect(three.cells.every((c) => c.status === "PASS")).toBe(true);
+    expect(three.pass).toBe(false);
+    expect(exitCodeFor(three)).toBe(2);
+    expect(formatReport(three)).toContain("day-4 read-back: exactly one PHONE_CALL thread in 37/40 runs");
+    expect(formatReport(three)).toContain("FAIL (exit 2)");
+  });
+
+  it("inconclusive day-4 cells are left out of the 95 % bar and report null when nothing conclusive remains", async () => {
+    const quota: LabelCall = async () => ({ kind: "retryable_error", error: { class: "http_429" } });
+    const report = await runScenario({ ...after, days: [4], variants: ["exact"] }, { label: quota, sleep: async () => {}, random: () => 0 });
+    expect(report.after_b).toBeNull();
+    expect(exitCodeFor(report)).toBe(3);
+  });
+
+  it("no day-4 cell in the selection: after_b is null", async () => {
+    const report = await runScenario({ ...after, days: [5] }, { label: model(), sleep: async () => {} });
+    expect(report.after_b).toBeNull();
   });
 });

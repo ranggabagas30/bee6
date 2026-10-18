@@ -1,14 +1,19 @@
 /**
  * Task R, text rehearsal (R-19 PR-R; docs/tasks/R-19-demo-v2.md section 10.1).
  *
- * Runs the 3-day judge script (`scripts/eval-fixtures/scenario-v2.ts`: exact wording plus four variants) through
+ * Runs the 5-day judge script (`scripts/eval-fixtures/scenario-v2.ts`: exact wording plus four variants) through
  * the real label path used by `scripts/eval-label.ts` (categories loader -> prompt builder -> response schema ->
  * label client, `gemini-3.5-flash-lite`, location from `config/regions.yaml`), then `buildThreads` and the plain
  * code evidence gate (`evaluateGate`, no answer), and checks that:
  *   - the egg-tart card (problem A) lands as CUSTOMER_SERVICE on days 1 and 2 (a fact most of the time),
  *   - the phone-order card (problem B) lands as PHONE_CALL (always a question) on days 2 and 3,
  *   - routine cards never become CUSTOMER_SERVICE or PHONE_CALL (contamination),
- *   - one day never produces more than 5 debrief questions.
+ *   - one day never produces more than 5 debrief questions,
+ *   - the after days 4-5 (review-agent plan 3.5): no CUSTOMER_SERVICE fact on either day (the review metric's
+ *     after count must stay 0), day 4's read-back phone order is exactly ONE PHONE_CALL thread and the day's only
+ *     one (judged as a rate over all day-4 runs, bar 95 %: one split would turn the review into a Revert), day 5 has
+ *     no PHONE_CALL thread. The after-A cards may land as anything but a CUSTOMER_SERVICE fact; the report prints
+ *     where they landed (category / fact-or-question) so drift is visible.
  * Each day x variant is run two ways: U1 (all lines in one unit, as when the judge pauses < 90 s) and
  * U2 (one unit per card), 5 times each.
  *
@@ -74,7 +79,10 @@ export type CallFailure = "retryable_error" | "parse_error";
 
 export type Uniting = "U1" | "U2";
 export const UNITINGS: readonly Uniting[] = ["U1", "U2"];
-type Day = 1 | 2 | 3;
+export type Day = 1 | 2 | 3 | 4 | 5;
+export const ALL_DAYS: readonly Day[] = [1, 2, 3, 4, 5];
+/** Bar for the day-4 read-back card: exactly one PHONE_CALL thread in at least this share of the day-4 runs. */
+export const AFTER_B_BAR = 0.95;
 
 // ── Units ──────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -127,6 +135,14 @@ export interface RunOutcome {
   a: CardOutcome | null;
   /** null when the day has no problem-B card. */
   b: CardOutcome | null;
+  /** The after-day read-back phone card (day 4); null when the day has none. `correct` = PHONE_CALL. */
+  after_b: CardOutcome | null;
+  /** Threads that are a CUSTOMER_SERVICE fact (the gate said fact), anywhere in the day. Judged on days 4-5 only. */
+  cs_facts: number;
+  /** Threads of category PHONE_CALL anywhere in the day (one per phone order; day 4 needs exactly 1, day 5 none). */
+  phone_threads: number;
+  /** Where the `after_a` cards landed, per card: "CATEGORY/fact", "CATEGORY/question" or "none". Category names only. */
+  after_a_landed: Record<string, number>;
   contaminated: boolean;
   /** Question-verdict threads plus one per failed label call (an `unlabelled_unit` question). */
   questions: number;
@@ -151,6 +167,8 @@ export function classifyRun(
 ): RunOutcome {
   const verdictOfLine = new Map<string, LineVerdict>();
   const threadOfLine = new Map<string, string>();
+  let cs_facts = 0;
+  let phone_threads = 0;
   let questions = 0;
   let failed_calls = 0;
   let retryable_failures = 0;
@@ -172,6 +190,8 @@ export function classifyRun(
       });
       const fact = gate.verdict === "fact";
       if (!fact) questions += 1;
+      if (fact && thread.category === "CUSTOMER_SERVICE") cs_facts += 1;
+      if (thread.category === "PHONE_CALL") phone_threads += 1;
       for (const id of thread.line_ids) {
         verdictOfLine.set(id, { category: thread.category, fact });
         threadOfLine.set(id, thread.thread_id);
@@ -216,6 +236,14 @@ export function classifyRun(
     };
   };
 
+  const after_a_landed: Record<string, number> = {};
+  for (const card of cards) {
+    if (card.kind !== "after_a") continue;
+    const v = cardVerdict(card.id);
+    const key = v ? `${v.category}/${v.fact ? "fact" : "question"}` : "none";
+    after_a_landed[key] = (after_a_landed[key] ?? 0) + 1;
+  }
+
   let contaminated = false;
   for (const card of cards) {
     if (card.kind !== "routine") continue;
@@ -228,6 +256,10 @@ export function classifyRun(
   return {
     a: problem("problem_a", "CUSTOMER_SERVICE"),
     b: problem("problem_b", "PHONE_CALL"),
+    after_b: problem("after_b", "PHONE_CALL"),
+    cs_facts,
+    phone_threads,
+    after_a_landed,
     contaminated,
     questions,
     failed_calls,
@@ -241,12 +273,23 @@ export interface CellSummary {
   runs: number;
   a_applicable: boolean;
   b_applicable: boolean;
+  /** The day has the after-day read-back card (day 4). */
+  after_b_applicable: boolean;
   a_correct: number;
   a_fact: number;
   b_correct: number;
   /** R-21: runs in which the card's lines all sat in one thread (see `CardOutcome.one_thread`). */
   a_one_thread: number;
   b_one_thread: number;
+  /**
+   * Runs in which the read-back card landed as exactly one PHONE_CALL thread (all its lines in it) and that thread
+   * was the day's only phone thread. The review metric counts threads, so a second one turns Worked into Revert.
+   */
+  after_b_ok: number;
+  /** Runs with at least one CUSTOMER_SERVICE fact anywhere in the day (judged on days 4-5 only). */
+  cs_fact_runs: number;
+  /** Runs with at least one PHONE_CALL thread anywhere in the day (judged on day 5 only). */
+  phone_runs: number;
   contamination: number;
   /** Runs with at most QUESTIONS_PER_DAY_MAX questions. */
   questions_ok: number;
@@ -257,6 +300,10 @@ export interface CellSummary {
   /** What the A / B card landed as, counted over runs ("none" = no thread). Category names only. */
   a_categories: Record<string, number>;
   b_categories: Record<string, number>;
+  /** Where the after-A cards landed, counted over runs and cards ("CATEGORY/fact|question", "none"). */
+  after_a_landed: Record<string, number>;
+  /** What the read-back card landed as, counted over runs ("none" = no thread). */
+  after_b_categories: Record<string, number>;
 }
 
 export function summarizeRuns(outcomes: readonly RunOutcome[]): CellSummary {
@@ -264,11 +311,15 @@ export function summarizeRuns(outcomes: readonly RunOutcome[]): CellSummary {
     runs: outcomes.length,
     a_applicable: outcomes.some((o) => o.a !== null),
     b_applicable: outcomes.some((o) => o.b !== null),
+    after_b_applicable: outcomes.some((o) => o.after_b !== null),
     a_correct: 0,
     a_fact: 0,
     b_correct: 0,
     a_one_thread: 0,
     b_one_thread: 0,
+    after_b_ok: 0,
+    cs_fact_runs: 0,
+    phone_runs: 0,
     contamination: 0,
     questions_ok: 0,
     max_questions: 0,
@@ -276,6 +327,8 @@ export function summarizeRuns(outcomes: readonly RunOutcome[]): CellSummary {
     retryable_failures: 0,
     a_categories: {},
     b_categories: {},
+    after_a_landed: {},
+    after_b_categories: {},
   };
   for (const o of outcomes) {
     if (o.a) {
@@ -291,6 +344,14 @@ export function summarizeRuns(outcomes: readonly RunOutcome[]): CellSummary {
       const k = o.b.category ?? "none";
       s.b_categories[k] = (s.b_categories[k] ?? 0) + 1;
     }
+    if (o.after_b) {
+      if (o.after_b.correct && o.after_b.one_thread && o.phone_threads === 1) s.after_b_ok += 1;
+      const k = o.after_b.category ?? "none";
+      s.after_b_categories[k] = (s.after_b_categories[k] ?? 0) + 1;
+    }
+    if (o.cs_facts > 0) s.cs_fact_runs += 1;
+    if (o.phone_threads > 0) s.phone_runs += 1;
+    for (const [k, v] of Object.entries(o.after_a_landed)) s.after_a_landed[k] = (s.after_a_landed[k] ?? 0) + v;
     if (o.contaminated) s.contamination += 1;
     if (o.questions <= QUESTIONS_PER_DAY_MAX) s.questions_ok += 1;
     s.max_questions = Math.max(s.max_questions, o.questions);
@@ -307,6 +368,9 @@ export function summarizeRuns(outcomes: readonly RunOutcome[]): CellSummary {
  * Variants: A and B correct >= ceil(0.8 N); contamination <= floor(0.2 N).
  * A cell where any unit failed with a retryable error is INCONCLUSIVE whatever else it shows (the numbers are
  * not trustworthy without that call); otherwise PASS or FAIL by the thresholds.
+ * Days 4-5 (review-agent plan 3.5), every variant, strict: no CUSTOMER_SERVICE fact in any run; day 5 no PHONE_CALL
+ * thread in any run. Day 4's read-back card is NOT judged per cell: it is a rate over all day-4 runs
+ * (`judgeAfterB`), because the bar is 95 %, not 100 %.
  */
 export function judgeCell(input: {
   variant: VariantId;
@@ -330,11 +394,34 @@ export function judgeCell(input: {
     failures.push(`A one thread ${s.a_one_thread}/${n} (need ${needOneThread})`);
   if (exact && s.b_applicable && s.b_one_thread < needOneThread)
     failures.push(`B one thread ${s.b_one_thread}/${n} (need ${needOneThread})`);
+  if (day >= 4 && s.cs_fact_runs > 0) failures.push(`CUSTOMER_SERVICE fact in ${s.cs_fact_runs}/${n} runs (max 0)`);
+  if (day === 5 && s.phone_runs > 0) failures.push(`PHONE_CALL thread in ${s.phone_runs}/${n} runs (max 0)`);
   const maxContam = exact ? 0 : Math.floor(0.2 * n);
   if (s.contamination > maxContam) failures.push(`contamination ${s.contamination}/${n} (max ${maxContam})`);
   if (exact && s.questions_ok < n) failures.push(`questions <= ${QUESTIONS_PER_DAY_MAX} in ${s.questions_ok}/${n} (max seen ${s.max_questions})`);
   const status: CellStatus = s.retryable_failures > 0 ? "INCONCLUSIVE" : failures.length === 0 ? "PASS" : "FAIL";
   return { status, pass: status === "PASS", failures };
+}
+
+/** The day-4 read-back bar over all conclusive day-4 runs. */
+export interface AfterBResult {
+  runs: number;
+  /** Runs in which the read-back card was exactly one PHONE_CALL thread and the day's only phone thread. */
+  ok: number;
+  pass: boolean;
+}
+
+/**
+ * Pure. The bar of plan 3.5 for the day-4 read-back card: exactly one PHONE_CALL thread in at least AFTER_B_BAR of
+ * the runs of every day-4 cell, exact script and variants together. Cells with a retryable-failed call are left
+ * out (their runs are not trustworthy; the report is INCONCLUSIVE for them anyway). null when no such cell exists.
+ */
+export function judgeAfterB(cells: readonly CellResult[]): AfterBResult | null {
+  const counted = cells.filter((c) => c.day === 4 && c.summary.after_b_applicable && c.status !== "INCONCLUSIVE");
+  if (counted.length === 0) return null;
+  const runs = counted.reduce((n, c) => n + c.summary.runs, 0);
+  const ok = counted.reduce((n, c) => n + c.summary.after_b_ok, 0);
+  return { runs, ok, pass: ok >= Math.ceil(AFTER_B_BAR * runs) };
 }
 
 // ── The matrix ─────────────────────────────────────────────────────────────────────────────────────────
@@ -371,8 +458,10 @@ export interface CellResult {
 export interface ScenarioReport {
   runs: number;
   cells: CellResult[];
-  /** True only when every cell is PASS. */
+  /** True only when every cell is PASS and the day-4 read-back bar (if any day-4 cell was conclusive) holds. */
   pass: boolean;
+  /** The day-4 read-back bar over all conclusive day-4 runs; null when the selection has no conclusive day-4 cell. */
+  after_b: AfterBResult | null;
   /** Error class (e.g. "http_429", "parse_error") -> number of units that still failed after every attempt. Classes only. */
   call_errors: Record<string, number>;
 }
@@ -428,7 +517,7 @@ function semaphore(limit: number): <T>(work: () => Promise<T>) => Promise<T> {
 
 /** The process exit code: 0 all pass, 2 any genuine FAIL, 3 inconclusive cells and no genuine FAIL. */
 export function exitCodeFor(report: ScenarioReport): 0 | 2 | 3 {
-  if (report.cells.some((c) => c.status === "FAIL")) return 2;
+  if (report.cells.some((c) => c.status === "FAIL") || report.after_b?.pass === false) return 2;
   if (report.cells.some((c) => c.status === "INCONCLUSIVE")) return 3;
   return 0;
 }
@@ -441,7 +530,7 @@ export async function runScenario(
   const random = deps.random ?? Math.random;
   const limited = semaphore(Math.max(1, opts.concurrency));
   const call_errors: Record<string, number> = {};
-  const days = opts.days ?? [1, 2, 3];
+  const days = opts.days ?? ALL_DAYS;
   const variants = opts.variants ?? VARIANT_IDS;
   const unitings = opts.unitings ?? UNITINGS;
 
@@ -472,7 +561,8 @@ export async function runScenario(
     const judged = judgeCell({ variant: cell.variant, day: cell.day, summary });
     return { day: cell.day, variant: cell.variant, uniting: cell.uniting, summary, ...judged };
   });
-  return { runs: opts.runs, cells: results, pass: results.every((r) => r.status === "PASS"), call_errors };
+  const after_b = judgeAfterB(results);
+  return { runs: opts.runs, cells: results, pass: results.every((r) => r.status === "PASS") && after_b?.pass !== false, after_b, call_errors };
 }
 
 // ── Report ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -501,10 +591,34 @@ export function formatReport(report: ScenarioReport): string {
       `contam ${s.contamination}/${n}`.padEnd(13),
       `q<=5 ${s.questions_ok}/${n} (max ${s.max_questions})`.padEnd(20),
       `failed calls ${s.failed_calls}`.padEnd(16),
+      ...(c.day >= 4
+        ? [
+            `read-back ${cell(s.after_b_applicable, `${s.after_b_ok}/${n}`)}`.padEnd(15),
+            `CS-fact ${s.cs_fact_runs}/${n}`.padEnd(13),
+            ...(c.day === 5 ? [`phone ${s.phone_runs}/${n}`.padEnd(11)] : []),
+          ]
+        : []),
       c.status,
     ].join(" | ");
   });
   const lines = [`[eval:scenario] ${n} run(s) per cell; counts only`, ...rows];
+  for (const day of [4, 5] as const) {
+    const day_cells = report.cells.filter((c) => c.day === day);
+    if (day_cells.length === 0) continue;
+    const sum = (pick: (c: CellResult) => Record<string, number>): Record<string, number> => {
+      const total: Record<string, number> = {};
+      for (const c of day_cells) for (const [k, v] of Object.entries(pick(c))) total[k] = (total[k] ?? 0) + v;
+      return total;
+    };
+    lines.push(`[eval:scenario] after-A cards, day ${day}: ${dist(sum((c) => c.summary.after_a_landed)) || "none"}`);
+    if (day === 4) lines.push(`[eval:scenario] read-back card, day 4, landed as: ${dist(sum((c) => c.summary.after_b_categories)) || "none"}`);
+  }
+  if (report.after_b) {
+    const { ok, runs, pass } = report.after_b;
+    lines.push(
+      `[eval:scenario] day-4 read-back: exactly one PHONE_CALL thread in ${ok}/${runs} runs (${((100 * ok) / runs).toFixed(1)}%; bar >= ${AFTER_B_BAR * 100}%) ${pass ? "ok" : "BELOW BAR"}`,
+    );
+  }
   for (const c of report.cells) {
     if (c.status === "PASS") continue;
     const s = c.summary;
@@ -552,7 +666,7 @@ function parseList<T extends string | number>(raw: string | undefined, allowed: 
 }
 
 export function parseArgs(argv: readonly string[]): CliArgs {
-  const args: CliArgs = { runs: DEFAULT_RUNS, days: [1, 2, 3], variants: [...VARIANT_IDS], unitings: [...UNITINGS], concurrency: 3 };
+  const args: CliArgs = { runs: DEFAULT_RUNS, days: [...ALL_DAYS], variants: [...VARIANT_IDS], unitings: [...UNITINGS], concurrency: 3 };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i]!;
     const value = argv[i + 1];
@@ -566,7 +680,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
         break;
       }
       case "--days":
-        args.days = parseList<Day>(value, [1, 2, 3], flag, (s) => Number(s) as Day);
+        args.days = parseList<Day>(value, ALL_DAYS, flag, (s) => Number(s) as Day);
         break;
       case "--variants":
         args.variants = parseList<VariantId>(value, VARIANT_IDS, flag, (s) => s as VariantId);

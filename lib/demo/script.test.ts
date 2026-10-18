@@ -56,7 +56,8 @@ describe("bakery-v2 script (R-19)", () => {
     ]);
   });
 
-  it("the EN text is word for word the `exact` variant of the rehearsal fixture (SCENARIO_V2), speaker tags stripped", () => {
+  it("the EN text is word for word the `exact` variant of the rehearsal fixture (SCENARIO_V2), speaker tags stripped, for all 5 days", () => {
+    expect(SCENARIO_V2.map((d) => d.day)).toEqual([1, 2, 3, 4, 5]);
     for (const scenarioDay of SCENARIO_V2) {
       const script = SCRIPT_V2[scenarioDay.day].map((c) => ({ id: c.id, lines: c.lines.map((l) => l.text.en) }));
       const exact = scenarioDay.variants.exact.map((c) => ({ id: c.id, lines: [...c.lines] }));
