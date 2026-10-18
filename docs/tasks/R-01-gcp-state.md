@@ -524,13 +524,13 @@ those four.
   to that field). Verified: public `accounts:signUp` -> 400 `ADMIN_ONLY_OPERATION`, no user created; Admin
   API create + delete of a throwaway user via ADC still works. `web` /api/health 200 on both run.app URLs;
   pipeline-tick scheduler job still firing 200.
-- **A APPLIED (12 Oct, Rangga explicit go incl. `--no-check-existing-usage`):** browser key `0521292e-...`
+- **A APPLIED (12 Oct, Rangga explicit go incl. `--no-check-existing-usage`):** browser key `<DEMO_API_KEY_UID>`
   (`bee6-playground` only) now restricted to API targets `identitytoolkit.googleapis.com` +
   `securetoken.googleapis.com` and 7 allowed referrers: both demo Cloud Run URLs
   (`https://web-33uzb53tza-et.a.run.app/*`, `https://web-<DEMO_PROJECT_NUMBER>.asia-southeast2.run.app/*`),
   `https://bee6-playground.firebaseapp.com/*`, `https://bee6-playground.web.app/*`,
   `http://localhost:3000/*`, `http://localhost:3001/*`, `http://127.0.0.1:3000/*`. Command used:
-  `gcloud services api-keys update 0521292e-44ae-4525-be97-c385509af766 --project=bee6-playground
+  `gcloud services api-keys update <DEMO_API_KEY_UID> --project=bee6-playground
   --api-target=service=identitytoolkit.googleapis.com --api-target=service=securetoken.googleapis.com
   --allowed-referrers=<7 above> --no-check-existing-usage`. Pilot project not touched.
   Verified: correct Referer -> identitytoolkit 400 INVALID_LOGIN_CREDENTIALS (passes the key gate); wrong or
@@ -540,7 +540,7 @@ those four.
   deny), identical to a request with NO key and with a wrong Referer -> Firestore's data plane ignores the
   key entirely, so the key grants no Firestore access either way (not `API_KEY_SERVICE_BLOCKED`, by design of
   Firestore).
-  Rollback: original restrictions in `~/bee6-backups/demo-key-0521292e-original-restrictions.json`
+  Rollback: original restrictions in `~/bee6-backups/demo-key-<DEMO_API_KEY_UID>-original-restrictions.json`
   (also scratchpad `demo-key-original-restrictions.json`); restore = `gcloud services api-keys update
   <key> --project=bee6-playground --clear-restrictions` then re-apply the 27 api-targets from that JSON,
   or `--api-target` flags per service. The referrer list was reconstructed (attempt-2 list was not saved);
@@ -552,7 +552,7 @@ those four.
 ## Demo project (bee6-playground) Stage 2 sign-in env + checks, 12 Oct (Rangga explicit go)
 - **Cloud Run `web` revision `web-00015-9tt`** (was `web-00014-wr9`), 100% traffic, Ready. One
   `gcloud run services update web --update-env-vars ... --update-secrets ...` added env `FIREBASE_API_KEY`
-  (value = browser key `0521292e-...`, read via `api-keys get-key-string`, never printed), `FIREBASE_AUTH_DOMAIN=
+  (value = browser key `<DEMO_API_KEY_UID>`, read via `api-keys get-key-string`, never printed), `FIREBASE_AUTH_DOMAIN=
   bee6-playground.firebaseapp.com`, `FIREBASE_PROJECT_ID=bee6-playground`, `FIREBASE_APP_ID` (web app
   `bee6-web-demo`, read via `firebase apps:list`), `APP_REGION=asia-southeast2`, and mounted Secret Manager
   `THREAD_HANDLE_KEY:latest` as env `THREAD_HANDLE_KEY`. Old env names (PIPELINE_TICK_AUDIENCE, TASKS_INVOKER_SA,
@@ -768,7 +768,7 @@ near midnight); seed and upload ran within 2 minutes of each other on the same J
 
 ### R-20 web-develop readiness check for live QA, 15 Oct 22:4x WIB (15:43Z) (dev-ops, READ-ONLY, DEMO `bee6-playground` only)
 - **Build:** develop merges #74/#75/#76 fired three parallel builds. `440fa92` and `7c0108f` SUCCESS 15:35:19Z; `71fcde2` (`fcc44b40`) SUCCESS 15:42:29Z, deployed last. `web-develop` = revision `web-develop-00024-pfk`, 100% traffic, image `.../web-develop:71fcde2`. URL `https://web-develop-33uzb53tza-et.a.run.app` (alias `https://web-develop-<DEMO_PROJECT_NUMBER>.asia-southeast2.run.app`).
-- **web-develop is NOT a runnable QA target as configured:** (1) IAM policy is empty (no `allUsers` `roles/run.invoker`); every deploy logs "Setting IAM policy failed" (the Cloud Build deploy identity cannot set IAM), so unauthenticated GET `/api/health` = 403 (with an owner identity token = 200). (2) The service has **zero env vars and zero secret refs** (cloudbuild.yaml sets none, `gcloud run deploy` only preserves existing): no `DEMO_MODE` (so `/api/v1/demo/session` = 404, not 405), no `GOOGLE_CLOUD_PROJECT` (Gemini/DLP clients get ""), no `FIREBASE_*`, no `THREAD_HANDLE_KEY`, `DEMO_IP_SALT`, `TASKS_INVOKER_SA`, `PIPELINE_TICK_AUDIENCE`, `REVIEW_RUN_AUDIENCE`. `web` has all of these. (3) The web API key (`0521292e-...`, "Browser key (auto created by Firebase)") referrer allowlist does NOT contain either web-develop URL (allowed: web-33uzb53tza-et, web-<DEMO_PROJECT_NUMBER>, firebaseapp.com, web.app, localhost x4); Firebase authorized domains = localhost, bee6-playground.firebaseapp.com, bee6-playground.web.app (matters for popup/redirect flows only; email+password needs the referrer fix). (4) Scheduler `pipeline-tick` (*/2) and `review-run` (09:00 UTC) target only `web` (URL and OIDC audience on web); no job for web-develop. Same project and the only Firestore DB `(default)` (asia-southeast2), so web-develop would share `demo-tpl-outlet` and sandbox data with `web` once configured. The tick store is global (no outlet arg), so a tick from `web` (4414d79, pre-R-20) would label sandbox data written through web-develop.
+- **web-develop is NOT a runnable QA target as configured:** (1) IAM policy is empty (no `allUsers` `roles/run.invoker`); every deploy logs "Setting IAM policy failed" (the Cloud Build deploy identity cannot set IAM), so unauthenticated GET `/api/health` = 403 (with an owner identity token = 200). (2) The service has **zero env vars and zero secret refs** (cloudbuild.yaml sets none, `gcloud run deploy` only preserves existing): no `DEMO_MODE` (so `/api/v1/demo/session` = 404, not 405), no `GOOGLE_CLOUD_PROJECT` (Gemini/DLP clients get ""), no `FIREBASE_*`, no `THREAD_HANDLE_KEY`, `DEMO_IP_SALT`, `TASKS_INVOKER_SA`, `PIPELINE_TICK_AUDIENCE`, `REVIEW_RUN_AUDIENCE`. `web` has all of these. (3) The web API key (`<DEMO_API_KEY_UID>`, "Browser key (auto created by Firebase)") referrer allowlist does NOT contain either web-develop URL (allowed: web-33uzb53tza-et, web-<DEMO_PROJECT_NUMBER>, firebaseapp.com, web.app, localhost x4); Firebase authorized domains = localhost, bee6-playground.firebaseapp.com, bee6-playground.web.app (matters for popup/redirect flows only; email+password needs the referrer fix). (4) Scheduler `pipeline-tick` (*/2) and `review-run` (09:00 UTC) target only `web` (URL and OIDC audience on web); no job for web-develop. Same project and the only Firestore DB `(default)` (asia-southeast2), so web-develop would share `demo-tpl-outlet` and sandbox data with `web` once configured. The tick store is global (no outlet arg), so a tick from `web` (4414d79, pre-R-20) would label sandbox data written through web-develop.
 - No change made. Proposed fix commands were handed to the PM (public invoker, env/secrets copy, referrer update, optional second scheduler job); none run.
 
 ### R-20 release verified, 15 Oct ~16:05Z / 23:05 WIB (dev-ops, READ-ONLY, DEMO `bee6-playground` only; pilot untouched)
@@ -854,7 +854,7 @@ Facts that drive the plan:
 3. **Cloud Tasks queue `pipeline` exists but the code never enqueues** (no `createTask`/queue env at origin/main). `CLOUD_TASKS_QUEUE` is not set on `web`; nothing to do for staging. Only the two Scheduler OIDC routes matter. `tasks-invoker@` already has **project-level** `roles/run.invoker`, so it can call `web-develop` once the service is up; no extra per-service binding for the scheduler. `tasks-invoker@` also trusts the Cloud Scheduler service agent (`serviceAccountTokenCreator`), nothing to change.
 4. **Env names the code reads (origin/main):** `DEMO_MODE`, `GOOGLE_CLOUD_PROJECT`, `APP_REGION`, `TASKS_INVOKER_SA`, `PIPELINE_TICK_AUDIENCE`, `REVIEW_RUN_AUDIENCE`, `DEMO_IP_SALT`, `THREAD_HANDLE_KEY` (secret), `FIREBASE_API_KEY/AUTH_DOMAIN/PROJECT_ID/APP_ID` (runtime, via `lib/auth/web-config.ts`), optional caps `DEMO_SANDBOX_IP_CAP`, `DEMO_SWITCH_IP_CAP`, `DEMO_MODEL_DAILY_CAP`, `DEMO_SEGMENT_*_CAP`, `DEMO_GENERATE_*_CAP`, `DEMO_SANDBOX_DAILY_CAP`, `DEMO_REDACT_SANDBOX_CAP`; `NEXT_PUBLIC_DEV_CONTROLS` is BUILD-time (buildpack build has no such var, so dev controls are OFF on both services today).
 5. **Firebase Auth** is email + password only. Authorized domains today: `localhost`, `bee6-playground.firebaseapp.com`, `bee6-playground.web.app`. Neither `web` nor `web-develop` run.app hosts are listed and `web` signs in fine, because authorized domains only gate OAuth popup/redirect flows, not email+password. So **no Authorized-domains change is required**; adding the staging host is optional hygiene.
-6. **The only browser API key** (`Browser key (auto created by Firebase)`, uid `0521292e-44ae-4525-be97-c385509af766`) has an HTTP-referrer allowlist (API targets identitytoolkit + securetoken): `https://web-33uzb53tza-et.a.run.app/*`, `https://web-<DEMO_PROJECT_NUMBER>.asia-southeast2.run.app/*`, `https://bee6-playground.firebaseapp.com/*`, `https://bee6-playground.web.app/*`, `http://localhost:3000/*`, `http://localhost:3001/*`, `http://127.0.0.1:3000/*`. The staging hosts are missing, so sign-in from `web-develop` would fail with an API-key referrer error even after IAM + env are fixed. This is the one step that makes sign-in work; it must keep every existing entry (update REPLACES the list).
+6. **The only browser API key** (`Browser key (auto created by Firebase)`, uid `<DEMO_API_KEY_UID>`) has an HTTP-referrer allowlist (API targets identitytoolkit + securetoken): `https://web-33uzb53tza-et.a.run.app/*`, `https://web-<DEMO_PROJECT_NUMBER>.asia-southeast2.run.app/*`, `https://bee6-playground.firebaseapp.com/*`, `https://bee6-playground.web.app/*`, `http://localhost:3000/*`, `http://localhost:3001/*`, `http://127.0.0.1:3000/*`. The staging hosts are missing, so sign-in from `web-develop` would fail with an API-key referrer error even after IAM + env are fixed. This is the one step that makes sign-in work; it must keep every existing entry (update REPLACES the list).
 7. **Firestore:** one database `(default)`, `asia-southeast2`, Native. The code (`lib/firebase/admin.ts`, the only `getFirestore` call in app/lib/scripts) always opens `(default)`; there is no database-id or collection-prefix setting. 4 composite indexes (READY): `questions(outlet_id, kind, status, answered_at_ms DESC)`, `threads(outlet_id, first_line_start_ms)`, `threads(outlet_id, device_id, last_line_end_ms)`, `questions(outlet_id, kind, window_start_ms)`. TTL policies ACTIVE on `corrections.expires_at`, `demo_counters.expires_at`, `segments.expires_at`.
 8. **What the tick/review jobs scan:** `pipeline/tick` reads ALL devices with `revoked == false` across ALL outlets (tick-store `devices where revoked == false`) and processes each; `reviews/run` lists ALL outlets (`listAllOutlets`). Neither is scoped to a host or a tenant. Pipeline leases (`pipeline_locks`, per outlet + device) stop two concurrent ticks from processing the SAME device at the same instant, but do nothing about two different code versions processing the same data one after the other.
 
@@ -889,10 +889,10 @@ gcloud run services update web-develop --region=asia-southeast2 --project=bee6-p
    Why: gives staging the same config as `web`. Timeout 1800 mirrors `web` (a tick may run long; staging today has 300 s). min 0 keeps idle cost ~0 (prod keeps min 1). Risk: new revision only; `web` untouched. `FB_KEY` is a Firebase web key (public by design, protected by referrers) but is still not echoed.
 2. Browser key referrers (REPLACES the full list, so all 7 existing + 2 new):
 ```
-gcloud services api-keys update 0521292e-44ae-4525-be97-c385509af766 --project=bee6-playground \
+gcloud services api-keys update <DEMO_API_KEY_UID> --project=bee6-playground \
   --allowed-referrers="https://web-33uzb53tza-et.a.run.app/*,https://web-<DEMO_PROJECT_NUMBER>.asia-southeast2.run.app/*,https://bee6-playground.firebaseapp.com/*,https://bee6-playground.web.app/*,http://localhost:3000/*,http://localhost:3001/*,http://127.0.0.1:3000/*,https://web-develop-33uzb53tza-et.a.run.app/*,https://web-develop-<DEMO_PROJECT_NUMBER>.asia-southeast2.run.app/*"
 ```
-   Risk: a typo drops a prod referrer and breaks `web` sign-in (it takes minutes to propagate, so verify `web` sign-in right after). Re-read the key with `gcloud services api-keys describe 0521292e-44ae-4525-be97-c385509af766 --project=bee6-playground --format="value(restrictions.browserKeyRestrictions.allowedReferrers)"` before and after. Rollback = the same command with the 7-entry list.
+   Risk: a typo drops a prod referrer and breaks `web` sign-in (it takes minutes to propagate, so verify `web` sign-in right after). Re-read the key with `gcloud services api-keys describe <DEMO_API_KEY_UID> --project=bee6-playground --format="value(restrictions.browserKeyRestrictions.allowedReferrers)"` before and after. Rollback = the same command with the 7-entry list.
 3. Public access: `gcloud run services add-iam-policy-binding web-develop --region=asia-southeast2 --project=bee6-playground --member=allUsers --role=roles/run.invoker`.
 Phase 2 (only after the developer PR is on develop and deployed):
 4. `gcloud firestore databases create --database=staging --location=asia-southeast2 --type=firestore-native --project=bee6-playground` (separate DB, same region, per hard rule 5).
@@ -942,7 +942,7 @@ for s in web web-develop; do echo == $s; gcloud run services describe $s --regio
 curl -s -o /dev/null -w "tick %{http_code}\n" -X POST $S/api/internal/pipeline/tick
 curl -s -o /dev/null -w "review %{http_code}\n" -X POST $S/api/internal/reviews/run
 # 5. browser key still lists web AND staging referrers
-gcloud services api-keys describe 0521292e-44ae-4525-be97-c385509af766 --project=$P --format="value(restrictions.browserKeyRestrictions.allowedReferrers)"
+gcloud services api-keys describe <DEMO_API_KEY_UID> --project=$P --format="value(restrictions.browserKeyRestrictions.allowedReferrers)"
 ```
 Manual QA (Rangga, in a browser on `$S`; Phase 1 needs no tick):
 1. **Login:** open `$S`, start a demo session (sandbox) or sign in as the seeded owner/supervisor (email + password); expect no "API key not valid / referer blocked" console error (that error means step 3 is missing or not yet propagated).

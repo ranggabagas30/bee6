@@ -6,7 +6,7 @@ set -euo pipefail
 
 P="bee6-playground"
 R="asia-southeast2"
-KEY="0521292e-44ae-4525-be97-c385509af766"
+KEY="<DEMO_API_KEY_UID>"
 S="https://web-develop-33uzb53tza-et.a.run.app"
 S2="https://web-develop-<DEMO_PROJECT_NUMBER>.asia-southeast2.run.app"
 BACKUP="$HOME/bee6-api-key-referrers-before.txt"
