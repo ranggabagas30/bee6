@@ -75,6 +75,8 @@ const BRACKET_SPAN = /\[[^\]]*\]/g;
 const QUESTION_MARKS = /[?？﹖؟]/g;
 /** Format, control, private-use, surrogate, unassigned, line/paragraph separators and combining marks. */
 const CONTROL_LIKE = /[\p{Cc}\p{Cf}\p{Co}\p{Cs}\p{Cn}\p{Zl}\p{Zp}\p{M}]/u;
+/** Anything outside printable ASCII (space to tilde). */
+const NON_PRINTABLE_ASCII = /[^\x20-\x7E]/;
 const ROLE_WORD = /\b(supervisor|owner|manager|boss|cashier|barista|chef|cook|staff member|the staff)\b/i;
 const INSTRUCTION_WORD = /\b(ignore|system prompt|instruction|assistant|as an ai|developer|override)\b/i;
 const LETTERS_5 = /\p{L}{5,}/gu;
@@ -156,6 +158,9 @@ export function checkQuestion(draft: unknown, ctx: CheckContext): CheckResult {
 
   if (URL_OR_HANDLE.test(q)) fail("url_or_handle");
   if (PLACEHOLDER.test(q)) fail("placeholder");
+  // The question is English and its times are ASCII: any character outside printable ASCII (a fullwidth or ideographic
+  // dot that would slip a domain past URL_OR_HANDLE, a lookalike letter, ...) is refused.
+  if (NON_PRINTABLE_ASCII.test(q)) fail("control_chars");
   if (stripInvisibleChars(q) !== q || q !== q.normalize("NFC") || CONTROL_LIKE.test(q)) fail("control_chars");
   if (scrubQuestionLine(q, ctx.staffNames, ctx.outletName) !== q) fail("staff_name");
   if (ROLE_WORD.test(q)) fail("role_word");

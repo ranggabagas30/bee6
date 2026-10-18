@@ -202,6 +202,14 @@ describe("checkQuestion: counterexamples (tech-lead required fixes; each was ACC
     expect(reasonsOf("Around 14:05, was there a phone order for twelve egg tarts \u212B?")).toContain("control_chars");
   });
 
+  it("C5. non-ASCII: fullwidth/ideographic dots cannot smuggle a domain past the url check; plain ASCII still passes", () => {
+    expect(reasonsOf("Around 14:05, did someone call about evil\uFF0Ecom?")).toContain("control_chars");
+    expect(reasonsOf("Around 14:05, did someone call about evil\u3002com?")).toContain("control_chars");
+    expect(reasonsOf("Around 14:05, did someone call about evil\uFF0Eid?")).toContain("control_chars");
+    expect(reasonsOf("Around 14:05, was there a phone order for twelve egg tarts?")).not.toContain("control_chars");
+    expect(run(draft(GOOD))).toEqual({ passed: true, reasons: [] });
+  });
+
   it("C2. url_or_handle: a bare letter.letter host-like token (wa.me)", () => {
     expect(reasonsOf("Around 14:05, was there a phone order, did they say to text wa.me?")).toContain("url_or_handle");
     expect(reasonsOf("Around 14:05, was there a phone order for twelve egg tarts?")).not.toContain("url_or_handle");
