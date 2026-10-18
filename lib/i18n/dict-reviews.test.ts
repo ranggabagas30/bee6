@@ -57,6 +57,18 @@ const REVIEW_KEYS = [
   "C-rev-retry",
   "C-sop-outcome",
   "C-sop-outcome-unknown",
+  "C-rev-ff-busy",
+  "C-rev-ff-estimate",
+  "C-rev-ff-longer",
+  "C-rev-agent-kick",
+  "C-rev-agent-note",
+  "C-rev-agent-cv-short_window",
+  "C-rev-agent-cv-category_count_not_problem_count",
+  "C-rev-agent-cv-staff_answers_affect_count",
+  "C-rev-agent-cv-overlapping_change",
+  "C-rev-agent-cv-threads_truncated",
+  "C-rev-agent-cv-not_enough_days",
+  "C-rev-agent-cv-no_baseline",
 ] as const;
 
 describe("R-11 review copy keys", () => {
