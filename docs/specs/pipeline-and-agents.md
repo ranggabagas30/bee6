@@ -7,6 +7,17 @@ Precedence: `CLAUDE.md` → `docs/plan.md` → `docs/backlog.md` → this spec.
 Reconciled 4 Oct 2026 (tech-lead): A2 goal 2 (off-day cut-off), A4 staff stories, D6, T-004 thread retention,
 T-403 wording.
 
+> **Updated 18 Oct 2026 (tech-lead, docs only): as built.** The pilot go-live dated Mon 12 Oct below was
+> postponed by Rangga on 9 Oct with no new date, and submission moved to Sun 18 Oct on the demo project only
+> (`docs/plan.md` §3); every pilot date in this file (Mon 12 go-live, Thu 15 SOP v2, Wed 21 review) is the
+> original plan, not something that happened. Sign-in is email + password for owner and supervisor
+> (admin-provisioned, no self sign-up; 9 Oct). Agents as built (technical specification §9.1): the Proposal
+> agent (v4, tool-using, flag `PROPOSAL_AGENT_V4`, plain-code `check_proposal`), the Debrief agent (question
+> wording only, demo sandboxes, `check_question`) and the Review agent (explains the plain-code verdict, demo
+> sandbox fast-forward, `check_review`). The CriticAgent (T-505) was dropped on 16 Oct. The pipeline runs on
+> a Cloud Scheduler tick; nothing uses Cloud Tasks. The demo is a private sandbox per visitor with a 5-day
+> journey (E7 note). Changed: A5 D5, D6, A8, T-110, T-403, T-503 to T-505, T-509, E7, T-806.
+
 > **Updated 4 Oct 2026, MVP 1 answer shape (tech-lead, docs only; Rangga, 4 Oct, final; `docs/HANDOFF.md`
 > "Debrief answer shape for MVP 1"). Supersedes the free-text-only answer in the note below.** Each debrief
 > question gets exactly one answer: ***Ya* (YES) or *Tidak* (NO) plus a required reason, or *Lewati*
@@ -33,7 +44,7 @@ T-403 wording.
 > end; the insight run merges all devices (technical spec §8.15). Changed: T-306 (expiry scope), T-402.
 
 > **Updated 4 Oct 2026 (tech-lead, docs only): sign-in and consent (Rangga, 4 Oct, final; `docs/HANDOFF.md`).**
-> Owner and supervisor keep Google sign-in; staff need no sign-in. **Consent is not collected in the app:**
+> Owner and supervisor sign in (*9 Oct: email + password, admin-provisioned; the Google sign-in was replaced*); staff need no sign-in. **Consent is not collected in the app:**
 > it is covered by the paper contract between bee6 and Proofed, and bee6 emails the consent, the updated
 > privacy policy and the TnC to all users. The in-app consent gate (consent flag, "no consent" view,
 > staff-consent step) is **removed from MVP 1**; T-901's "capture refuses to start for an outlet whose
@@ -56,7 +67,7 @@ T-403 wording.
 > **Updated 3 Oct 2026 (aligned with `docs/plan.md` v5):** dates re-dated to the Mon 12 Oct pilot go-live (one-step go-live after internal testing Tue 6 – Sun 11 and Rangga's written sign-off Sun 11 18:00; real evidence Mon 12 – Wed 14; first real insight run Thu 15, Fri 16 fallback; submit Fri 16; pilot review Wed 21 Oct, after submission, so the closed loop is shown on the demo outlet only). Capture is staff-tapped Mulai/Selesai with a hard auto-stop 60 min after closing, not unattended; the tap debrief opens after Selesai / auto-stop; R-16 is "if time".
 
 **What this doc is:** Part A is the MVP-level PRD. Part B specs each epic with acceptance criteria.
-**How it fits:** web app, capture, backend, login and roles are specced in `docs/specs/web-backend-rbac.md`; this doc covers the rest (pipeline, debrief, agents, approvals, demo outlet, evidence, consent). Dates and hours: `docs/plan.md`. Steps per task: `docs/backlog.md`. Product behaviour source: `docs/product-spec.md`. Engineering-level detail for the pipeline as built (exact algorithms, edge cases, leak boundaries, file:line citations): `docs/specs/technical-specification.md`.
+**How it fits:** web app, capture, backend, login and roles are specced in `docs/specs/web-backend-rbac.md`; this doc covers the rest (pipeline, debrief, agents, approvals, demo outlet, evidence, consent). Dates and hours: `docs/plan.md`. Steps per task: `docs/backlog.md`. Product behaviour source: `docs/specs/product-spec.md`. Engineering-level detail for the pipeline as built (exact algorithms, edge cases, leak boundaries, file:line citations): `docs/specs/technical-specification.md`.
 **v2 changes (30 Sept):** web app instead of Android · Gemini 3.5 Transcribe for all speech (no Flash-Lite first pass, no escalation) · one Cloud Run service · demo outlet inside the same app (no separate playground site) · weekday demo story · new dates (go-live Mon 5, SOP v2 Sat 10, review Wed 14; superseded by plan v5: go-live Mon 12, SOP v2 Thu 15, pilot review Wed 21 Oct) · task IDs mapped to R-xx. Items marked **(P1)** are built only if time allows. Decision history: `docs/adr/ADR-001-lean-gemini-architecture.md`.
 
 ---
@@ -108,8 +119,8 @@ Small F&B outlets like Proofed repeat the same operational mistakes (stockouts, 
 - **D2 No escalation:** every segment goes to Transcribe (GATI, 29 Sept). Confidence comes from the label call plus debrief answers.
 - **D3 Regions:** services + Firestore in Jakarta; each model's location from the probe (Jakarta → Singapore → global), logged per call.
 - **D4 Capture inputs:** built-in mic (default), USB or Bluetooth via the browser's input picker; sources below 16 kHz refused.
-- **D5 One-step go-live (v5):** capture, transcription, labels, day record and tap debrief all go live together on Mon 12, after internal testing (Tue 6 – Sun 11, test outlet in the pilot project) and Rangga's written sign-off (Sun 11, 18:00).
-- **D6 One Cloud Run service** (`web`); async steps via Cloud Tasks; Live API only for the voice debrief (R-16, "if time"), which like the tap debrief starts at Selesai or the auto-stop (technical spec §8.3).
+- **D5 One-step go-live (v5):** capture, transcription, labels, day record and tap debrief all go live together, after internal testing (test outlet in the pilot project) and Rangga's written sign-off. *(Originally Mon 12 Oct; postponed 9 Oct, no new date. As of 18 Oct the pilot project has no deployed service.)*
+- **D6 One Cloud Run service** per environment (`web`; staging `web-develop`); *as built, the pipeline runs on a Cloud Scheduler tick, no Cloud Tasks*; Live API only for the voice debrief (not built) (R-16, "if time"), which like the tap debrief starts at Selesai or the auto-stop (technical spec §8.3).
 - **Cost:** ~$24 / $30 / $37 per outlet-month at 15 / 20 / 25% speech. Full detail: the web spec §7.
 
 ## A6. Success metrics
@@ -137,7 +148,7 @@ Small F&B outlets like Proofed repeat the same operational mistakes (stockouts, 
 | Q8 | Launch price: stay at Rp300k or test Rp450–500k with 3–30-outlet operators? | GATI | Deck (Fri 16, midday) |
 
 ## A8. Timeline
-Pilot deploy (test outlet) Mon 5 · internal testing Tue 6 – Sun 11 · **Rangga's written sign-off Sun 11, 18:00** · **pilot go-live Mon 12** (first tap debrief after Selesai / auto-stop) · real evidence Mon 12 – Wed 14 · **first real insight run + SOP v2 Thu 15** (fallback run Fri 16) · freeze Fri 16 midday · **submit Fri 16** · platform deadline Sun 18 · pilot review **Wed 21 Oct** (after submission).
+*Original plan (superseded 9 Oct: pilot go-live postponed with no new date, submission Sun 18 Oct on the demo only):* Pilot deploy (test outlet) Mon 5 · internal testing Tue 6 – Sun 11 · **Rangga's written sign-off Sun 11, 18:00** · **pilot go-live Mon 12** (first tap debrief after Selesai / auto-stop) · real evidence Mon 12 – Wed 14 · **first real insight run + SOP v2 Thu 15** (fallback run Fri 16) · freeze Fri 16 midday · **submit Fri 16** · platform deadline Sun 18 · pilot review **Wed 21 Oct** (after submission).
 
 ---
 
@@ -181,7 +192,7 @@ Format: **What** · **Acceptance criteria (AC)** · **Notes**. Each task shows t
 
 ## E1 — Web capture (R-03)
 Specced in the web spec §4.1 and §5 (capture page, VAD, segments, Opus, upload, in-memory queue, heartbeat, acceptance checks).
-**T-110 Keep the pilot running (from Mon 12):** a daily 09:00 look at session coverage, speech share and yesterday's debrief completion; fix or raise it the same day. AC: coverage ≥ 90% of planned hours on weekdays with a session, Mon 12 – Fri 16 (days recorded as off / closed are skipped, not counted as gaps).
+**T-110 Keep the pilot running (from go-live; originally Mon 12, postponed):** a daily 09:00 look at session coverage, speech share and yesterday's debrief completion; fix or raise it the same day. AC: coverage ≥ 90% of planned hours on weekdays with a session, Mon 12 – Fri 16 (days recorded as off / closed are skipped, not counted as gaps).
 
 ## E2 — Segment transcription (R-04)
 Specced in the web spec §6.2–§6.3. Additional AC:
@@ -204,7 +215,7 @@ Specced in the web spec §6.2–§6.3. Additional AC:
 
 **Goal:** turn segments into labelled threads, drop private talk, and let only well-evidenced labels become facts. **Non-goal:** auto-accept (no category graduates before the gold set exists).
 
-**T-301 `categories.yaml` v1:** 11 categories + NON_WORK as `docs/product-spec.md` §5, decision order, parents, fields, **one contrastive pair per category** (real vs hypothetical/retold; Tiffany). AC: the file validates against a schema; the label prompt and JSON schema are generated from it.
+**T-301 `categories.yaml` v1:** 11 categories + NON_WORK as `docs/specs/product-spec.md` §5, decision order, parents, fields, **one contrastive pair per category** (real vs hypothetical/retold; Tiffany). AC: the file validates against a schema; the label prompt and JSON schema are generated from it.
 
 **T-302 Windowing:** a window closes on ≥ 90 s of silence or at 6 min (cut at the nearest pause); windows < 10 s are batched every 3 min; windows with no text make no call. AC: replaying a recorded day produces the same windows every time.
 
@@ -255,7 +266,7 @@ Specced in the web spec §6.2–§6.3. Additional AC:
 - [ ] A fully answered debrief does not release Mulai early: the 1-hour timeout always applies (Rangga, 4 Oct, final).
 - [ ] Answers on COMPLAINT, CORRECTION and incident threads wait for supervisor confirmation.
 
-**T-403 Voice debrief (R-16)**
+**T-403 Voice debrief (R-16)** *(As built, 18 Oct: not built; the tap debrief is the debrief. On demo sandboxes the Debrief agent only words a question's heading in English, checked by plain code; see T-402 and technical specification §9.1.)*
 - [ ] **One shared Live API session per debrief** (on the device, inside its 1-hour debrief window, technical spec §8.10–§8.11); the agent speaks first in Bahasa; ≤ 5 questions; system context ≤ 1.5k tokens; hard stop at 4 min.
 - [ ] If the session drops, the same questions continue in tap mode (answers keyed by `question_id`, never counted twice).
 - [ ] The answer text is stored; the audio is not. *(4 Oct, MVP 1 final: the spoken answer becomes the same *Ya* / *Tidak* + reason with the same rules as T-402: empty reason is not an answer, 500-character cap, name scrub and Sensitive Data Protection before storage. Mapping speech to YES / NO is left to R-16's own plan.)*
@@ -268,15 +279,16 @@ Specced in the web spec §6.2–§6.3. Additional AC:
 
 **T-502 Rubric v1 + intervention library v1 (Tiffany):** rubric criteria (observable, time-bound, single owner, evidence-defined, failure path, unambiguous) and interventions (change quantity/time, change trigger, add failure path, capture unmet request, shift schedule, add script) as YAML.
 
-**T-503 Agents inside `web`:** ADK (TypeScript) agents run in the one Cloud Run service; Cloud Scheduler calls their internal routes with an OIDC token. Fallback if ADK blocks > 2 h: a plain state machine calling Gemini.
+**T-503 Agents inside `web`:** ADK (TypeScript) agents run in the one Cloud Run service; Cloud Scheduler calls their internal routes with an OIDC token. Fallback if ADK blocks > 2 h: a plain state machine calling Gemini. *(As built: ADK `LlmAgent` + `InMemoryRunner` on Vertex AI for all three agents. Each agent's output is the arguments of a plain-code checker tool, it has read-only tools and no write tool, and each has a plain-code fallback. Scheduler calls the pipeline tick and the daily review run only.)*
 
 **T-504 ProposalAgent (R-08)** · Gemini 3.5 Flash
 - [ ] Every proposal names one library intervention, cites ≥ 1 rubric criterion and ≥ 2 dated evidence items (thread IDs), states the metric, failure condition and review date, and says unmet demand is a censored floor.
 - [ ] All stored constraints are in context; a proposal that breaks one is blocked.
 - [ ] Too little evidence → no proposal; a debrief question is created; the suppression is logged with its reason.
 - [ ] Runs by a supervisor's "Generate proposal" button (a daily schedule is optional).
+- *As built (18 Oct):* v3 is one structured-output call checked by the plain-code gate `pgate-v1` (two attempts). v4 (flag `PROPOSAL_AGENT_V4`, exactly `"true"`) is a tool loop: `list_sop_sections`, `get_sop_section`, `get_evidence`, `get_intervention`, `get_rubric`, then `check_proposal` (`pgate-v1` plus 10 rules: section fetched, step in section, evidence and intervention inspected, verbatim quotes, scope, no-op change, text rules) or `decline`; up to 3 check rounds, 14 model calls, 45 s; a run error falls back to one v3 attempt. Evidence quotes are checked, never stored.
 
-**T-505 CriticAgent (R-15):** checks each proposal with the gate as a tool (`check_evidence(proposal)`); only passing proposals reach the supervisor. AC: a seeded weak proposal (1 evidence item) is blocked with its reason. (v5: the Critic is built Sat 10, so the first real proposal on Thu 15 goes through it.)
+**T-505 CriticAgent (R-15): dropped 16 Oct.** The plain-code `pgate-v1` and `check_proposal` (T-504) do this job, so no model judges another model. *Original:* checks each proposal with the gate as a tool (`check_evidence(proposal)`); only passing proposals reach the supervisor. AC: a seeded weak proposal (1 evidence item) is blocked with its reason. (v5: the Critic is built Sat 10, so the first real proposal on Thu 15 goes through it.)
 
 **T-506 Approval screens (R-09)**
 - Supervisor: *Feasible* / *Reject* (reason required). Owner: *Approve* / *Reject* (reason required), shown only after the supervisor says feasible.
@@ -287,7 +299,7 @@ Specced in the web spec §6.2–§6.3. Additional AC:
 
 **T-508 Versioning (R-10):** immutable `sop_versions`; v2 = v1 + an approved change; diff view (added / changed / removed steps) with metric, failure condition and review date. AC: the pipeline reads the active version from the next morning.
 
-**T-509 ReviewAgent + scheduler (R-11):** a Cloud Scheduler job on the review date (pilot: **Wed 21 Oct, 09:00 WIB**, after submission) calls the review route → compares the metric before (weekdays Mon 12 – Wed 14, under v1) and after (weekdays from SOP v2's ship date to the review date), stated plainly as a short window → proposes *worked / revise / revert* → supervisor + owner confirm → `outcomes`. AC: fires without anyone remembering; an unconfirmed outcome is stored as "unknown" and kept out of memory.
+**T-509 ReviewAgent + scheduler (R-11):** a Cloud Scheduler job on the review date (pilot: **Wed 21 Oct, 09:00 WIB**, after submission) calls the review route → compares the metric before (weekdays Mon 12 – Wed 14, under v1) and after (weekdays from SOP v2's ship date to the review date), stated plainly as a short window → proposes *worked / revise / revert* → supervisor + owner confirm → `outcomes`. AC: fires without anyone remembering; an unconfirmed outcome is stored as "unknown" and kept out of memory. *As built (18 Oct): the job `review-run` runs daily at 09:00 Jakarta and creates every due review; the verdict is the plain-code rule `rev-v1` (before vs after rate per captured day, ±20 %, at least 2 days per window). On a demo sandbox fast-forward only, the Review agent (flag `REVIEW_AGENT`) adds a plain-English explanation through the read-only tools `get_change`, `get_counts`, `get_evidence_sample` and the 20-rule checker `check_review`; the stored verdict must equal the rule's; any failure shows the plain card. The daily run never calls it.*
 
 **T-510 Review screen (R-11):** before/after numbers, verdict buttons, reason field.
 
@@ -306,13 +318,14 @@ Specced in the web spec §6.2–§6.3. Additional AC:
 - [ ] Someone outside the team completes it unaided in ≤ 4 min.
 - [ ] (P1) "Re-run this clip live" and a guided tour.
 **T-708 Demo guards:** 2 h role sessions; per-IP rate limits; daily token cap; project quota cap; refusal for inputs that try to change instructions.
+*As built (18 Oct; technical specification §9.2):* behind `DEMO_MODE`, each visitor gets a private sandbox outlet (`sbx-…`, 2 h) cloned from a fictional template; the judge reads scripted fictional cards aloud into the paired phone, which goes through the real segment route and pipeline. The journey is 5 demo days: days 1 to 3 live, days 4 and 5 optional after the Owner approves a change. "Jump to tomorrow" shifts the sandbox's timestamps under plain-code guards (`approve_first`, `review_exists` and others); the review fast-forward is labelled simulated. Caps are per IP, per sandbox and per UTC day (the daily "token cap" is an interim count of model-calling requests). Staging runs as `web-develop` on the named Firestore database `staging`.
 
 ## E8 — Evidence and submission (R-13, R-14 + Tiffany)
 **T-802 Gold set:** Tiffany and the supervisors label episodes (redacted lines) in a Google Sheet: correct category + fields. AC: ≥ 60 episodes by Wed 14, from Mon 12 – Tue 13 real data (target 100); 10 episodes labelled by both supervisors to check agreement.
 **T-803 B-roll (Tiffany):** the shop and team at work; no customer faces, no SOP document or franchise material on screen; written OK from staff.
 **T-804 Eval (R-13):** script → confusion matrix, per-category precision/recall, macro-F1; rush-hour subset shown separately. AC: reproducible from a pinned snapshot of the sheet.
 **T-805 Cost per outlet-day:** computed from the per-call logs for the deck (the owner's cost tile is P1).
-**T-806 – T-813 Video, deck, recordings, diagram (Tiffany):** the architecture diagram shows the named agents (Capture, Transcriber, Labeller, Evidence Gate [code], DebriefAgent, ProposalAgent, CriticAgent, ReviewAgent) and which Gemini model and region each uses.
+**T-806 – T-813 Video, deck, recordings, diagram (Tiffany):** the architecture diagram shows the named agents (as built: Capture, Transcriber, Labeller, Evidence Gate [code], DebriefAgent [wording], ProposalAgent, ReviewAgent [explanation], each with its plain-code checker; no CriticAgent) and which Gemini model and region each uses (`docs/architecture.md`).
 **T-814 README (R-14):** setup, architecture, model/region table from `regions.yaml`, known gaps (**DPIA next**, Transcribe preview, any global-endpoint calls, browser capture needs the page open), licences, credits line.
 **T-815 – T-818 (R-14 + Tiffany):** tag v1.0, freeze, quota caps, incognito checklist, uptime alert for 19 Oct – 6 Nov, submit.
 

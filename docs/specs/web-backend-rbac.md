@@ -7,6 +7,18 @@ Precedence: `CLAUDE.md` → `docs/plan.md` → `docs/backlog.md` → this spec.
 Reconciled 4 Oct 2026 (tech-lead): capture status (§4.1), the Mulai window (§4.1), debrief wording (§1, §4.2),
 the staff role on answers (§2), the internal-route list (§6.2), and two superseded notes below.
 
+> **Updated 18 Oct 2026 (tech-lead, docs only): as built.** Owner and supervisor sign in with **email +
+> password** (accounts created by the admin provisioning script, which only touches Firebase Auth and reads
+> the role and outlet from the seeded `users` doc; no self sign-up; 9 Oct). The Google sign-in lines below are
+> history. The pipeline runs on a **Cloud Scheduler tick** (`/api/internal/pipeline/tick`, every minute on
+> `web`, every 2 minutes on staging `web-develop`) plus the daily review run (`/api/internal/reviews/run`);
+> **nothing uses Cloud Tasks**. Agents as built: Proposal (v4 tool loop, plain-code `check_proposal`, flag
+> `PROPOSAL_AGENT_V4`), Debrief (question wording only, demo sandboxes, `check_question`, flag
+> `DEBRIEF_AGENT`) and Review (explains the plain-code verdict on the demo sandbox fast-forward,
+> `check_review`, flag `REVIEW_AGENT`); **no Critic agent** (dropped 16 Oct). The R-06, R-08 v2 and R-11
+> routes marked "planned" in §6.2 are built. The Mon 12 Oct pilot go-live was postponed on 9 Oct with no new
+> date; the pilot project has no deployed service. Detail: `docs/specs/technical-specification.md` §9 and §10.
+
 > **Updated 4 Oct 2026, MVP 1 answer shape (tech-lead, docs only; Rangga, 4 Oct, final; `docs/HANDOFF.md`
 > "Debrief answer shape for MVP 1"). Supersedes the free-text-only answer in the note below.** A debrief
 > answer is ***Ya* (YES) or *Tidak* (NO) plus a required reason**, or *Lewati* (skip, sends nothing). Route
@@ -49,7 +61,7 @@ the staff role on answers (§2), the internal-route list (§6.2), and two supers
 > §4.2, §6.2 (questions route), §8 (effect of Q-D).
 
 > **Updated 4 Oct 2026 (tech-lead, docs only): sign-in and consent (Rangga, 4 Oct, final; `docs/HANDOFF.md`).**
-> Owner and supervisor keep **Google sign-in**; staff need **no sign-in** (as in the device model note
+> Owner and supervisor keep **email + password (accounts created by an admin provisioning script; no self sign-up)**; staff need **no sign-in** (as in the device model note
 > below). **Consent is not collected in the app:** it is covered by the paper contract between bee6 and
 > Proofed, and bee6 emails the consent, the updated privacy policy and the TnC to all users. The in-app
 > consent gate (the outlet's `consent_complete` flag, the capture page's "no consent" view, the
@@ -70,12 +82,12 @@ the staff role on answers (§2), the internal-route list (§6.2), and two supers
 > (intro, matrix, rules), new §2a, §3, §4.1, §4.2, §4.3, §4.5, §5 (known limit), §6.2, §6.4, §6.5, §8
 > (effect of Q-D), §9. **Open for Rangga (not decided here; consent part closed 4 Oct by the sign-in and consent note above, no in-app consent step for anyone):** whether the staff consent step still
 > applies without staff sign-in (and whether pairing a staff phone needs its own consent); owner and
-> supervisor Google sign-in stays (CLAUDE.md §3) unless Rangga says otherwise; staff phones must keep the
+> supervisor email + password sign-in (accounts created by an admin provisioning script; no self sign-up) stays (CLAUDE.md §3) unless Rangga says otherwise; staff phones must keep the
 > page open with the screen on to capture (§5); two devices hearing one conversation produce duplicate
 > threads and questions (no cross-device de-duplication is built), which can double-count evidence. *(4 Oct,
 > late: resolved as a read-time merge in the insight run, technical spec §8.15; see the newest note.)*
 
-> **Updated 3 Oct 2026 (aligned with `docs/plan.md` v5):** `/capture` now starts only on a staff tap of Mulai and stops on Selesai or the hard auto-stop 60 min after closing (opening hours are reminders only; ~~off-hours Mulai is a normal session with no shorter cap~~ *superseded 4 Oct: Mulai only inside the Mulai window, technical spec §8.3*; a day with no Mulai is recorded as off / closed with no gap alarm); task table re-dated for the Mon 12 Oct pilot go-live; R-16 moved to "if time".
+> **Updated 3 Oct 2026 (aligned with `docs/plan.md` v5):** `/capture` now starts only on a staff tap of Mulai and stops on Selesai or the hard auto-stop 60 min after closing (opening hours are reminders only; ~~off-hours Mulai is a normal session with no shorter cap~~ *superseded 4 Oct: Mulai only inside the Mulai window, technical spec §8.3*; a day with no Mulai is recorded as off / closed with no gap alarm); task table re-dated for the Mon 12 Oct pilot go-live (*postponed 9 Oct, no new date*); R-16 moved to "if time".
 
 **What this doc is:** the build spec for the web app (replacing the Android app), the backend, login, and who-can-do-what (roles).
 **How it fits:** `docs/plan.md` says when each part is built; `docs/backlog.md` has the steps per task (R-xx); `docs/specs/pipeline-and-agents.md` covers the pipeline, debrief, agents and demo.
@@ -87,7 +99,7 @@ the staff role on answers (§2), the internal-route list (§6.2), and two supers
 |---|---|
 | W1 | **Web app instead of Android.** One responsive web app for everyone: the shop's capture device, staff, supervisors, owner and judges. |
 | W2 | **Transcription = Gemini 3.5 Transcribe only** (dedicated speech-to-text model), not Flash-Lite. |
-| W3 | **Login:** Owner and Supervisor sign in with Google. Staff tap their name + a 4-digit PIN, **only on the shop device**. **MVP 1 (4 Oct): staff do not sign in; they only pair a device (§2a). The name + PIN sign-in is post-MVP 1.** |
+| W3 | **Login:** Owner and Supervisor sign in with Google *(superseded 9 Oct: email + password, admin-provisioned, no self sign-up)*. Staff tap their name + a 4-digit PIN, **only on the shop device**. **MVP 1 (4 Oct): staff do not sign in; they only pair a device (§2a). The name + PIN sign-in is post-MVP 1.** |
 | W4 | **Judges:** one-click "Try as Owner / Supervisor / Staff" in a **demo outlet**, fully separate from Proofed's real data. (MVP 1: "Try as Staff" opens a paired-device session in the demo outlet, §3.) |
 | W5 | **Stack:** TypeScript, Next.js. |
 | W6 | Shop capture screen shows **status only** (no live transcript). |
@@ -110,25 +122,25 @@ the staff role on answers (§2), the internal-route list (§6.2), and two supers
   ┌──────────── Cloud Run service "web", asia-southeast2 (Jakarta) ────────────┐
   │  screens + API routes + login/roles (Next.js, TypeScript)                  │
   │  pipeline  segment → Transcribe → redact → windows → labels → gate         │
-  │            (async steps via Cloud Tasks → /api/internal/*, OIDC-checked)   │
-  │  agents    ADK (TypeScript): Debrief, Proposal, Critic, Review             │
+  │            (Cloud Scheduler tick → /api/internal/*, OIDC-checked)          │
+  │  agents    ADK (TypeScript): Proposal, Debrief (wording), Review (explain) │
   └───────────────┬──────────────────────────────────┬─────────────────────────┘
                   │                                  │
         Firestore (Jakarta)               Gemini on Google Cloud (Agent Platform)
-        Cloud Tasks, Scheduler            location per model from config/regions.yaml
+        Cloud Scheduler                   location per model from config/regions.yaml
         Secret Manager, Firebase Auth     (Jakarta → Singapore → global)
-                                          3.5 Transcribe · 3.5 Flash-Lite · 3.5 Flash · Live API
+                                          3.5 Transcribe · 3.5 Flash-Lite · 3.5 Flash
 ```
 
 ---
 
 ## 2. Roles and permissions (simple RBAC)
 
-Owner and supervisor (Google sign-in) plus the **paired device**. In MVP 1 there is no staff principal and no staff role is stored on debrief answers (they store the answering device id and timestamps only, §2a; §6.6.6). The "Staff (post-MVP 1)" column is the later design, kept so it survives. Each user belongs to **one outlet** with **one role** (MVP). A **judge** in the demo outlet gets exactly the permissions of the role they picked ("Try as Owner" sees owner screens), on fictional data only.
+Owner and supervisor (email + password; accounts created by an admin provisioning script, no self sign-up) plus the **paired device**. In MVP 1 there is no staff principal and no staff role is stored on debrief answers (they store the answering device id and timestamps only, §2a; §6.6.6). The "Staff (post-MVP 1)" column is the later design, kept so it survives. Each user belongs to **one outlet** with **one role** (MVP). A **judge** in the demo outlet gets exactly the permissions of the role they picked ("Try as Owner" sees owner screens), on fictional data only.
 
 | Can do | Owner | Supervisor | Staff (post-MVP 1) | Paired device (MVP 1: any paired phone) |
 |---|:-:|:-:|:-:|:-:|
-| Sign in with Google | ✅ | ✅ | — | — |
+| Sign in with email + password (admin-provisioned; 9 Oct, replaced Google sign-in) | ✅ | ✅ | — | — |
 | Sign in with name + PIN | — | — | ✅ paired device only (post-MVP 1) | — |
 | Pair with a 6-digit code (`/pair`) | — | — | — | ✅ own outlet |
 | Upload audio segments + heartbeats; Mulai / Selesai / cancel its own session | — | — | — | ✅ own outlet, own sessions |
@@ -137,9 +149,12 @@ Owner and supervisor (Google sign-in) plus the **paired device**. In MVP 1 there
 | Answer debrief questions | — | ❌ *(Rangga, 4 Oct, final; Q32 closed: supervisors confirm/override labels instead; 403 on the answer route)* | ✅ (own episodes; post-MVP 1) | ✅ MVP 1: questions carrying this `device_id`, inside its debrief window; stored with the device id and timestamps only, no role (questions are role-agnostic) |
 | See who answered a question | — | ❌ (shows "a staff member"; no name, no device id) | — | — |
 | Confirm / override labels | — | ✅ | — | — |
+| Generate proposal (`proposals:generate`) | ✅ (new, R-08 v2) | ✅ | — | — |
 | Review proposal (feasible / reject + reason) | — | ✅ | — | — |
 | Approve proposal (cost & brand) | ✅ | — | — | — |
 | Record review-date verdict | ✅ | ✅ | — | — |
+| See constraints (`constraints:read`, new) | ✅ (new, R-08 v2) | ✅ (new, R-08 v2) | — | — |
+| Add a constraint (`constraints:write`, new) | — | ✅ (new, R-08 v2) | — | — |
 | See SOP versions + diffs | ✅ | ✅ | read current steps (post-MVP 1) | — (no SOP screen on devices in MVP 1) |
 | Edit SOP directly | — | — | — | — |
 | Invite supervisors (MVP: seed script) | ✅ | — | — | — |
@@ -213,7 +228,7 @@ Owner and supervisor (Google sign-in) plus the **paired device**. In MVP 1 there
 
 | Who | How | Details |
 |---|---|---|
-| Owner, Supervisor | **Google sign-in** (Firebase Authentication) | MVP: the seed script lists the owner and supervisor emails; signing in with that Google account links the role. (P1: owner invites supervisors from a screen.) |
+| Owner, Supervisor | **email + password (accounts created by an admin provisioning script; no self sign-up)** (Firebase Authentication) | MVP: the seed script writes the owner and supervisor `users` docs (email, role, outlet); the admin provisioning script creates the Firebase Auth account for that email with a generated password (no self sign-up, no password on the command line). (P1: owner invites supervisors from a screen.) |
 | Device (any paired phone: the shop phone or a staff phone) | **Pairing code** | MVP: the seed script prints a 6-digit code valid 10 min; it's typed on the phone at `/pair`. The phone receives a long-lived device token (stored in the browser) tied to one outlet. Revoking it is a script command. Each paired phone is one device; the outlet's paired-device count gives the mode label (§2a). (P1: *Settings → Devices → Pair / Unpair*.) |
 | Staff (**post-MVP 1**) | **Name + 4-digit PIN, on a paired device only** | Not in MVP 1 (§2a): staff do not sign in. Kept design: the PIN screen appears only when a valid device token is present. 5 wrong tries → locked 15 min. The staff session lasts 30 min or until "Done". |
 | Judge | **"Try as…" buttons** on the demo landing page | Creates a short session (2 h) with the chosen role in the demo outlet. In MVP 1 "Try as Staff" creates a device session (`role: "device"`) on a demo device, since there is no staff principal. Rate-limited per IP. |
@@ -301,37 +316,42 @@ Responsive: works on a phone (360 px wide) and a laptop. Language toggle: **Baha
 | Part (inside `web`) | What it does |
 |---|---|
 | Screens + API | Next.js app: every screen, all API routes, login, role checks |
-| Pipeline | Transcription runs inside the segment request; the rest (windows → labels → gate) runs as Cloud Tasks calling `/api/internal/*` (the OIDC token from Cloud Tasks is checked) |
-| Agents | ADK (TypeScript): DebriefAgent, ProposalAgent, CriticAgent, ReviewAgent; Cloud Scheduler calls their internal routes |
+| Pipeline | Transcription runs inside the segment request; the rest (windows → labels → gate) runs on the Cloud Scheduler tick calling `/api/internal/pipeline/tick` (the OIDC token is checked: issuer `TASKS_INVOKER_SA`, audience `PIPELINE_TICK_AUDIENCE`). No Cloud Tasks |
+| Agents | ADK (TypeScript), as built: ProposalAgent (v4, flag), DebriefAgent (question wording, demo sandboxes), ReviewAgent (explains the plain-code verdict, demo sandbox fast-forward), each checked by plain code; no CriticAgent. Scheduler calls only the tick and the daily review run |
 
 Scales 0 → n. One deployable is simpler for a one-person team; the architecture slide still names each agent.
-Supporting: Firestore (Native, Jakarta), Cloud Tasks (queues between steps, retries), Cloud Scheduler (pipeline tick, review dates; capture start/stop and the debrief follow Mulai/Selesai, not a schedule), Secret Manager, Sensitive Data Protection, Firebase Authentication. (P1: BigQuery billing export for the cost tile.)
+Supporting: Firestore (Native, Jakarta; staging uses the named database `staging`), Cloud Scheduler (pipeline tick, review dates; capture start/stop and the debrief follow Mulai/Selesai, not a schedule), Secret Manager, Sensitive Data Protection, Firebase Authentication. (P1: BigQuery billing export for the cost tile.)
 
 ### 6.2 Main API (served by `web`)
 | Method + path | Who | Does |
 |---|---|---|
-| `PUT /api/v1/segments/{device}:{seg}` | Paired device | Transcribes the audio **in memory only**, stores redacted text, queues the next pipeline step, returns `200`. Idempotent. |
+| `PUT /api/v1/segments/{device}:{seg}` | Paired device | Transcribes the audio **in memory only**, stores redacted text (the next pipeline tick picks it up), returns `200`. Idempotent. Upstream failure → `503` (the phone retries) |
 | `POST /api/v1/heartbeat` | Paired device | Device health |
 | `POST /api/v1/devices/pair` | Any phone with a valid pairing code | Code → device token (codes come from the seed script; P1: from Settings) |
 | `POST /api/v1/auth/pin` | Staff via paired device (**post-MVP 1**) | Name + PIN → staff session. Built in R-02; **returns 404 in MVP 1** (R-07 turns it off, §2a) |
 | `POST /api/v1/demo/session` | Anyone (demo only) | One-click role session |
-| `GET /api/v1/day/{date}` | Owner (summaries), Supervisor (full) | Day record |
-| `GET /api/v1/questions` | Paired device (MVP 1: its own open questions, inside its debrief window); Supervisor (read-only, any, for the questions queue; no device id in the response); Staff (own) post-MVP 1 | Debrief list / questions queue |
+| `GET /api/v1/day/{date}` | Owner (summaries), Supervisor (full) | Day record *(built, R-06)* |
+| `GET /api/v1/home` | Owner, Supervisor | Home/dashboard summary *(built, R-06; owner home)* |
+| `GET /api/v1/questions` | Paired device (MVP 1: its own open questions, inside its debrief window); Supervisor (read-only, any, for the questions queue; no device id in the response) *(supervisor branch: built, R-06)*; Staff (own) post-MVP 1 | Debrief list / questions queue |
 | `POST /api/v1/questions/{id}/answer` | **Paired device only** (MVP 1: questions with its own `device_id`, inside its debrief window); Staff (own) post-MVP 1. Supervisor / owner → 403 (4 Oct, final) | Debrief answer (4 Oct, MVP 1): body `{ question_id, debrief_business_date, answer: "yes" \| "no", reason, answered_at_ms }`; no valid `answer` → 400, empty reason → 400, reason > 500 characters → 400, scrub + SDP on the reason before storage, 503 on redaction failure; YES → `staff_confirmed`, NO → `staff_rejected`. Stored with `answered_device_id` and timestamps only, no role, never a name (§2a; §6.6.6) |
-| `POST /api/v1/threads/{id}/confirm` | Supervisor | Confirm / override a label |
+| `POST /api/v1/threads/{id}/confirm` | Supervisor | Confirm / override / reject a label *(built, R-06)* |
 | `GET /api/v1/proposals` · `POST …/{id}/review` · `POST …/{id}/approve` | Supervisor / Owner | Approval chain |
-| `GET /api/v1/sop` · `GET /api/v1/sop/diff?from=&to=` | Owner, Supervisor; Staff (current) post-MVP 1 | SOP |
+| `GET /api/v1/sop` · `GET /api/v1/sop/diff?from=&to=` | Owner, Supervisor; Staff (current) post-MVP 1 | SOP. *As built: `GET /api/v1/sop` only (versions with their change); no separate diff route* |
 | `POST /api/v1/reviews/{id}/verdict` | Owner, Supervisor | Outcome |
-| `POST /api/v1/proposals/generate` | Supervisor | Runs the ProposalAgent now (also used in the demo outlet) |
-| `POST /api/internal/*` | Cloud Tasks, Cloud Scheduler only (OIDC) | Pipeline steps (the tick), the debrief-end `unverified` expiry if R-07 picks a tick write (technical spec §8.10), review date. The debrief itself starts at Selesai or the auto-stop, not on a schedule |
+| `GET /api/v1/constraints` | Owner, Supervisor | List constraints (built, R-08 v2) |
+| `POST /api/v1/constraints` | Supervisor | Add a constraint (built, R-08 v2) |
+| `POST /api/v1/proposals/generate` | Owner, Supervisor (both, v2, not supervisor-only) | Runs the ProposalAgent now over a date range (also used in the demo); as built this is the insight run: plain-code range check and evidence floor first |
+| `POST /api/internal/*` | Cloud Scheduler only (OIDC; as built no Cloud Tasks) | Pipeline steps (the tick), the debrief-end `unverified` expiry if R-07 picks a tick write (technical spec §8.10), review date. The debrief itself starts at Selesai or the auto-stop, not on a schedule |
 | `GET /api/v1/capture/config` | Paired device | Its outlet's timezone, resolved weekly hours and this device's `last_ended` (§6.6.2) |
 | `POST /api/v1/capture/sessions` · `…/{session_id}/end` · `…/{session_id}/discard` | Paired device only | Start, end and cancel its own session (§6.6.3 to §6.6.5) |
-| `POST /api/v1/capture/gaps` | Paired device only | Gap ledger upsert, P2 (§6.6.7) |
-| `POST /api/v1/insights/runs` · `GET /api/v1/insights/runs` | Supervisor, Owner of the outlet | Idempotent insight run per exact date range + sufficiency check; run list + weekly reminder flag (§6.6.8) |
+| `POST /api/v1/capture/gaps` | Paired device only | Gap ledger upsert, P2 (§6.6.7). *Not built* |
+| `POST /api/v1/insights/runs` · `GET /api/v1/insights/runs` | Supervisor, Owner of the outlet | Idempotent insight run per exact date range + sufficiency check; run list + weekly reminder flag (§6.6.8). *Not built: the proposal generate route plays this role* |
+| `GET /api/v1/reviews` · `POST /api/v1/reviews/fast-forward` | Owner, Supervisor; fast-forward demo only (`DEMO_MODE`, demo outlet, 3 per sandbox) | Review list; simulated fast-forward to the review date (runs the same review code; the Review agent only on a sandbox with `REVIEW_AGENT`) |
+| `POST /api/v1/demo/closing` · `POST /api/v1/demo/next-day` · `GET /api/v1/demo/progress` · `POST /api/v1/demo/reset` | Demo sandbox only (`DEMO_MODE`; 404 otherwise) | Jump to closing, jump to tomorrow (plain-code guards), guide progress, owner reset (technical spec §9.2) |
 | `POST /api/v1/uploads/pos` · `/roster` (P1) | Owner, Supervisor | CSV imports |
 | `GET /api/v1/cost/daily` (P1) | Owner | Cost tile |
 
-Transcription happens inside the segment request (so the audio never has to be stored); the rest of the pipeline runs async via Cloud Tasks.
+Transcription happens inside the segment request (so the audio never has to be stored); the rest of the pipeline runs on the scheduled tick (as built; no Cloud Tasks).
 
 ### 6.3 Transcription (Gemini 3.5 Transcribe only)
 - Call: audio inline (≤ 45 KB), `language_codes: ["id-ID","jv-ID"]` (or auto-detect if accuracy is better, decided in R-04 on Tiffany's test clips), **custom vocabulary ≤ 100 terms** (products, staff first names, suppliers). No diarization, no word timestamps (they can't be combined with custom vocabulary, and speaker role comes from mic position).
@@ -341,10 +361,10 @@ Transcription happens inside the segment request (so the audio never has to be s
 - **Uncertain words:** Transcribe gives no confidence, so confidence comes from the label call plus debrief answers (the gate already sends anything unsure to a question).
 
 ### 6.4 Data model (Firestore; every document has `outlet_id`)
-`outlets` · `users` (uid, role, outlet) · `staff` (name, PIN hash, role; **the only place names live**; MVP 1: names feed the scrub and vocabulary, the PIN hash is dormant) · `devices` (+ `heartbeats`; no person's name or label, MVP 1 §2a) · `segments` (redacted lines, times, model, location; TTL 48 h) · `windows` · `threads` (category, fields, summary, evidence line refs, confidence, runner-up, status) · `questions` · `corrections` · `sop_versions` (immutable) · `proposals` · `constraints` · `reviews` · `outcomes` · `sales_events` · `event_cards` · `audit_log` (who did what, when) · `capture_sessions` · `capture_gaps` (P2) · `insight_runs` (P5). Field-level shapes for the session, gap, insight and answer work: §6.6.
+`outlets` · `users` (uid, role, outlet) · `staff` (name, PIN hash, role; **the only place names live**; MVP 1: names feed the scrub and vocabulary, the PIN hash is dormant) · `devices` (+ `heartbeats`; no person's name or label, MVP 1 §2a) · `segments` (redacted lines, times, model, location; TTL 48 h) · `windows` · `threads` (category, fields, summary, evidence line refs, confidence, runner-up, status) · `questions` · `corrections` · `sop_versions` (immutable; v1, v2 = v1 + approved change) · `proposals` · `constraints` (redacted text; `source: "supervisor_rejection" | "manual"`; planned, R-08 v2, not yet built) · `reviews` · `outcomes` · `sales_events` · `event_cards` · `audit_log` (who did what, when) · `capture_sessions` · `capture_gaps` (P2) · `insight_runs` (P5). Field-level shapes for the session, gap, insight and answer work: §6.6.
 
 ### 6.5 Security basics
-- Secrets in Secret Manager; one service account for `web` with only the permissions it needs; a separate invoker account for Cloud Tasks/Scheduler.
+- Secrets in Secret Manager; one service account for `web` with only the permissions it needs; a separate invoker account for Cloud Scheduler (the internal routes require it as the OIDC issuer).
 - PINs hashed (bcrypt/argon2) and staff sessions short (post-MVP 1; the PIN route is off in MVP 1); device tokens revocable. In MVP 1 a paired device can answer its own debrief questions without any PIN, so the answer route's debrief-window binding and per-device rate limit (§6.6.6) are the compensating controls. The answer's reason is refused when empty or over 500 characters and is name-scrubbed and SDP-redacted before storage; it never appears in logs or error bodies (4 Oct, MVP 1 final).
 - No audio in cloud storage, logs or error reports (log sizes and IDs only).
 - Every approval, rejection, override and verdict is written to `audit_log`.
@@ -593,10 +613,10 @@ This is fine for the hackathon (pilot + demo ≈ **$60–65** of Google Cloud th
 | Part of this spec | Task | Date |
 |---|---|---|
 | Projects, probe, repo, deploy (§6.1) | R-01 | Wed 30 Sep |
-| Data model, Google sign-in, roles, seed script, pairing, staff PIN (§2, §3, §6.4; staff PIN built but dormant in MVP 1, §2a) | R-02 | Thu 1 – Fri 2 (done) |
+| Data model, email + password (accounts created by an admin provisioning script; no self sign-up), roles, seed script, pairing, staff PIN (§2, §3, §6.4; staff PIN built but dormant in MVP 1, §2a) | R-02 | Thu 1 – Fri 2 (done) |
 | Capture page (§4.1, §5) | R-03 | Fri 2 – Sat 3 |
 | Segment API + Transcribe + redaction (§6.2, §6.3) | R-04 | Sun 4 |
-| Mulai/Selesai sessions + hard auto-stop (§4.1) | capture phase plan P1 | Sun 4 – Mon 5 (pilot go-live Mon 12) |
+| Mulai/Selesai sessions + hard auto-stop (§4.1) | capture phase plan P1 | Sun 4 – Mon 5 (pilot go-live planned Mon 12; postponed 9 Oct, no new date) |
 | Day record screens (§4.3, §4.4) | R-06 | Tue 6 |
 | Debrief on a paired device, tap, no sign-in; mode label; PIN route off (§2a, §4.2) | R-07 | Wed 7 |
 | Approval screens (§4.3, §4.4) | R-09 | Fri 9 – Sat 10 |
