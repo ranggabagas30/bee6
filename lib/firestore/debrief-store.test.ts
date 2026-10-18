@@ -326,6 +326,18 @@ describe("firestoreDebriefStore.listOpenQuestions / getQuestion", () => {
     expect(result.map((q) => q.question_id)).toEqual(["q1"]);
   });
 
+  it("M5: a question doc carrying a malformed or future-version `agent` is still listed and readable (the agent text alone is dropped)", async () => {
+    const { db } = fakeDb({
+      [COLLECTIONS.questions]: {
+        q1: asDoc({ ...makeQuestion({ question_id: "q1" }), agent: { version: "debrief-q-v2", question_en: "future shape" } }),
+        q2: asDoc({ ...makeQuestion({ question_id: "q2" }), agent: "garbage" }),
+      },
+    });
+    const store = firestoreDebriefStore(OUTLET, db);
+    expect((await store.listOpenQuestions(DEVICE)).map((q) => q.question_id).sort()).toEqual(["q1", "q2"]);
+    expect((await store.getQuestion("q1"))?.question_id).toBe("q1");
+  });
+
   it("getQuestion reads by id regardless of outlet (the service checks scope)", async () => {
     const { db } = fakeDb({
       [COLLECTIONS.questions]: { q1: asDoc(makeQuestion({ outlet_id: "other-outlet" })) },

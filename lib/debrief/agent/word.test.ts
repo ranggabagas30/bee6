@@ -183,6 +183,31 @@ describe("wordGateQuestions", () => {
       });
     });
 
+    it("M5: an agent object that fails the storage schema is NOT assigned (the template stays), logged as agent_schema, never thrown", async () => {
+      // rounds 3 passes the plain-code checker (the runner counts) but is outside the stored 1..2
+      const { input, questionWrites } = setup(["t1"], async () => accepted(GOOD, 3));
+      await expect(wordGateQuestions(input)).resolves.toBeUndefined();
+      expect("agent" in questionWrites[0]!).toBe(false);
+      const entries = logSpy.mock.calls
+        .map((c: unknown[]) => String(c[0]))
+        .filter((l: string) => l.includes("debrief_agent.call"))
+        .map((l: string) => JSON.parse(l) as Record<string, unknown>);
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({ outcome: "error", error_class: "agent_schema", outlet_id: "sbx-1", unit_id: "u1" });
+      // numbers and enums only: no wording, no zod message
+      expect(JSON.stringify(entries[0])).not.toContain("twelve");
+      expect(JSON.stringify(entries[0])).not.toContain("Around");
+    });
+
+    it("M5: a negative generated_at_ms also keeps the template", async () => {
+      const { input, questionWrites } = setup(["t1"], async () => accepted(), {
+        now_ms: -1,
+        deps: { run: async () => accepted(), project: "proj", resolveLocation: () => "LOC", now_ms: -1 },
+      });
+      await wordGateQuestions(input);
+      expect("agent" in questionWrites[0]!).toBe(false);
+    });
+
     it("rejected after 2 rounds: no agent field (the template stays)", async () => {
       const { input, questionWrites } = setup(["t1"], async () => ({
         kind: "rejected", reasons: ["too_long"], rounds: 2, usage: USAGE, model_calls: 2, ms: 900,

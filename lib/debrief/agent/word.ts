@@ -8,6 +8,7 @@ import {
   DEBRIEF_AGENT_UNIT_GUARD_MS,
   DEBRIEF_AGENT_VERSION,
 } from "@/lib/debrief/agent/constants";
+import { QuestionAgentSchema } from "@/lib/firestore/schema";
 import { buildMoment } from "@/lib/debrief/agent/moment";
 import type { DebriefQuestionMoment } from "@/lib/debrief/agent/types";
 import type { QuestionWrite, StoredThread, ThreadWrite } from "@/lib/pipeline/tick/types";
@@ -200,7 +201,9 @@ async function wordGateQuestionsUnsafe(input: WordGateInput): Promise<void> {
         logCall({ ...base, outcome: "rejected", reasons, rounds: result.rounds, ...usageFields(result) });
         return;
       }
-      q.agent = {
+      // The storage schema decides what may be written: an object that would later fail `QuestionSchema.parse` (and
+      // cost the whole unit in the tick-store) is dropped here, so a wording problem only ever costs the wording.
+      const candidate = QuestionAgentSchema.safeParse({
         version: DEBRIEF_AGENT_VERSION,
         model: DEBRIEF_AGENT_MODEL,
         category: moment.category,
@@ -208,7 +211,13 @@ async function wordGateQuestionsUnsafe(input: WordGateInput): Promise<void> {
         question_en: result.draft.question_en.trim(),
         rounds: result.rounds,
         generated_at_ms: generatedAt,
-      };
+      });
+      if (!candidate.success) {
+        // Numbers and enums only: no wording and no zod message (they could echo the text).
+        logCall({ ...base, outcome: "error", error_class: "agent_schema", rounds: result.rounds, ...usageFields(result) });
+        return;
+      }
+      q.agent = candidate.data;
       logCall({ ...base, outcome: "accepted", rounds: result.rounds, ...usageFields(result) });
     }),
   );
