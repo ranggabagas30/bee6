@@ -20,32 +20,6 @@ export function classifyUploadResult(status: number | null): UploadDisposition {
   return "drop";
 }
 
-/** Default cap on transient-retry attempts before a segment is given up on. */
-export const DEFAULT_MAX_ATTEMPTS = 6;
-
-export interface UploadAction {
-  action: UploadDisposition;
-  /** Delay before the next attempt; present only when `action === "retry"`. */
-  delayMs?: number;
-}
-
-/**
- * Combined policy: classify the result, apply the max-attempts give-up, and
- * compute the backoff delay for a retry. `attempt` is the number just made
- * (1 = first). A transient failure past `maxAttempts` becomes a drop.
- */
-export function nextUploadAction(
-  status: number | null,
-  attempt: number,
-  options: { maxAttempts?: number } & Partial<BackoffOptions> = {},
-): UploadAction {
-  const { maxAttempts = DEFAULT_MAX_ATTEMPTS, ...backoff } = options;
-  const disposition = classifyUploadResult(status);
-  if (disposition !== "retry") return { action: disposition };
-  if (attempt >= maxAttempts) return { action: "drop" };
-  return { action: "retry", delayMs: backoffDelayMs(attempt, backoff) };
-}
-
 export interface BackoffOptions {
   baseMs: number;
   factor: number;
