@@ -10,6 +10,7 @@ import {
   UNIT_BUDGET_MS,
 } from "@/lib/pipeline/tick/service";
 import type { DebriefAgent, DebriefAgentResult } from "@/lib/agents/debrief-agent";
+import { agentTextFor } from "@/lib/debrief/agent/view";
 import {
   DEBRIEF_AGENT_BACKSTOP_MARGIN_MS,
   DEBRIEF_AGENT_MAX_PER_UNIT,
@@ -1519,7 +1520,6 @@ describe("mergeThread", () => {
  * unit just created, BEFORE `writeUnitResult`; flag off (the pilot) it adds no await and writes nothing new.
  */
 describe("runTick: DebriefAgent wording", () => {
-  const GOOD = "Around 14:05, was there a phone order for twelve egg tarts?";
   const okAccepted: DebriefAgentResult = {
     kind: "accepted",
     draft: { question_en: "Around 14:05, was the oven checked?" },
@@ -1630,6 +1630,11 @@ describe("runTick: DebriefAgent wording", () => {
     expect(run.mock.calls[0]![0].moment.start_hm).toBe("15:05");
     expect(store.getOutletTzCalls).toBe(1);
     expect(gateQuestions(store)[0]!.agent?.start_hm).toBe("15:05");
+    // Write side and read side agree byte for byte: the read path (same tz) shows the stored wording...
+    const written = gateQuestions(store)[0]!;
+    expect(agentTextFor({ ...written, kind: "gate" }, "Asia/Makassar")).toBe(written.agent!.question_en);
+    // ...and a different tz would NOT (start_hm no longer matches): the template stays.
+    expect(agentTextFor({ ...written, kind: "gate" }, "Asia/Jakarta")).toBeUndefined();
   });
 
   it("the staff names reach the checker context but the agent is never given anything else about people", async () => {
