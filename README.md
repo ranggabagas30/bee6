@@ -38,16 +38,8 @@ EN / ID button. Use a phone or laptop with a microphone.
 - The questions appear 1 to 3 minutes after you end the day. Keep the page open.
 - Suggestions take under a minute.
 - The fast-forward is simulated, so there is no real waiting.
-- Sometimes Bee6's written explanation is missing and a plain card shows instead. That is expected.
-
-## Honest limits
-
-- It uses a preview speech model on shared Google capacity. If many people start at once, there can be delays.
-- It listens through one phone per shop. The screen must stay on and the phone plugged in.
-- Consent from the shop's staff is collected outside the app.
-- A full privacy impact assessment is the next step after this submission.
-- Some Bahasa text is still being reviewed.
-- Bee6 has no results from a real shop to report yet.
+- If many people start at the same moment, things can take a little longer.
+- If Bee6's written explanation does not appear, a plain card shows instead. The result itself does not change.
 
 ## Want the details?
 
