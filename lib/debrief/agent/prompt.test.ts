@@ -21,6 +21,25 @@ describe("prompt", () => {
     expect(DEBRIEF_SYSTEM_INSTRUCTION).not.toMatch(/\bSOP\b/);
   });
 
+  it("system instruction asks for ONE positive yes/no question: no negations, no and/or compounds (M1)", () => {
+    expect(DEBRIEF_SYSTEM_INSTRUCTION).toContain("ONE positive yes/no question");
+    expect(DEBRIEF_SYSTEM_INSTRUCTION).toContain("No negations");
+    expect(DEBRIEF_SYSTEM_INSTRUCTION).toContain('"and" / "or"');
+  });
+
+  it("system instruction asks whether there WAS the moment as the notes describe it, never whether a step was or was not done (M1 rework)", () => {
+    const flat = DEBRIEF_SYSTEM_INSTRUCTION.replace(/\s+/g, " ").toLowerCase();
+    expect(flat).toContain("was there a phone order for twelve egg tarts?");
+    expect(flat).toContain("ask whether there was the moment the notes describe, in plain, friendly english a busy worker reads in 3 seconds.");
+    expect(flat).not.toContain("happened as described");
+    expect(flat).toContain("whether there was the moment, as the notes describe it");
+    expect(flat).toContain("never ask whether a step was or was not done");
+    expect(flat).toContain("never ask the opposite of the notes");
+    // the steering that made the model flip a negative fact is gone
+    expect(DEBRIEF_SYSTEM_INSTRUCTION).not.toContain("a Yes must");
+    expect(DEBRIEF_SYSTEM_INSTRUCTION).not.toContain("always mean");
+  });
+
   it("user content for the fixture", () => {
     expect(buildUserContent(moment)).toMatchSnapshot();
   });
@@ -30,12 +49,18 @@ describe("prompt", () => {
     expect(text).toContain("Time: 14:05 to 14:08");
     expect(text).toContain("- There was a phone order for twelve egg tarts.");
     expect(text).toContain("- I did not read the order back.");
-    expect(text).toContain("Summary: Phone order taken, not read back.");
+    expect(text).not.toContain("Summary");
+    expect(text).not.toContain("Phone order taken, not read back.");
     expect(text).toContain("Category: a phone call (PHONE_CALL)");
   });
 
-  it("an empty summary reads '(none)'", () => {
-    expect(buildUserContent({ ...moment, summary: "" })).toContain("Summary: (none)");
+  it("the stored summary is never shown to the model (less steering by attacker-shaped label text)", () => {
+    const hostile = { ...moment, summary: "Adversarial prompt injection attempt regarding theft." };
+    const text = buildUserContent(hostile);
+    expect(text).not.toContain("Summary");
+    expect(text).not.toContain("injection");
+    expect(text).not.toContain("theft");
+    expect(buildUserContent({ ...moment, summary: "" })).toBe(buildUserContent(moment));
   });
 
   it("a [STAFF] placeholder in a line is passed through (the checker, not the prompt, refuses to echo it)", () => {

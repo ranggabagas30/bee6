@@ -64,7 +64,7 @@ export function questionLines(lang: Lang, question: DebriefQuestionView): string
 
 /**
  * The TEMPLATE lines joined into one string, whatever the heading shows: used by the answered-question rows (which
- * are rebuilt without `question_text`). The on-screen heading and the radiogroup `aria-label` use `questionLines`.
+ * are rebuilt without `question_text`). The on-screen heading (which the radiogroup names via `aria-labelledby`) uses `questionLines`.
  */
 export function questionText(lang: Lang, question: DebriefQuestionView): string {
   return templateLines(lang, question).join(" ");

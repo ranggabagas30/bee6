@@ -569,11 +569,58 @@ describe("DebriefFlow: R-19 demo debrief (sandbox only)", () => {
     ["19 code points", "x".repeat(19)],
     ["141 code points", "x".repeat(141)],
     ["a non-string", 42],
-  ])("a list whose question_text is %s fails the phone's strict parse: the load error shows, no question", async (_name, bad) => {
+  ])("M3: a list whose question_text is %s is read leniently: the question shows with its template heading, no load error", async (_name, bad) => {
     const { fn } = server([q("q1", { question_text: bad })], false);
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} demo />);
+    await waitFor(() => expect(screen.getByText("Question 1 of 1")).toBeTruthy());
+    expect(screen.queryByText("Questions could not load yet.")).toBeNull();
+    expect(screen.getByRole("heading", { level: 2 }).textContent).not.toBe(String(bad));
+  });
+
+  it("M3: one bad question_text does not take the other question's wording with it", async () => {
+    const text = "Around 15:00, was the oven checked before opening?";
+    const { fn } = server([q("q1", { question_text: 42 }), q("q2", { question_text: text })], false);
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} demo />);
+    await waitFor(() => expect(screen.getByText("Question 1 of 2")).toBeTruthy());
+    await answerYes();
+    await waitFor(() => expect(screen.getByText("Question 2 of 2")).toBeTruthy());
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(text);
+  });
+
+  it("M3: a list that is unreadable for any OTHER reason (an unknown key) still fails the load, visibly", async () => {
+    const { fn } = server([q("q1", { surprise: 1 })], false);
     render(<Harness fetchFn={fn} storage={new FakeStorage()} demo />);
     await waitFor(() => expect(screen.getByText("Questions could not load yet.")).toBeTruthy());
     expect(screen.queryByRole("heading", { level: 2 })).toBeNull();
+  });
+
+  it("M3: a poll whose body no longer parses shows the retryable load error instead of sitting on 'Preparing'; Try again reloads", async () => {
+    pollClock();
+    const { fn, calls, state } = server([], true);
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} demo />);
+    await waitFor(() => expect(screen.getByText("Preparing your questions")).toBeTruthy());
+    // The server starts sending a shape this bundle cannot read (an unknown key).
+    state.questions = [q("q1", { surprise: 1 })];
+    await vi.advanceTimersByTimeAsync(10_500);
+    await waitFor(() => expect(screen.getByText("Questions could not load yet.")).toBeTruthy());
+    expect(screen.queryByText("Preparing your questions")).toBeNull();
+    // Try again: the server is fixed, the retry loads the question.
+    state.questions = [q("q1")];
+    const before = gets(calls);
+    fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+    await waitFor(() => expect(screen.getByText("Question 1 of 1")).toBeTruthy());
+    expect(gets(calls)).toBe(before + 1);
+  });
+
+  it("M3: a poll that fails to parse while a question is on screen leaves the question alone", async () => {
+    pollClock();
+    const { fn, state } = server([q("q1")], true);
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} demo />);
+    await waitFor(() => expect(screen.getByText("Question 1 of 1")).toBeTruthy());
+    state.questions = [q("q1"), q("q2", { surprise: 1 })];
+    await vi.advanceTimersByTimeAsync(10_500);
+    expect(screen.getByText("Question 1 of 1")).toBeTruthy();
+    expect(screen.queryByText("Questions could not load yet.")).toBeNull();
   });
 
   it("auto-opens on mount: no 'Answer questions' card, the list is fetched at once", async () => {

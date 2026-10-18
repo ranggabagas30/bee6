@@ -1,6 +1,6 @@
 import { getModelLocation } from "@/config/regions";
 import type { DebriefAgent, DebriefAgentResult } from "@/lib/agents/debrief-agent";
-import { checkQuestion, type CheckRule } from "@/lib/debrief/agent/check";
+import { checkQuestion, notesHaveNegation, type CheckRule } from "@/lib/debrief/agent/check";
 import {
   DEBRIEF_AGENT_MAX_PER_UNIT,
   DEBRIEF_AGENT_MODEL,
@@ -8,6 +8,7 @@ import {
   DEBRIEF_AGENT_UNIT_GUARD_MS,
   DEBRIEF_AGENT_VERSION,
 } from "@/lib/debrief/agent/constants";
+import { QuestionAgentSchema } from "@/lib/firestore/schema";
 import { buildMoment } from "@/lib/debrief/agent/moment";
 import type { DebriefQuestionMoment } from "@/lib/debrief/agent/types";
 import type { QuestionWrite, StoredThread, ThreadWrite } from "@/lib/pipeline/tick/types";
@@ -20,9 +21,11 @@ import type { QuestionWrite, StoredThread, ThreadWrite } from "@/lib/pipeline/ti
  * The gate decides which moments become questions (hard rule 10); this module only picks, among the questions the
  * gate already raised, the ones worth a model call:
  *  - the thread's own gate verdict must be `question` (never a `fact` thread, never an `unlabelled_unit` question);
+ *  - a moment with no usable lines (`no_lines`), or whose own notes state a negative fact (English or Bahasa), keeps
+ *    the template (`negated_notes`); both are dropped BEFORE the cap, so they never use one of its slots;
  *  - a continuation of an already-open thread with the same category keeps the wording its existing question has
  *    (the store never rewrites it, F3), so it is skipped;
- *  - at most `DEBRIEF_AGENT_MAX_PER_UNIT` per unit, run in parallel, so a unit pays one agent budget, not three;
+ *  - at most `DEBRIEF_AGENT_MAX_PER_UNIT` of the remaining moments per unit, run in parallel, so a unit pays one agent budget, not three;
  *  - not when the unit has already spent most of its own time budget (the 30 min lease is sized on it).
  * The checker is re-run on the accepted draft before it is stored (defence in depth, one function with the tool).
  *
@@ -64,7 +67,7 @@ export interface WordGateInput {
   deps?: DebriefAgentDeps;
 }
 
-type SkippedReason = "continuation_same_category" | "no_lines" | "unit_budget";
+type SkippedReason = "continuation_same_category" | "no_lines" | "unit_budget" | "negated_notes";
 
 function errorClassOf(error: unknown): string {
   if (error instanceof Error) return error.name || "Error";
@@ -78,6 +81,8 @@ function logCall(entry: Record<string, unknown>): void {
 
 function usageFields(result: Extract<DebriefAgentResult, { usage: unknown }>) {
   return {
+    // Rule CODES of the first failed checker round (fixed literals, never text); [] when round 1 passed.
+    reject_reasons: result.reject_reasons ?? [],
     model_calls: result.model_calls,
     ms: result.ms,
     input_tokens: result.usage.input_tokens,
@@ -116,17 +121,10 @@ async function wordGateQuestionsUnsafe(input: WordGateInput): Promise<void> {
     candidates.push({ q, thread });
   }
 
-  // 3: the cap, in unit order.
-  const capped = candidates.slice(0, DEBRIEF_AGENT_MAX_PER_UNIT);
-  if (capped.length === 0) return;
-
-  if (input.unit_budget_left_ms !== undefined && input.unit_budget_left_ms < DEBRIEF_AGENT_UNIT_GUARD_MS) {
-    for (let i = 0; i < capped.length; i += 1) skip("unit_budget");
-    return;
-  }
-
-  const work: Array<{ q: QuestionWrite; moment: DebriefQuestionMoment }> = [];
-  for (const { q, thread } of capped) {
+  // 3: build each moment and drop the ones the agent must not word, BEFORE the cap, so a skipped moment never takes
+  // one of the DEBRIEF_AGENT_MAX_PER_UNIT slots from a moment that can be worded.
+  const eligible: Array<{ q: QuestionWrite; moment: DebriefQuestionMoment }> = [];
+  for (const { q, thread } of candidates) {
     const moment = buildMoment({
       category: q.category,
       window_start_ms: q.window_start_ms,
@@ -145,9 +143,23 @@ async function wordGateQuestionsUnsafe(input: WordGateInput): Promise<void> {
       skip("no_lines");
       continue;
     }
-    work.push({ q, moment });
+    // A moment whose notes are a negative fact ("I did not read the order back") is never worded: any positive
+    // yes/no about it gets an honest No, and a No on a gate question drops the true evidence (staff_rejected).
+    if (notesHaveNegation(moment.lines, moment.summary)) {
+      skip("negated_notes");
+      continue;
+    }
+    eligible.push({ q, moment });
   }
+
+  // 4: the cap, in unit order, over the moments that can actually be worded.
+  const work = eligible.slice(0, DEBRIEF_AGENT_MAX_PER_UNIT);
   if (work.length === 0) return;
+
+  if (input.unit_budget_left_ms !== undefined && input.unit_budget_left_ms < DEBRIEF_AGENT_UNIT_GUARD_MS) {
+    for (let i = 0; i < work.length; i += 1) skip("unit_budget");
+    return;
+  }
 
   // Resolved once per unit, only when there is something to word. Any failure keeps every template.
   let run: DebriefAgent;
@@ -200,7 +212,9 @@ async function wordGateQuestionsUnsafe(input: WordGateInput): Promise<void> {
         logCall({ ...base, outcome: "rejected", reasons, rounds: result.rounds, ...usageFields(result) });
         return;
       }
-      q.agent = {
+      // The storage schema decides what may be written: an object that would later fail `QuestionSchema.parse` (and
+      // cost the whole unit in the tick-store) is dropped here, so a wording problem only ever costs the wording.
+      const candidate = QuestionAgentSchema.safeParse({
         version: DEBRIEF_AGENT_VERSION,
         model: DEBRIEF_AGENT_MODEL,
         category: moment.category,
@@ -208,7 +222,13 @@ async function wordGateQuestionsUnsafe(input: WordGateInput): Promise<void> {
         question_en: result.draft.question_en.trim(),
         rounds: result.rounds,
         generated_at_ms: generatedAt,
-      };
+      });
+      if (!candidate.success) {
+        // Numbers and enums only: no wording and no zod message (they could echo the text).
+        logCall({ ...base, outcome: "error", error_class: "agent_schema", rounds: result.rounds, ...usageFields(result) });
+        return;
+      }
+      q.agent = candidate.data;
       logCall({ ...base, outcome: "accepted", rounds: result.rounds, ...usageFields(result) });
     }),
   );

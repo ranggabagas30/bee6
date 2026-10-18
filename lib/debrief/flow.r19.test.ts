@@ -105,6 +105,34 @@ describe("LOADED (demo): preparing and empty", () => {
   });
 });
 
+describe("REFRESH_UNREADABLE (demo, M3): a poll whose body cannot be read is made visible, never silent", () => {
+  const preparing = run(DEMO_CLOSED, [{ type: "OPEN" }, loaded([], true)]);
+  const waiting = run(DEMO_CLOSED, [{ type: "OPEN" }, loaded([q("a")], true), { type: "SKIP" }]);
+  const onQuestion = run(DEMO_CLOSED, [{ type: "OPEN" }, loaded([q("a")], true)]);
+
+  it("preparing and waiting_more -> load_error (the screen offers Try again)", () => {
+    expect(reduceDebrief(preparing, { type: "REFRESH_UNREADABLE" }).view).toEqual({ kind: "load_error" });
+    expect(reduceDebrief(waiting, { type: "REFRESH_UNREADABLE" }).view).toEqual({ kind: "load_error" });
+  });
+
+  it("a question on screen is never replaced (the judge is answering)", () => {
+    const s = reduceDebrief(onQuestion, { type: "REFRESH_UNREADABLE" });
+    expect(s).toBe(onQuestion);
+  });
+
+  it("pilot (demo false) and every other view: unchanged (same object)", () => {
+    const pilot: DebriefState = { ...DEMO_CLOSED, demo: false, view: { kind: "empty" } };
+    expect(reduceDebrief(pilot, { type: "REFRESH_UNREADABLE" })).toBe(pilot);
+    const done: DebriefState = { ...DEMO_CLOSED, view: { kind: "done", answered: 1, skipped: 0 } };
+    expect(reduceDebrief(done, { type: "REFRESH_UNREADABLE" })).toBe(done);
+  });
+
+  it("RETRY from that load_error goes back to loading", () => {
+    const err = reduceDebrief(preparing, { type: "REFRESH_UNREADABLE" });
+    expect(reduceDebrief(err, { type: "RETRY" }).view).toEqual({ kind: "loading" });
+  });
+});
+
 describe("REFRESHED (demo): preparing / waiting_more", () => {
   const preparing = run(DEMO_CLOSED, [{ type: "OPEN" }, loaded([], true)]);
   const waiting = run(DEMO_CLOSED, [{ type: "OPEN" }, loaded([q("a")], true), { type: "SKIP" }]);

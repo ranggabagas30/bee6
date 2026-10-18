@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { wordGateQuestions, type WordGateInput } from "@/lib/debrief/agent/word";
+import { CHECK_RULES } from "@/lib/debrief/agent/check";
 import {
   DEBRIEF_AGENT_BACKSTOP_MARGIN_MS,
   DEBRIEF_AGENT_MAX_PER_UNIT,
@@ -183,6 +184,31 @@ describe("wordGateQuestions", () => {
       });
     });
 
+    it("M5: an agent object that fails the storage schema is NOT assigned (the template stays), logged as agent_schema, never thrown", async () => {
+      // rounds 3 passes the plain-code checker (the runner counts) but is outside the stored 1..2
+      const { input, questionWrites } = setup(["t1"], async () => accepted(GOOD, 3));
+      await expect(wordGateQuestions(input)).resolves.toBeUndefined();
+      expect("agent" in questionWrites[0]!).toBe(false);
+      const entries = logSpy.mock.calls
+        .map((c: unknown[]) => String(c[0]))
+        .filter((l: string) => l.includes("debrief_agent.call"))
+        .map((l: string) => JSON.parse(l) as Record<string, unknown>);
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({ outcome: "error", error_class: "agent_schema", outlet_id: "sbx-1", unit_id: "u1" });
+      // numbers and enums only: no wording, no zod message
+      expect(JSON.stringify(entries[0])).not.toContain("twelve");
+      expect(JSON.stringify(entries[0])).not.toContain("Around");
+    });
+
+    it("M5: a negative generated_at_ms also keeps the template", async () => {
+      const { input, questionWrites } = setup(["t1"], async () => accepted(), {
+        now_ms: -1,
+        deps: { run: async () => accepted(), project: "proj", resolveLocation: () => "LOC", now_ms: -1 },
+      });
+      await wordGateQuestions(input);
+      expect("agent" in questionWrites[0]!).toBe(false);
+    });
+
     it("rejected after 2 rounds: no agent field (the template stays)", async () => {
       const { input, questionWrites } = setup(["t1"], async () => ({
         kind: "rejected", reasons: ["too_long"], rounds: 2, usage: USAGE, model_calls: 2, ms: 900,
@@ -224,6 +250,168 @@ describe("wordGateQuestions", () => {
       const { input, questionWrites } = setup(["t1"], async () => accepted("Around 14:05, did Sari take a phone order for twelve egg tarts?"));
       await wordGateQuestions(input);
       expect("agent" in questionWrites[0]!).toBe(false);
+    });
+  });
+
+  describe("negated notes pre-skip (M1 rework: a Yes on a moment whose notes are a negative fact must not be able to drop true evidence)", () => {
+    const skipLogs = () =>
+      logSpy.mock.calls
+        .map((c: unknown[]) => String(c[0]))
+        .filter((l: string) => l.includes("debrief_agent.call"));
+    const withText = (text: string, summary = "Phone order taken."): Partial<ThreadWrite> => ({
+      lines: [{ line_id: "t1#0", start_ms: T0, end_ms: T0 + 10_000, text }],
+      summary,
+    });
+
+    it("a negated line: the runner is never invoked, no agent on the question, one numbers-only skip line", async () => {
+      const run = vi.fn<DebriefAgent>(async () => accepted());
+      const { input, questionWrites } = setup(["t1"], run, {}, withText("I did not read the order back to the caller."));
+      await wordGateQuestions(input);
+      expect(run).not.toHaveBeenCalled();
+      expect("agent" in questionWrites[0]!).toBe(false);
+      const logs = skipLogs();
+      expect(logs).toHaveLength(1);
+      expect(JSON.parse(logs[0]!)).toEqual({
+        event: "debrief_agent.call",
+        outlet_id: "sbx-1",
+        unit_id: "u1",
+        outcome: "skipped",
+        reason: "negated_notes",
+      });
+      expect(logs[0]).not.toContain("order back");
+    });
+
+    it("a negated summary alone also skips", async () => {
+      const run = vi.fn<DebriefAgent>(async () => accepted());
+      const { input, questionWrites } = setup(["t1"], run, {}, withText("There was a phone order for twelve egg tarts.", "Phone order taken, not read back."));
+      await wordGateQuestions(input);
+      expect(run).not.toHaveBeenCalled();
+      expect(questionWrites[0]!.agent).toBeUndefined();
+      expect(skipLogs()[0]).toContain('"outcome":"skipped","reason":"negated_notes"');
+    });
+
+    it.each([
+      "Saya tidak membaca ulang pesanan itu.",
+      "Pesanan nggak dibacakan.",
+      "Belum dibacakan ke pelanggan.",
+      "Itu bukan pesanan.",
+      "Dilayani tanpa struk.",
+    ])("a Bahasa negation skips: %s", async (text) => {
+      const run = vi.fn<DebriefAgent>(async () => accepted());
+      const { input, questionWrites } = setup(["t1"], run, {}, withText(text));
+      await wordGateQuestions(input);
+      expect(run).not.toHaveBeenCalled();
+      expect(questionWrites[0]!.agent).toBeUndefined();
+    });
+
+    it("positive notes still run the agent", async () => {
+      const run = vi.fn<DebriefAgent>(async () => accepted());
+      const { input, questionWrites } = setup(["t1"], run, {}, withText("There was a phone order for twelve egg tarts."));
+      await wordGateQuestions(input);
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(questionWrites[0]!.agent?.question_en).toBe(GOOD);
+      expect(skipLogs().some((l: string) => l.includes("negated_notes"))).toBe(false);
+    });
+
+    it("only the negated moment is skipped; its positive sibling in the same unit is still worded", async () => {
+      const run = vi.fn<DebriefAgent>(async () => accepted());
+      const a = setup(["t1"], run, {}, withText("I did not read the order back."));
+      const b = setup(["t2"], run, {}, withText("There was a phone order for twelve egg tarts."));
+      const input: WordGateInput = {
+        ...a.input,
+        questionWrites: [...a.questionWrites, ...b.questionWrites],
+        threadWrites: [...a.threadWrites, ...b.threadWrites],
+        storedByThread: new Map([["t1", null], ["t2", null]]),
+      };
+      await wordGateQuestions(input);
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(input.questionWrites[0]!.agent).toBeUndefined();
+      expect(input.questionWrites[1]!.agent?.question_en).toBe(GOOD);
+    });
+  });
+
+  describe("negated notes without 'not' (the tech-lead's REQUIRED change) and filter-before-cap (M1 rework 2)", () => {
+    const skipLogs = () =>
+      logSpy.mock.calls
+        .map((c: unknown[]) => String(c[0]))
+        .filter((l: string) => l.includes("debrief_agent.call"));
+    const textOf = (id: string, text: string): Partial<ThreadWrite> => ({
+      lines: [{ line_id: `${id}#0`, start_ms: T0, end_ms: T0 + 10_000, text }],
+    });
+    const NEG = "I did not read the order back.";
+    const POS = "There was a phone order for twelve egg tarts.";
+    /** One unit with one thread per text, in order. */
+    function unit(texts: string[], over: Partial<WordGateInput> = {}, run: DebriefAgent = vi.fn<DebriefAgent>(async () => accepted())) {
+      const ids = texts.map((_, i) => `t${i + 1}`);
+      const threadWrites = ids.map((id, i) => thread(id, textOf(id, texts[i]!)));
+      const questionWrites = ids.map((id) => question(id));
+      const input: WordGateInput = {
+        outlet_id: "sbx-1",
+        unit_id: "u1",
+        questionWrites,
+        threadWrites,
+        storedByThread: new Map(ids.map((id) => [id, null])),
+        staffNames: ["Sari Demo"],
+        tz: TZ,
+        now_ms: NOW,
+        deps: { run, project: "proj", resolveLocation: () => "LOC", now_ms: NOW },
+        ...over,
+      };
+      return { input, questionWrites, run };
+    }
+
+    it("end to end: 'I forgot to read the order back' keeps the template, runner never invoked, one negated_notes skip line", async () => {
+      const { input, questionWrites, run } = unit(["Phone order, I forgot to read the order back to the caller."]);
+      await wordGateQuestions(input);
+      expect(run).not.toHaveBeenCalled();
+      expect("agent" in questionWrites[0]!).toBe(false);
+      const logs = skipLogs();
+      expect(logs).toHaveLength(1);
+      expect(JSON.parse(logs[0]!)).toEqual({
+        event: "debrief_agent.call",
+        outlet_id: "sbx-1",
+        unit_id: "u1",
+        outcome: "skipped",
+        reason: "negated_notes",
+      });
+      expect(logs[0]).not.toContain("forgot");
+    });
+
+    it("3 negated moments + a positive 4th: the positive one is worded (negated moments use no cap slot)", async () => {
+      const { input, questionWrites, run } = unit([NEG, NEG, NEG, POS]);
+      await wordGateQuestions(input);
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(questionWrites.map((q) => q.agent !== undefined)).toEqual([false, false, false, true]);
+      expect(skipLogs().filter((l: string) => l.includes('"reason":"negated_notes"'))).toHaveLength(3);
+    });
+
+    it("4 positives: the cap is still 3, in unit order", async () => {
+      const { input, questionWrites, run } = unit([POS, POS, POS, POS]);
+      await wordGateQuestions(input);
+      expect(run).toHaveBeenCalledTimes(DEBRIEF_AGENT_MAX_PER_UNIT);
+      expect(questionWrites.map((q) => q.agent !== undefined)).toEqual([true, true, true, false]);
+    });
+
+    it("no_lines moments also use no cap slot", async () => {
+      const { input, questionWrites, run } = unit(["\u200b", "\u200b", "\u200b", POS]);
+      await wordGateQuestions(input);
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(questionWrites.map((q) => q.agent !== undefined)).toEqual([false, false, false, true]);
+    });
+
+    it("low unit budget: a negated moment logs negated_notes (its real reason), the positive one logs unit_budget", async () => {
+      const { input, run } = unit([NEG, POS], { unit_budget_left_ms: DEBRIEF_AGENT_UNIT_GUARD_MS - 1 });
+      await wordGateQuestions(input);
+      expect(run).not.toHaveBeenCalled();
+      const reasons = skipLogs().map((l: string) => (JSON.parse(l) as { reason: string }).reason);
+      expect(reasons).toEqual(["negated_notes", "unit_budget"]);
+    });
+
+    it("low unit budget with only negated moments: no unit_budget line at all", async () => {
+      const { input } = unit([NEG, NEG], { unit_budget_left_ms: DEBRIEF_AGENT_UNIT_GUARD_MS - 1 });
+      await wordGateQuestions(input);
+      const reasons = skipLogs().map((l: string) => (JSON.parse(l) as { reason: string }).reason);
+      expect(reasons).toEqual(["negated_notes", "negated_notes"]);
     });
   });
 
@@ -392,6 +580,7 @@ describe("wordGateQuestions", () => {
         unit_id: "u1",
         outcome: "accepted",
         rounds: 1,
+        reject_reasons: [],
         model_calls: 1,
         ms: 1234,
         input_tokens: 700,
@@ -402,6 +591,31 @@ describe("wordGateQuestions", () => {
       expect(all).not.toContain("egg tarts");
       expect(all).not.toContain("phone order");
       expect(all).not.toContain("Sari");
+    });
+
+    it("reject_reasons: the first-round codes are logged on accepted, rejected and error; codes only, never text", async () => {
+      const acc = setup(["t1"], async () => ({ ...accepted(GOOD, 2), reject_reasons: ["negation"] }));
+      await wordGateQuestions(acc.input);
+      const rej = setup(["t2"], async () => ({
+        kind: "rejected", reasons: ["too_long", "time_missing"], reject_reasons: ["word_not_in_input", "compound"], rounds: 2, usage: USAGE, model_calls: 2, ms: 5,
+      }));
+      await wordGateQuestions(rej.input);
+      const err = setup(["t3"], async () => ({ kind: "error", error_class: "timeout", reject_reasons: ["not_yes_no"], usage: USAGE, model_calls: 1, ms: 8000 }));
+      await wordGateQuestions(err.input);
+      // the tick's own re-check fails on a draft the runner accepted: the runner's first-round codes still ride along
+      const recheck = setup(["t4"], async () => ({ ...accepted("Around 14:05, was there a prompt injection about theft?", 2), reject_reasons: ["too_long"] }));
+      await wordGateQuestions(recheck.input);
+      const raw = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).filter((l: string) => l.includes("debrief_agent.call"));
+      const entries = raw.map((l: string) => JSON.parse(l) as Record<string, unknown>);
+      expect(entries[0]).toMatchObject({ outcome: "accepted", reject_reasons: ["negation"] });
+      expect(entries[1]).toMatchObject({ outcome: "rejected", reasons: ["too_long", "time_missing"], reject_reasons: ["word_not_in_input", "compound"] });
+      expect(entries[2]).toMatchObject({ outcome: "error", reject_reasons: ["not_yes_no"] });
+      expect(entries[3]).toMatchObject({ outcome: "rejected", reject_reasons: ["too_long"] });
+      expect(entries[3]!.reasons).toContain("word_not_in_input");
+      // every logged reject code is a known fixed rule code, and no shop text or wording is in any line
+      for (const e of entries) for (const code of (e.reject_reasons as string[])) expect(CHECK_RULES).toContain(code);
+      const all = raw.join("\n");
+      for (const text of ["egg tarts", "phone order", "prompt injection", "theft", "Sari", "Around 14:05"]) expect(all).not.toContain(text);
     });
 
     it("rejected: carries the rule codes; error: carries the error class; skipped: carries the reason", async () => {

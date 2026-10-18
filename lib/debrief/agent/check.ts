@@ -30,8 +30,25 @@ export const CHECK_RULES = [
   "staff_name",
   "role_word",
   "instruction_word",
+  "negation",
+  "compound",
 ] as const;
 export type CheckRule = (typeof CHECK_RULES)[number];
+
+/**
+ * Fixed revision hints for the rules whose code alone does not tell the model HOW to fix the wording. Literals, never
+ * shop text. The runner hands these back with the reasons so round 2 can repair the question.
+ */
+export const RULE_HINTS: Partial<Record<CheckRule, string>> = {
+  negation:
+    "Ask ONE positive question about whether there was the moment, as the notes describe it (for example: was there a phone order for twelve egg tarts?). Do not ask whether a step was or was not done. Do not use no, not, never, nobody, nothing, none, neither, nor, without, any n't form, dont/didnt-style forms, made up, fake or false.",
+  compound:
+    "Ask ONE yes/no question. Do not join two questions with and, or, but or &, and do not write yes or no in the question.",
+};
+
+export function hintsFor(reasons: readonly CheckRule[]): string[] {
+  return reasons.flatMap((r) => (RULE_HINTS[r] ? [RULE_HINTS[r] as string] : []));
+}
 
 export interface CheckContext {
   moment: DebriefQuestionMoment;
@@ -57,7 +74,7 @@ export const QUESTION_ALLOW_WORDS: readonly string[] = [
   "please", "could", "would", "should", "little", "shortly", "later", "again", "maybe",
   "roughly", "thing", "things", "place", "taken", "taking", "given", "going", "being", "doing", "having", "making",
   "asked", "asking", "answer", "called", "calling", "talked", "talking", "spoke", "speaking", "between",
-  "without", "something", "anything",
+  "something", "anything",
 ];
 
 const YES_NO_STARTERS = new Set(["did", "was", "were", "is", "are", "do", "does", "has", "have", "had"]);
@@ -79,6 +96,48 @@ const CONTROL_LIKE = /[\p{Cc}\p{Cf}\p{Co}\p{Cs}\p{Cn}\p{Zl}\p{Zp}\p{M}]/u;
 const NON_PRINTABLE_ASCII = /[^\x20-\x7E]/;
 const ROLE_WORD = /\b(supervisor|owner|manager|boss|cashier|barista|chef|cook|staff member|the staff)\b/i;
 const INSTRUCTION_WORD = /\b(ignore|system prompt|instruction|assistant|as an ai|developer|override)\b/i;
+/**
+ * A negated or inverted wording makes a correct Yes/No mean the opposite ("was there no complaint?" - "No" - the
+ * complaint is dropped as `staff_rejected`). Word-boundary, so it also fires inside hyphenated forms ("no-show");
+ * `\b` never matches inside a word, so "notice" / "know" / "another" are fine. Includes the apostrophe-less
+ * contractions people type on a phone ("didnt") and "made up" with any spacing or a hyphen.
+ */
+const NEGATION_EN =
+  "\\b(?:no|not|never|nobody|nothing|none|neither|nor|without|cannot|untrue|fake|false|made[\\s-]+up|" +
+  "dont|didnt|doesnt|isnt|wasnt|werent|arent|hasnt|havent|hadnt|cant|couldnt|wouldnt|shouldnt|wont)\\b|n['\\u2019]t\\b";
+const NEGATION = new RegExp(NEGATION_EN, "i");
+/**
+ * Negative facts said WITHOUT "not", for the NOTES only ("I forgot to read it back", "customer left unpaid"). Kept out
+ * of the QUESTION rule on purpose: that rule judges the model's wording. A wide list is safe here: a false trigger
+ * only keeps the template.
+ */
+const NEGATION_NOTES_EN = "forgot|forget|forgotten|missed|skipped|failed|unpaid";
+/**
+ * Bahasa negators, informal spellings ("ga", "gk", "ngga", "ndak", "tak", "kagak", "engga") and the emphatic
+ * "tidaklah" / "bukannya", for the NOTES only (the question is English). Word-boundary, case-insensitive.
+ */
+const NEGATION_NOTES_ID =
+  "tidaklah|tidak|nggak|enggak|engga|gak|ga|gk|ngga|ngak|nda|ndak|tak|kagak|belum|bukannya|bukan|tanpa|jangan|lupa";
+const NEGATION_NOTES = new RegExp(
+  `${NEGATION_EN}|\\b(?:${NEGATION_NOTES_EN}|${NEGATION_NOTES_ID})\\b`,
+  "i",
+);
+
+/**
+ * True when the moment's own notes (lines or summary) state a negative fact ("I did not read the order back"). The
+ * question must then keep the template: any positive yes/no about such a moment is answered No by an honest worker,
+ * and a No on a gate question is `staff_rejected` (the true evidence is dropped). Plain code, English and Bahasa,
+ * pure, no I/O. Deliberately NOT a `CheckRule`: it runs before the model is called, not on its wording.
+ */
+export function notesHaveNegation(lines: readonly string[], summary: string): boolean {
+  return NEGATION_NOTES.test(`${lines.join("\n")}\n${summary}`);
+}
+
+/**
+ * A second clause: any bare "and" / "or" / "but" or '&' outside the LEADING time clause ("Between 14:05 and 14:08,"
+ * is the only legal "and"). A partial-truth No on a compound drops evidence.
+ */
+const COMPOUND = /\b(?:and|or|but)\b|&/i;
 const LETTERS_5 = /\p{L}{5,}/gu;
 const LETTER_RUNS = /\p{L}+/gu;
 const PREFIX_LEN = 5;
@@ -101,7 +160,10 @@ function isYesNo(q: string): boolean {
 }
 
 function allowedPrefixes(moment: DebriefQuestionMoment): Set<string> {
-  const sources = [...moment.lines, moment.summary, moment.category_label_en, ...QUESTION_ALLOW_WORDS];
+  // ONLY the moment's own redacted line texts (+ the category label and the fixed allow-list). The stored summary is
+  // the label model's text and can repeat an attacker's spoken words ("prompt injection ... theft"): it is never a
+  // source, so a word that appears only there is `word_not_in_input` (QA 18 Oct, D-1).
+  const sources = [...moment.lines, moment.category_label_en, ...QUESTION_ALLOW_WORDS];
   const prefixes = new Set<string>();
   for (const source of sources) {
     for (const word of source.replace(BRACKET_SPAN, " ").match(LETTER_RUNS) ?? []) {
@@ -137,10 +199,9 @@ export function checkQuestion(draft: unknown, ctx: CheckContext): CheckResult {
   if (!times.includes(moment.start_hm)) fail("time_missing");
   if (times.some((t) => t !== moment.start_hm && t !== moment.end_hm)) fail("time_foreign");
 
-  // Digit runs outside the two allowed clock times must be whole runs of the notes.
+  // Digit runs outside the two allowed clock times must be whole runs of the LINES (never the stored summary).
   const withoutTimes = q.replace(CLOCK_TIME, (t) => (t === moment.start_hm || t === moment.end_hm ? " " : t));
-  const inputText = `${moment.lines.join(" ")} ${moment.summary}`;
-  const inputRuns = new Set(inputText.match(DIGIT_RUN) ?? []);
+  const inputRuns = new Set(moment.lines.join(" ").match(DIGIT_RUN) ?? []);
   const freeRuns = withoutTimes.match(DIGIT_RUN) ?? [];
   if (freeRuns.some((run) => !inputRuns.has(run))) fail("number_not_in_input");
   // Runs of the notes can be chained into a phone number ("0812 3456 7890"): cap the digits outside the two times.
@@ -165,6 +226,8 @@ export function checkQuestion(draft: unknown, ctx: CheckContext): CheckResult {
   if (scrubQuestionLine(q, ctx.staffNames, ctx.outletName) !== q) fail("staff_name");
   if (ROLE_WORD.test(q)) fail("role_word");
   if (INSTRUCTION_WORD.test(q)) fail("instruction_word");
+  if (NEGATION.test(q)) fail("negation");
+  if (COMPOUND.test(q.replace(TIME_CLAUSE, ""))) fail("compound");
 
   const reasons = CHECK_RULES.filter((rule) => failed.has(rule));
   return { passed: reasons.length === 0, reasons };

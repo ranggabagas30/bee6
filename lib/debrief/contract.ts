@@ -71,9 +71,11 @@ export const DebriefQuestionViewSchema = z
      * DebriefAgent (docs/tasks/debrief-agent-18oct.md §3.4), sandbox only: the agent-worded heading, 20..140 code
      * points, plain text. Absent on every pilot question, on `unlabelled_unit`, when the flag is off, when the agent
      * fell back, or when the stored wording no longer matches the question's category/time (D9). The phone renders
-     * it as a text node and never stores it. BUNDLE SKEW: an older phone bundle's strict parse fails on this key
-     * (`LOAD_FAILED` until reload), the same accepted risk as `lines`/`preparing`; it is only ever emitted on a
-     * sandbox outlet.
+     * it as a text node and never stores it. READ LENIENTLY (step 3 risk review M3): a value that is not a 20..140
+     * code point string is dropped (`.catch(undefined)`), so one bad wording keeps the template heading and never
+     * fails the list. Everything else on this schema stays strict. BUNDLE SKEW: an older phone bundle (strict
+     * parse, no such key) still fails on the key itself, the same accepted risk as `lines`/`preparing`; the phone
+     * now shows that failure (`DebriefFlow` poll) instead of waiting silently.
      */
     question_text: z
       .string()
@@ -84,7 +86,8 @@ export const DebriefQuestionViewSchema = z
         },
         { message: "question_text length" },
       )
-      .optional(),
+      .optional()
+      .catch(undefined),
   })
   .strict();
 export type DebriefQuestionView = z.infer<typeof DebriefQuestionViewSchema>;

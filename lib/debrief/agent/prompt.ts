@@ -14,8 +14,12 @@ export const DEBRIEF_SYSTEM_INSTRUCTION = `You write ONE short question for a sh
 moment needs a human yes/no answer; you only word the question. You never decide what happened.
 
 Rules:
-- Ask whether the moment happened as described, in plain, friendly English a busy worker reads in 3 seconds.
+- Ask whether there was the moment the notes describe, in plain, friendly English a busy worker reads in 3 seconds.
 - One sentence (two at most), 20 to 140 characters, ending with a question mark, answerable with Yes or No.
+- Ask whether there WAS the moment, as the notes describe it (example: "Around 14:05, was there a phone order for
+  twelve egg tarts?"). Never ask whether a step was or was not done, and never ask the opposite of the notes.
+- Ask ONE positive yes/no question. No negations (no, not, never, nobody, nothing, none, neither, nor, without,
+  "n't", "made up", fake, false) and no "and" / "or" / "but" joining two questions.
 - Start with the time exactly as given ("Around 14:05, ...") and keep it; never invent another time or number.
 - Mention only what the lines say. Do not add items, people, reasons or steps that are not in the lines.
 - Never name or address anyone, never use a role word (owner, supervisor, manager, cashier). Say "someone" or use the
@@ -41,7 +45,11 @@ export function REASON_TEXT(rule: GateRule): string {
   return REASONS[rule] ?? FALLBACK_REASON;
 }
 
-/** The one user message for a moment. `moment` is already scrubbed, cut and capped by `buildMoment`. */
+/**
+ * The one user message for a moment. `moment` is already scrubbed, cut and capped by `buildMoment`. The stored summary
+ * is deliberately NOT shown: it is the label model's text and can carry an attacker's spoken words; the model words the
+ * question from the moment's own lines only (QA 18 Oct, D-1).
+ */
 export function buildUserContent(moment: DebriefQuestionMoment): string {
   return [
     `Category: ${moment.category_label_en} (${moment.category})`,
@@ -49,6 +57,5 @@ export function buildUserContent(moment: DebriefQuestionMoment): string {
     `Time: ${moment.start_hm} to ${moment.end_hm}`,
     "What the notes say (already redacted):",
     ...moment.lines.map((line) => `- ${line}`),
-    `Summary: ${moment.summary.length > 0 ? moment.summary : "(none)"}`,
   ].join("\n");
 }

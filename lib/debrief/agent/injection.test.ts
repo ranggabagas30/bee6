@@ -61,7 +61,8 @@ describe("injection corpus (E8): hostile evidence lines", () => {
       }
 
       it("a grounded, clean draft is still accepted next to a hostile line, and is violation-free", () => {
-        const clean = "Around 14:05, was there a phone call about an order?";
+        // Words come from the category label ("a phone call"); the stored summary is not a word source (QA 18 Oct, D-1).
+        const clean = "Around 14:05, was there a phone call?";
         const res = checkQuestion({ question_en: clean }, ctx);
         expect(res.passed).toBe(true);
         expect(violations(clean)).toEqual([]);

@@ -91,8 +91,8 @@ const MOMENT: DebriefQuestionMoment = {
   summary: "Phone order taken, not read back.",
 };
 
-const GOOD = "Around 14:05, was there a phone order that was not read back?";
-const BAD_LONG = `Around 14:05, was there a phone order ${"that was not read back to the caller ".repeat(5)}?`;
+const GOOD = "Around 14:05, was there a phone order for twelve egg tarts?";
+const BAD_LONG = `Around 14:05, was there a phone order ${"that was taken for the caller ".repeat(5)}?`;
 
 const CTX = { project: "bee6-playground", location: "loc-from-config", timeoutMs: 1000 };
 
@@ -258,6 +258,50 @@ describe("adkDebriefAgent: the run", () => {
     expect(capturedToolResults[1]).toEqual({ accepted: true });
   });
 
+  it("2b. a negated round-1 draft is fed back with the negation reason AND a fixed revision hint; the positive round 2 is accepted (POSITIVE-notes moment: the test must not enshrine a flip)", async () => {
+    const { adkDebriefAgent } = await load();
+    runEphemeralImpl.mockImplementation(
+      () =>
+        trackedEvents([
+          toolStep({ question_en: "Around 14:05, was there no phone order for twelve egg tarts?" }, "c1"),
+          toolStep({ question_en: GOOD }, "c2"),
+        ]).gen,
+    );
+    const positive: DebriefQuestionMoment = {
+      ...MOMENT,
+      lines: ["LINE-SENTINEL-7 There was a phone order for twelve egg tarts."],
+      summary: "Phone order taken.",
+    };
+    const r = await adkDebriefAgent({ ...input(), moment: positive }, CTX);
+    expect(r).toMatchObject({ kind: "accepted", rounds: 2 });
+    expect(capturedToolResults[0]).toMatchObject({ accepted: false, round: 1, rounds_left: 1, reasons: ["negation"] });
+    const hints = (capturedToolResults[0] as { hints?: string[] }).hints;
+    expect(hints).toHaveLength(1);
+    expect(hints?.[0]).toContain("positive");
+    expect(hints?.[0]).not.toContain("LINE-SENTINEL-7");
+    if (r.kind === "accepted") expect(r.draft.question_en).toBe(GOOD);
+  });
+
+  it("2c. a compound round-1 draft gets the compound hint; a failure with no hinted rule carries no hints key", async () => {
+    const { adkDebriefAgent } = await load();
+    runEphemeralImpl.mockImplementation(
+      () =>
+        trackedEvents([
+          toolStep({ question_en: "Around 14:05, was there a phone order and was it read back?" }, "c1"),
+          toolStep({ question_en: GOOD }, "c2"),
+        ]).gen,
+    );
+    await adkDebriefAgent(input(), CTX);
+    expect(capturedToolResults[0]).toMatchObject({ reasons: ["compound"] });
+    expect((capturedToolResults[0] as { hints: string[] }).hints[0]).toContain("ONE yes/no");
+    runEphemeralImpl.mockImplementation(
+      () => trackedEvents([toolStep({ question_en: BAD_LONG }, "c1"), toolStep({ question_en: GOOD }, "c2")]).gen,
+    );
+    capturedToolResults.length = 0;
+    await adkDebriefAgent(input(), CTX);
+    expect(capturedToolResults[0]).not.toHaveProperty("hints");
+  });
+
   it("3. two failed rounds -> rejected with the LAST reasons; the tool sets the outcome and the loop breaks", async () => {
     const { adkDebriefAgent } = await load();
     const holder: { probe?: { consumed: number; returned: boolean } } = {};
@@ -275,6 +319,47 @@ describe("adkDebriefAgent: the run", () => {
     if (r.kind === "rejected") expect(r.reasons).toContain("not_yes_no");
     expect(capturedToolResults[1]).toMatchObject({ accepted: false, final: true });
     expect(holder.probe).toEqual({ consumed: 2, returned: true });
+  });
+
+  it("R1. reject_reasons: [] when round 1 passes", async () => {
+    const { adkDebriefAgent } = await load();
+    runEphemeralImpl.mockImplementation(() => trackedEvents([toolStep({ question_en: GOOD }, "c1")]).gen);
+    expect(await adkDebriefAgent(input(), CTX)).toMatchObject({ kind: "accepted", reject_reasons: [] });
+  });
+
+  it("R2. reject_reasons carries the FIRST round's codes even when round 2 is accepted", async () => {
+    const { adkDebriefAgent } = await load();
+    runEphemeralImpl.mockImplementation(
+      () => trackedEvents([toolStep({ question_en: BAD_LONG }, "c1"), toolStep({ question_en: GOOD }, "c2")]).gen,
+    );
+    expect(await adkDebriefAgent(input(), CTX)).toMatchObject({ kind: "accepted", rounds: 2, reject_reasons: ["too_long"] });
+  });
+
+  it("R3. rejected: reject_reasons is round 1, reasons is the LAST round; codes only, never the draft text", async () => {
+    const { adkDebriefAgent } = await load();
+    runEphemeralImpl.mockImplementation(
+      () =>
+        trackedEvents([
+          toolStep({ question_en: BAD_LONG }, "c1"),
+          toolStep({ question_en: "Around 14:05, what was ordered on the phone?" }, "c2"),
+        ]).gen,
+    );
+    const r = await adkDebriefAgent(input(), CTX);
+    expect(r).toMatchObject({ kind: "rejected", reject_reasons: ["too_long"] });
+    expect(JSON.stringify(r)).not.toContain("ordered on the phone");
+    expect(JSON.stringify(r)).not.toContain("LINE-SENTINEL-7");
+  });
+
+  it("R4. an error after a failed round 1 still reports the round-1 codes", async () => {
+    const { adkDebriefAgent } = await load();
+    runEphemeralImpl.mockImplementation(
+      () =>
+        trackedEvents([
+          toolStep({ question_en: BAD_LONG }, "c1"),
+          { errorCode: "UNKNOWN_ERROR", errorMessage: "Max number of llm calls limit of 4 exceeded" },
+        ]).gen,
+    );
+    expect(await adkDebriefAgent(input(), CTX)).toMatchObject({ kind: "error", error_class: "limit", reject_reasons: ["too_long"] });
   });
 
   it("4a. an ADK limit error event -> error / limit", async () => {

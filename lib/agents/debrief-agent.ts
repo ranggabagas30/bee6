@@ -8,7 +8,7 @@ import {
   DEBRIEF_AGENT_MAX_ROUNDS,
   DEBRIEF_AGENT_MODEL,
 } from "@/lib/debrief/agent/constants";
-import { CHECK_RULES, checkQuestion, type CheckRule } from "@/lib/debrief/agent/check";
+import { CHECK_RULES, checkQuestion, hintsFor, type CheckRule } from "@/lib/debrief/agent/check";
 import { buildUserContent, DEBRIEF_SYSTEM_INSTRUCTION } from "@/lib/debrief/agent/prompt";
 import {
   DebriefQuestionArgsSchema,
@@ -43,11 +43,16 @@ setLogLevel(LogLevel.ERROR);
 /** Same cap as the Proposal agent: LOW thinking, thought text never comes back (`includeThoughts: false`). */
 export const DEBRIEF_THINKING_CONFIG = { thinkingLevel: ThinkingLevel.LOW, includeThoughts: false } as const;
 
+/**
+ * `reject_reasons`: the rule CODES of the FIRST failed checker round (empty when round 1 passed or never ran). Codes
+ * only, never a draft or a line, so dev-ops can prove from the logs which rule blocked a wording even when round 2
+ * then passed. Optional in the type so test doubles may omit it; the real runner always sets it.
+ */
 export type DebriefAgentResult =
-  | { kind: "accepted"; draft: DebriefQuestionDraft; rounds: number; usage: ProposalModelUsage; model_calls: number; ms: number }
-  | { kind: "rejected"; reasons: CheckRule[]; rounds: number; usage: ProposalModelUsage; model_calls: number; ms: number }
+  | { kind: "accepted"; draft: DebriefQuestionDraft; rounds: number; reject_reasons?: CheckRule[]; usage: ProposalModelUsage; model_calls: number; ms: number }
+  | { kind: "rejected"; reasons: CheckRule[]; rounds: number; reject_reasons?: CheckRule[]; usage: ProposalModelUsage; model_calls: number; ms: number }
   // `usage` is present on errors too: a failed run still spent tokens (cost guards, CLAUDE.md §7).
-  | { kind: "error"; error_class: string; usage: ProposalModelUsage; model_calls: number; ms: number };
+  | { kind: "error"; error_class: string; reject_reasons?: CheckRule[]; usage: ProposalModelUsage; model_calls: number; ms: number };
 
 export interface DebriefAgentInput {
   moment: DebriefQuestionMoment;
@@ -71,7 +76,8 @@ const RUN_DECIDED_ERROR = "run already decided";
 const CHECK_QUESTION_DESCRIPTION =
   "Submit the question to the plain-code checker. It answers accepted, or a list of failed rule codes to fix: " +
   CHECK_RULES.filter((rule) => rule !== "schema_invalid").join(", ") +
-  ". Fix exactly those reasons and submit again. At most " +
+  ". Fix exactly those reasons and submit again (negation: ask one positive question, no no/not/never/without/n't; " +
+  "compound: ask one yes/no question, no and/or second clause). At most " +
   DEBRIEF_AGENT_MAX_ROUNDS +
   " submissions count.";
 
@@ -83,6 +89,8 @@ type Outcome =
 interface Session {
   rounds: number;
   outcome: Outcome | null;
+  /** Rule codes of the first failed round (codes only). */
+  firstRejectReasons: CheckRule[];
 }
 
 /** Mutable state of one run, shared with the backstop so it can snapshot a run that never finishes. */
@@ -124,7 +132,12 @@ function usageOf(state: RunState): ProposalModelUsage {
 
 /** An outcome set earlier always wins over a later limit / abort / error; otherwise the failure is typed. */
 function resultOf(state: RunState, session: Session, errorClass: string | null): DebriefAgentResult {
-  const common = { usage: usageOf(state), model_calls: state.modelCalls, ms: Math.max(0, Date.now() - state.startedAt) };
+  const common = {
+    reject_reasons: [...session.firstRejectReasons],
+    usage: usageOf(state),
+    model_calls: state.modelCalls,
+    ms: Math.max(0, Date.now() - state.startedAt),
+  };
   const outcome = session.outcome;
   if (outcome?.kind === "accepted") return { kind: "accepted", draft: outcome.draft, rounds: session.rounds, ...common };
   if (outcome?.kind === "rejected") return { kind: "rejected", reasons: outcome.reasons, rounds: session.rounds, ...common };
@@ -160,16 +173,20 @@ function buildCheckQuestionTool(input: DebriefAgentInput, session: Session): Fun
         session.outcome = { kind: "rejected", reasons: ["schema_invalid"] };
         return { accepted: false, final: true, reasons: ["schema_invalid"] satisfies CheckRule[] };
       }
+      if (session.rounds === 1) session.firstRejectReasons = [...result.reasons];
       const final = session.rounds >= DEBRIEF_AGENT_MAX_ROUNDS;
       if (final) {
         session.outcome = { kind: "rejected", reasons: result.reasons };
         return { accepted: false, final: true, reasons: result.reasons };
       }
+      const hints = hintsFor(result.reasons);
       return {
         accepted: false,
         round: session.rounds,
         rounds_left: DEBRIEF_AGENT_MAX_ROUNDS - session.rounds,
         reasons: result.reasons,
+        // Fixed literals for the rules whose code alone does not say how to repair the wording (negation, compound).
+        ...(hints.length > 0 ? { hints } : {}),
       };
     },
   });
@@ -242,7 +259,7 @@ async function runOnce(
 
 export const adkDebriefAgent: DebriefAgent = async (input, ctx) => {
   const state = newRunState();
-  const session: Session = { rounds: 0, outcome: null };
+  const session: Session = { rounds: 0, outcome: null, firstRejectReasons: [] };
   // Fails closed with the contract (never throws), same discipline as the Proposal runners.
   if (!ctx.project) return resultOf(state, session, "no_project");
 

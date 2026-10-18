@@ -1,6 +1,6 @@
 import { localHmOf } from "@/lib/capture/calendar";
 import { DEBRIEF_QUESTION_MAX_CHARS, DEBRIEF_QUESTION_MIN_CHARS } from "@/lib/debrief/agent/constants";
-import type { WorkCategory } from "@/lib/pipeline/categories";
+import { QuestionAgentSchema } from "@/lib/firestore/schema";
 
 /**
  * Read-side stale-text guard (docs/tasks/debrief-agent-18oct.md §5.5, D9). Pure. The stored agent wording is shown
@@ -11,14 +11,19 @@ export interface AgentTextSource {
   kind: "gate" | "unlabelled_unit";
   category: string | null;
   window_start_ms: number;
-  agent?: { category: WorkCategory; start_hm: string; question_en: string } | undefined;
+  /** The read schema already drops a mismatching object; parsed strictly again here so this stays safe on any input. */
+  agent?: unknown;
 }
 
 export function agentTextFor(q: AgentTextSource, tz: string): string | undefined {
-  if (q.kind !== "gate" || q.category === null || !q.agent) return undefined;
-  if (q.agent.category !== q.category) return undefined;
-  if (q.agent.start_hm !== localHmOf(q.window_start_ms, tz)) return undefined;
-  const n = Array.from(q.agent.question_en).length;
+  if (q.kind !== "gate" || q.category === null || q.agent === undefined || q.agent === null) return undefined;
+  // Strict parse of the nested object: a malformed or future-version `agent` costs the wording only (risk review M5).
+  const parsed = QuestionAgentSchema.safeParse(q.agent);
+  if (!parsed.success) return undefined;
+  const agent = parsed.data;
+  if (agent.category !== q.category) return undefined;
+  if (agent.start_hm !== localHmOf(q.window_start_ms, tz)) return undefined;
+  const n = Array.from(agent.question_en).length;
   if (n < DEBRIEF_QUESTION_MIN_CHARS || n > DEBRIEF_QUESTION_MAX_CHARS) return undefined;
-  return q.agent.question_en;
+  return agent.question_en;
 }
