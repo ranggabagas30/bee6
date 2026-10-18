@@ -15,6 +15,8 @@ import { evaluateGate, applyGateDecision } from "@/lib/pipeline/gate";
 import { remapOpenThreadAliases } from "@/lib/pipeline/tick/alias";
 import { isSegmentDiscarded, selectDiscardGhosts } from "@/lib/pipeline/tick/discard-cleanup";
 import { threadQuestionId } from "@/lib/pipeline/question-ids";
+import { isDebriefAgentEnabled } from "@/lib/debrief/agent/flag";
+import type { DebriefAgentDeps } from "@/lib/debrief/agent/word";
 import type {
   LedgerWrite,
   QuestionWrite,
@@ -60,6 +62,13 @@ export const DEFAULT_MAX_UNITS_PER_DEVICE = 20;
  */
 export const DEFAULT_LEASE_TTL_MS = 1_800_000; // 30 min — see comment above
 export const DEFAULT_LABEL_MAX_ATTEMPTS = 3;
+/**
+ * The most wall time ONE unit may take: `DEFAULT_LABEL_MAX_ATTEMPTS` label calls at their 30 s timeout. The 30 min lease
+ * above is exactly `DEFAULT_MAX_UNITS_PER_DEVICE` x this, with no margin. Anything optional a unit adds (the
+ * DebriefAgent's wording step) must therefore come OUT of this budget, never on top of it: the agent runs only while
+ * the unit has at least one agent budget left (`DEBRIEF_AGENT_UNIT_BUDGET_MS`, ~11 s), so a unit never exceeds this.
+ */
+export const UNIT_BUDGET_MS = DEFAULT_LABEL_MAX_ATTEMPTS * 30_000;
 /** Covers every category's GRACE_MS (max 600s, TRAINING) with margin. */
 export const DEFAULT_RECENT_THREAD_LOOKBACK_MS = 900_000;
 /** R-21 O-6: log skew only when above this threshold to reduce noise from normal ~2–4 s upload latency. */
@@ -71,6 +80,8 @@ export interface RunTickDeps {
   config?: CategoriesConfig;
   labelClientDeps?: LabelClientDeps;
   sanitizeDeps?: SanitizeDeps;
+  /** DebriefAgent seams (docs/tasks/debrief-agent-18oct.md §5.1); threaded like `labelClientDeps`. Flag off: unused. */
+  debriefAgentDeps?: DebriefAgentDeps;
   maxUnitsPerDevice?: number;
   leaseTtlMs?: number;
   recentThreadLookbackMs?: number;
@@ -239,8 +250,13 @@ async function processOneUnit(input: {
   store: TickStore;
   labelClientDeps: LabelClientDeps | undefined;
   sanitizeDeps: SanitizeDeps | undefined;
+  debriefAgentDeps: DebriefAgentDeps | undefined;
+  /** Memoised per device tick; only ever called when the DebriefAgent flag is on. */
+  getOutletTz: () => Promise<string>;
 }): Promise<{ threadsWritten: number; questionsWritten: number; failed: boolean }> {
   const { unit, outlet_id, device_id, config, staffNames, openThreadPool, now_ms, store } = input;
+  // Wall clock, not the tick's `now_ms`: the DebriefAgent step needs to know how much of THIS unit's budget is left.
+  const unitStartedAtMs = Date.now();
 
   // Tech-lead review round 2, finding 3: `attempts` is lifted out of the
   // `try` block so the catch-path fallback below can report the REAL
@@ -336,11 +352,14 @@ async function processOneUnit(input: {
 
     const threadWrites: ThreadWrite[] = [];
     const questionWrites: QuestionWrite[] = [];
+    // DebriefAgent: what each thread merged into (null = new), so a same-category continuation keeps its wording.
+    const storedByThread = new Map<string, StoredThread | null>();
 
     for (const builtThread of built.threads) {
       const stored = builtThread.continued_from_open
         ? await store.getStoredThread(outlet_id, builtThread.thread_id)
         : null;
+      storedByThread.set(builtThread.thread_id, stored);
       const merged = mergeThread(stored, builtThread);
 
       const gate = evaluateGate({
@@ -415,6 +434,31 @@ async function processOneUnit(input: {
           window_end_ms: merged.last_line_end_ms,
           created_at_ms: now_ms,
         });
+      }
+    }
+
+    // DebriefAgent (docs/tasks/debrief-agent-18oct.md §5.1, D6/D8): word the gate questions this unit just raised,
+    // BEFORE the unit is written, so the phone's first poll already shows the final wording and `preparing` stays true
+    // through it. Flag off (exactly "true") or a non-sandbox outlet: no await, no import, nothing new written.
+    // Any failure here costs the wording only, never the unit.
+    if (isDebriefAgentEnabled(input.debriefAgentDeps?.env ?? process.env, outlet_id)) {
+      try {
+        const tz = await input.getOutletTz();
+        const { wordGateQuestions } = await import("@/lib/debrief/agent/word");
+        await wordGateQuestions({
+          outlet_id,
+          unit_id: unit.unit_id,
+          questionWrites,
+          threadWrites,
+          storedByThread,
+          staffNames,
+          tz,
+          now_ms,
+          unit_budget_left_ms: UNIT_BUDGET_MS - (Date.now() - unitStartedAtMs),
+          ...(input.debriefAgentDeps ? { deps: input.debriefAgentDeps } : {}),
+        });
+      } catch (error) {
+        console.error("[pipeline-tick] debrief agent step failed", { unit_id: unit.unit_id, error_class: classifyUnexpectedError(error) });
       }
     }
 
@@ -501,7 +545,7 @@ async function processOneUnit(input: {
 async function processOneDevice(
   device: { outlet_id: string; device_id: string },
   deps: Required<Pick<RunTickDeps, "store" | "now_ms" | "config" | "maxUnitsPerDevice" | "leaseTtlMs" | "recentThreadLookbackMs" | "logSkew">> &
-    Pick<RunTickDeps, "labelClientDeps" | "sanitizeDeps">,
+    Pick<RunTickDeps, "labelClientDeps" | "sanitizeDeps" | "debriefAgentDeps">,
 ): Promise<DeviceTickResult> {
   const { store, now_ms, config, maxUnitsPerDevice, leaseTtlMs, recentThreadLookbackMs, logSkew } = deps;
   const { outlet_id, device_id } = device;
@@ -671,6 +715,10 @@ async function processOneDevice(
       oldestUnitStartMs - recentThreadLookbackMs,
     );
 
+    // One outlet-tz read per device tick, and only when the DebriefAgent flag is on (the unit calls this lazily).
+    let outletTz: Promise<string> | null = null;
+    const getOutletTz = () => (outletTz ??= store.getOutletTz(outlet_id));
+
     let unitsProcessed = 0;
     let threadsWritten = 0;
     let questionsWritten = 0;
@@ -690,6 +738,8 @@ async function processOneDevice(
         store,
         labelClientDeps: deps.labelClientDeps,
         sanitizeDeps: deps.sanitizeDeps,
+        debriefAgentDeps: deps.debriefAgentDeps,
+        getOutletTz,
       });
 
       unitsProcessed += 1;
@@ -744,6 +794,7 @@ export async function runTick(deps: RunTickDeps): Promise<RunTickResult> {
         logSkew,
         labelClientDeps: deps.labelClientDeps,
         sanitizeDeps: deps.sanitizeDeps,
+        debriefAgentDeps: deps.debriefAgentDeps,
       });
       results.push(result);
     } catch (error) {

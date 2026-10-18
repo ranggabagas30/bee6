@@ -3,9 +3,19 @@ import type { GenerateContentParameters, GenerateContentResponse } from "@google
 import {
   runTick,
   mergeThread,
+  DEFAULT_LABEL_MAX_ATTEMPTS,
+  DEFAULT_LEASE_TTL_MS,
   DEFAULT_MAX_UNITS_PER_DEVICE,
   DEFAULT_RECENT_THREAD_LOOKBACK_MS,
+  UNIT_BUDGET_MS,
 } from "@/lib/pipeline/tick/service";
+import type { DebriefAgent, DebriefAgentResult } from "@/lib/agents/debrief-agent";
+import {
+  DEBRIEF_AGENT_BACKSTOP_MARGIN_MS,
+  DEBRIEF_AGENT_MAX_PER_UNIT,
+  DEBRIEF_AGENT_TIMEOUT_MS,
+  DEBRIEF_AGENT_UNIT_BUDGET_MS,
+} from "@/lib/debrief/agent/constants";
 import type {
   ActiveDevice,
   DiscardCleanupPlan,
@@ -1501,5 +1511,269 @@ describe("mergeThread", () => {
     expect(mergeThread(base, built).label_conflict).toBe(true);
     expect(mergeThread({ ...base, label_conflict: false }, built).label_conflict).toBe(false);
     expect(mergeThread(null, built).label_conflict).toBe(false);
+  });
+});
+
+/**
+ * DebriefAgent integration (docs/tasks/debrief-agent-18oct.md §5.1, slice C). The agent words the gate question the
+ * unit just created, BEFORE `writeUnitResult`; flag off (the pilot) it adds no await and writes nothing new.
+ */
+describe("runTick: DebriefAgent wording", () => {
+  const GOOD = "Around 14:05, was there a phone order for twelve egg tarts?";
+  const okAccepted: DebriefAgentResult = {
+    kind: "accepted",
+    draft: { question_en: "Around 14:05, was the oven checked?" },
+    rounds: 1,
+    usage: { input_tokens: 10, output_tokens: 2, thoughts_tokens: 0 },
+    model_calls: 1,
+    ms: 5,
+  };
+  // 14:05 Jakarta = 07:05 UTC; the segment starts there so the question's start_hm is a known string.
+  const START_MS = Date.UTC(2026, 9, 14, 7, 5, 0);
+  const NOW_MS = START_MS + 10 * 60_000;
+
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  let errSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    errSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    logSpy.mockRestore();
+    errSpy.mockRestore();
+    vi.restoreAllMocks();
+  });
+
+  /** A unit the gate must ask about: a low-confidence label (below_threshold). */
+  function lowConfidenceWire(summary = "Checked the oven") {
+    return fakeResponse(
+      JSON.stringify(
+        okWire({ threads: [{ id: "T1", category: "ROUTINE_OPS", confidence: 0.2, evidence: [0], summary }] }),
+      ),
+    );
+  }
+
+  function storeFor(outletId: string): FakeTickStore {
+    const store = new FakeTickStore();
+    store.devices = [{ outlet_id: outletId, device_id: "d1" }];
+    store.staffNamesByOutlet.set(outletId, ["Sari"]);
+    store.segmentsByDevice.set(`${outletId}:d1`, [
+      makeSegment({ segId: "s1", deviceStartMs: START_MS, text: "Checked the oven and the tarts" }),
+    ]);
+    return store;
+  }
+
+  async function tick(
+    store: FakeTickStore,
+    over: { run?: DebriefAgent; env?: Record<string, string | undefined>; generate?: () => Promise<GenerateContentResponse>; now_ms?: number } = {},
+  ) {
+    const run = over.run ?? vi.fn<DebriefAgent>(async () => okAccepted);
+    const result = await runTick({
+      store,
+      now_ms: over.now_ms ?? NOW_MS,
+      config: CONFIG,
+      labelClientDeps: { generate: over.generate ?? (async () => lowConfidenceWire()), project: "proj", resolveLocation: () => "global" },
+      sanitizeDeps: { redactBatch: async (texts) => [...texts] },
+      debriefAgentDeps: { run, env: over.env ?? {}, project: "proj", resolveLocation: () => "LOC" },
+    });
+    return { result, run };
+  }
+
+  const gateQuestions = (store: FakeTickStore) =>
+    store.writes.flatMap((w) => w.batch.questions).filter((q) => q.kind === "gate");
+
+  it("flag unset: run never invoked, getOutletTz never called, and the question write has no agent key (pilot byte-identity)", async () => {
+    const store = storeFor("sbx-1");
+    const { run } = await tick(store, { env: {} });
+    expect(run).not.toHaveBeenCalled();
+    expect(store.getOutletTzCalls).toBe(0);
+    const [q] = gateQuestions(store);
+    expect(q).toBeDefined();
+    expect(Object.keys(q!).sort()).toEqual(
+      ["category", "created_at_ms", "device_id", "kind", "outlet_id", "question_id", "status", "thread_id", "window_end_ms", "window_start_ms"],
+    );
+  });
+
+  it.each([
+    ["flag 'false'", { DEBRIEF_AGENT: "false" }, "sbx-1"],
+    ["flag 'TRUE' (not exactly 'true')", { DEBRIEF_AGENT: "TRUE" }, "sbx-1"],
+    ["flag '1'", { DEBRIEF_AGENT: "1" }, "sbx-1"],
+    ["flag on but a pilot outlet id", { DEBRIEF_AGENT: "true" }, "outlet-pilot"],
+    ["flag on but a template outlet id", { DEBRIEF_AGENT: "true" }, "demo-tpl-outlet"],
+  ])("%s: run never invoked and nothing new is written", async (_n, env, outletId) => {
+    const store = storeFor(outletId);
+    const { run } = await tick(store, { env });
+    expect(run).not.toHaveBeenCalled();
+    expect(store.getOutletTzCalls).toBe(0);
+    expect(gateQuestions(store).every((q) => !("agent" in q))).toBe(true);
+  });
+
+  it("flag on + sandbox outlet: the agent is invoked once for the gate question and its wording is on the write", async () => {
+    const store = storeFor("sbx-1");
+    const { run } = await tick(store, { env: { DEBRIEF_AGENT: "true" } });
+    expect(run).toHaveBeenCalledTimes(1);
+    const [q] = gateQuestions(store);
+    expect(q!.agent).toMatchObject({
+      version: "debrief-q-v1",
+      category: "ROUTINE_OPS",
+      start_hm: "14:05",
+      question_en: "Around 14:05, was the oven checked?",
+      generated_at_ms: NOW_MS,
+    });
+  });
+
+  it("the moment is shown the outlet's own timezone (getOutletTz), once per device tick", async () => {
+    const store = storeFor("sbx-1");
+    store.tzByOutlet.set("sbx-1", "Asia/Makassar"); // UTC+8: 15:05
+    const run = vi.fn<DebriefAgent>(async (input) => ({ ...okAccepted, draft: { question_en: `Around ${input.moment.start_hm}, was the oven checked?` } }));
+    await tick(store, { env: { DEBRIEF_AGENT: "true" }, run });
+    expect(run.mock.calls[0]![0].moment.start_hm).toBe("15:05");
+    expect(store.getOutletTzCalls).toBe(1);
+    expect(gateQuestions(store)[0]!.agent?.start_hm).toBe("15:05");
+  });
+
+  it("the staff names reach the checker context but the agent is never given anything else about people", async () => {
+    const store = storeFor("sbx-1");
+    const { run } = await tick(store, { env: { DEBRIEF_AGENT: "true" } });
+    const input = (run as ReturnType<typeof vi.fn>).mock.calls[0]![0] as { staffNames: string[] };
+    expect(input.staffNames).toEqual(["Sari"]);
+  });
+
+  it("the agent runs BEFORE the unit is written: one writeUnitResult, already carrying the wording", async () => {
+    const store = storeFor("sbx-1");
+    let writesWhenCalled = -1;
+    const run: DebriefAgent = async () => {
+      writesWhenCalled = store.writes.length;
+      return okAccepted;
+    };
+    await tick(store, { env: { DEBRIEF_AGENT: "true" }, run });
+    expect(writesWhenCalled).toBe(0);
+    expect(store.writes).toHaveLength(1);
+    expect(store.writes[0]!.batch.questions[0]!.agent).toBeDefined();
+  });
+
+  it("a runner that throws, times out or is rejected costs only the wording: the unit is written, the ledger is done, the template stays", async () => {
+    for (const run of [
+      async (): Promise<DebriefAgentResult> => {
+        throw new Error("contract violation");
+      },
+      async (): Promise<DebriefAgentResult> => ({ kind: "error", error_class: "timeout", usage: { input_tokens: null, output_tokens: null, thoughts_tokens: null }, model_calls: 1, ms: 8000 }),
+      async (): Promise<DebriefAgentResult> => ({ kind: "rejected", reasons: ["too_long"], rounds: 2, usage: { input_tokens: 1, output_tokens: 1, thoughts_tokens: 0 }, model_calls: 2, ms: 10 }),
+    ]) {
+      const store = storeFor("sbx-1");
+      const { result } = await tick(store, { env: { DEBRIEF_AGENT: "true" }, run });
+      expect(result.devices[0]!.failed_units).toBe(0);
+      expect(store.writes).toHaveLength(1);
+      expect(store.writes[0]!.batch.ledger.status).toBe("done");
+      expect(store.writes[0]!.batch.threads[0]!.status).toBe("open");
+      expect("agent" in store.writes[0]!.batch.questions[0]!).toBe(false);
+    }
+  });
+
+  it("a tz read that throws cannot fail the unit either", async () => {
+    const store = storeFor("sbx-1");
+    store.getOutletTz = async () => {
+      throw new Error("firestore down");
+    };
+    const { result, run } = await tick(store, { env: { DEBRIEF_AGENT: "true" } });
+    expect(run).not.toHaveBeenCalled();
+    expect(result.devices[0]!.failed_units).toBe(0);
+    expect(store.writes).toHaveLength(1);
+    expect("agent" in store.writes[0]!.batch.questions[0]!).toBe(false);
+  });
+
+  it("whole journey: day-1 unit gets agent wording, a same-category continuation tick does not re-word it", async () => {
+    const store = storeFor("sbx-1");
+    const env = { DEBRIEF_AGENT: "true" };
+    const first = await tick(store, { env });
+    expect(first.run).toHaveBeenCalledTimes(1);
+    const threadId = Array.from(store.storedThreads.keys())[0]!;
+    expect(store.storedThreads.get(threadId)!.status).toBe("open");
+
+    // A later line (100 s gap, inside ROUTINE_OPS grace) that the model continues into the open thread.
+    store.segmentsByDevice.set("sbx-1:d1", [
+      ...store.segmentsByDevice.get("sbx-1:d1")!,
+      makeSegment({ segId: "s2", deviceStartMs: START_MS + 110_000, text: "Wiped the counter" }),
+    ]);
+    const continuation = fakeResponse(
+      JSON.stringify({
+        lines: [{ i: 0, reply_to: null, thread: "O1" }],
+        threads: [{ id: "O1", category: "ROUTINE_OPS", confidence: 0.2, evidence: [0], summary: "Wiped the counter" }],
+        non_work_lines: [],
+      }),
+    );
+    const second = await tick(store, { env, generate: async () => continuation, now_ms: START_MS + 220_000 });
+    expect(second.run).not.toHaveBeenCalled();
+    expect(store.storedThreads.size).toBe(1);
+    const last = gateQuestions(store).at(-1)!;
+    expect("agent" in last).toBe(false); // the store leaves the first agent in place (tick-store test)
+  });
+
+  it(`caps the wording at ${DEBRIEF_AGENT_MAX_PER_UNIT} questions per unit`, async () => {
+    const store = storeFor("sbx-1");
+    const wire = fakeResponse(
+      JSON.stringify({
+        lines: [0, 1, 2, 3, 4].map((i) => ({ i, reply_to: null, thread: `T${i + 1}` })),
+        threads: [0, 1, 2, 3, 4].map((i) => ({ id: `T${i + 1}`, category: "ROUTINE_OPS", confidence: 0.2, evidence: [i], summary: `Thing ${i}` })),
+        non_work_lines: [],
+      }),
+    );
+    store.segmentsByDevice.set("sbx-1:d1", [
+      {
+        seg_id: "s1",
+        device_start: new Date(START_MS).toISOString(),
+        device_end: new Date(START_MS + 10_000).toISOString(),
+        received_at: new Date(START_MS + 10_000).toISOString(),
+        lines: [0, 1, 2, 3, 4].map((i) => ({ text: `Line ${i}`, start: i, end: i + 1 })),
+        session_id: null,
+      },
+    ]);
+    const { run } = await tick(store, { env: { DEBRIEF_AGENT: "true" }, generate: async () => wire });
+    expect(gateQuestions(store).length).toBe(5);
+    expect(run).toHaveBeenCalledTimes(DEBRIEF_AGENT_MAX_PER_UNIT);
+  });
+
+  describe("time budget (the 30 min lease stays true with the agent on)", () => {
+    it("20 units x the per-unit budget fits the lease, and the lease fits the Scheduler / Cloud Run 30 min cap", () => {
+      expect(UNIT_BUDGET_MS).toBe(DEFAULT_LABEL_MAX_ATTEMPTS * 30_000);
+      expect(DEFAULT_MAX_UNITS_PER_DEVICE * UNIT_BUDGET_MS).toBeLessThanOrEqual(DEFAULT_LEASE_TTL_MS);
+      expect(DEFAULT_LEASE_TTL_MS).toBeLessThanOrEqual(30 * 60_000);
+    });
+
+    it("the agent's per-unit budget (3 questions in parallel = ONE timeout + backstop, ~11 s) is a small part of one unit's budget", () => {
+      expect(DEBRIEF_AGENT_UNIT_BUDGET_MS).toBe(DEBRIEF_AGENT_TIMEOUT_MS + DEBRIEF_AGENT_BACKSTOP_MARGIN_MS);
+      expect(DEBRIEF_AGENT_UNIT_BUDGET_MS).toBe(11_000);
+      expect(DEBRIEF_AGENT_UNIT_BUDGET_MS).toBeLessThan(UNIT_BUDGET_MS);
+      // Every unit may add its agent budget ONLY out of its own: 20 x (label time that still leaves room + agent) <= 20 x unit budget.
+      const worstLabelThatStillWordsMs = UNIT_BUDGET_MS - DEBRIEF_AGENT_UNIT_BUDGET_MS;
+      expect(DEFAULT_MAX_UNITS_PER_DEVICE * (worstLabelThatStillWordsMs + DEBRIEF_AGENT_UNIT_BUDGET_MS)).toBeLessThanOrEqual(DEFAULT_LEASE_TTL_MS);
+    });
+
+    it("a unit whose label step already used the budget keeps the template and never calls the agent", async () => {
+      let clock = 1_000_000;
+      vi.spyOn(Date, "now").mockImplementation(() => clock);
+      const store = storeFor("sbx-1");
+      // The label call "takes" 85 s of the 90 s unit budget: less than one agent budget (11 s) is left.
+      const slow = async () => {
+        clock += 85_000;
+        return lowConfidenceWire();
+      };
+      const { run } = await tick(store, { env: { DEBRIEF_AGENT: "true" }, generate: slow });
+      expect(run).not.toHaveBeenCalled();
+      expect(store.writes).toHaveLength(1);
+      expect("agent" in store.writes[0]!.batch.questions[0]!).toBe(false);
+    });
+
+    it("a unit that used less than (budget - agent budget) still gets its wording", async () => {
+      let clock = 1_000_000;
+      vi.spyOn(Date, "now").mockImplementation(() => clock);
+      const store = storeFor("sbx-1");
+      const quick = async () => {
+        clock += 78_000;
+        return lowConfidenceWire();
+      };
+      const { run } = await tick(store, { env: { DEBRIEF_AGENT: "true" }, generate: quick });
+      expect(run).toHaveBeenCalledTimes(1);
+    });
   });
 });
