@@ -74,6 +74,8 @@ const STAGE_TOTAL = STAGES.length;
 const NEXT_DAY_REASON_KEY: Record<Exclude<NextDayRefusal, "unanswered_questions">, DictKey> = {
   proposal_exists: "C-journey-next-day-proposal_exists",
   max_days: "C-journey-next-day-max_days",
+  approve_first: "C-journey-next-day-approve_first",
+  review_exists: "C-journey-next-day-review_exists",
   session_open: "C-journey-next-day-session_open",
   day_not_ended: "C-journey-next-day-day_not_ended",
   preparing: "C-journey-next-day-preparing",
@@ -275,9 +277,9 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
 
   const journey: JourneyProgress = useMemo(() => {
     if (bridge) {
-      return { day: bridge.state.profile.day, days_done: bridge.state.profile.days_done, proposals_with_content: 0, feasible: 0, owner_decided: 0, supervisor_visited: visited };
+      return { day: bridge.state.profile.day, days_done: bridge.state.profile.days_done, proposals_with_content: 0, feasible: 0, owner_decided: 0, approved: 0, reviews_open: 0, reviews_confirmed: 0, supervisor_visited: visited };
     }
-    return progress ? { ...progress, supervisor_visited: visited } : { day: 1, days_done: 0, proposals_with_content: 0, feasible: 0, owner_decided: 0, supervisor_visited: visited };
+    return progress ? { ...progress, supervisor_visited: visited } : { day: 1, days_done: 0, proposals_with_content: 0, feasible: 0, owner_decided: 0, approved: 0, reviews_open: 0, reviews_confirmed: 0, supervisor_visited: visited };
   }, [bridge, progress, visited]);
   // R-25 R7: on a supervisor web page right after day 1 the stage stays "Supervisor · look around".
   const stage = currentStage(journey, { onSupervisorWeb: supervisorHere });
@@ -826,7 +828,7 @@ function JumpTomorrow({ lang, bridge }: { lang: Lang; bridge: CaptureBridge }) {
   const allowed = profile.next_day.allowed;
 
   async function jump(confirmUnanswered: boolean) {
-    if (busyRef.current || !allowed || profile.day === 3) return; // never call the route on day 3 (`max_days`)
+    if (busyRef.current || !allowed || profile.day === DEMO_DAYS_TOTAL) return; // never call the route on the last day (`max_days`)
     const auth = readDeviceAuth();
     if (!auth) return;
     busyRef.current = true;
@@ -872,7 +874,7 @@ function JumpTomorrow({ lang, bridge }: { lang: Lang; bridge: CaptureBridge }) {
         </div>
       </div>
     );
-  } else if (allowed && profile.day !== 3) {
+  } else if (allowed && profile.day !== DEMO_DAYS_TOTAL) {
     content = (
       <div className={styles.ctlWrap}>
         <Ctl

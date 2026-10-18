@@ -130,6 +130,8 @@ type View = "loading" | "error" | "unsupported" | "ready";
 const NEXT_DAY_REASON_KEY: Record<Exclude<NextDayRefusal, "unanswered_questions">, DictKey> = {
   proposal_exists: "C-sess-next-day-proposal_exists",
   max_days: "C-sess-next-day-max_days",
+  approve_first: "C-sess-next-day-approve_first",
+  review_exists: "C-sess-next-day-review_exists",
   session_open: "C-sess-next-day-session_open",
   day_not_ended: "C-sess-next-day-day_not_ended",
   preparing: "C-sess-next-day-preparing",

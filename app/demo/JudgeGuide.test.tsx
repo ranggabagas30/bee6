@@ -101,7 +101,7 @@ beforeEach(() => {
   vi.stubGlobal("localStorage", createMemoryStorage());
   window.localStorage.setItem(WELCOME_SEEN_KEY, "1"); // R-25 fixes-2 §3: every test starts past the first visit (collapsed default)
   vi.stubGlobal("sessionStorage", createMemoryStorage());
-  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: { day: 2, days_done: 2, proposals_with_content: 0, feasible: 0, owner_decided: 0 } }), { status: 200 })));
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: { day: 2, days_done: 2, proposals_with_content: 0, feasible: 0, owner_decided: 0, approved: 0, reviews_open: 0, reviews_confirmed: 0 } }), { status: 200 })));
 });
 afterEach(() => {
   cleanup();
@@ -210,7 +210,7 @@ describe("shell: collapsed by default, phone sheet vs laptop pill, one language"
     expect(handle.textContent).toContain("JUDGE GUIDE");
     expect(handle.textContent).toContain("DEMO");
     expect(handle.textContent).toContain("Welcome · pick Staff to start");
-    expect(handle.textContent).not.toContain("Day 1 of 3"); // the clock chip is for the capture pages (the bridge knows the day)
+    expect(handle.textContent).not.toContain("Day 1 of 5"); // the clock chip is for the capture pages (the bridge knows the day)
     expect((screen.getByText(/About 20 minutes/).closest(".b6-sheet__body") as HTMLElement).hidden).toBe(true);
     openGuide();
     expect((screen.getByText(/About 20 minutes/).closest(".b6-sheet__body") as HTMLElement).hidden).toBe(false);
@@ -408,7 +408,7 @@ describe("/capture: the script card (plan 5.3-5.4)", () => {
     renderGuide();
     const handle = screen.getByRole("button", { name: /Open the judge guide/ });
     expect(handle.textContent).toContain("Tap Start, then read the cards");
-    expect(handle.textContent).toContain("Day 2 of 3");
+    expect(handle.textContent).toContain("Day 2 of 5");
   });
 
   it("listening: ONE card at a time; I have spoken this is disabled until Bee6 heard 1 line of it; the next card replaces it and focus moves to its heading", async () => {
@@ -418,7 +418,7 @@ describe("/capture: the script card (plan 5.3-5.4)", () => {
     // the handle says which card is on screen (UI-006): "Read card 1 of 5 aloud", with the day clock chip beside it
     const handle = screen.getByRole("button", { name: /Open the judge guide/ });
     expect(handle.textContent).toContain("Read card 1 of 5 aloud");
-    expect(handle.querySelector(".b6-clock")?.textContent).toBe("Day 1 of 3");
+    expect(handle.querySelector(".b6-clock")?.textContent).toBe("Day 1 of 5");
     openGuide();
     expect(screen.getByText("Card 1 of 5")).toBeTruthy();
     expect(screen.getByRole("heading", { name: /Opening/ })).toBeTruthy();
@@ -471,7 +471,7 @@ describe("/capture: the script card (plan 5.3-5.4)", () => {
     renderGuide("id");
     fireEvent.click(screen.getByRole("button", { name: /Buka panduan juri/ }));
     expect(screen.getByText("Bahasa segera hadir; kartu ditampilkan dalam bahasa Inggris.")).toBeTruthy();
-    expect(screen.getByText("Hari 1 dari 3")).toBeTruthy();
+    expect(screen.getByText("Hari 1 dari 5")).toBeTruthy();
   });
 
   it("the phone-call card needs 1 heard line like every other card; the speaker tags are shown, never spoken", () => {
@@ -784,7 +784,7 @@ describe("/capture: a locked card is never a dead end (stuck-upload hints, 18 Oc
 });
 
 describe("/capture: the debrief cards and Jump to tomorrow (plan 4.4, 7.2)", () => {
-  const debrief = (next_day: DemoSessionProfile["next_day"], phase: CaptureBridgeState["phase"] = "debrief_done", day: 1 | 2 | 3 = 1) =>
+  const debrief = (next_day: DemoSessionProfile["next_day"], phase: CaptureBridgeState["phase"] = "debrief_done", day: 1 | 2 | 3 | 4 | 5 = 1) =>
     bridge({ phase, profile: profile({ day, next_day }) });
 
   it("refetches the config when the phone enters the debrief (after End), and re-polls every 10 s while the server says busy or preparing", async () => {
@@ -844,10 +844,23 @@ describe("/capture: the debrief cards and Jump to tomorrow (plan 4.4, 7.2)", () 
     openGuide();
     expect(screen.getByText("Bee6 is busy with today's notes. Try again in a few seconds.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Jump to tomorrow" })).toBeNull();
-    act(() => publishCaptureBridge(debrief({ allowed: false, reason: "max_days" }, "debrief_done", 3)));
-    expect(screen.getByText("All 3 demo days are done. Sign out and continue as Supervisor.")).toBeTruthy();
+    act(() => publishCaptureBridge(debrief({ allowed: false, reason: "max_days" }, "debrief_done", 5)));
+    expect(screen.getByText("All 5 demo days are done. Sign out and continue as Supervisor.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Jump to tomorrow" })).toBeNull();
     expect(postDemoNextDay).not.toHaveBeenCalled();
+  });
+
+  it("never calls the route on the last day (5), even if the config says allowed; day 4 still jumps with expected_day 4 (review-agent plan 3.1)", async () => {
+    pathname = "/capture";
+    act(() => publishCaptureBridge(debrief({ allowed: true, reason: null }, "debrief_done", 5)));
+    renderGuide();
+    openGuide();
+    expect(screen.queryByRole("button", { name: "Jump to tomorrow" })).toBeNull();
+    expect(postDemoNextDay).not.toHaveBeenCalled();
+    act(() => publishCaptureBridge(debrief({ allowed: true, reason: null }, "debrief_done", 4)));
+    postDemoNextDay.mockResolvedValueOnce({ ok: true, data: { day: 5 } });
+    fireEvent.click(screen.getByRole("button", { name: "Jump to tomorrow" }));
+    await waitFor(() => expect(postDemoNextDay).toHaveBeenCalledWith({ deviceToken: "t", deviceId: "d" }, { expected_day: 4, confirm_unanswered: false }));
   });
 
   it("allowed: Jump to tomorrow posts expected_day = the profile's day, then refetches the config and says which day it is", async () => {
@@ -860,7 +873,7 @@ describe("/capture: the debrief cards and Jump to tomorrow (plan 4.4, 7.2)", () 
     fireEvent.click(screen.getByRole("button", { name: "Jump to tomorrow" }));
     await waitFor(() => expect(postDemoNextDay).toHaveBeenCalledWith({ deviceToken: "t", deviceId: "d" }, { expected_day: 1, confirm_unanswered: false }));
     await waitFor(() => expect(refetchConfig.mock.calls.length).toBe(refetchesBefore + 1));
-    expect(screen.getByRole("status").textContent).toBe("It is now day 2 of 3. Tap Start.");
+    expect(screen.getByRole("status").textContent).toBe("It is now day 2 of 5. Tap Start.");
   });
 
   it("409 unanswered_questions: an inline confirm (no modal) with the count; Jump anyway retries with confirm_unanswered: true; Answer them first closes it", async () => {
@@ -950,7 +963,7 @@ describe("web routes: progress and the supervisor-visited flag", () => {
     seedWeb("supervisor");
     vi.mocked(fetch).mockImplementation(async (url) => {
       expect(String(url)).toBe("/api/v1/demo/progress");
-      return new Response(JSON.stringify({ data: { day: 1, days_done: 1, proposals_with_content: 0, feasible: 0, owner_decided: 0 } }), { status: 200 });
+      return new Response(JSON.stringify({ data: { day: 1, days_done: 1, proposals_with_content: 0, feasible: 0, owner_decided: 0, approved: 0, reviews_open: 0, reviews_confirmed: 0 } }), { status: 200 });
     });
     renderGuide();
     await waitFor(() => expect(window.localStorage.getItem(SUPERVISOR_SEEN_KEY)).toBe("1"));
@@ -976,7 +989,7 @@ describe("web routes: progress and the supervisor-visited flag", () => {
     pathname = "/sop";
     seedWeb("supervisor");
     authStatus = "loading";
-    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 0, feasible: 0, owner_decided: 0 } }), { status: 200 }));
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 0, feasible: 0, owner_decided: 0, approved: 0, reviews_open: 0, reviews_confirmed: 0 } }), { status: 200 }));
     const view = () => (
       <LangProvider initial="en">
         <JudgeGuide config={CONFIG} />
@@ -1000,7 +1013,7 @@ describe("web routes: progress and the supervisor-visited flag", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("Ask Bee6 for a proposal"));
     cleanup();
     seedWeb("owner");
-    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 2, feasible: 2, owner_decided: 0 } }), { status: 200 }));
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 2, feasible: 2, owner_decided: 0, approved: 0, reviews_open: 0, reviews_confirmed: 0 } }), { status: 200 }));
     renderGuide();
     await waitFor(() => expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("STAGE 5 OF 5"));
     expect(screen.getByRole("button", { name: /Open the judge guide/ }).textContent).toContain("Approve or reject each proposal");
@@ -1072,7 +1085,7 @@ describe("web routes: progress and the supervisor-visited flag", () => {
       vi.mocked(fetch).mockImplementation(async (url) =>
         String(url).endsWith("/api/v1/demo/reset")
           ? new Promise<Response>(() => {}) // never settles: the dialog stays busy
-          : new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 2, feasible: 2, owner_decided: 2 } }), { status: 200 }),
+          : new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 2, feasible: 2, owner_decided: 2, approved: 0, reviews_open: 0, reviews_confirmed: 0 } }), { status: 200 }),
       );
       await openResetDialog();
       fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Reset the demo" }));
@@ -1100,7 +1113,7 @@ describe("web routes: progress and the supervisor-visited flag", () => {
     expect(handle()).toContain("Ask Bee6 for a proposal");
     cleanup();
     seedWeb("owner");
-    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 2, feasible: 2, owner_decided: 1 } }), { status: 200 }));
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 2, feasible: 2, owner_decided: 1, approved: 0, reviews_open: 0, reviews_confirmed: 0 } }), { status: 200 }));
     renderGuide();
     await waitFor(() => expect(handle()).toContain("Approve or reject each proposal"));
     act(() => publishProposalsScreen("all_decided"));
@@ -1121,7 +1134,7 @@ describe("web routes: progress and the supervisor-visited flag", () => {
     seedWeb("supervisor");
     renderGuide();
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
-    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 1, feasible: 1, owner_decided: 0 } }), { status: 200 }));
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 1, feasible: 1, owner_decided: 0, approved: 0, reviews_open: 0, reviews_confirmed: 0 } }), { status: 200 }));
     act(() => publishProposalsProgress());
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
     expect(String(vi.mocked(fetch).mock.calls[1]![0])).toBe("/api/v1/demo/progress");
@@ -1145,8 +1158,8 @@ describe("web routes: progress and the supervisor-visited flag", () => {
 // last read, the new card's key tripped the collapse-on-card-change rule and the guide shut itself ~50 ms after the
 // tap. A card change that comes only from a progress read never collapses the guide; page-driven changes still do.
 describe("D1: a progress-driven card change never collapses the guide", () => {
-  const STALE = { day: 2, days_done: 2, proposals_with_content: 0, feasible: 0, owner_decided: 0 };
-  const MOVED = { day: 3, days_done: 3, proposals_with_content: 2, feasible: 0, owner_decided: 0 };
+  const STALE = { day: 2, days_done: 2, proposals_with_content: 0, feasible: 0, owner_decided: 0, approved: 0, reviews_open: 0, reviews_confirmed: 0 };
+  const MOVED = { day: 3, days_done: 3, proposals_with_content: 2, feasible: 0, owner_decided: 0, approved: 0, reviews_open: 0, reviews_confirmed: 0 };
   const progressResponse = (p: object) => new Response(JSON.stringify({ data: p }), { status: 200 });
 
   describe.each([
@@ -1298,7 +1311,7 @@ describe("R-19 PR-5 QA fixes: scroll body, 48 px controls, open-session card, bu
 
 // R-25 R7: the stage with the page context, and R12: the paired card after /pair reports the device as paired.
 describe("R-25 contracts: supervisor stage 2 and the paired card", () => {
-  const dayOne = { day: 1, days_done: 1, proposals_with_content: 0, feasible: 0, owner_decided: 0 };
+  const dayOne = { day: 1, days_done: 1, proposals_with_content: 0, feasible: 0, owner_decided: 0, approved: 0, reviews_open: 0, reviews_confirmed: 0 };
   const stageText = () => screen.getByRole("button", { name: /Open the judge guide/ }).textContent;
 
   it("stays at STAGE 2 on every supervisor page after day 1, with the visited flag already stored", async () => {
@@ -1532,7 +1545,7 @@ describe("R-25 T6: the board chrome (handle, web panel, Do this now)", () => {
     seedWeb("owner");
     claims = { role: "owner", outlet_id: "sbx-1", demo_exp_ms: Date.now() + 3_600_000 };
     vi.mocked(fetch).mockImplementation(
-      async () => new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 2, feasible: 2, owner_decided: 0 } }), { status: 200 }),
+      async () => new Response(JSON.stringify({ data: { day: 3, days_done: 3, proposals_with_content: 2, feasible: 2, owner_decided: 0, approved: 0, reviews_open: 0, reviews_confirmed: 0 } }), { status: 200 }),
     );
     renderGuide();
     await waitFor(() => expect(fetch).toHaveBeenCalled());
@@ -1555,7 +1568,7 @@ describe("R-25 T6: the board chrome (handle, web panel, Do this now)", () => {
     act(() => publishCaptureBridge(bridge({ phase: "ready", profile: profile({ day: 3, days_done: 2 }) })));
     renderGuide();
     const handle = screen.getByRole("button", { name: /Open the judge guide/ });
-    expect(handle.querySelector(".b6-clock")?.textContent).toBe("Day 3 of 3");
+    expect(handle.querySelector(".b6-clock")?.textContent).toBe("Day 3 of 5");
     expect(handle.querySelector(".b6-chip--teal")?.textContent).toBe("STAGE 3 OF 5");
     expect(handle.textContent).not.toMatch(/Tap Start, then read the cards · Day/);
     // open: the title line goes away, the clock stays (board: the open handle row is kicker + chip, clock, chevron)

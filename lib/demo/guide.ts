@@ -518,11 +518,15 @@ export function todoDoneCount(key: GuideKey, p: JourneyProgress | null): number 
 }
 
 export interface JourneyProgress {
-  day: 1 | 2 | 3;
+  day: 1 | 2 | 3 | 4 | 5;
   days_done: number;
   proposals_with_content: number;
   feasible: number;
   owner_decided: number;
+  /** Review-agent plan Part 1: owner-approved proposals, and the reviews waiting / confirmed (the guide's PR-3 stages read these). */
+  approved: number;
+  reviews_open: number;
+  reviews_confirmed: number;
   /** localStorage `bee6.guide.sup_seen`, set when any supervisor page mounts. */
   supervisor_visited: boolean;
 }

@@ -163,13 +163,13 @@ function config(
 /**
  * R-19: the full sandbox journey profile (lib/capture/contract.ts DemoSessionProfileSchema). The old two-key
  * `{max_ms, script_id}` shape no longer parses on the server, so the page fixtures carry the real one: a fresh
- * sandbox on day 1 of 3 with the 10-minute hard stop.
+ * sandbox on day 1 of 5 with the 10-minute hard stop.
  */
 const DEMO_PROFILE = {
   max_ms: 600_000,
   script_id: "bakery-v2",
   day: 1,
-  days_total: 3,
+  days_total: 5,
   days_done: 0,
   closing_reached: false,
   open_session: null,
@@ -662,16 +662,16 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
     expect(screen.getByRole("button", { name: "End today" })).toBeTruthy();
   });
 
-  // Q6: "Day n of 3 · date" on the phone, sandbox only.
-  it("shows 'Day 1 of 3 · Mon 12 Oct' before and during the session; the pilot shows no such line", async () => {
+  // Q6: "Day n of 5 · date" on the phone, sandbox only.
+  it("shows 'Day 1 of 5 · Mon 12 Oct' before and during the session; the pilot shows no such line", async () => {
     pinClock(MON_2230_WIB);
     fetchCaptureConfig.mockResolvedValue(demoConfig());
     await renderReady();
     await screen.findByRole("button", { name: "Start" });
-    expect(screen.getByText("Day 1 of 3 · Mon 12 Oct")).toBeTruthy();
+    expect(screen.getByText("Day 1 of 5 · Mon 12 Oct")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Start" }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Listening" })).toBeTruthy());
-    expect(screen.getByText("Day 1 of 3 · Mon 12 Oct")).toBeTruthy();
+    expect(screen.getByText("Day 1 of 5 · Mon 12 Oct")).toBeTruthy();
     cleanup();
     const { demo_session: _drop, ...pilot } = demoConfig();
     fetchCaptureConfig.mockResolvedValue(pilot);
@@ -680,12 +680,12 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
     expect(screen.queryByText(/Day \d of \d/)).toBeNull();
   });
 
-  it("day 2 of 3 reads from the profile", async () => {
+  it("day 2 of 5 reads from the profile", async () => {
     pinClock(MON_2230_WIB);
     fetchCaptureConfig.mockResolvedValue(demoConfig({ demo_session: { ...DEMO_PROFILE, day: 2, days_done: 1 } }));
     await renderReady();
     await screen.findByRole("button", { name: "Start" });
-    expect(screen.getByText("Day 2 of 3 · Mon 12 Oct")).toBeTruthy();
+    expect(screen.getByText("Day 2 of 5 · Mon 12 Oct")).toBeTruthy();
   });
 
   it("hard-stops at start + 10:00 with end_reason auto_stop and no confirm dialog (not at the 30 s tick)", async () => {
@@ -821,7 +821,7 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
     await renderReady();
     // The dev panel has its own "Start" (a dev session, no Mulai bookkeeping); tap the page's Mulai button.
     const panel = await screen.findByTestId("dev-panel");
-    await screen.findByText("Day 1 of 3 · Mon 12 Oct");
+    await screen.findByText("Day 1 of 5 · Mon 12 Oct");
     const mulai = screen.getAllByRole("button", { name: "Start" }).find((b) => !panel.contains(b))!;
     fireEvent.click(mulai);
     await waitFor(() => expect(screen.getByRole("heading", { name: "Listening" })).toBeTruthy());
@@ -1168,7 +1168,7 @@ describe("CapturePage judge-guide bridge (R-19 PR-5, sandbox only)", () => {
     expect(closedHandle.getAttribute("aria-expanded")).toBe("false");
     // R-25 T6: the handle title names the card on screen ("Read card n of 5 aloud"), not the card heading.
     expect(closedHandle.textContent).toContain("Read card 1 of 5 aloud");
-    expect(closedHandle.textContent).toContain("Day 1 of 3");
+    expect(closedHandle.textContent).toContain("Day 1 of 5");
     const reserve = container.querySelector("[data-testid='guide-sheet-reserve']") as HTMLElement;
     expect(reserve.style.height).toBe(`calc(${SHEET_RESERVE_PX}px + env(safe-area-inset-bottom))`);
     const precedes = (el: Element) => Boolean(el.compareDocumentPosition(reserve) & Node.DOCUMENT_POSITION_FOLLOWING);

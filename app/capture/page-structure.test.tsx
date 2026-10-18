@@ -54,7 +54,7 @@ const PROFILE = {
   max_ms: 600_000,
   script_id: "bakery-v2",
   day: 1,
-  days_total: 3,
+  days_total: 5,
   days_done: 0,
   closing_reached: false,
   open_session: null,
@@ -103,7 +103,7 @@ describe("sandbox capture screen (R-25 T5): document order and landmarks", () =>
     expect(stage.classList.contains("b6-stage--idle")).toBe(true);
     const h1 = screen.getByRole("heading", { level: 1, name: "Ready to open" });
     const sub = screen.getByText("Tap Start to begin listening. Staff keep serving customers as normal.");
-    const day = screen.getByText("Day 1 of 3 · Mon 12 Oct");
+    const day = screen.getByText("Day 1 of 5 · Mon 12 Oct");
     const note = screen.getByTestId("capture-notice");
     const signOut = screen.getByRole("button", { name: "Sign out" });
     const upload = screen.getByTestId("upload-status");
@@ -129,7 +129,7 @@ describe("sandbox capture screen (R-25 T5): document order and landmarks", () =>
     expect(stage.classList.contains("b6-stage--idle")).toBe(true);
     const h1 = screen.getByRole("heading", { level: 1, name: "Ready to open" });
     const sub = screen.getByText("Tap Start to begin listening. Staff keep serving customers as normal.");
-    const day = screen.getByText("Day 1 of 3 · Mon 12 Oct");
+    const day = screen.getByText("Day 1 of 5 · Mon 12 Oct");
     const note = screen.getByTestId("capture-notice");
     const signOut = screen.getByRole("button", { name: "Sign out" });
     const upload = screen.getByTestId("upload-status");
@@ -142,7 +142,7 @@ describe("sandbox capture screen (R-25 T5): document order and landmarks", () =>
     expect(within(header).queryByRole("button", { name: /Sign out/ })).toBeNull();
   });
 
-  it("idle on day 2 after Jump to tomorrow (the shifted, expired last_ended): the same stage with 'Day 2 of 3'", async () => {
+  it("idle on day 2 after Jump to tomorrow (the shifted, expired last_ended): the same stage with 'Day 2 of 5'", async () => {
     fetchCaptureConfig.mockResolvedValue({
       ...base,
       last_ended: YESTERDAY_ENDED,
@@ -151,7 +151,7 @@ describe("sandbox capture screen (R-25 T5): document order and landmarks", () =>
     await renderPage();
     await screen.findByRole("button", { name: "Start" });
     expect(screen.getByRole("heading", { level: 1, name: "Ready to open" })).toBeTruthy();
-    expect(screen.getByText("Day 2 of 3 · Mon 12 Oct")).toBeTruthy();
+    expect(screen.getByText("Day 2 of 5 · Mon 12 Oct")).toBeTruthy();
     expect(screen.getAllByTestId("capture-notice")).toHaveLength(1);
   });
 
@@ -164,7 +164,7 @@ describe("sandbox capture screen (R-25 T5): document order and landmarks", () =>
     expect(stage.classList.contains("b6-stage--listening")).toBe(true);
     const sub1 = screen.getByText(/Focus on your customers\./);
     expect(sub1.textContent).toBe("Focus on your customers.We'll keep the notes.");
-    const day = screen.getByText("Day 1 of 3 · Mon 12 Oct");
+    const day = screen.getByText("Day 1 of 5 · Mon 12 Oct");
     const end = screen.getByRole("button", { name: "End · available at closing time (22:00)" }) as HTMLButtonElement;
     expect(end.disabled).toBe(true);
     const signOut = screen.getByRole("button", { name: "Sign out (cancels today's session)" });

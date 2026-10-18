@@ -36,7 +36,9 @@ export const sessionID = {
   // 4.4: why "Jump to tomorrow" is locked (one line each; `unanswered_questions` is a confirm dialog in PR-2, not a lock line).
   "C-sess-next-day-proposal_exists":
     "Bee6 sudah membuat usulan dari hari-hari ini, jadi jam toko tidak bisa maju ke hari lain. Untuk mengulang, masuk sebagai Pemilik dan atur ulang demo.", // PROVISIONAL
-  "C-sess-next-day-max_days": "Ketiga hari demo sudah selesai. Keluar, lalu lanjut sebagai Supervisor.", // PROVISIONAL
+  "C-sess-next-day-max_days": "Kelima hari demo sudah selesai. Keluar, lalu lanjut sebagai Supervisor.", // PROVISIONAL
+  "C-sess-next-day-approve_first": "Days 4 and 5 open after the Owner approves a change. Sign out and continue as Supervisor.", // PROVISIONAL (= EN)
+  "C-sess-next-day-review_exists": "A review already exists, so the demo days are finished. Sign out and open Reviews.", // PROVISIONAL (= EN)
   "C-sess-next-day-session_open": "Akhiri sesi hari ini dulu.", // PROVISIONAL
   "C-sess-next-day-day_not_ended": "Jalankan hari ini dulu: ketuk Mulai, bacakan kartu, lalu Selesai.", // PROVISIONAL
   "C-sess-next-day-preparing": "Bee6 masih menyiapkan pertanyaan hari ini. Coba lagi sebentar lagi.", // PROVISIONAL
@@ -83,7 +85,9 @@ export const sessionEN: Record<keyof typeof sessionID, string> = {
     "Bee6 has not heard enough yet ({have} of {need}). Wait a few seconds for the last card to upload, then try again.",
   "C-sess-next-day-proposal_exists":
     "Bee6 has already written a proposal from these days, so the shop clock can't move to another day. To run the days again, sign in as Owner and reset the demo.",
-  "C-sess-next-day-max_days": "All 3 demo days are done. Sign out and continue as Supervisor.",
+  "C-sess-next-day-max_days": "All 5 demo days are done. Sign out and continue as Supervisor.",
+  "C-sess-next-day-approve_first": "Days 4 and 5 open after the Owner approves a change. Sign out and continue as Supervisor.",
+  "C-sess-next-day-review_exists": "A review already exists, so the demo days are finished. Sign out and open Reviews.",
   "C-sess-next-day-session_open": "End today's session first.",
   "C-sess-next-day-day_not_ended": "Run today first: tap Start, speak the cards, then End.",
   "C-sess-next-day-preparing": "Bee6 is still preparing today's questions. Try again in a minute.",

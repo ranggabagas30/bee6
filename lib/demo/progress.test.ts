@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { LastEnded, Outlet } from "@/lib/firestore/schema";
 import { demoProgress, type ProgressProposalRow, type ProgressStore } from "@/lib/demo/progress";
+import type { ReviewStatus } from "@/lib/firestore/schema";
 
 /**
  * R-19 PR-5 (plan sections 2.3 and 7.2): the counters behind the judge guide on the web screens. Demo sandbox
@@ -24,7 +25,7 @@ const endedToday: LastEnded = { business_date: "2026-10-14", ended_at_ms: NOW - 
 
 const row = (over: Partial<ProgressProposalRow> = {}): ProgressProposalRow => ({ has_content: true, supervisor_decision: null, owner_decision: null, ...over });
 
-function fake(seed: { outlet?: Outlet | null; rows?: ProgressProposalRow[]; last?: LastEnded[] }) {
+function fake(seed: { outlet?: Outlet | null; rows?: ProgressProposalRow[]; last?: LastEnded[]; reviews?: ReviewStatus[] }) {
   const calls: string[] = [];
   const store: ProgressStore = {
     async getOutlet(id) {
@@ -39,6 +40,10 @@ function fake(seed: { outlet?: Outlet | null; rows?: ProgressProposalRow[]; last
       calls.push(`devices:${id}`);
       return seed.last ?? [];
     },
+    async listReviewStatuses(id) {
+      calls.push(`reviews:${id}`);
+      return seed.reviews ?? [];
+    },
   };
   return { store, calls };
 }
@@ -52,8 +57,10 @@ const input = (over: Partial<{ outlet_id: string; role: string; demoMode: boolea
 describe("demoProgress", () => {
   it("fresh sandbox: day 1, nothing done, no proposals", async () => {
     const f = fake({});
-    await expect(demoProgress(f.store, input())).resolves.toEqual({ day: 1, days_done: 0, proposals_with_content: 0, feasible: 0, owner_decided: 0 });
-    expect(f.calls).toEqual([`outlet:${SBX}`, `proposals:${SBX}`, `devices:${SBX}`]);
+    await expect(demoProgress(f.store, input())).resolves.toEqual({
+      day: 1, days_done: 0, proposals_with_content: 0, feasible: 0, owner_decided: 0, approved: 0, reviews_open: 0, reviews_confirmed: 0,
+    });
+    expect(f.calls).toEqual([`outlet:${SBX}`, `proposals:${SBX}`, `devices:${SBX}`, `reviews:${SBX}`]);
   });
 
   it("day and days_done follow next_day_count and the judge device's last_ended (today's ended day counts)", async () => {
@@ -73,6 +80,27 @@ describe("demoProgress", () => {
       row({ supervisor_decision: "rejected" }),
     ];
     await expect(demoProgress(fake({ rows }).store, input())).resolves.toMatchObject({ proposals_with_content: 5, feasible: 3, owner_decided: 2 });
+  });
+
+  it("day 4 and 5 and days_done 5 are reported (the after days)", async () => {
+    const dayFive = { ...sandboxOutlet, sandbox: { ...sandboxOutlet.sandbox!, next_day_count: 4 } };
+    await expect(demoProgress(fake({ outlet: dayFive, last: [endedToday] }).store, input())).resolves.toMatchObject({ day: 5, days_done: 5 });
+    const dayFour = { ...sandboxOutlet, sandbox: { ...sandboxOutlet.sandbox!, next_day_count: 3 } };
+    await expect(demoProgress(fake({ outlet: dayFour }).store, input())).resolves.toMatchObject({ day: 4, days_done: 3 });
+  });
+
+  it("approved = owner-approved proposals with content; reviews_open / reviews_confirmed count review statuses (unknown counts as neither)", async () => {
+    const rows = [
+      row({ has_content: false, owner_decision: "approved" }), // no content: never counts
+      row({ supervisor_decision: "feasible", owner_decision: "approved" }),
+      row({ supervisor_decision: "feasible", owner_decision: "approved" }),
+      row({ supervisor_decision: "feasible", owner_decision: "rejected" }),
+      row({ supervisor_decision: "feasible" }),
+    ];
+    const reviews: ReviewStatus[] = ["awaiting_supervisor", "awaiting_owner", "confirmed", "confirmed", "confirmed", "unknown"];
+    await expect(demoProgress(fake({ rows, reviews }).store, input())).resolves.toMatchObject({
+      proposals_with_content: 4, owner_decided: 3, approved: 2, reviews_open: 2, reviews_confirmed: 3,
+    });
   });
 
   it("the owner gets the same answer as the supervisor; a device or staff principal is 403 before any read", async () => {

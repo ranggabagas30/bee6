@@ -24,6 +24,9 @@ const progress = (over: Partial<JourneyProgress> = {}): JourneyProgress => ({
   proposals_with_content: 0,
   feasible: 0,
   owner_decided: 0,
+  approved: 0,
+  reviews_open: 0,
+  reviews_confirmed: 0,
   supervisor_visited: false,
   ...over,
 });
