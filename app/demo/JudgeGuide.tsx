@@ -64,6 +64,8 @@ export const SHEET_RESERVE_PX = 96;
 export const CONFIG_REPOLL_MS = 10_000;
 
 const WIDE_QUERY = "(min-width: 900px)";
+/** A card that stays locked this long while the upload is retrying tells the judge to read it again (stuck-upload hint). */
+const CATCHING_UP_REREAD_MS = 45_000;
 
 /** localStorage flag (value "1"): this browser has seen the entry page's auto-opened welcome panel (R-25 fixes-2 §3). */
 export const WELCOME_SEEN_KEY = "bee6.guide.welcome_seen";
@@ -623,7 +625,7 @@ function ScriptCard({
   onAllSpoken: (sessionId: string) => void;
   onPosition: (pos: { sid: string; n: number; total: number }) => void;
 }) {
-  const { profile, sessionId, linesThisSession, micTrouble, uploadBusy } = bridge.state;
+  const { profile, sessionId, linesThisSession, micTrouble, uploadBusy, droppedCount } = bridge.state;
   const script = scriptFor(profile.script_id);
   const cards: readonly ScriptCardV2[] = script ? script.days[profile.day as ScriptDay] : [];
   const sid = sessionId ?? "none";
@@ -643,10 +645,29 @@ function ScriptCard({
   // counting from now. Adjusted during render (React's "derive from props" pattern), not in an effect.
   // Known and accepted: a segment_accepted for card k that arrives after the tap can count toward card k+1. The
   // 1-line card gate is soft (a nudge, not a check); the server guard `requiredLines` is the real check.
-  const [shownAt, setShownAt] = useState(() => ({ index: st.index, lines: st.index === 0 ? 0 : linesThisSession }));
-  if (shownAt.index !== st.index) setShownAt({ index: st.index, lines: linesThisSession });
+  // `dropped` is the engine's drop count at that moment, so only a drop AFTER the card appeared raises the lost hint;
+  // a new engine starts again at 0, which rebases it.
+  const [shownAt, setShownAt] = useState(() => ({ index: st.index, lines: st.index === 0 ? 0 : linesThisSession, dropped: droppedCount }));
+  if (shownAt.index !== st.index) setShownAt({ index: st.index, lines: linesThisSession, dropped: droppedCount });
+  else if (droppedCount < shownAt.dropped) setShownAt({ ...shownAt, dropped: droppedCount });
   const linesSinceCardShown = Math.max(0, linesThisSession - shownAt.lines);
   const live = cardState({ cards, spoken, linesSinceCardShown });
+  const lostHint = droppedCount > shownAt.dropped;
+
+  // Stuck-upload hint: the card has been locked while the upload retried for 45 s on end. One timer per stall, tied to
+  // the card; it is cleared (and the flag with it) when the card unlocks, changes, the upload clears, or on unmount.
+  const stalled = uploadBusy && !live.canMarkSpoken;
+  const [rereadFor, setRereadFor] = useState<number | null>(null);
+  useEffect(() => {
+    if (!stalled) return;
+    const index = live.index;
+    const timer = setTimeout(() => setRereadFor(index), CATCHING_UP_REREAD_MS);
+    return () => {
+      clearTimeout(timer);
+      setRereadFor(null);
+    };
+  }, [stalled, live.index]);
+  const rereadHint = stalled && rereadFor === live.index;
 
   useEffect(() => {
     if (live.allSpoken && sessionId !== null) onAllSpoken(sessionId);
@@ -712,7 +733,15 @@ function ScriptCard({
           />
           {!live.canMarkSpoken ? <p className={styles.mono}>{t(lang, "C-journey-waiting-hear")}</p> : null}
           {/* R-23: a stalled upload is the service being busy, not the mic: say so and hold the mic hint back. */}
-          {!live.canMarkSpoken && uploadBusy ? <p className={styles.mono}>{t(lang, "C-journey-catching-up")}</p> : null}
+          {/* Stuck-upload hints, one line at most: a lost reading > a long stall > the plain catching-up line. A card must
+              never be a dead end, so the first two say what to do (read it again). */}
+          {!live.canMarkSpoken && lostHint ? (
+            <p className={styles.mono}>{t(lang, "C-journey-reread-lost")}</p>
+          ) : !live.canMarkSpoken && rereadHint ? (
+            <p className={styles.mono}>{t(lang, "C-journey-reread-stalled")}</p>
+          ) : !live.canMarkSpoken && uploadBusy ? (
+            <p className={styles.mono}>{t(lang, "C-journey-catching-up")}</p>
+          ) : null}
           {!live.canMarkSpoken && micTrouble && !uploadBusy && linesSinceCardShown === 0 ? (
             <div className={styles.mono}>
               <p style={{ margin: 0, fontWeight: 600 }}>{t(lang, "C-journey-not-picking-up")}</p>

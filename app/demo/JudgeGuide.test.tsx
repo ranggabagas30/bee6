@@ -87,7 +87,7 @@ const jumpToClosing = vi.fn();
 const refetchConfig = vi.fn(async () => {});
 function bridge(state: Partial<CaptureBridgeState> = {}): CaptureBridge {
   return {
-    state: { profile: profile(), phase: "ready", sessionId: null, linesThisSession: 0, closingBusy: false, closingError: null, micTrouble: false, uploadBusy: false, ...state },
+    state: { profile: profile(), phase: "ready", sessionId: null, linesThisSession: 0, closingBusy: false, closingError: null, micTrouble: false, uploadBusy: false, droppedCount: 0, ...state },
     actions: { jumpToClosing, refetchConfig },
   };
 }
@@ -604,6 +604,182 @@ describe("/capture: the script card (plan 5.3-5.4)", () => {
     renderGuide();
     openGuide();
     expect(screen.queryByText(/Bee6 is catching up/)).toBeNull();
+  });
+});
+
+describe("/capture: a locked card is never a dead end (stuck-upload hints, 18 Oct)", () => {
+  const listening = (lines: number, over: Partial<CaptureBridgeState> = {}) =>
+    bridge({ phase: "listening", sessionId: "s1", linesThisSession: lines, ...over });
+  const REREAD = "Still catching up. Read this card again now; the button unlocks when either reading is heard.";
+  const LOST = "That reading was not captured. Read this card again.";
+  const CATCHING = /Bee6 is catching up/;
+  const publish = (b: CaptureBridge) => act(() => publishCaptureBridge(b));
+  const advance = (ms: number) =>
+    act(() => {
+      vi.advanceTimersByTime(ms);
+    });
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+    pathname = "/capture";
+  });
+
+  it("44 s of busy + locked still shows the old catching-up line; the re-read line arrives at 45 s and replaces it", () => {
+    publish(listening(0, { uploadBusy: true }));
+    renderGuide();
+    openGuide();
+    advance(44_999);
+    expect(screen.getByText(CATCHING)).toBeTruthy();
+    expect(screen.queryByText(REREAD)).toBeNull();
+    advance(1);
+    expect(screen.getByText(REREAD)).toBeTruthy();
+    expect(screen.queryByText(CATCHING)).toBeNull();
+    expect(screen.getByText("Waiting for Bee6 to hear this card…")).toBeTruthy();
+  });
+
+  it("no re-read line when the upload is not busy, however long the card stays locked", () => {
+    publish(listening(0));
+    renderGuide();
+    openGuide();
+    advance(120_000);
+    expect(screen.queryByText(REREAD)).toBeNull();
+    expect(screen.queryByText(CATCHING)).toBeNull();
+  });
+
+  it("the re-read line disappears when the card unlocks (a line is heard)", () => {
+    publish(listening(0, { uploadBusy: true }));
+    renderGuide();
+    openGuide();
+    advance(45_000);
+    expect(screen.getByText(REREAD)).toBeTruthy();
+    publish(listening(1, { uploadBusy: true }));
+    expect(screen.queryByText(REREAD)).toBeNull();
+    expect(screen.getByRole("button", { name: "I have spoken this · next card" })).toBeTruthy();
+  });
+
+  it("the 45 s clock restarts when the upload clears and stalls again", () => {
+    publish(listening(0, { uploadBusy: true }));
+    renderGuide();
+    openGuide();
+    advance(40_000);
+    publish(listening(0, { uploadBusy: false }));
+    advance(10_000);
+    publish(listening(0, { uploadBusy: true }));
+    advance(44_000);
+    expect(screen.queryByText(REREAD)).toBeNull();
+    advance(1_000);
+    expect(screen.getByText(REREAD)).toBeTruthy();
+  });
+
+  it("the re-read line is gone on the next card and its clock starts over", () => {
+    publish(listening(0, { uploadBusy: true }));
+    renderGuide();
+    openGuide();
+    advance(45_000);
+    expect(screen.getByText(REREAD)).toBeTruthy();
+    publish(listening(1, { uploadBusy: true }));
+    fireEvent.click(screen.getByRole("button", { name: "I have spoken this · next card" }));
+    expect(screen.getByText("Card 2 of 5")).toBeTruthy();
+    expect(screen.queryByText(REREAD)).toBeNull();
+    advance(44_000);
+    expect(screen.queryByText(REREAD)).toBeNull();
+    expect(screen.getByText(CATCHING)).toBeTruthy();
+    advance(1_000);
+    expect(screen.getByText(REREAD)).toBeTruthy();
+  });
+
+  it("a rising droppedCount while a card is active shows the lost line, which wins over the re-read and catching-up lines", () => {
+    publish(listening(0, { uploadBusy: true }));
+    renderGuide();
+    openGuide();
+    advance(45_000);
+    expect(screen.getByText(REREAD)).toBeTruthy();
+    publish(listening(0, { uploadBusy: true, droppedCount: 1 }));
+    expect(screen.getByText(LOST)).toBeTruthy();
+    expect(screen.queryByText(REREAD)).toBeNull();
+    expect(screen.queryByText(CATCHING)).toBeNull();
+  });
+
+  it("the lost line shows even when the upload is no longer busy (a drop clears the retry counter)", () => {
+    publish(listening(0));
+    renderGuide();
+    openGuide();
+    expect(screen.queryByText(LOST)).toBeNull();
+    publish(listening(0, { droppedCount: 1 }));
+    expect(screen.getByText(LOST)).toBeTruthy();
+  });
+
+  it("drops from before the card appeared do not count; a later one does; the next card starts clean", () => {
+    publish(listening(0, { droppedCount: 2 }));
+    renderGuide();
+    openGuide();
+    expect(screen.queryByText(LOST)).toBeNull();
+    publish(listening(0, { droppedCount: 3 }));
+    expect(screen.getByText(LOST)).toBeTruthy();
+    publish(listening(1, { droppedCount: 3 }));
+    fireEvent.click(screen.getByRole("button", { name: "I have spoken this · next card" }));
+    expect(screen.getByText("Card 2 of 5")).toBeTruthy();
+    expect(screen.queryByText(LOST)).toBeNull();
+  });
+
+  it("a new engine (droppedCount back to 0) rebases the count: its first drop shows the lost line", () => {
+    publish(listening(0, { droppedCount: 2 }));
+    renderGuide();
+    openGuide();
+    publish(listening(0, { droppedCount: 0 }));
+    expect(screen.queryByText(LOST)).toBeNull();
+    publish(listening(0, { droppedCount: 1 }));
+    expect(screen.getByText(LOST)).toBeTruthy();
+  });
+
+  it("the lost line is gone once the card unlocks", () => {
+    publish(listening(0, { droppedCount: 0 }));
+    renderGuide();
+    openGuide();
+    publish(listening(0, { droppedCount: 1 }));
+    expect(screen.getByText(LOST)).toBeTruthy();
+    publish(listening(1, { droppedCount: 1 }));
+    expect(screen.queryByText(LOST)).toBeNull();
+  });
+
+  it("unmounting while the clock runs leaves no timer behind", () => {
+    publish(listening(0, { uploadBusy: true }));
+    const { unmount } = renderGuide();
+    openGuide();
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("with no bridge (the pilot, or a page that is not publishing) the guide shows none of these lines", () => {
+    const { container } = renderGuide();
+    advance(120_000);
+    expect(screen.queryByRole("button", { name: /Open the judge guide/ })).toBeNull();
+    expect(container.textContent).not.toContain("Read this card again");
+  });
+
+  it("Bahasa: both lines are in the ID column, different from English", () => {
+    publish(listening(0, { uploadBusy: true }));
+    renderGuide("id");
+    fireEvent.click(screen.getByRole("button", { name: /Buka panduan juri/ }));
+    advance(45_000);
+    expect(screen.queryByText(REREAD)).toBeNull();
+    const reread = screen.getByText(/Masih menyusul/);
+    expect(reread).toBeTruthy();
+    publish(listening(0, { uploadBusy: true, droppedCount: 1 }));
+    expect(screen.queryByText(/Masih menyusul/)).toBeNull();
+    expect(screen.getByText(/Bacaan tadi tidak tertangkap/)).toBeTruthy();
+  });
+
+  it("axe finds no violation on the card showing either line, EN and ID", async () => {
+    vi.useRealTimers();
+    for (const lang of ["en", "id"] as const) {
+      publish(listening(0, { droppedCount: 0 }));
+      const { container, unmount } = renderGuide(lang);
+      fireEvent.click(screen.getByRole("button", { name: lang === "en" ? /Open the judge guide/ : /Buka panduan juri/ }));
+      publish(listening(0, { droppedCount: 1 }));
+      expect(await axeViolations(container)).toEqual([]);
+      unmount();
+    }
   });
 });
 

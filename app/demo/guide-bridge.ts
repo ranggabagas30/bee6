@@ -110,6 +110,8 @@ export interface CaptureBridgeState {
   micTrouble: boolean;
   /** R-23: the queue head is being retried after a server refusal or a network failure (drives "Bee6 is catching up"). */
   uploadBusy: boolean;
+  /** The running engine's count of segments it gave up on (0 when no engine). A rise while a card is active drives "That reading was not captured". */
+  droppedCount: number;
   /** R-25 T6, optional: today's closing time as "HH:MM" on the shop clock; the guide's "Jump to closing time · 21:00". Absent: no time on the button. */
   closeHm?: string | null;
   /** R-25 T6, optional: the business date ("YYYY-MM-DD") the shop shows after "Jump to tomorrow"; absent: no date on the button. */
