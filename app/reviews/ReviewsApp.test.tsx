@@ -65,7 +65,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function renderApp(reviewAgentEstimate?: { min_s: number; max_s: number } | null, lang: "en" | "id" = "en") {
+function renderApp(reviewAgentEstimate?: { min_s: number; max_s: number; cap_s: number } | null, lang: "en" | "id" = "en") {
   return render(
     <LangProvider initial={lang}>
       <ReviewsApp config={CONFIG} {...(reviewAgentEstimate !== undefined ? { reviewAgentEstimate } : {})} />
@@ -293,7 +293,7 @@ describe("ReviewsApp: fast-forward (demo only)", () => {
 
 describe("ReviewsApp: fast-forward while the ReviewAgent runs (plan 5.12)", () => {
   const FF = { name: "Fast-forward to the review date (simulated)" };
-  const EST = { min_s: 10, max_s: 25 };
+  const EST = { min_s: 5, max_s: 15, cap_s: 20 };
 
   it("without an estimate the busy button keeps today's label and no estimate line appears", async () => {
     let resolve!: (v: unknown) => void;
@@ -317,7 +317,7 @@ describe("ReviewsApp: fast-forward while the ReviewAgent runs (plan 5.12)", () =
     fireEvent.click(idle);
     const busy = screen.getByRole("button", { name: "Bee6 is reviewing…" }) as HTMLButtonElement;
     expect(busy.disabled).toBe(true);
-    const line = screen.getByText("Bee6 reads the change and the notes from before and after. Usually 10 to 25 seconds.");
+    const line = screen.getByText("Bee6 reads the change and the notes from before and after. Usually 5 to 15 seconds.");
     // one polite live region carries the estimate, mounted before the tap so the change is announced
     expect(line.closest("[role='status']")).not.toBeNull();
     await act(async () => resolve({ kind: "error" }));
@@ -325,14 +325,14 @@ describe("ReviewsApp: fast-forward while the ReviewAgent runs (plan 5.12)", () =
     expect(screen.queryByText(/Usually/)).toBeNull();
   });
 
-  it("switches once to 'Taking longer than usual' after max_s, and the next run starts the clock again", async () => {
+  it("switches once to 'Taking longer than usual' after max_s and names the cap, and the next run starts the clock again", async () => {
     const resolvers: Array<(v: unknown) => void> = [];
     authedGetJson.mockResolvedValue(ok(list({ fast_forward_available: true })));
     authedPostJson.mockImplementation(() => new Promise((r) => resolvers.push(r)));
-    renderApp({ min_s: 0, max_s: 0.05 });
+    renderApp({ min_s: 0, max_s: 0.05, cap_s: 20 });
     fireEvent.click(await screen.findByRole("button", FF));
     await screen.findByText(
-      "Taking longer than usual. If it takes more than about 0.05 seconds, the result appears without the explanation.",
+      "Taking longer than usual. If it takes more than about 20 seconds, the result appears without the explanation.",
     );
     await act(async () => resolvers[0]!({ kind: "error" }));
     await screen.findByRole("button", FF);
@@ -389,7 +389,7 @@ describe("ReviewsApp: fast-forward while the ReviewAgent runs (plan 5.12)", () =
 
 describe("ReviewsApp: a fast-forward result without an explanation", () => {
   const FF = { name: "Fast-forward to the review date (simulated)" };
-  const EST = { min_s: 10, max_s: 25 };
+  const EST = { min_s: 5, max_s: 15, cap_s: 20 };
   const MISSING =
     "Bee6 could not write an explanation this time (it took too long). The verdict and the numbers above are not affected.";
   const MISSING_ID = "Bee6 tidak dapat menulis penjelasan kali ini (terlalu lama). Keputusan dan angka di atas tidak terpengaruh.";

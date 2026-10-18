@@ -89,11 +89,11 @@ describe("R-11 review copy keys", () => {
     expect("C-rev-rate-none" in ID).toBe(false);
   });
 
-  it("tells the judge about the cap and about a missing explanation, with the cap taken from {max}", () => {
+  it("tells the judge about the cap and about a missing explanation, with the cap taken from {cap}", () => {
     expect(EN["C-rev-ff-longer" as DictKey]).toBe(
-      "Taking longer than usual. If it takes more than about {max} seconds, the result appears without the explanation.",
+      "Taking longer than usual. If it takes more than about {cap} seconds, the result appears without the explanation.",
     );
-    expect(ID["C-rev-ff-longer" as DictKey]).toContain("{max}");
+    expect(ID["C-rev-ff-longer" as DictKey]).toContain("{cap}");
     expect(EN["C-rev-agent-missing" as DictKey]).toBe(
       "Bee6 could not write an explanation this time (it took too long). The verdict and the numbers above are not affected.",
     );

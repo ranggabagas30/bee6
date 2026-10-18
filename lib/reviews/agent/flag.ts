@@ -26,6 +26,6 @@ export function isReviewAgentEnabled(
  */
 export function readReviewAgentEstimate(
   env: Record<string, string | undefined> = process.env,
-): { min_s: number; max_s: number } | null {
+): { min_s: number; max_s: number; cap_s: number } | null {
   return env.REVIEW_AGENT === "true" ? { ...REVIEW_AGENT_ESTIMATE } : null;
 }

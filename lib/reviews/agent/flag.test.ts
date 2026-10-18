@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isReviewAgentEnabled, readReviewAgentEstimate } from "@/lib/reviews/agent/flag";
-import { REVIEW_AGENT_ESTIMATE } from "@/lib/reviews/agent/constants";
+import { REVIEW_AGENT_ESTIMATE, REVIEW_AGENT_TIMEOUT_MS } from "@/lib/reviews/agent/constants";
 
 const sandbox = { template_outlet_id: "demo-outlet", created_at_ms: 1, expires_at_ms: 2, key_sha256: "a".repeat(64) };
 const demoSandbox = { outlet_id: "sbx-abc123", project_kind: "demo" as const, sandbox };
@@ -32,6 +32,9 @@ describe("isReviewAgentEnabled", () => {
 describe("readReviewAgentEstimate", () => {
   it("returns the estimate only when the flag value is exactly true", () => {
     expect(readReviewAgentEstimate({ REVIEW_AGENT: "true" })).toEqual({ ...REVIEW_AGENT_ESTIMATE });
+    // usual range 5 to 15 s; the cap is the agent timeout (20 s), derived, never a second literal
+    expect(readReviewAgentEstimate({ REVIEW_AGENT: "true" })).toEqual({ min_s: 5, max_s: 15, cap_s: REVIEW_AGENT_TIMEOUT_MS / 1000 });
+    expect(REVIEW_AGENT_TIMEOUT_MS).toBe(20_000);
     expect(readReviewAgentEstimate({ REVIEW_AGENT: "false" })).toBeNull();
     expect(readReviewAgentEstimate({})).toBeNull();
   });

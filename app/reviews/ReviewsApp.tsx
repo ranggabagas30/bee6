@@ -47,7 +47,7 @@ type View =
   | { kind: "error" };
 
 /** The ReviewAgent's expected wait in whole seconds (`readReviewAgentEstimate`, set by the page only while the flag is on). */
-export type ReviewAgentEstimate = { min_s: number; max_s: number };
+export type ReviewAgentEstimate = { min_s: number; max_s: number; cap_s: number };
 
 export function ReviewsApp({
   config,
@@ -57,7 +57,7 @@ export function ReviewsApp({
   /**
    * ReviewAgent plan 5.12: present only while `REVIEW_AGENT` is on for this deployment. While the fast-forward runs
    * the button then reads "Bee6 is reviewing…" and one polite line gives the range, and says "taking longer than
-   * usual" once after `max_s`. Absent or `null`: today's button, no extra line. The flag is the server's: this
+   * usual" once after `max_s`, naming the hard cap `cap_s`. Absent or `null`: today's button, no extra line. The flag is the server's: this
    * screen never guesses it, and the estimate carries no verdict.
    */
   reviewAgentEstimate?: ReviewAgentEstimate | null;
@@ -267,7 +267,7 @@ export function ReviewsApp({
               <p role="status" aria-live="polite" className={styles.ffWait}>
                 {ffBusy
                   ? ffOverRun === ffRun
-                    ? t(lang, "C-rev-ff-longer", { max: reviewAgentEstimate.max_s })
+                    ? t(lang, "C-rev-ff-longer", { cap: reviewAgentEstimate.cap_s })
                     : t(lang, "C-rev-ff-estimate", { min: reviewAgentEstimate.min_s, max: reviewAgentEstimate.max_s })
                   : ""}
               </p>

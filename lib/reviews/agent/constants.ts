@@ -26,5 +26,8 @@ export const REVIEW_NARRATIVE_MIN_CHARS = 60;
 export const REVIEW_NARRATIVE_MAX_CHARS = 600;
 export const REVIEW_SAMPLE_PER_WINDOW = 6;
 export const REVIEW_SAMPLE_SUMMARY_MAX_CHARS = 200;
-/** Shown while the fast-forward runs (whole seconds). */
-export const REVIEW_AGENT_ESTIMATE = { min_s: 10, max_s: 25 } as const;
+/**
+ * Shown while the fast-forward runs (whole seconds). The usual-time range is measured (p50 about 4-5 s, p95 about
+ * 8 s); `cap_s` is the hard wait cap, derived from the agent timeout so the copy can never drift from it.
+ */
+export const REVIEW_AGENT_ESTIMATE = { min_s: 5, max_s: 15, cap_s: REVIEW_AGENT_TIMEOUT_MS / 1000 } as const;
