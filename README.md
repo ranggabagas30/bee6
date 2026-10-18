@@ -3,6 +3,7 @@
 A phone listens to a small shop's day and helps the team improve how the shop runs.
 
 - Live demo: [https://web-33uzb53tza-et.a.run.app](https://web-33uzb53tza-et.a.run.app)
+- Demo video: [Watch the demo on YouTube](https://www.youtube.com/watch?v=LpVOJ4VRT7w)
 - Code: [https://github.com/ranggabagas30/bee6](https://github.com/ranggabagas30/bee6)
 - Brand guidelines: [Bee6 Brand Guidelines](https://claude.ai/artifact/XX2Q2kDXHLacsXwgFdm43t)
 
