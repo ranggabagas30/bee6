@@ -558,6 +558,24 @@ describe("DebriefFlow: R-19 demo debrief (sandbox only)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next question" }));
   }
 
+  it("a sandbox list carrying a valid question_text shows it as the question heading (the phone's strict parse accepts the key)", async () => {
+    const text = "Around 15:00, was the oven checked before opening?";
+    const { fn } = server([q("q1", { question_text: text })], false);
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} demo />);
+    await waitFor(() => expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(text));
+  });
+
+  it.each([
+    ["19 code points", "x".repeat(19)],
+    ["141 code points", "x".repeat(141)],
+    ["a non-string", 42],
+  ])("a list whose question_text is %s fails the phone's strict parse: the load error shows, no question", async (_name, bad) => {
+    const { fn } = server([q("q1", { question_text: bad })], false);
+    render(<Harness fetchFn={fn} storage={new FakeStorage()} demo />);
+    await waitFor(() => expect(screen.getByText("Questions could not load yet.")).toBeTruthy());
+    expect(screen.queryByRole("heading", { level: 2 })).toBeNull();
+  });
+
   it("auto-opens on mount: no 'Answer questions' card, the list is fetched at once", async () => {
     const { fn, calls } = server([q("q1")], true);
     render(<Harness fetchFn={fn} storage={new FakeStorage()} demo />);

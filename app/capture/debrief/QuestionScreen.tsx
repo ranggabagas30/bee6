@@ -18,7 +18,9 @@ import css from "@/app/capture/debrief/debrief.module.css";
  * Next/Skip side effects (the phone cache write, the POST, the gate). Nothing here ever reads a name or a role:
  * only `questionText()`'s enum-mapped template, the category code and the fixed `questionWhy()` sentence. The one
  * server-supplied text is `question.lines` (demo-feedback-2 item 10, sandbox only): already-redacted,
- * server-scrubbed thread lines, rendered as plain text nodes in React state only (never stored, never HTML). The answer is Yes or No plus a required reason, as the route accepts (the board's
+ * server-scrubbed thread lines, rendered as plain text nodes in React state only (never stored, never HTML); and, sandbox only with
+ * the DebriefAgent on, `question.question_text`, the agent-worded heading (docs/tasks/debrief-agent-18oct.md): a plain text node
+ * too, replacing the template heading via `questionLines()`, never through `t()` or HTML. The answer is Yes or No plus a required reason, as the route accepts (the board's
  * "Not sure" is not offered: R-25 ruling R9).
  */
 
