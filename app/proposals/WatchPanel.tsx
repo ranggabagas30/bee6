@@ -14,7 +14,8 @@ import styles from "@/app/proposals/supervisor.module.css";
  * `watch` block of GET /api/v1/proposals (counts only: never a thread, device, name or summary, hard rule #7)
  * and the parent runs the generate call.
  *
- * The button has one of four looks, decided by the rows (the parent passes whether any proposal already exists):
+ * The button has one of five looks, decided by the rows (the parent passes whether any proposal already exists):
+ * - demo sandbox only, two or more `ready` rows: "Ask Bee6 for proposals" (one tap asks for each of them, item 18);
  * - a `ready` row and no proposal yet: "Ask Bee6 for a proposal" (`another` false);
  * - a `ready` row and a proposal exists: "Ask for another proposal" (`another` true, plan 3.3);
  * - no `ready` row, every seen category `proposed`: "All asked · no more evidence to use" (demo: "Both asked · …"), disabled (D2-03);
@@ -61,19 +62,24 @@ export function WatchPanel({ lang, watch, hasProposal, busy, onAsk, demo = false
   const ready = serverRows.some((r) => r.state === "ready");
   const allProposed = serverRows.length > 0 && serverRows.every((r) => r.state === "proposed");
   const another = ready && hasProposal;
+  const readyRows = serverRows.filter((r) => r.state === "ready");
+  // Demo sandbox only (demo feedback 2 item 18): two or more ready problems are one ask for all of them. `another`
+  // (sent to the parent) still follows whether a proposal exists; one ready row keeps the singular and "another" looks.
+  const askAll = demo && readyRows.length >= 2;
   const buttonKey: DictKey = busy
     ? "C-propw-asking"
     : ready
-      ? another
-        ? "C-propw-ask-another"
-        : "C-propw-ask"
+      ? askAll
+        ? "C-propw-ask-all"
+        : another
+          ? "C-propw-ask-another"
+          : "C-propw-ask"
       : allProposed
         ? demo
           ? "C-propw-all-asked-demo"
           : "C-propw-all-asked"
         : "C-propw-none";
   const disabled = busy || !ready;
-  const readyRows = serverRows.filter((r) => r.state === "ready");
   const showOneNote =
     demo && !hasProposal && readyRows.length === 1 && readyRows[0]!.category === DEMO_WATCH_PLACEHOLDERS[0]!.category && serverRows.some((r) => r.state === "needs_more");
 
