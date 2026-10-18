@@ -54,6 +54,7 @@ vi.mock("@/lib/capture/browser/client", () => ({
   createSegmentUploader: () => hoisted.upload,
 }));
 
+import { CaptureEngine } from "@/lib/capture/browser/engine";
 import { abortAllCaptureUploads, startCaptureSession } from "@/lib/capture/browser/session";
 import type { CaptureConfigResponse } from "@/lib/capture/contract";
 
@@ -255,6 +256,16 @@ describe("startCaptureSession stop modes (18 Oct: retry after End)", () => {
     const after = hoisted.upload.mock.calls.length;
     await vi.advanceTimersByTimeAsync(300_000);
     expect(hoisted.upload.mock.calls.length).toBe(after);
+  });
+
+  it("a session that fails to start leaves no engine in the abort registry", async () => {
+    hoisted.wakeLockAcquire.mockRejectedValueOnce(new Error("wake lock exploded"));
+    const abort = vi.spyOn(CaptureEngine.prototype, "abort");
+    await expect(startCaptureSession(AUTH, CONFIG, callbacks)).rejects.toThrow("wake lock exploded");
+
+    abortAllCaptureUploads();
+    expect(abort).not.toHaveBeenCalled();
+    abort.mockRestore();
   });
 
   it("the finish drain ends at the budget", async () => {

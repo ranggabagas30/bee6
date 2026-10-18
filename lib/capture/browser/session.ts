@@ -156,7 +156,6 @@ export async function startCaptureSession(
     // are already in CaptureEvent shape; forward them unchanged.
     onEvent: cb.onEvent,
   });
-  liveEngines.add(engine);
   const wakeLock = new WakeLockManager();
   const restart = new RestartController();
   const postHeartbeat = createHeartbeatPoster(auth);
@@ -314,8 +313,16 @@ export async function startCaptureSession(
     }, delay);
   }
 
-  await spinUp();
-  await wakeLock.acquire();
+  // Register for the sign-out / jump-to-tomorrow abort before the first await, but leave again if start-up throws:
+  // no session is returned then, so nothing else could ever remove this engine.
+  liveEngines.add(engine);
+  try {
+    await spinUp();
+    await wakeLock.acquire();
+  } catch (err) {
+    liveEngines.delete(engine);
+    throw err;
+  }
   cb.onEvent?.({ type: "wake_lock_changed", held: wakeLock.held });
 
   const heartbeatTimer = setInterval(() => {
