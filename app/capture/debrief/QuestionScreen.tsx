@@ -61,6 +61,7 @@ export function QuestionScreen({
   const textareaId = useId();
   const counterId = useId();
   const helpId = useId();
+  const headingId = useId();
 
   // A fresh question (new index) moves focus to its heading (UX-03 section 4.2: "each new question moves focus
   // to its heading").
@@ -76,8 +77,10 @@ export function QuestionScreen({
   if (!question) return null;
 
   const qLines = questionLines(lang, question);
-  // The radiogroup is named by the heading the worker sees (the agent wording or the template), joined as it reads.
-  const qText = qLines.join(" ");
+  // The radiogroup is named by the heading element itself (aria-labelledby), so the text is not repeated in a label
+  // and the quoted lines (outside the heading) stay out of the name. The agent wording is English; in a Bahasa UI
+  // it is marked `lang="en"` so a screen reader does not read it with the Indonesian voice.
+  const agentHeading = Boolean(question.question_text);
   const chip = questionCategoryChip(lang, question);
   const quoted = question.lines && question.lines.length > 0 ? question.lines : null;
   const n = reasonLength(view.reason);
@@ -151,7 +154,13 @@ export function QuestionScreen({
             {earlierDay ? question.start_hm : t(lang, "C-d2-q-when", { hm: question.start_hm })}
           </span>
         </div>
-        <h2 ref={headingRef} tabIndex={-1} className={css.heading}>
+        <h2
+          id={headingId}
+          ref={headingRef}
+          tabIndex={-1}
+          className={css.heading}
+          {...(agentHeading && lang !== "en" ? { lang: "en" } : {})}
+        >
           {qLines.map((line, i) => (
             <span key={i} className={css.headingLine}>
               {line}
@@ -176,7 +185,7 @@ export function QuestionScreen({
         )}
       </Card>
 
-      <div role="radiogroup" aria-label={qText} className={css.choices} onKeyDown={handleGroupKeyDown}>
+      <div role="radiogroup" aria-labelledby={headingId} className={css.choices} onKeyDown={handleGroupKeyDown}>
         <button
           type="button"
           role="radio"

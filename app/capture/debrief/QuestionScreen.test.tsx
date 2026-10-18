@@ -444,11 +444,16 @@ describe("QuestionScreen: quoted lines (demo-feedback-2 item 10, sandbox only)",
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("Around 15:00 there was routine work. Is that right?");
   });
 
-  it("the radiogroup aria-label stays the template only: the quote is read once, in the card", () => {
+  it("the radiogroup is named by the heading (aria-labelledby), never by a copy of its text: the quote is read once, in the card", () => {
     renderScreen(q({ lines: ["Pelanggan tanya roti."] }));
     const group = screen.getByRole("radiogroup");
-    expect(group.getAttribute("aria-label")).toBe("Around 15:00 there was routine work. Is that right?");
-    expect(group.getAttribute("aria-label")).not.toContain("Pelanggan");
+    const heading = screen.getByRole("heading", { level: 2 });
+    expect(group.hasAttribute("aria-label")).toBe(false);
+    expect(heading.id).not.toBe("");
+    expect(group.getAttribute("aria-labelledby")).toBe(heading.id);
+    // the computed name is the heading's text and nothing of the quoted lines
+    expect(screen.getByRole("radiogroup", { name: "Around 15:00 there was routine work. Is that right?" })).toBe(group);
+    expect(screen.queryByRole("radiogroup", { name: /Pelanggan/ })).toBeNull();
   });
 
   it("an unlabelled_unit without lines keeps its own why sentence", () => {
@@ -488,9 +493,27 @@ describe("QuestionScreen: DebriefAgent question_text (sandbox only)", () => {
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(TEXT);
   });
 
-  it("the radiogroup aria-label follows the visible heading (the agent's wording), so the group is named by what is on screen", () => {
-    renderScreen(q({ question_text: TEXT }));
-    expect(screen.getByRole("radiogroup").getAttribute("aria-label")).toBe(TEXT);
+  it("the radiogroup is labelled by the visible heading (the agent's wording), so the group is named by what is on screen", () => {
+    renderScreen(q({ question_text: TEXT, lines: ["Pelanggan tanya roti tawar habis."] }));
+    const group = screen.getByRole("radiogroup", { name: TEXT });
+    expect(group.hasAttribute("aria-label")).toBe(false);
+    expect(group.getAttribute("aria-labelledby")).toBe(screen.getByRole("heading", { level: 2 }).id);
+  });
+
+  it("A11y: the agent heading is marked lang=\"en\" in a Bahasa UI, and carries no lang in an English UI", () => {
+    const { unmount } = renderScreen(q({ question_text: TEXT }), "id");
+    expect(screen.getByRole("heading", { level: 2 }).getAttribute("lang")).toBe("en");
+    unmount();
+    renderScreen(q({ question_text: TEXT }), "en");
+    expect(screen.getByRole("heading", { level: 2 }).hasAttribute("lang")).toBe(false);
+  });
+
+  it("A11y: the template heading (no question_text) never gets a lang attribute, in either language", () => {
+    const { unmount } = renderScreen(q(), "id");
+    expect(screen.getByRole("heading", { level: 2 }).hasAttribute("lang")).toBe(false);
+    unmount();
+    renderScreen(q(), "en");
+    expect(screen.getByRole("heading", { level: 2 }).hasAttribute("lang")).toBe(false);
   });
 
   it("is a plain text node: markup, entities and braces render inertly and nothing is interpolated", () => {
