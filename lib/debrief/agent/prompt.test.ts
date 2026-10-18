@@ -30,6 +30,8 @@ describe("prompt", () => {
   it("system instruction asks whether there WAS the moment as the notes describe it, never whether a step was or was not done (M1 rework)", () => {
     const flat = DEBRIEF_SYSTEM_INSTRUCTION.replace(/\s+/g, " ").toLowerCase();
     expect(flat).toContain("was there a phone order for twelve egg tarts?");
+    expect(flat).toContain("ask whether there was the moment the notes describe, in plain, friendly english a busy worker reads in 3 seconds.");
+    expect(flat).not.toContain("happened as described");
     expect(flat).toContain("whether there was the moment, as the notes describe it");
     expect(flat).toContain("never ask whether a step was or was not done");
     expect(flat).toContain("never ask the opposite of the notes");
