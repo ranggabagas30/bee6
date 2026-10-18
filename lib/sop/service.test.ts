@@ -25,7 +25,7 @@ function shipOn(current: SopVersion, nowMs: number, content: Record<string, unkn
     { proposal_id: pid ?? "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f", generator: { ...proposalV1().generator, sop_version_id: current.sop_version_id } },
     content,
   );
-  const plan = planShip({ current, proposal, now_ms: nowMs, tz: TZ });
+  const plan = planShip({ current, drafted: seedV1(), proposal, now_ms: nowMs, tz: TZ });
   if (plan.kind !== "ship") throw new Error("fixture: expected ship");
   return plan.sop_version;
 }

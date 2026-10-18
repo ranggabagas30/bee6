@@ -637,7 +637,7 @@ describe("transactDecision ships the SOP version (R-10 Task 6)", () => {
     details: { version: 2 },
   };
   function v2(): SopVersion {
-    const plan = planShip({ current: seedV1(), proposal: owner(), now_ms: NOW_MS, tz: "Asia/Jakarta" });
+    const plan = planShip({ current: seedV1(), drafted: seedV1(), proposal: owner(), now_ms: NOW_MS, tz: "Asia/Jakarta" });
     if (plan.kind !== "ship") throw new Error("fixture must ship");
     return plan.sop_version;
   }

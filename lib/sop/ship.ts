@@ -1,6 +1,7 @@
 import { addDays, localDateOf } from "@/lib/capture/calendar";
 import { SopVersionSchema, type Proposal, type SopStep, type SopVersion } from "@/lib/firestore/schema";
 import { WIRE_MAX } from "@/lib/proposals/wire-schema";
+import { sopConflict } from "@/lib/sop/rebase";
 
 /**
  * Pure SOP ship planner (R-10 Task 3). Applies an approved proposal to the
@@ -49,18 +50,20 @@ export type ShipPlan =
 
 export function planShip(input: {
   current: SopVersion | null; // the outlet's LATEST version, read in the same transaction
+  drafted: SopVersion | null; // the version the proposal was drafted on (proposal.generator.sop_version_id); null = unknown
   proposal: Proposal; // status "awaiting_owner", content non-null
   now_ms: number;
   tz: string; // outlet timezone
 }): ShipPlan {
-  const { current, proposal, now_ms, tz } = input;
+  const { current, drafted, proposal, now_ms, tz } = input;
   if (proposal.status !== "awaiting_owner" || proposal.content === null) {
     throw new Error("planShip: proposal not shippable");
   }
   if (LEGACY_AGENT_VERSIONS.includes(proposal.generator.agent_version)) {
     return { kind: "conflict", code: "LEGACY_PROPOSAL" };
   }
-  if (current === null || current.sop_version_id !== proposal.generator.sop_version_id) {
+  // Step-level re-base (item 20): a newer SOP is fine while the step this proposal rewrites still reads as drafted.
+  if (current === null || sopConflict({ proposal, drafted, current }) === "SOP_CHANGED") {
     return { kind: "conflict", code: "SOP_CHANGED" };
   }
   const c = proposal.content;

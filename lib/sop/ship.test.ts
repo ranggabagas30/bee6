@@ -28,8 +28,8 @@ function hasUndefined(v: unknown): boolean {
   if (v !== null && typeof v === "object") return Object.values(v).some(hasUndefined);
   return false;
 }
-function ship(current: SopVersion | null, proposal = proposalV1(), now = NOW) {
-  return planShip({ current, proposal, now_ms: now, tz: TZ });
+function ship(current: SopVersion | null, proposal = proposalV1(), now = NOW, drafted: SopVersion | null = seedV1()) {
+  return planShip({ current, drafted, proposal, now_ms: now, tz: TZ });
 }
 function shipped(current: SopVersion | null, proposal = proposalV1(), now = NOW) {
   const plan = ship(current, proposal, now);
@@ -40,8 +40,17 @@ function shipped(current: SopVersion | null, proposal = proposalV1(), now = NOW)
 describe("planShip conflicts", () => {
   it("3.T3 current null, id mismatch, or missing target step is SOP_CHANGED", () => {
     expect(ship(null)).toEqual({ kind: "conflict", code: "SOP_CHANGED" });
-    const v2like = { ...seedV1(), sop_version_id: "o1:v2", version: 2 } as SopVersion;
+    // a newer version that REWROTE the target step is a conflict ...
+    const v2like = {
+      ...seedV1(),
+      sop_version_id: "o1:v2",
+      version: 2,
+      steps: seedV1().steps.map((s) => (s.step_id === "stock-01" ? { ...s, text: "Rewritten by v2." } : s)),
+    } as SopVersion;
     expect(ship(v2like)).toEqual({ kind: "conflict", code: "SOP_CHANGED" });
+    // ... and so is a newer version when the drafted doc is unknown (fail closed)
+    const v2same = { ...seedV1(), sop_version_id: "o1:v2", version: 2 } as SopVersion;
+    expect(ship(v2same, proposalV1(), NOW, null)).toEqual({ kind: "conflict", code: "SOP_CHANGED" });
     const gone = proposalV1({}, { target_step_id: "gone-01" });
     expect(ship(seedV1(), gone)).toEqual({ kind: "conflict", code: "SOP_CHANGED" });
   });
@@ -59,6 +68,44 @@ describe("planShip conflicts", () => {
     );
     const noContent = { ...proposalV1(), content: null } as ReturnType<typeof proposalV1>;
     expect(() => ship(seedV1(), noContent)).toThrow(/not shippable/);
+  });
+});
+
+describe("planShip step-level re-base (item 20)", () => {
+  const v2 = (steps: SopVersion["steps"]): SopVersion =>
+    SopVersionSchema.parse({
+      ...seedV1(),
+      sop_version_id: "o1:v2",
+      version: 2,
+      steps,
+    });
+  const touchOther = () => v2(seedV1().steps.map((s) => (s.step_id === "open-01" ? { ...s, text: "A changed it." } : s)));
+
+  it("current newer but target step untouched ships v3 on current; before = current's step", () => {
+    const current = touchOther();
+    const plan = shipped(current);
+    expect(plan.sop_version.version).toBe(3);
+    expect(plan.sop_version.sop_version_id).toBe("o1:v3");
+    expect(plan.sop_version.previous_version_id).toBe("o1:v2");
+    expect(plan.sop_version.change?.before).toEqual(current.steps.find((s) => s.step_id === "stock-01"));
+    // v2's change to open-01 survives, the proposal's change lands on stock-01
+    expect(plan.sop_version.steps.find((s) => s.step_id === "open-01")?.text).toBe("A changed it.");
+    expect(plan.sop_version.steps.find((s) => s.step_id === "stock-01")?.text).toBe(proposalV1().content?.change_text);
+    expect(plan.effective_from_date).toBe("2026-10-16"); // tomorrow, from NOW
+  });
+
+  it("current newer and target step changed is SOP_CHANGED", () => {
+    const current = v2(seedV1().steps.map((s) => (s.step_id === "stock-01" ? { ...s, text: "A changed it." } : s)));
+    expect(ship(current)).toEqual({ kind: "conflict", code: "SOP_CHANGED" });
+  });
+
+  it("an add on a newer current ships, appended last", () => {
+    const current = touchOther();
+    const plan = shipped(current, proposalV1({}, { target_step_id: null }));
+    expect(plan.sop_version.version).toBe(3);
+    expect(plan.sop_version.steps).toHaveLength(current.steps.length + 1);
+    expect(plan.sop_version.steps.at(-1)?.step_id).toBe(newStepId(PROPOSAL_ID));
+    expect(plan.sop_version.change?.kind).toBe("add");
   });
 });
 
