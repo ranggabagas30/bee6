@@ -32,8 +32,11 @@ import type {
  * are retried ONCE after a jittered 0.5–1 s wait (2 attempts, R-23: the 429 is
  * capacity-shaped over minutes, so longer in-request waits recovered almost
  * nothing and only slowed the phone's own retry cycle), reusing the same
- * in-memory payload. A timeout or any other failure is not retried, so the
- * route still answers 503 within ~30 s and the phone retries.
+ * in-memory payload. A per-attempt timeout (10 s) is retried the same way
+ * (18 Oct: the preview model sometimes hangs instead of refusing; the next call
+ * is usually fast). The sequence is bounded by `attempts` (2) and the 30 s
+ * budget: at most 10 + 1 + 10 s. Any other failure is not retried, so the route
+ * still answers 503 within ~30 s and the phone retries.
  */
 
 export const TRANSCRIBE_MODEL = "gemini-3.5-transcribe-preview";
@@ -47,10 +50,16 @@ export interface TranscribeRetryOptions {
   baseMs: number;
   factor: number;
   maxDelayMs: number;
-  /** Upstream HTTP statuses that are retried. Timeouts and everything else are NOT. */
+  /** Upstream HTTP statuses that are retried. Everything else (bar a timeout, see `retryTimeout`) is NOT. */
   statuses: readonly number[];
   /** Per-attempt abort; the whole sequence is still bounded by `timeoutMs` (30 s). */
   attemptTimeoutMs: number;
+  /**
+   * 18 Oct: a per-attempt timeout is retried too (within `attempts`). The model sometimes hangs rather than
+   * refuses (5 % of calls on a quiet phone exceeded 15 s while p99 of successes was 11 s); a fresh call is
+   * usually fast, and the phone would re-send the same audio anyway. A 429 burst never reaches this branch.
+   */
+  retryTimeout: boolean;
 }
 
 export const TRANSCRIBE_RETRY: TranscribeRetryOptions = {
@@ -59,7 +68,8 @@ export const TRANSCRIBE_RETRY: TranscribeRetryOptions = {
   factor: 2,
   maxDelayMs: 4_000,
   statuses: [429, 500, 502, 503, 504],
-  attemptTimeoutMs: 15_000,
+  attemptTimeoutMs: 10_000,
+  retryTimeout: true,
 };
 
 /**
@@ -90,6 +100,8 @@ export interface GeminiTranscriberDeps {
   sleep?: (ms: number) => Promise<void>;
   /** Injectable RNG in [0,1) for jitter. */
   rng?: () => number;
+  /** Clock for the total budget; defaults to Date.now. Injectable for tests. */
+  now?: () => number;
 }
 
 type Upstream = number | "timeout" | "unknown";
@@ -136,13 +148,15 @@ export function geminiTranscriber(deps: GeminiTranscriberDeps = {}): Transcriber
   const retry: TranscribeRetryOptions = { ...TRANSCRIBE_RETRY, ...deps.retry };
   const sleep = deps.sleep ?? defaultSleep;
   const rng = deps.rng ?? Math.random;
+  const now = deps.now ?? Date.now;
 
   return {
     async transcribe(input: TranscribeInput): Promise<TranscribeResult> {
       const location = resolveLocation(TRANSCRIBE_MODEL);
       const project = deps.project ?? process.env.GOOGLE_CLOUD_PROJECT ?? "";
 
-      const deadline = Date.now() + timeoutMs;
+      const started = now();
+      const deadline = started + timeoutMs;
       // Encoded once and reused by every attempt; never logged (hard rule #2).
       const data = input.audio.toString("base64");
 
@@ -167,7 +181,7 @@ export function geminiTranscriber(deps: GeminiTranscriberDeps = {}): Transcriber
           },
           // Per attempt, always clipped to what is left of the total budget.
           abortSignal: AbortSignal.timeout(
-            Math.max(1, Math.min(retry.attemptTimeoutMs, deadline - Date.now())),
+            Math.max(1, Math.min(retry.attemptTimeoutMs, deadline - now())),
           ),
         },
       });
@@ -183,18 +197,24 @@ export function geminiTranscriber(deps: GeminiTranscriberDeps = {}): Transcriber
           // numeric status or a timeout signal survives.
           const upstream = classifyUpstream(error);
           const retryable =
-            typeof upstream === "number" &&
-            retry.statuses.includes(upstream) &&
-            attempt < retry.attempts;
+            attempt < retry.attempts &&
+            (upstream === "timeout"
+              ? retry.retryTimeout
+              : typeof upstream === "number" && retry.statuses.includes(upstream));
           if (retryable) {
             const raw = Math.min(
               retry.maxDelayMs,
               retry.baseMs * retry.factor ** (attempt - 1),
             );
             const delayMs = Math.round(raw / 2 + rng() * (raw / 2));
-            if (Date.now() + delayMs + MIN_ATTEMPT_HEADROOM_MS <= deadline) {
+            if (now() + delayMs + MIN_ATTEMPT_HEADROOM_MS <= deadline) {
               // Whitelisted fields only: no message, body, text or audio.
-              console.warn("transcribe.retry", { attempt, upstream, delayMs });
+              console.warn("transcribe.retry", {
+                attempt,
+                upstream,
+                delayMs,
+                elapsedMs: now() - started,
+              });
               await sleep(delayMs);
               continue;
             }
