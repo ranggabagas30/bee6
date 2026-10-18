@@ -1,6 +1,6 @@
 import type { Category, WorkCategory } from "@/lib/pipeline/categories";
 import type { GateDecision } from "@/lib/pipeline/gate";
-import type { LastEnded } from "@/lib/firestore/schema";
+import type { LastEnded, QuestionAgentText } from "@/lib/firestore/schema";
 
 /**
  * Store interfaces for the pipeline tick (R-05b, Task 6). Pure interfaces
@@ -88,6 +88,12 @@ export interface QuestionWrite {
   window_start_ms: number;
   window_end_ms: number;
   created_at_ms: number;
+  /**
+   * DebriefAgent wording (sandbox only, flag-gated; docs/tasks/debrief-agent-18oct.md §3.3). ABSENT unless the agent
+   * produced an accepted heading, so with the flag off a write is byte-identical to before. Rollback caveat: see
+   * `QuestionSchema.agent` in lib/firestore/schema.ts.
+   */
+  agent?: QuestionAgentText;
 }
 
 export interface LedgerWrite {
@@ -153,6 +159,11 @@ export interface TickStore {
    * "Budi Santoso".
    */
   listStaffScrubNames(outletId: string): Promise<string[]>;
+  /**
+   * The outlet's timezone, the same one the debrief read path uses (DebriefAgent: the `HH:MM` it words must equal the
+   * one the phone shows). NEVER throws and never returns empty: a missing or malformed outlet doc is `"Asia/Jakarta"`.
+   */
+  getOutletTz(outletId: string): Promise<string>;
   /** Every non-expired segment for a device (windowing recomputes from these each tick). */
   listSegmentsForDevice(outletId: string, deviceId: string): Promise<SegmentForTick[]>;
   /** Every line_id already labelled (ledger status "done" OR "failed" — both terminal). */

@@ -117,6 +117,29 @@ describe("questionLines", () => {
   });
 });
 
+describe("questionLines / questionText with a DebriefAgent question_text (docs/tasks/debrief-agent-18oct.md §5.6)", () => {
+  const TEXT = "Around 15:00, was the oven checked before opening?";
+
+  it("question_text REPLACES the template heading, in both languages (EN wording in a Bahasa UI is the accepted state)", () => {
+    for (const lang of ["en", "id"] as const) {
+      expect(questionLines(lang, q({ question_text: TEXT }))).toEqual([TEXT]);
+    }
+  });
+
+  it("question_text wins over the block template too (a gate question with no label)", () => {
+    expect(questionLines("en", q({ category: null, question_text: TEXT }))).toEqual([TEXT]);
+  });
+
+  it("questionText (the radiogroup aria-label, and the answered-row text) stays the template", () => {
+    expect(questionText("en", q({ question_text: TEXT }))).toBe("Around 15:00 there was routine work. Is that right?");
+    expect(questionText("id", q({ question_text: TEXT }))).toBe("Sekitar pukul 15:00–15:10 ada kegiatan kerja. Benar?");
+  });
+
+  it("absent question_text: the template, exactly as before", () => {
+    expect(questionLines("en", q())).toEqual(["Around 15:00 there was routine work. Is that right?"]);
+  });
+});
+
 describe("questionWhy (R-25 T7, board P2-09 explanation line)", () => {
   const categories = Object.keys(EN_LABELS) as WorkCategory[];
 

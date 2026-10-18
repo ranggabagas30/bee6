@@ -4,7 +4,7 @@ import { useEffect, useId, useRef } from "react";
 import { canCommit, type DebriefView } from "@/lib/debrief/flow";
 import { reasonLength } from "@/lib/debrief/reason";
 import { REASON_MAX_CHARS } from "@/lib/debrief/constants";
-import { questionCategoryChip, questionLines, questionText, questionWhy } from "@/lib/i18n/category-labels";
+import { questionCategoryChip, questionLines, questionWhy } from "@/lib/i18n/category-labels";
 import { t } from "@/lib/i18n/dict";
 import { dayLabel } from "@/lib/i18n/format";
 import type { Lang } from "@/lib/i18n/lang";
@@ -18,7 +18,9 @@ import css from "@/app/capture/debrief/debrief.module.css";
  * Next/Skip side effects (the phone cache write, the POST, the gate). Nothing here ever reads a name or a role:
  * only `questionText()`'s enum-mapped template, the category code and the fixed `questionWhy()` sentence. The one
  * server-supplied text is `question.lines` (demo-feedback-2 item 10, sandbox only): already-redacted,
- * server-scrubbed thread lines, rendered as plain text nodes in React state only (never stored, never HTML). The answer is Yes or No plus a required reason, as the route accepts (the board's
+ * server-scrubbed thread lines, rendered as plain text nodes in React state only (never stored, never HTML); and, sandbox only with
+ * the DebriefAgent on, `question.question_text`, the agent-worded heading (docs/tasks/debrief-agent-18oct.md): a plain text node
+ * too, replacing the template heading via `questionLines()`, never through `t()` or HTML. The answer is Yes or No plus a required reason, as the route accepts (the board's
  * "Not sure" is not offered: R-25 ruling R9).
  */
 
@@ -73,8 +75,9 @@ export function QuestionScreen({
 
   if (!question) return null;
 
-  const qText = questionText(lang, question);
   const qLines = questionLines(lang, question);
+  // The radiogroup is named by the heading the worker sees (the agent wording or the template), joined as it reads.
+  const qText = qLines.join(" ");
   const chip = questionCategoryChip(lang, question);
   const quoted = question.lines && question.lines.length > 0 ? question.lines : null;
   const n = reasonLength(view.reason);

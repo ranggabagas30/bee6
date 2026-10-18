@@ -88,4 +88,26 @@ describe("i18n v2 slices", () => {
       expect(Object.keys(EN).length).toBe(Object.keys(EN_BASE).length + sliceKeys);
     });
   });
+
+  describe("the Preparing hint is valid with and without the DebriefAgent (UI-009)", () => {
+    const KEYS = ["C-d2-prep-1", "C-d2-prep-sub"] as const;
+
+    it("names both steps (reading the notes, writing the questions) in EN and ID, and admits the wait can run long", () => {
+      const en = debrief.debriefEN as Record<string, string>;
+      const id = debrief.debriefID as Record<string, string>;
+      for (const key of KEYS) {
+        expect(en[key], key).toContain("Bee6 is reading today's notes and writing your questions.");
+        expect(en[key], key).toContain("a little longer");
+        expect(id[key], key).toContain("Bee6 sedang membaca catatan hari ini dan menyusun pertanyaanmu.");
+        expect(id[key], key).toContain("sedikit lebih lama");
+      }
+    });
+
+    it("no longer says the notes are read only to decide what to ask (that is untrue once an agent words the question)", () => {
+      for (const key of KEYS) {
+        expect((debrief.debriefEN as Record<string, string>)[key]).not.toContain("decide what to ask");
+        expect((debrief.debriefID as Record<string, string>)[key]).not.toContain("menentukan apa yang perlu ditanyakan");
+      }
+    });
+  });
 });

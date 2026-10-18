@@ -582,3 +582,66 @@ describe("R-12 demo redact cap, charged immediately before SDP (QA D2)", () => {
     expect(log).toHaveBeenCalledWith(expect.objectContaining({ code: "redaction_unavailable" }));
   });
 });
+
+describe("listDebriefQuestions: DebriefAgent question_text (docs/tasks/debrief-agent-18oct.md §5.5, D9)", () => {
+  const START = Date.UTC(2026, 9, 7, 7, 5); // 14:05 Jakarta
+  const TEXT = "Around 14:05, was the oven checked before opening?";
+  const agent = (over: Partial<NonNullable<Question["agent"]>> = {}): NonNullable<Question["agent"]> => ({
+    version: "debrief-q-v1",
+    model: "gemini-3.5-flash-lite",
+    category: "ROUTINE_OPS",
+    start_hm: "14:05",
+    question_en: TEXT,
+    rounds: 1,
+    generated_at_ms: 1,
+    ...over,
+  });
+  const setUp = (sandbox: boolean, question: Partial<Question>) => {
+    const store = new FakeDebriefStore();
+    if (sandbox) store.calendar = { ...store.calendar, sandbox: true };
+    setUpActiveDebrief(store);
+    store.questions.set(
+      "q1",
+      makeQuestion({ window_start_ms: START, window_end_ms: START + 180_000, ...question }),
+    );
+    return store;
+  };
+  const only = async (store: FakeDebriefStore) => (await listDebriefQuestions(store, CLAIMS, ENDS_MS - 10_000)).questions[0]!;
+
+  it("sandbox + a matching agent: question_text is the stored wording", async () => {
+    const q = await only(setUp(true, { agent: agent() }));
+    expect(q.question_text).toBe(TEXT);
+  });
+
+  it("sandbox + the category changed since the wording: no key (the template stays)", async () => {
+    const q = await only(setUp(true, { category: "CUSTOMER_SERVICE", agent: agent({ category: "ROUTINE_OPS" }) }));
+    expect(q).not.toHaveProperty("question_text");
+  });
+
+  it("sandbox + the start time no longer matches (window moved): no key", async () => {
+    const q = await only(setUp(true, { window_start_ms: START + 5 * 60_000, agent: agent() }));
+    expect(q).not.toHaveProperty("question_text");
+  });
+
+  it("sandbox + a stored wording out of the 20..140 bound: no key, and the list still parses", async () => {
+    const q = await only(setUp(true, { agent: agent({ question_en: "x".repeat(150) }) }));
+    expect(q).not.toHaveProperty("question_text");
+  });
+
+  it("sandbox + an unlabelled_unit question: no key", async () => {
+    const q = await only(setUp(true, { kind: "unlabelled_unit", category: null, thread_id: null, agent: agent() }));
+    expect(q).not.toHaveProperty("question_text");
+  });
+
+  it("sandbox + no agent: no key (the response is the one it always was)", async () => {
+    const q = await only(setUp(true, {}));
+    expect(q).not.toHaveProperty("question_text");
+  });
+
+  it("pilot (no sandbox) + an agent on the doc: NO key, the response is byte-identical to a question without one", async () => {
+    const withAgent = await only(setUp(false, { agent: agent() }));
+    const without = await only(setUp(false, {}));
+    expect(withAgent).toEqual(without);
+    expect(withAgent).not.toHaveProperty("question_text");
+  });
+});

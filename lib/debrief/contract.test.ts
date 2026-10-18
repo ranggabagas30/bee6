@@ -255,3 +255,42 @@ describe("AnswerCacheEntrySchema: demo-feedback-2 item 10 keeps the phone cache 
     expect(AnswerBodySchema.safeParse({ ...entry, lines: ["x"] }).success).toBe(false);
   });
 });
+
+describe("DebriefQuestionViewSchema: DebriefAgent optional `question_text` (sandbox only)", () => {
+  const base = { question_id: "q1", kind: "gate", category: "PHONE_CALL", start_hm: "14:05", end_hm: "14:08" };
+  const parse = (extra: Record<string, unknown>) => DebriefQuestionViewSchema.safeParse({ ...base, ...extra });
+  const of = (n: number, ch = "a") => ch.repeat(n);
+
+  it("accepts a view without it (every pilot response, flag off, fallback)", () => {
+    expect(parse({}).success).toBe(true);
+  });
+
+  it("accepts 20..140 code points and rejects 19 and 141", () => {
+    expect(parse({ question_text: of(19) }).success).toBe(false);
+    expect(parse({ question_text: of(20) }).success).toBe(true);
+    expect(parse({ question_text: of(140) }).success).toBe(true);
+    expect(parse({ question_text: of(141) }).success).toBe(false);
+  });
+
+  it("counts code points, not UTF-16 units", () => {
+    expect(parse({ question_text: of(70, "😀") }).success).toBe(true);
+    expect(parse({ question_text: of(141, "😀") }).success).toBe(false);
+  });
+
+  it("stays strict: unknown keys next to it are still rejected; a non-string is rejected", () => {
+    expect(parse({ question_text: of(30), agent: {} }).success).toBe(false);
+    expect(parse({ question_text: 5 }).success).toBe(false);
+  });
+
+  it("the answer upload body and the phone cache never accept it", () => {
+    const entry = {
+      question_id: "q1",
+      debrief_business_date: "2026-10-07",
+      answer: "yes" as const,
+      reason: "sudah",
+      answered_at_ms: 1_700_000_000_000,
+    };
+    expect(AnswerBodySchema.safeParse({ ...entry, question_text: of(30) }).success).toBe(false);
+    expect(AnswerCacheEntrySchema.safeParse({ ...entry, question_text: of(30) }).success).toBe(false);
+  });
+});

@@ -1,4 +1,5 @@
-import type { DocumentReference, Firestore, Transaction } from "firebase-admin/firestore";
+import { FieldValue, type DocumentReference, type Firestore, type Transaction } from "firebase-admin/firestore";
+import { z } from "zod";
 import { adminDb } from "@/lib/firebase/admin";
 import { COLLECTIONS } from "@/lib/firestore/collections";
 import { captureSessionDocId, deviceDocId } from "@/lib/firestore/stores";
@@ -57,6 +58,9 @@ const DISCARD_TOMBSTONE_CAP = 50;
  */
 
 const LEASE_COLLECTION = COLLECTIONS.pipelineLocks;
+
+/** The pilot's zone: used only when an outlet doc has no readable `timezone`. */
+const DEFAULT_OUTLET_TZ = "Asia/Jakarta";
 
 function leaseDocId(outletId: string, deviceId: string): string {
   return `${outletId}:${deviceId}`;
@@ -217,6 +221,25 @@ export function firestoreTickStore(db: Firestore = adminDb()): TickStore {
         if (firstToken) names.add(firstToken);
       }
       return Array.from(names);
+    },
+
+    /**
+     * The outlet's timezone: the SAME field `getOutletCalendar` (debrief store) reads, so the `HH:MM` the agent is
+     * shown is byte-identical to the one the phone shows (D9 depends on it). One field-masked read. A missing or
+     * malformed doc falls back to Asia/Jakarta (the pilot's zone) and never throws: the agent step must not cost
+     * the unit.
+     */
+    async getOutletTz(outletId: string): Promise<string> {
+      try {
+        const ref = db.collection(COLLECTIONS.outlets).doc(outletId);
+        const [snap] = await db.getAll(ref, { fieldMask: ["timezone"] });
+        const parsed = z.string().min(1).safeParse(snap?.exists ? snap.data()?.timezone : undefined);
+        if (parsed.success) return parsed.data;
+        logSkippedDoc("outlet", outletId);
+      } catch (error) {
+        console.error("[tick-store] outlet tz read failed", { error_class: error instanceof Error ? error.name : "unknown" });
+      }
+      return DEFAULT_OUTLET_TZ;
     },
 
     async listSegmentsForDevice(outletId: string, deviceId: string): Promise<SegmentForTick[]> {
@@ -416,10 +439,20 @@ export function firestoreTickStore(db: Firestore = adminDb()): TickStore {
             continue;
           }
           if (stored.data.status !== "open") continue;
+          // DebriefAgent (docs/tasks/debrief-agent-18oct.md §5.2, D9 write-side half of the stale-text guard): a new
+          // wording replaces the stored one; a category change with no new wording DELETES the stored one (its
+          // sentence was written for the old category); otherwise `agent` is not in the update at all. A question that
+          // never had an `agent` (the pilot, or the flag off) gets exactly the three fields it always got.
+          const categoryChanged = stored.data.category !== newDoc.category;
           tx.update(ref, {
             category: newDoc.category,
             window_start_ms: newDoc.window_start_ms,
             window_end_ms: newDoc.window_end_ms,
+            ...(newDoc.agent
+              ? { agent: newDoc.agent }
+              : categoryChanged && stored.data.agent
+                ? { agent: FieldValue.delete() }
+                : {}),
           });
         }
 

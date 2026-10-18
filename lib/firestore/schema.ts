@@ -2,6 +2,12 @@ import { z } from "zod";
 import { PrincipalRoleSchema, UserRoleSchema } from "@/lib/auth/roles";
 import { MIC_SOURCE_CLASSES } from "@/lib/capture/mic-source";
 import { CategorySchema, WorkCategorySchema } from "@/lib/pipeline/categories";
+import {
+  DEBRIEF_AGENT_MODELS,
+  DEBRIEF_AGENT_VERSION,
+  DEBRIEF_QUESTION_MAX_CHARS,
+  DEBRIEF_QUESTION_MIN_CHARS,
+} from "@/lib/debrief/agent/constants";
 import { GateDecisionSchema } from "@/lib/pipeline/gate";
 import { CORRECTION_TEXT_MAX_CHARS } from "@/lib/debrief/constants";
 import { NEXT_DAY_MAX } from "@/lib/demo/constants";
@@ -567,9 +573,37 @@ export const QuestionSchema = z
     answered_at_ms: z.number().int().min(0).nullable().optional(),
     /** The debrief end that set `unverified` (lets a late in-window answer replace it, §4c item 2). */
     expired_by_debrief_end_ms: z.number().int().min(0).nullable().optional(),
+    /**
+     * DebriefAgent (docs/tasks/debrief-agent-18oct.md §3.3): the agent-worded question heading, sandbox only, written
+     * once by the tick. `category` + `start_hm` are the inputs it was worded for: the read path shows it only while
+     * they still match the question (D9). No name, no device id, no line text, no model reasoning is ever stored
+     * here. STRICT OPTIONAL: a question doc without it parses exactly as before.
+     *
+     * ROLLBACK CAVEAT: `QuestionSchema` is `.strict()`, so a revision built BEFORE this field existed (e.g. `main`
+     * 30c931d) skips a question doc that carries `agent` (the debrief store logs and drops it) and the question
+     * vanishes from the phone. The field is written only while `DEBRIEF_AGENT=true` on a `sbx-` outlet, so the only
+     * safe kill on such a service is removing the env var, never a traffic rollback to an older revision.
+     */
+    agent: z
+      .object({
+        version: z.literal(DEBRIEF_AGENT_VERSION),
+        model: z.enum(DEBRIEF_AGENT_MODELS),
+        category: WorkCategorySchema,
+        start_hm: z.string().regex(/^\d{2}:\d{2}$/),
+        // Storage bound only; the code-point 20..140 check ran in `checkQuestion` before the write.
+        question_en: z.string().min(DEBRIEF_QUESTION_MIN_CHARS).max(DEBRIEF_QUESTION_MAX_CHARS * 2),
+        /** Reserved (D10): not written by this plan. */
+        question_id_text: z.string().min(1).max(DEBRIEF_QUESTION_MAX_CHARS * 2).optional(),
+        rounds: z.number().int().min(1).max(2),
+        generated_at_ms: z.number().int().min(0),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type Question = z.infer<typeof QuestionSchema>;
+/** The stored DebriefAgent wording on a question doc (`Question["agent"]` without the optionality). */
+export type QuestionAgentText = NonNullable<Question["agent"]>;
 
 /**
  * Stricter read-side parse (R-07): `status === "answered"` iff `answer` is

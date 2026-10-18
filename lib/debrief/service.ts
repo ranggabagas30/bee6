@@ -17,6 +17,7 @@ import { checkReason, reasonLength } from "@/lib/debrief/reason";
 import { scrubReason } from "@/lib/debrief/scrub";
 import { scrubQuestionLine, stripInvisibleChars } from "@/lib/debrief/question-line";
 import { rankQuestions } from "@/lib/debrief/rank";
+import { agentTextFor } from "@/lib/debrief/agent/view";
 import {
   planAnswerCommit,
   type AnswerTxSnapshot,
@@ -203,19 +204,25 @@ export async function listDebriefQuestions(
   const calendar = await store.getOutletCalendar();
   // demo-feedback-2 item 10, sandbox only: a pilot response never carries `lines` (and costs no extra read).
   const quoted = calendar.sandbox === true ? await loadQuestionLines(store, claims, ranked, log, calendar.name) : new Map<string, string[]>();
-  const questions: DebriefQuestionView[] = ranked.map((q) => ({
-    question_id: q.question_id,
-    kind: q.kind,
-    category:
-      q.kind === "gate" && q.category !== null && q.category !== "NON_WORK"
-        ? (q.category as WorkCategory)
-        : null,
-    start_hm: localHmOf(q.window_start_ms, calendar.tz),
-    end_hm: localHmOf(q.window_end_ms, calendar.tz),
-    // R-18 sandbox only: a pilot response never carries business_date.
-    ...(calendar.sandbox === true ? earlierDay(q, last.business_date, calendar.tz) : {}),
-    ...(quoted.has(q.question_id) ? { lines: quoted.get(q.question_id) } : {}),
-  }));
+  const questions: DebriefQuestionView[] = ranked.map((q) => {
+    // DebriefAgent (sandbox only): the stored wording, shown only while it still matches this question's category and
+    // start time (`agentTextFor`); otherwise absent and the phone keeps the template. A pilot response never has it.
+    const agentText = calendar.sandbox === true ? agentTextFor(q, calendar.tz) : undefined;
+    return {
+      question_id: q.question_id,
+      kind: q.kind,
+      category:
+        q.kind === "gate" && q.category !== null && q.category !== "NON_WORK"
+          ? (q.category as WorkCategory)
+          : null,
+      start_hm: localHmOf(q.window_start_ms, calendar.tz),
+      end_hm: localHmOf(q.window_end_ms, calendar.tz),
+      // R-18 sandbox only: a pilot response never carries business_date.
+      ...(calendar.sandbox === true ? earlierDay(q, last.business_date, calendar.tz) : {}),
+      ...(quoted.has(q.question_id) ? { lines: quoted.get(q.question_id) } : {}),
+      ...(agentText ? { question_text: agentText } : {}),
+    };
+  });
 
   // R-19 PR-3, sandbox only: a pilot response never carries the key (and costs no extra read).
   let preparingField: { preparing: boolean } | Record<string, never> = {};
