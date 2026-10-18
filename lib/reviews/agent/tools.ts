@@ -33,17 +33,22 @@ const RULE_IN_WORDS =
   "revert, less than 20 percent either way suggests revise.";
 
 const CHECK_REVIEW_DESCRIPTION =
-  "Submit the review to the plain-code checker. It answers accepted, or a list of failed rule codes to fix: " +
+  "Submit the review to the plain-code checker. All four fields are required: narrative_en, suggested_verdict, quoted_numbers, caveats. It answers accepted, or a list of failed rule codes to fix: " +
   "change_not_inspected, counts_not_inspected, sample_not_inspected (call get_change, get_counts and " +
   "get_evidence_sample for before and after first), verdict_mismatch (apply the rule in get_counts exactly; " +
   "none when it gives no suggestion), number_not_allowed (only numbers from get_counts, written as digits: 2, not two), " +
-  "quoted_numbers_mismatch (quoted_numbers must list exactly the digit numbers in the narrative; the answer lists them as numbers_in_narrative), caveat_missing and " +
+  "quoted_numbers_mismatch (quoted_numbers must list exactly the digit numbers in the narrative, with no minus sign: 25, not -25; the answer lists them as numbers_in_narrative), caveat_missing and " +
   "caveat_not_applicable (list exactly the caveats get_counts gave you), too_short and too_long (60 to 600 characters), " +
   "control_chars, placeholder (no brackets or braces), url_or_handle, date_or_time, staff_name, role_or_person " +
   "(say staff or a customer), instruction_word, causal_claim (say fewer moments were noted, never that the change " +
   "caused it). Fix exactly those reasons and submit again. At most " +
   REVIEW_AGENT_MAX_ROUNDS +
   " submissions count.";
+
+function movedOf(ratio: number | null): "up" | "down" | "flat" | null {
+  if (ratio === null) return null;
+  return ratio > 0 ? "up" : ratio < 0 ? "down" : "flat";
+}
 
 export function buildReviewTools(
   inputs: ReviewAgentInputs,
@@ -94,6 +99,10 @@ export function buildReviewTools(
         before: win(inputs.counts.before),
         after: win(inputs.counts.after),
         change_pct: changePct(inputs.suggestion.change_ratio),
+        // Which way the metric should move and which way the per-day count did: plain facts that stop the model reading
+        // a rise in a "decrease" metric as "no change" (found in the PR-5 eval). Never the verdict itself.
+        metric_should: inputs.change.metric.direction,
+        per_day_moved: movedOf(inputs.suggestion.change_ratio),
         rule: RULE_IN_WORDS,
         // The caveats the code computed (a fixed vocabulary, never shop text). Without this the model can only guess
         // them, and `check_review` names a missing caveat by rule code, not by member (found in the PR-4 spike).
@@ -157,6 +166,10 @@ export function buildReviewTools(
         rounds_left: Math.max(0, REVIEW_AGENT_MAX_ROUNDS - session.checkRounds),
         reasons: result.reasons,
         // The numbers the model's own narrative contains (never shop text), so it can make quoted_numbers match.
+        // The caveats the code computed (a fixed vocabulary, never shop text): the same list get_counts gave.
+        ...(result.reasons.includes("caveat_missing") || result.reasons.includes("caveat_not_applicable")
+          ? { caveats_to_list: requiredCaveats(caveatContextOfInputs(inputs)) }
+          : {}),
         ...(result.reasons.includes("quoted_numbers_mismatch")
           ? { numbers_in_narrative: [...new Set(extractNumbers(parsed.data.narrative_en.trim()))].sort((a, b) => a - b) }
           : {}),

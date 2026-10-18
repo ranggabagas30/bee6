@@ -108,6 +108,12 @@ describe("checkReview", () => {
   });
 
   describe("caveats", () => {
+    it("a caveat the vocabulary does not have is caveat_not_applicable (and the real one missing), not schema_invalid", () => {
+      expect(reasonsOf({ ...goodDraft(), caveats: ["short_window", "category_count_not_problem_icon"] })).toEqual(["caveat_missing", "caveat_not_applicable"]);
+    });
+    it("quoted_numbers sent as strings are compared as numbers", () => {
+      expect(reasonsOf({ ...goodDraft(), quoted_numbers: ["2", "3", "0", "2", "100"] })).toEqual([]);
+    });
     it("caveat_missing without category_count_not_problem_count", () => {
       expect(reasonsOf({ ...goodDraft(), caveats: ["short_window"] })).toEqual(["caveat_missing"]);
     });

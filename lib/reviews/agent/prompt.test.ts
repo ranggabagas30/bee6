@@ -16,6 +16,8 @@ describe("REVIEW_SYSTEM_INSTRUCTION", () => {
       "Submit with check_review",
       "list exactly the caveats get_counts gave you",
       "Write every number as digits",
+      "Write a percent change without a minus sign",
+      "with no minus sign (25, not -25)",
       "call decline",
     ]) {
       expect(REVIEW_SYSTEM_INSTRUCTION).toContain(phrase);

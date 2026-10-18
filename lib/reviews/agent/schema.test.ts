@@ -87,6 +87,37 @@ describe("ReviewDraftArgsSchema (the tool's parameter schema)", () => {
     expect(ReviewDraftArgsSchema.safeParse(draft({ narrative_en: ok(2001) })).success).toBe(false);
     expect(ReviewDraftArgsSchema.safeParse(draft({ extra: 1 })).success).toBe(false);
     expect(ReviewDraftArgsSchema.safeParse(draft({ suggested_verdict: "maybe" })).success).toBe(false);
-    expect(ReviewDraftArgsSchema.safeParse(draft({ caveats: ["nonsense"] })).success).toBe(false);
+    // An unknown caveat is no longer an opaque tool error: it reaches the checker (see the tolerance tests below).
+    expect(ReviewDraftArgsSchema.safeParse(draft({ caveats: ["x".repeat(61)] })).success).toBe(false);
+  });
+});
+
+describe("ReviewDraftArgsSchema field descriptions (what the model reads in the tool declaration)", () => {
+  it("every field is described, and suggested_verdict is marked required (the eval saw it omitted)", () => {
+    for (const k of ["narrative_en", "suggested_verdict", "quoted_numbers", "caveats"] as const) {
+      expect(ReviewDraftArgsSchema.shape[k].description, k).toBeTruthy();
+    }
+    expect(ReviewDraftArgsSchema.shape.suggested_verdict.description).toMatch(/required/i);
+    expect(ReviewDraftArgsSchema.shape.quoted_numbers.description).toMatch(/no minus sign/i);
+  });
+});
+
+describe("ReviewDraftArgsSchema tolerates the argument slips flash-lite makes, so the checker (not an opaque error) answers", () => {
+  const args = (over: Record<string, unknown>) => ReviewDraftArgsSchema.safeParse({ ...draft(), ...over });
+  it("numbers sent as strings are read as numbers; a non-number is still invalid", () => {
+    const r = args({ quoted_numbers: ["3", "2", "200"] });
+    expect(r.success && r.data.quoted_numbers).toEqual([3, 2, 200]);
+    expect(args({ quoted_numbers: ["abc"] }).success).toBe(false);
+  });
+  it("an unknown caveat string reaches the checker (it fails caveat_not_applicable there)", () => {
+    expect(args({ caveats: ["short_window", "category_count_not_problem_icon"] }).success).toBe(true);
+  });
+  it("the stored draft schema stays strict: an unknown caveat or a string number is refused", () => {
+    expect(ReviewDraftSchema.safeParse(draft({ caveats: ["category_count_not_problem_icon"] })).success).toBe(false);
+    expect(ReviewDraftSchema.safeParse(draft({ quoted_numbers: ["3"] })).success).toBe(false);
+  });
+  it("a missing field is still invalid", () => {
+    const { suggested_verdict: _omit, ...rest } = draft();
+    expect(ReviewDraftArgsSchema.safeParse(rest).success).toBe(false);
   });
 });

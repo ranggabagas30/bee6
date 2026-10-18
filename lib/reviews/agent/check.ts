@@ -197,7 +197,7 @@ export function checkReview(
 
   const required = requiredCaveats(caveatContextOfInputs(inputs));
   add(required.some((c) => !d.caveats.includes(c)), "caveat_missing");
-  add(d.caveats.some((c) => !required.includes(c)), "caveat_not_applicable");
+  add(d.caveats.some((c) => !(required as readonly string[]).includes(c)), "caveat_not_applicable");
 
   const points = Array.from(q).length;
   add(points < REVIEW_NARRATIVE_MIN_CHARS, "too_short");

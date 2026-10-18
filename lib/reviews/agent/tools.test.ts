@@ -69,6 +69,20 @@ describe("buildReviewTools", () => {
     expect(JSON.stringify(out)).not.toMatch(/"(worked|revise|revert)"/);
   });
 
+  it("get_counts states which way the metric should move and which way the per-day count moved (facts, not the verdict)", () => {
+    const worked = setup().call("get_counts") as Record<string, unknown>;
+    expect(worked).toMatchObject({ metric_should: "decrease", per_day_moved: "down" });
+    const worse = setup({ before: { days: 3, count: 2 }, after: { days: 2, count: 2 } }).call("get_counts") as Record<string, unknown>;
+    expect(worse).toMatchObject({ metric_should: "decrease", per_day_moved: "up", change_pct: 50 });
+    const inc = setup({ direction: "increase", before: { days: 3, count: 1 }, after: { days: 2, count: 2 } }).call("get_counts") as Record<string, unknown>;
+    expect(inc).toMatchObject({ metric_should: "increase", per_day_moved: "up" });
+    const flat = setup({ before: { days: 3, count: 3 }, after: { days: 2, count: 2 } }).call("get_counts") as Record<string, unknown>;
+    expect(flat).toMatchObject({ per_day_moved: "flat" });
+    const none = setup({ before: { days: 3, count: 0 }, after: { days: 0, count: 0 } }).call("get_counts") as Record<string, unknown>;
+    expect(none.per_day_moved).toBeNull();
+    for (const o of [worked, worse, inc, flat, none]) expect(JSON.stringify(o)).not.toMatch(/"(worked|revise|revert)"/);
+  });
+
   it("get_counts lists the caveats the code computed, so the model can list exactly them", () => {
     const a = setup().call("get_counts") as { caveats: string[] };
     expect(a.caveats).toEqual(["short_window", "category_count_not_problem_count"]);
@@ -164,6 +178,22 @@ describe("buildReviewTools", () => {
       const out = call("check_review", { ...goodDraft(), quoted_numbers: [2, 3, 0, 2, 100, 7] }) as { reasons: string[]; numbers_in_narrative?: number[] };
       expect(out.reasons).toEqual(["quoted_numbers_mismatch"]);
       expect(out.numbers_in_narrative).toEqual([0, 2, 3, 100]);
+    });
+
+    it("a caveat failure returns the caveats to list (code-computed vocabulary), and only then", () => {
+      const { call } = setup();
+      readAll(call);
+      const miss = call("check_review", { ...goodDraft(), caveats: ["short_window"] }) as { reasons: string[]; caveats_to_list?: string[] };
+      expect(miss.reasons).toEqual(["caveat_missing"]);
+      expect(miss.caveats_to_list).toEqual(["short_window", "category_count_not_problem_count"]);
+      const { call: call2 } = setup({ overlapping: true });
+      readAll(call2);
+      const extra = call2("check_review", { ...goodDraft(), caveats: ["short_window", "category_count_not_problem_count", "no_baseline"] }) as { reasons: string[]; caveats_to_list?: string[] };
+      expect(extra.reasons).toEqual(["caveat_missing", "caveat_not_applicable"]);
+      expect(extra.caveats_to_list).toEqual(["short_window", "category_count_not_problem_count", "overlapping_change"]);
+      const { call: call3 } = setup();
+      readAll(call3);
+      expect(call3("check_review", { ...goodDraft(), suggested_verdict: "revise" })).not.toHaveProperty("caveats_to_list");
     });
 
     it("other failures carry no numbers_in_narrative", () => {

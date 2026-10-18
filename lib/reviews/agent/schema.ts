@@ -38,9 +38,17 @@ export const ReviewDraftSchema = z
       },
       { message: `narrative_en must be ${REVIEW_NARRATIVE_MIN_CHARS}..${REVIEW_NARRATIVE_MAX_CHARS} code points` },
     ),
-    suggested_verdict: z.enum(REVIEW_AGENT_VERDICTS),
-    quoted_numbers: z.array(z.number().finite()).max(12),
-    caveats: z.array(ReviewCaveatSchema).max(REVIEW_CAVEATS.length),
+    suggested_verdict: z
+      .enum(REVIEW_AGENT_VERDICTS)
+      .describe("Required. The verdict the rule in get_counts gives: worked, revise or revert; none when it gives no suggestion."),
+    quoted_numbers: z
+      .array(z.number().finite())
+      .max(12)
+      .describe("Required. Every number written in the narrative, as the digits appear, with no minus sign (25, not -25)."),
+    caveats: z
+      .array(ReviewCaveatSchema)
+      .max(REVIEW_CAVEATS.length)
+      .describe("Required. Exactly the caveats get_counts gave you."),
   })
   .strict();
 export type ReviewDraft = z.infer<typeof ReviewDraftSchema>;
@@ -56,9 +64,21 @@ export const REVIEW_ARGS_NARRATIVE_MAX_CHARS = 2000;
  * checker always satisfies `ReviewDraftSchema` on its trimmed narrative.
  */
 export const ReviewDraftArgsSchema = ReviewDraftSchema.extend({
+  // flash-lite sometimes sends numbers as strings or mistypes a caveat; either is an opaque tool error that never reaches
+  // the checker. Read the numbers as numbers and let an unknown caveat reach `checkReview` (caveat_not_applicable), which
+  // names the problem. The STORED shape (`ReviewDraftSchema`) stays strict: a draft is only stored after it passes the checker.
+  quoted_numbers: z
+    .array(z.coerce.number().finite())
+    .max(12)
+    .describe("Required. Every number written in the narrative, as the digits appear, with no minus sign (25, not -25)."),
+  caveats: z
+    .array(z.string().max(60))
+    .max(REVIEW_CAVEATS.length)
+    .describe(`Required. Exactly the caveats get_counts gave you (from: ${REVIEW_CAVEATS.join(", ")}).`),
   narrative_en: z
     .string()
-    .refine((s) => Array.from(s).length <= REVIEW_ARGS_NARRATIVE_MAX_CHARS, { message: "narrative_en is too long" }),
+    .refine((s) => Array.from(s).length <= REVIEW_ARGS_NARRATIVE_MAX_CHARS, { message: "narrative_en is too long" })
+    .describe("Required. The review, 2 to 4 sentences, 60 to 600 characters, plain English."),
 }).strict();
 export type ReviewDraftArgs = z.infer<typeof ReviewDraftArgsSchema>;
 

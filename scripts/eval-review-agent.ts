@@ -441,7 +441,7 @@ export async function runEval(opts: EvalOptions, deps: EvalDeps): Promise<{ reco
       const rec = await runOne(job.c, opts, deps);
       records.push(rec);
       if (!deps.quiet) {
-        console.log(`[eval:review-agent] ${job.c.id} #${job.i + 1}/${opts.runs} ${rec.status} rounds=${rec.rounds} calls=${rec.model_calls} ${sec(rec.ms)}${rec.attempts > 1 ? ` attempts=${rec.attempts}` : ""}`);
+        console.log(`[eval:review-agent] ${job.c.id} #${job.i + 1}/${opts.runs} ${rec.status} rounds=${rec.rounds} calls=${rec.model_calls} ${sec(rec.ms)}${rec.attempts > 1 ? ` attempts=${rec.attempts}` : ""}${rec.invalid_check_calls > 0 ? ` invalid_checks=${rec.invalid_check_calls}/${rec.check_calls}` : ""}`);
       }
     }
   };
