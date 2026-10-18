@@ -428,10 +428,57 @@ describe("notesHaveNegation: notes that state a negative fact (the agent is skip
     [["Itu bukan pesanan telepon."], ""],
     [["Dilayani tanpa struk."], ""],
     [["Jangan lupa dibacakan."], ""],
+    [["Pesanan itu sudah dibacakan, bukannya dilewati?"], ""],
+    [["Tidaklah"], ""],
     [["SAYA TIDAK MEMBACA ULANG."], ""],
     [["Ok."], "Pesanan telepon, tidak dibacakan."],
   ] as Array<[string[], string]>)("detects a negation in %j / %j", (lines, summary) => {
     expect(notesHaveNegation(lines, summary)).toBe(true);
+  });
+
+  // Negative facts said without "not": the notes-only list (a false trigger only keeps the template).
+  const EN_TOKENS = ["forgot", "forget", "forgotten", "missed", "skipped", "failed", "unpaid"];
+  const ID_TOKENS = ["lupa", "ga", "gk", "ngga", "ngak", "nda", "ndak", "tak", "kagak", "engga", "tidaklah", "bukannya"];
+
+  it.each(EN_TOKENS)("detects the English notes-only token %s (lower, Capitalised and UPPER case)", (token) => {
+    for (const t of [token, token.toUpperCase(), token[0]!.toUpperCase() + token.slice(1)]) {
+      expect(notesHaveNegation([`We ${t} the order back to the caller.`], "")).toBe(true);
+      expect(notesHaveNegation(["Phone order."], `Order ${t}.`)).toBe(true);
+    }
+  });
+
+  it.each(ID_TOKENS)("detects the Bahasa notes-only token %s (lower, Capitalised and UPPER case)", (token) => {
+    for (const t of [token, token.toUpperCase(), token[0]!.toUpperCase() + token.slice(1)]) {
+      expect(notesHaveNegation([`Pesanannya ${t} dibacain ulang.`], "")).toBe(true);
+      expect(notesHaveNegation(["Pesanan telepon."], `${t} dicatat.`)).toBe(true);
+    }
+  });
+
+  it.each([
+    "I forgot to read the order back.",
+    "We skipped the read back.",
+    "Customer left unpaid.",
+    "Lupa dibacain ulang pesanannya.",
+    "Ordernya ga dibacain.",
+    "Gk dicatat.",
+    "Ngga dibaca.",
+    "Ndak dibaca.",
+    "Tak ada struk.",
+  ])("detects the reported negative fact %j", (line) => {
+    expect(notesHaveNegation([line], "")).toBe(true);
+  });
+
+  it("the notes-only tokens are word-bounded: no hit inside a longer word", () => {
+    const line = "Agama, bagaimana, gagal, kagum, takut, Tangerang, standar, ndakwa, missedit, skippedx, unpaidly, tidaklahnya";
+    expect(notesHaveNegation([line], "")).toBe(false);
+  });
+
+  it("the QUESTION negation rule is unchanged: the new notes-only tokens are not question negations", () => {
+    const skippedCtx: CheckContext = {
+      ...ctx,
+      moment: { ...moment, lines: ["There was a phone order for twelve egg tarts.", "We skipped the read back."] },
+    };
+    expect(reasonsOf("Around 14:05, was there a phone order that skipped the read back?", skippedCtx)).not.toContain("negation");
   });
 
   it.each([
@@ -440,8 +487,6 @@ describe("notesHaveNegation: notes that state a negative fact (the agent is skip
     [["We noted the order and knew the quantity."], "Another note."],
     [["Ada pesanan telepon untuk dua belas tart."], "Pesanan diterima."],
     // word boundaries: no Bahasa token hides inside a longer word
-    [["Pesanan itu sudah dibacakan, bukannya dilewati?"], ""],
-    [["Tidaklah"], ""],
     [["Anggak and enggakkah"], ""],
     [[], ""],
   ] as Array<[string[], string]>)("finds no negation in %j / %j", (lines, summary) => {

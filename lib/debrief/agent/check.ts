@@ -106,8 +106,22 @@ const NEGATION_EN =
   "\\b(?:no|not|never|nobody|nothing|none|neither|nor|without|cannot|untrue|fake|false|made[\\s-]+up|" +
   "dont|didnt|doesnt|isnt|wasnt|werent|arent|hasnt|havent|hadnt|cant|couldnt|wouldnt|shouldnt|wont)\\b|n['\\u2019]t\\b";
 const NEGATION = new RegExp(NEGATION_EN, "i");
-/** Bahasa negators, for the NOTES only (the question is English). Word-boundary, case-insensitive. */
-const NEGATION_NOTES = new RegExp(`${NEGATION_EN}|\\b(?:tidak|nggak|enggak|gak|belum|bukan|tanpa|jangan)\\b`, "i");
+/**
+ * Negative facts said WITHOUT "not", for the NOTES only ("I forgot to read it back", "customer left unpaid"). Kept out
+ * of the QUESTION rule on purpose: that rule judges the model's wording. A wide list is safe here: a false trigger
+ * only keeps the template.
+ */
+const NEGATION_NOTES_EN = "forgot|forget|forgotten|missed|skipped|failed|unpaid";
+/**
+ * Bahasa negators, informal spellings ("ga", "gk", "ngga", "ndak", "tak", "kagak", "engga") and the emphatic
+ * "tidaklah" / "bukannya", for the NOTES only (the question is English). Word-boundary, case-insensitive.
+ */
+const NEGATION_NOTES_ID =
+  "tidaklah|tidak|nggak|enggak|engga|gak|ga|gk|ngga|ngak|nda|ndak|tak|kagak|belum|bukannya|bukan|tanpa|jangan|lupa";
+const NEGATION_NOTES = new RegExp(
+  `${NEGATION_EN}|\\b(?:${NEGATION_NOTES_EN}|${NEGATION_NOTES_ID})\\b`,
+  "i",
+);
 
 /**
  * True when the moment's own notes (lines or summary) state a negative fact ("I did not read the order back"). The
