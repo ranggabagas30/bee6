@@ -369,4 +369,14 @@ describe("approval screen copy (R-09 Task 6)", () => {
       "The supervisor rejected this on Mon 5 Oct. Reason:",
     );
   });
+
+  it("draft review date key shows estimate wording confirmed on approval (R-FB-15)", () => {
+    expect(t("en", "C-prop-review-draft", { date: "Sun 1 Nov" })).toBe(
+      "Review about Sun 1 Nov (confirmed when approved)",
+    );
+    expect(t("id", "C-prop-review-draft", { date: "Sun 1 Nov" })).toMatch(/Sun 1 Nov/);
+    // The post-approval review key should remain unchanged
+    expect(t("en", "C-prop-review", { date: "Sun 1 Nov" })).toBe("Review on Sun 1 Nov");
+    expect(t("id", "C-prop-review", { date: "Sun 1 Nov" })).toBe("Ditinjau pada Sun 1 Nov");
+  });
 });

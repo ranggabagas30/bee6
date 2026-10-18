@@ -197,6 +197,21 @@ describe("ProposalCard — title heading level", () => {
   });
 });
 
+
+describe("ProposalCard — draft review date shows estimate wording (R-FB-15)", () => {
+  it("shows 'Review about {date} (confirmed when approved)' for draft proposals", () => {
+    render(<ProposalCard lang="en" proposal={awaitingProposal()} />);
+    expect(screen.getByText("Review about Sun 1 Nov (confirmed when approved)")).not.toBeNull();
+  });
+
+  it("uses Bahasa estimate wording when lang is id", () => {
+    render(<ProposalCard lang="id" proposal={awaitingProposal()} />);
+    // Just check that the date appears (exact Bahasa wording TBD by UX review)
+    // In Bahasa: "Min 1 Nov" (Min = Minggu/Sunday)
+    expect(screen.getByText(/Min 1 Nov/)).not.toBeNull();
+  });
+});
+
 describe("ProposalCard — 360px safety", () => {
   it("the card's root style uses overflowWrap: anywhere and no fixed width over 360", () => {
     const { container } = render(<ProposalCard lang="en" proposal={awaitingProposal()} />);

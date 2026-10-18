@@ -188,7 +188,7 @@ describe("ApprovalsReview — review in order", () => {
     expect(within(c).getByText("Evidence 1a.", { exact: false })).toBeTruthy();
     expect(within(c).getByText("(no longer stored)", { exact: false })).toBeTruthy();
     expect(within(c).getByText("Metric 1 per day")).toBeTruthy();
-    expect(within(c).getByText("Starts the day after approval · review Wed 21 Oct")).toBeTruthy();
+    expect(within(c).getByText("Starts the day after approval · Review about Wed 21 Oct (confirmed when approved)")).toBeTruthy();
   });
 
   it("a new step shows the New step chip and no struck wording", async () => {

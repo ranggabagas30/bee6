@@ -168,7 +168,7 @@ function AllDecided({ lang, queue, sop }: { lang: Lang; queue: ProposalListItem[
                   {isApproved ? (
                     <>
                       {shipped && <p className={styles.summaryLine}>{t(lang, "C-propa-shipped", { version: shipped.version })}</p>}
-                      <p className={styles.summaryLine}>{datesLine(lang, content, shipped)}</p>
+                      <p className={styles.summaryLine}>{datesLine(lang, content, shipped, item.proposal.status)}</p>
                     </>
                   ) : (
                     <p className={styles.summaryLine}>{owner?.reason ? t(lang, "C-propa-rule", { reason: owner.reason }) : t(lang, "C-propa-rule-none")}</p>

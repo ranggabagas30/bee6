@@ -139,7 +139,7 @@ function ProposalContentView({
       <p style={LINE_STYLE}>
         <strong>{t(lang, "C-prop-failure")}:</strong> {content.failure_condition}
       </p>
-      <p style={LINE_STYLE}>{t(lang, "C-prop-review", { date: dayLabel(content.review_date, lang) })}</p>
+      <p style={LINE_STYLE}>{t(lang, "C-prop-review-draft", { date: dayLabel(content.review_date, lang) })}</p>
       <p style={LINE_STYLE}>{t(lang, "C-prop-censored")}</p>
     </>
   );

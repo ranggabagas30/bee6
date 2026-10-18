@@ -40,10 +40,19 @@ export const OWNER_STATUS_TONE: Record<ProposalView["status"], "neutral" | "ambe
 };
 
 /** "Starts {date} · review {date}" from the shipped change when there is one, else "Starts the day after approval · review {view date}". */
-export function datesLine(lang: Lang, content: NonNullable<ProposalView["content"]>, shipped: SopChangeView | null): string {
+export function datesLine(lang: Lang, content: NonNullable<ProposalView["content"]>, shipped: SopChangeView | null, status?: ProposalView["status"]): string {
   const starts = shipped ? t(lang, "C-propa-starts", { date: dayLabel(shipped.effective_from_date, lang) }) : t(lang, "C-propa-starts-after");
-  const review = dayLabel(shipped ? shipped.review_date : content.review_date, lang);
-  return t(lang, "C-propa-dates", { starts, review });
+  const reviewDate = dayLabel(shipped ? shipped.review_date : content.review_date, lang);
+  // Show estimate wording only for draft proposals (awaiting supervisor/owner), not for approved/rejected
+  const isDraft = status === "awaiting_supervisor" || status === "awaiting_owner";
+  if (shipped || !isDraft) {
+    // Use the template for shipped/decided proposals: "{starts} · review {date}"
+    return t(lang, "C-propa-dates", { starts, review: reviewDate });
+  } else {
+    // For draft proposals, construct the full string with estimate wording
+    const reviewEstimate = t(lang, "C-prop-review-draft", { date: reviewDate });
+    return `${starts} · ${reviewEstimate}`;
+  }
 }
 
 export interface ApprovalCardProps {
@@ -144,7 +153,7 @@ export function ApprovalCard({ lang, item, shipped, position, othersWaiting = fa
           </svg>
         </span>
         <div className={styles.paceBody}>
-          <p className={styles.paceLead}>{blocked ? t(lang, "C-propa-na-h") : datesLine(lang, content, shipped)}</p>
+          <p className={styles.paceLead}>{blocked ? t(lang, "C-propa-na-h") : datesLine(lang, content, shipped, proposal.status)}</p>
           {blocked ? (
             <p className={styles.paceWhy}>{t(lang, "C-propa-na-why")}</p>
           ) : !decided ? (

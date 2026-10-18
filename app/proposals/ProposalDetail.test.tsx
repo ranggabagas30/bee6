@@ -128,7 +128,7 @@ describe("ProposalDetail — content (D2-03e)", () => {
     expect(screen.getByText("WATCH THIS METRIC")).not.toBeNull();
     expect(screen.getByText("Egg tart freshness questions per day")).not.toBeNull();
     expect(screen.getByText("REVIEW DATE")).not.toBeNull();
-    expect(screen.getByText("Wed 21 Oct")).not.toBeNull();
+    expect(screen.getByText("Review about Wed 21 Oct (confirmed when approved)")).not.toBeNull();
     expect(screen.getByText("Feasible means staff can do this in the shop. The owner approves or rejects after you.")).not.toBeNull();
   });
 
