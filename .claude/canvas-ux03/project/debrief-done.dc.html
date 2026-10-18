@@ -1,0 +1,57 @@
+<!doctype html><html lang="id"><head><meta charset="utf-8"><title>bee6 UX-03 · Debrief: done</title><script src="./support.js"></script></head><body><x-dc><helmet><style>@import url("https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap");
+:root{--bg:#FAF7F2;--fg:#1F1D1A;--muted:#55514A;--accent:#0B5B57;--on-accent:#FFFFFF;--ok:#1E6B3A;--warn:#7A4F00;--danger:#A3262B;--on-danger:#FFFFFF;--focus:#1F4FD1;--surface:#FFFFFF;--line:#E9E4DA;color-scheme:light}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#17191C;--fg:#E8E6E1;--muted:#A9A49A;--accent:#8FD1C9;--on-accent:#0E2F2D;--ok:#7FD39A;--warn:#F0B861;--danger:#F28B8F;--on-danger:#3A0D0F;--focus:#5FA8D3;--surface:#22252A;--line:#3A3E45;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#17191C;--fg:#E8E6E1;--muted:#A9A49A;--accent:#8FD1C9;--on-accent:#0E2F2D;--ok:#7FD39A;--warn:#F0B861;--danger:#F28B8F;--on-danger:#3A0D0F;--focus:#5FA8D3;--surface:#22252A;--line:#3A3E45;color-scheme:dark}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:"Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",sans-serif;font-size:16px;line-height:24px}
+*:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.screen{box-sizing:border-box;width:360px;padding:16px;display:flex;flex-direction:column;gap:16px;background:var(--bg)}
+.h1{display:block;font-size:28px;line-height:34px;font-weight:700;text-wrap:balance}
+.h2{display:block;font-size:20px;line-height:26px;font-weight:700}
+.en{display:block;color:var(--muted);font-size:14px;line-height:20px}
+.note{margin:0;color:var(--muted)}
+.note .en,.copy .en{margin-top:2px}
+.headline{display:flex;gap:12px;align-items:flex-start}
+.headline .ic{width:28px;height:28px;flex:none;margin-top:4px}
+.tone-ok .h1{color:var(--ok)} .tone-ok .ic{color:var(--ok)}
+.tone-warn .h1{color:var(--warn)} .tone-warn .ic{color:var(--warn)}
+.tone-danger .h1{color:var(--danger)} .tone-danger .ic{color:var(--danger)}
+.tone-muted .h1{color:var(--fg)} .tone-muted .ic{color:var(--muted)}
+.ic{display:inline-block}
+.slot{display:flex;flex-direction:column;gap:8px;min-height:56px;justify-content:center}
+.btn{display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;min-height:48px;box-sizing:border-box;padding:8px 16px;border-radius:12px;border:1px solid transparent;font-family:inherit;font-size:18px;font-weight:700;line-height:24px;text-align:center;cursor:pointer}
+.btn-primary{min-height:56px;background:var(--accent);color:var(--on-accent)}
+.btn-secondary{background:var(--surface);color:var(--fg);border-color:var(--line)}
+.btn-danger{background:var(--danger);color:var(--on-danger)}
+.btn .en{display:inline;font-size:14px;font-weight:400;color:inherit;opacity:.92}
+.btn[aria-disabled="true"]{background:var(--surface);color:var(--muted);border:1px dashed var(--muted)}
+.btn-row{display:flex;gap:12px}
+.btn-row>.btn{flex:1}
+.card{box-sizing:border-box;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.lbl{display:block;font-weight:700;margin-bottom:8px}
+.code{box-sizing:border-box;width:100%;min-height:56px;padding:8px 12px;border:2px solid var(--muted);border-radius:8px;background:var(--surface);color:var(--fg);font-family:inherit;font-size:24px;font-weight:700;letter-spacing:.2em;font-variant-numeric:tabular-nums}
+.code[aria-invalid="true"]{border-color:var(--danger)}
+.alert{margin:0;color:var(--danger);font-weight:700}
+.notice{margin:0;font-size:14px;line-height:20px;color:var(--muted)}
+.conflict{margin:0;padding:8px 12px;border:2px dashed var(--warn);border-radius:8px;background:var(--surface);color:var(--fg);font-size:14px;line-height:20px}
+.conflict b{color:var(--warn)}
+.guess{margin:0;padding:8px 12px;border:1px dotted var(--muted);border-radius:8px;font-size:14px;line-height:20px;color:var(--muted)}
+.steps{margin:0;padding-left:24px;display:flex;flex-direction:column;gap:12px}
+.steps li span{display:block}
+.line-status{display:flex;gap:8px;align-items:flex-start;margin:0}
+.line-status .ic{width:20px;height:20px;flex:none;margin-top:4px}
+.sub{margin:0 0 0 28px}
+.row-tag{font-size:14px;color:var(--muted);font-weight:700}
+.choice{display:flex;gap:12px}
+.choice button{flex:1;min-height:48px;border-radius:12px;border:2px solid var(--muted);background:var(--surface);color:var(--fg);font-family:inherit;font-size:18px;font-weight:700}
+.choice button[aria-checked="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.reason{box-sizing:border-box;width:100%;min-height:96px;padding:8px 12px;border:2px solid var(--muted);border-radius:8px;background:var(--surface);color:var(--fg);font-family:inherit;font-size:16px;line-height:24px}
+.counter{text-align:right;font-variant-numeric:tabular-nums;color:var(--muted);font-size:14px}
+.counter.warn{color:var(--warn);font-weight:700}
+.muted-block{height:56px;border-radius:12px;background:var(--line)}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;font-size:14px;line-height:20px;width:100%}
+th,td{padding:8px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+.grp{box-sizing:border-box;border:1px solid var(--line);border-radius:12px;padding:16px;background:var(--surface);display:flex;flex-direction:column;gap:12px}
+.tag{font-size:14px;color:var(--muted);font-weight:700}
+.toast{border-radius:12px;padding:8px 12px;background:var(--surface);border:1px solid var(--ok)}
+</style></helmet><main class="screen" lang="id"><h1 class="h1"><span lang="id">Debrief selesai — terima kasih</span><span class="en" lang="en">Debrief done — thank you</span></h1><p class="note"><span lang="id">Jawabanmu sudah tersimpan.</span><span class="en" lang="en">Your answers are saved.</span></p><p class="note"><span lang="id">Masih ada 2 jawaban yang belum terkirim, akan dikirim saat online.</span><span class="en" lang="en">2 answers not sent yet, will be sent when online.</span></p><p class="note"><span lang="id">1 pertanyaan dilewati. Bisa dijawab sampai pukul 18:00.</span><span class="en" lang="en">1 question skipped. You can answer it until 18:00.</span></p><p class="note"><span lang="id">Mulai bisa ditekan lagi pukul 01:00.</span><span class="en" lang="en">Mulai is available again at 01:00.</span></p><button class="btn btn-secondary" type="button"><span lang="id">Kembali</span> <span class="en" lang="en">/ Back</span></button><aside class="conflict"><b>Konflik C6 · terbuka, belum diputuskan / Conflict C6 · open, not decided.</b> Judul lama "Selesai — terima kasih!" bentrok dengan tombol Selesai. Judul baru di atas hanya usulan; perlu ditetapkan.</aside></main></x-dc><script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":360,"height":740}}'>class Component extends DCLogic { renderVals() { return {}; } }</script></body></html>

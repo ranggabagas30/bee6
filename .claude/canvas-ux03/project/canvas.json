@@ -1,0 +1,178 @@
+{
+ "v": 3,
+ "createdOnFiles": {
+  "v": 1,
+  "at": "2026-10-04T17:52:50+07:00"
+ },
+ "title": "bee6 UX-03 Shop Phone Journey",
+ "launch": {
+  "view": "canvas"
+ },
+ "pages": [],
+ "boards": {
+  "Main.dc.html": {
+   "x": 0,
+   "y": 0,
+   "w": 360,
+   "h": 780,
+   "title": "Pair: entry"
+  },
+  "pair-refused.dc.html": {
+   "x": 440,
+   "y": 0,
+   "w": 360,
+   "h": 780,
+   "title": "Pair: code refused"
+  },
+  "pair-network.dc.html": {
+   "x": 880,
+   "y": 0,
+   "w": 360,
+   "h": 780,
+   "title": "Pair: network error"
+  },
+  "pair-success.dc.html": {
+   "x": 1320,
+   "y": 0,
+   "w": 360,
+   "h": 780,
+   "title": "Pair: paired, first run"
+  },
+  "capture-idle.dc.html": {
+   "x": 0,
+   "y": 900,
+   "w": 360,
+   "h": 780,
+   "title": "Capture: idle, Mulai enabled"
+  },
+  "capture-listening.dc.html": {
+   "x": 440,
+   "y": 900,
+   "w": 360,
+   "h": 780,
+   "title": "Capture: listening"
+  },
+  "capture-closing.dc.html": {
+   "x": 880,
+   "y": 900,
+   "w": 360,
+   "h": 780,
+   "title": "Capture: closing, Selesai"
+  },
+  "capture-interrupted.dc.html": {
+   "x": 1320,
+   "y": 900,
+   "w": 360,
+   "h": 780,
+   "title": "Capture: interrupted"
+  },
+  "capture-problems.dc.html": {
+   "x": 0,
+   "y": 1800,
+   "w": 360,
+   "h": 780,
+   "title": "Capture: queue, mic, stalled"
+  },
+  "capture-blocked.dc.html": {
+   "x": 440,
+   "y": 1800,
+   "w": 360,
+   "h": 780,
+   "title": "Capture: loading, error, unsupported"
+  },
+  "mulai-why-not.dc.html": {
+   "x": 880,
+   "y": 1800,
+   "w": 360,
+   "h": 800,
+   "title": "Mulai: disabled reasons"
+  },
+  "selesai-confirm.dc.html": {
+   "x": 1320,
+   "y": 1800,
+   "w": 360,
+   "h": 780,
+   "title": "Selesai: confirm"
+  },
+  "batalkan-confirm.dc.html": {
+   "x": 0,
+   "y": 2700,
+   "w": 360,
+   "h": 780,
+   "title": "Cancel session: confirm"
+  },
+  "upload-line.dc.html": {
+   "x": 440,
+   "y": 2700,
+   "w": 360,
+   "h": 800,
+   "title": "Upload status line"
+  },
+  "debrief-entry.dc.html": {
+   "x": 880,
+   "y": 2700,
+   "w": 360,
+   "h": 780,
+   "title": "Debrief: entry card"
+  },
+  "debrief-question.dc.html": {
+   "x": 1320,
+   "y": 2700,
+   "w": 360,
+   "h": 800,
+   "title": "Debrief: question"
+  },
+  "debrief-done.dc.html": {
+   "x": 0,
+   "y": 3600,
+   "w": 360,
+   "h": 780,
+   "title": "Debrief: done"
+  },
+  "debrief-timeout.dc.html": {
+   "x": 440,
+   "y": 3600,
+   "w": 360,
+   "h": 780,
+   "title": "Debrief: timeout"
+  },
+  "state-strip.dc.html": {
+   "x": 880,
+   "y": 3600,
+   "w": 360,
+   "h": 800,
+   "title": "Empty, error, loading strip"
+  },
+  "open-conflicts.dc.html": {
+   "x": 1320,
+   "y": 3600,
+   "w": 400,
+   "h": 820,
+   "title": "Open conflicts and guesses"
+  }
+ },
+ "order": [
+  "Main.dc.html",
+  "pair-refused.dc.html",
+  "pair-network.dc.html",
+  "pair-success.dc.html",
+  "capture-idle.dc.html",
+  "capture-listening.dc.html",
+  "capture-closing.dc.html",
+  "capture-interrupted.dc.html",
+  "capture-problems.dc.html",
+  "capture-blocked.dc.html",
+  "mulai-why-not.dc.html",
+  "selesai-confirm.dc.html",
+  "batalkan-confirm.dc.html",
+  "upload-line.dc.html",
+  "debrief-entry.dc.html",
+  "debrief-question.dc.html",
+  "debrief-done.dc.html",
+  "debrief-timeout.dc.html",
+  "state-strip.dc.html",
+  "open-conflicts.dc.html"
+ ],
+ "notes": {},
+ "designSystems": []
+}
