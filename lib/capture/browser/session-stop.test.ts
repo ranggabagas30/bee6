@@ -14,6 +14,8 @@ const hoisted = vi.hoisted(() => ({
   wakeLockAcquire: vi.fn(async () => true),
   wakeLockRelease: vi.fn(async () => {}),
   mediaTrackStop: vi.fn(),
+  // The segment PUT. Default: never answers (the promise stays pending forever).
+  upload: vi.fn((_segment?: unknown): Promise<number | null> => new Promise<number | null>(() => {})),
 }));
 
 vi.mock("@/lib/capture/browser/encoder", () => ({
@@ -46,13 +48,13 @@ vi.mock("@/lib/capture/browser/wake-lock", () => ({
   },
 }));
 
-// The segment PUT never answers: the upload promise stays pending forever.
+// The segment PUT is controllable per test; by default it never answers.
 vi.mock("@/lib/capture/browser/client", () => ({
   createHeartbeatPoster: () => async () => {},
-  createSegmentUploader: () => () => new Promise<number | null>(() => {}),
+  createSegmentUploader: () => hoisted.upload,
 }));
 
-import { startCaptureSession } from "@/lib/capture/browser/session";
+import { abortAllCaptureUploads, startCaptureSession } from "@/lib/capture/browser/session";
 import type { CaptureConfigResponse } from "@/lib/capture/contract";
 
 const AUTH = { deviceToken: "t", deviceId: "d" };
@@ -78,8 +80,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  abortAllCaptureUploads();
   vi.useRealTimers();
   vi.clearAllMocks();
+  hoisted.upload.mockReset();
+  hoisted.upload.mockImplementation(() => new Promise<number | null>(() => {}));
   hoisted.vadOnFrame = null;
 });
 
@@ -197,5 +202,73 @@ describe("startCaptureSession stop() with a held segment upload (defect 2)", () 
 
     expect(hoisted.mediaTrackStop).toHaveBeenCalled();
     expect(hoisted.vadDestroy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("startCaptureSession stop modes (18 Oct: retry after End)", () => {
+  const callbacks = {
+    onStatus: () => {},
+    onMicSource: () => {},
+    onUnsupported: () => {},
+    onSampleRateRejected: () => {},
+  };
+
+  it('stop({ mode: "hard" }) does not flush or upload', async () => {
+    const session = await startCaptureSession(AUTH, CONFIG, callbacks);
+    pushSpeech(5);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const stopped = session!.stop({ mode: "hard" });
+    await vi.advanceTimersByTimeAsync(6_000);
+
+    expect(hoisted.upload).not.toHaveBeenCalled();
+    await expect(stopped).resolves.toEqual({ droppedCount: 0, queuedCount: 0 });
+    expect(hoisted.mediaTrackStop).toHaveBeenCalled();
+  });
+
+  it("finish keeps retrying a 503 after stop() settles", async () => {
+    hoisted.upload.mockResolvedValue(503);
+    const session = await startCaptureSession(AUTH, CONFIG, callbacks);
+    pushSpeech(5);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const stopped = session!.stop();
+    await vi.advanceTimersByTimeAsync(6_000);
+    await expect(stopped).resolves.toBeDefined();
+    const before = hoisted.upload.mock.calls.length;
+    expect(before).toBeGreaterThan(0);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(hoisted.upload.mock.calls.length).toBeGreaterThan(before);
+  });
+
+  it("abortAllCaptureUploads() ends a background drain", async () => {
+    hoisted.upload.mockResolvedValue(503);
+    const session = await startCaptureSession(AUTH, CONFIG, callbacks);
+    pushSpeech(5);
+    await vi.advanceTimersByTimeAsync(0);
+    void session!.stop();
+    await vi.advanceTimersByTimeAsync(6_000);
+
+    abortAllCaptureUploads();
+    await vi.advanceTimersByTimeAsync(1); // allow one already-scheduled retry
+    const after = hoisted.upload.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(hoisted.upload.mock.calls.length).toBe(after);
+  });
+
+  it("the finish drain ends at the budget", async () => {
+    hoisted.upload.mockResolvedValue(503);
+    const session = await startCaptureSession(AUTH, CONFIG, callbacks);
+    pushSpeech(5);
+    await vi.advanceTimersByTimeAsync(0);
+    void session!.stop();
+
+    await vi.advanceTimersByTimeAsync(300_000);
+    const at300 = hoisted.upload.mock.calls.length;
+    expect(at300).toBeGreaterThan(5);
+    await vi.advanceTimersByTimeAsync(100_000);
+    expect(hoisted.upload.mock.calls.length).toBe(at300);
+    expect(() => abortAllCaptureUploads()).not.toThrow();
   });
 });

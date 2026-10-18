@@ -66,6 +66,8 @@ export interface CaptureSessionCallbacks {
   onEvent?: (event: CaptureEvent) => void;
 }
 
+export type CaptureStopMode = "finish" | "hard";
+
 export interface CaptureStopOptions {
   /**
    * Longest wait for the in-flight upload to drain before the promise resolves anyway. Defaults to
@@ -73,6 +75,12 @@ export interface CaptureStopOptions {
    * segments have a real chance to ship before the device pair is cleared.
    */
   drainMs?: number;
+  /**
+   * "finish" (default; Selesai, auto-stop): flush the open segment and keep uploading in the background,
+   * retrying server refusals up to the head budget. "hard" (discard, sign-out, unmount): do not flush,
+   * start no new upload.
+   */
+  mode?: CaptureStopMode;
 }
 
 export interface CaptureStopResult {
@@ -88,7 +96,8 @@ export interface CaptureSession {
    * returned promise settles once the pending upload has drained or after
    * `drainMs` (default STOP_DRAIN_TIMEOUT_MS), whichever comes first. Callers
    * need not await it to start a new session. A second call returns the first
-   * call's promise (its options win).
+   * call's promise (its options win). In finish mode the uploads go on after it
+   * settles, until `abortAllCaptureUploads()` or the finish deadline.
    */
   stop: (options?: CaptureStopOptions) => Promise<CaptureStopResult>;
 }
@@ -100,6 +109,15 @@ function waitAtMost(p: Promise<void>, ms: number): Promise<void> {
     timer = setTimeout(resolve, ms);
   });
   return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
+}
+
+/** Engines that may still upload: the running one and any finishing in the background. Hard-aborted by sign-out/unmount. */
+const liveEngines = new Set<CaptureEngine>();
+
+/** Hard-aborts every capture engine on this page (sign-out, unmount). Idempotent; never throws. */
+export function abortAllCaptureUploads(): void {
+  for (const engine of liveEngines) void engine.abort();
+  liveEngines.clear();
 }
 
 /**
@@ -138,6 +156,7 @@ export async function startCaptureSession(
     // are already in CaptureEvent shape; forward them unchanged.
     onEvent: cb.onEvent,
   });
+  liveEngines.add(engine);
   const wakeLock = new WakeLockManager();
   const restart = new RestartController();
   const postHeartbeat = createHeartbeatPoster(auth);
@@ -345,10 +364,21 @@ export async function startCaptureSession(
           /* ignore */
         }
       })();
-      engine.flush();
-      // abort() stops the upload pump even mid-backoff. Its drain is bounded so
-      // stop() settles even while a PUT is still pending (finding #3).
-      const drained = waitAtMost(engine.abort(), drainMs);
+      const mode = options?.mode ?? "finish";
+      let drained: Promise<void>;
+      if (mode === "hard") {
+        // abort() stops the upload pump even mid-backoff. Its drain is bounded so
+        // stop() settles even while a PUT is still pending (finding #3).
+        drained = waitAtMost(engine.abort(), drainMs);
+        liveEngines.delete(engine);
+      } else {
+        engine.flush();
+        const background = engine.finish();
+        // Leave the registry once the background drain is idle, so sign-out has nothing stale to abort and the
+        // engine can be collected.
+        void background.then(() => liveEngines.delete(engine));
+        drained = waitAtMost(background, drainMs);
+      }
       const released = wakeLock
         .release()
         .catch(() => {
