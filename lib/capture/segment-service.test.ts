@@ -609,6 +609,35 @@ describe("recordSegment", () => {
       });
     });
 
+    it("a transcriber that recovers internally still stores once and logs usage once", async () => {
+      // The timeout/429 retry lives INSIDE transcribe() (18 Oct): the service sees one call.
+      const transcriber: Transcriber = {
+        async transcribe() {
+          await Promise.resolve();
+          await Promise.resolve();
+          return {
+            text: "test",
+            inputTokens: 100,
+            outputTokens: 50,
+            model: "gemini-3.5-transcribe-preview",
+            location: "global",
+          };
+        },
+      };
+      const { redactor } = fakeRedactor();
+      const { store, createCalls } = fakeSegmentStore();
+      const recordUsage = vi.fn();
+
+      const result = await recordSegment(
+        { transcriber, redactor, store, recordUsage },
+        { metadata: validMetadata, audio: Buffer.from("audio"), claims: validClaims },
+      );
+
+      expect(result.status).toBe("stored");
+      expect(createCalls).toHaveLength(1);
+      expect(recordUsage).toHaveBeenCalledTimes(1);
+    });
+
     it("does not call recordUsage on transcribe failure", async () => {
       const { transcriber } = fakeTranscriber(new ServiceUnavailableError("fail"));
       const { redactor } = fakeRedactor();
