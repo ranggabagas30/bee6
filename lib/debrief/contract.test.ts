@@ -265,21 +265,50 @@ describe("DebriefQuestionViewSchema: DebriefAgent optional `question_text` (sand
     expect(parse({}).success).toBe(true);
   });
 
-  it("accepts 20..140 code points and rejects 19 and 141", () => {
-    expect(parse({ question_text: of(19) }).success).toBe(false);
-    expect(parse({ question_text: of(20) }).success).toBe(true);
-    expect(parse({ question_text: of(140) }).success).toBe(true);
-    expect(parse({ question_text: of(141) }).success).toBe(false);
+  // M3: the field is read LENIENTLY. A bad value drops that one field (the phone keeps the template heading) and
+  // never fails the question, so one bad wording can no longer fail the whole list.
+  const textOf = (extra: Record<string, unknown>): unknown => {
+    const r = parse(extra);
+    expect(r.success).toBe(true);
+    return r.success ? r.data.question_text : "unreachable";
+  };
+
+  it("keeps 20..140 code points and drops 19 and 141 (the question itself still parses)", () => {
+    expect(textOf({ question_text: of(19) })).toBeUndefined();
+    expect(textOf({ question_text: of(20) })).toBe(of(20));
+    expect(textOf({ question_text: of(140) })).toBe(of(140));
+    expect(textOf({ question_text: of(141) })).toBeUndefined();
   });
 
   it("counts code points, not UTF-16 units", () => {
-    expect(parse({ question_text: of(70, "😀") }).success).toBe(true);
-    expect(parse({ question_text: of(141, "😀") }).success).toBe(false);
+    expect(textOf({ question_text: of(70, "😀") })).toBe(of(70, "😀"));
+    expect(textOf({ question_text: of(141, "😀") })).toBeUndefined();
   });
 
-  it("stays strict: unknown keys next to it are still rejected; a non-string is rejected", () => {
+  it("a non-string, null or object question_text is dropped, not fatal", () => {
+    for (const bad of [5, null, {}, [], true]) expect(textOf({ question_text: bad })).toBeUndefined();
+  });
+
+  it("the rest stays strict: unknown keys next to it, and every other bad field, still fail", () => {
     expect(parse({ question_text: of(30), agent: {} }).success).toBe(false);
-    expect(parse({ question_text: 5 }).success).toBe(false);
+    expect(parse({ question_text: 5, extra: 1 }).success).toBe(false);
+    expect(parse({ question_text: of(30), kind: "weird" }).success).toBe(false);
+    expect(parse({ question_text: of(30), start_hm: "1405" }).success).toBe(false);
+  });
+
+  it("one bad question_text does not fail the list; the other questions keep theirs", () => {
+    const list = DebriefListResponseSchema.safeParse({
+      debrief: { business_date: "2026-10-07", ends_at_ms: 1 },
+      questions: [
+        { ...base, question_id: "q1", question_text: of(5) },
+        { ...base, question_id: "q2", question_text: of(30) },
+      ],
+    });
+    expect(list.success).toBe(true);
+    if (list.success) {
+      expect(list.data.questions[0]!.question_text).toBeUndefined();
+      expect(list.data.questions[1]!.question_text).toBe(of(30));
+    }
   });
 
   it("the answer upload body and the phone cache never accept it", () => {

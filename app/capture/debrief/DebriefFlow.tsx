@@ -218,7 +218,8 @@ export function DebriefFlow({
   const refreshInFlightRef = useRef(false);
   // Auto-poll while preparing or waiting, never manual tap. A failed check (429, 503, any
   // non-2xx, a network error) just leaves the screen as it is: nothing here retries, the next poll tick
-  // is the only retry.
+  // is the only retry. A 2xx body that does not parse is different: it will not fix itself, so it shows the
+  // retryable load error (REFRESH_UNREADABLE).
   async function refreshQuestions() {
     if (refreshInFlightRef.current) return;
     refreshInFlightRef.current = true;
@@ -227,7 +228,13 @@ export function DebriefFlow({
       if (!res.ok) return; // a failed check never replaces the screen the judge is on
       const payload: unknown = await res.json();
       const parsed = DebriefListResponseSchema.safeParse((payload as { data?: unknown } | null)?.data);
-      if (!parsed.success || parsed.data.debrief === null) return;
+      if (!parsed.success) {
+        // A body this bundle cannot read (an older bundle meeting a newer server) must not leave the judge on
+        // "Preparing" for the rest of the hour: the reducer turns it into the retryable load error (waiting screens only).
+        dispatch({ type: "REFRESH_UNREADABLE" });
+        return;
+      }
+      if (parsed.data.debrief === null) return;
       const cached = effectiveStorage ? cachedIds(effectiveStorage, Date.now()) : new Set<string>();
       dispatch({ type: "REFRESHED", questions: parsed.data.questions, cached, preparing: parsed.data.preparing });
     } catch {
