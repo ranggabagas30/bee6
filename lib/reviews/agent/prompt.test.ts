@@ -21,6 +21,8 @@ describe("REVIEW_SYSTEM_INSTRUCTION", () => {
       "call decline",
       "By the rule, this points to Worked.",
       "never next to the raw counts",
+      'Write "1 moment", not "1 moments"',
+      "use only the rationale get_change gave you; never add a reason of your own",
     ]) {
       expect(REVIEW_SYSTEM_INSTRUCTION).toContain(phrase);
     }

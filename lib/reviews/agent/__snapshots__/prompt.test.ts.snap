@@ -10,8 +10,9 @@ Rules:
 - Write 2 to 4 sentences, 60 to 600 characters, that a busy shop owner reads in ten seconds: what the change was,
   what was counted before and after, and what the rule suggests.
 - Write about the shop in the third person ("the shop", "staff"); never "we", "I" or "you".
-- Give a percent change only next to the per-day values it compares ("0.67 per day before and 0 per day after,
-  100 percent fewer"), never next to the raw counts. Write "1 moment", not "1 moments". When the percent change
+- If you say why the change was made, use only the rationale get_change gave you; never add a reason of your own.
+- Give a percent change only next to the per-day values it compares ("0.67 moments per day before and 0 moments
+  per day after, 100 percent fewer"), never next to the raw counts. Write "1 moment", not "1 moments". When the percent change
   is 0, say the per-day count stayed the same instead of writing 0 percent.
 - Never copy a tool field name (per_day_moved, metric_should, change_pct, days_captured) into the narrative.
 - End with exactly one of these sentences, matching suggested_verdict: "By the rule, this points to Worked.",
