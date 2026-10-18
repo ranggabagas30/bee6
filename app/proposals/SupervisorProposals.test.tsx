@@ -666,19 +666,56 @@ describe("SupervisorProposals — estimated wait while asking (R-24 D11)", () =>
     });
   }
 
-  it("calling with an estimate: the range, not 'up to a minute'; the overrun line after max_s", async () => {
+  it("calling with an estimate: writes-and-checks line with the range; the overrun line after max_s", async () => {
     vi.useFakeTimers(FAKE);
     proposalsResult = listOk({ open: [], decided: [], watch: watchOf([row("CUSTOMER_SERVICE", 2, "ready")]) });
     authedPostJson.mockImplementationOnce(() => new Promise(() => {}));
     renderScreen(undefined, ESTIMATE);
     await clickAsk();
     const block = screen.getByText("Bee6 is writing a proposal", { selector: "p" }).closest("[role='status']") as HTMLElement;
-    expect(block.textContent).toContain("Usually 10–30 seconds");
-    expect(block.textContent).not.toContain("up to a minute");
+    expect(block.textContent).toContain("Bee6 is writing and checking each proposal.");
+    expect(block.textContent).toContain("Usually 10–30 seconds, sometimes up to a minute.");
+    expect(block.textContent).not.toContain("This can take up to a minute. Please keep this page open.");
     await act(async () => {
       vi.advanceTimersByTime(30_000);
     });
     expect(block.textContent).toContain("Taking longer than usual. Bee6 is still working. Keep this page open.");
+  });
+
+  // The chain (item 18) keeps the block mounted across rounds: the overrun timer must restart with each round.
+  it("a two-round chain: round 2 starts at 12 s, so there is no overrun line 25 s later, and one 30 s into round 2", async () => {
+    vi.useFakeTimers(FAKE);
+    proposalsResult = listOk({ open: [], decided: [], watch: watchOf([row("CUSTOMER_SERVICE", 2, "ready"), row("PHONE_CALL", 2, "ready")]) });
+    const resolvers: ((v: unknown) => void)[] = [];
+    authedPostJson.mockImplementation(() => new Promise((r) => resolvers.push(r)));
+    renderScreen(undefined, ESTIMATE, true);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ask Bee6 for proposals" }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const region = screen.getByText("Bee6 is writing a proposal", { selector: "p" }).closest("[role='status']") as HTMLElement;
+    expect(region.textContent).toContain("Writing proposal 1 of 2…");
+    await act(async () => {
+      vi.advanceTimersByTime(12_000);
+    });
+    await act(async () => {
+      resolvers[0]!({ kind: "ok", data: { proposal: view(3, "awaiting_supervisor", "Title 3"), reused: false } });
+    });
+    expect(region.textContent).toContain("Writing proposal 2 of 2…");
+    await act(async () => {
+      vi.advanceTimersByTime(25_000);
+    });
+    expect(region.textContent).toContain("Usually 10–30 seconds");
+    expect(region.textContent).not.toContain("Taking longer than usual");
+    await act(async () => {
+      vi.advanceTimersByTime(5_000);
+    });
+    expect(region.textContent).toContain("Taking longer than usual");
+    // the same live region the whole way: it was never replaced
+    expect(screen.getAllByRole("status").filter((el) => el.textContent?.includes("Bee6 is writing a proposal"))).toEqual([region]);
   });
 
   it("calling without an estimate (flag off): today's body line, never the range", async () => {
@@ -705,6 +742,7 @@ describe("SupervisorProposals — estimated wait while asking (R-24 D11)", () =>
     const block = screen.getByText("Bee6 is writing a proposal", { selector: "p" }).closest("[role='status']") as HTMLElement;
     expect(block.textContent).toContain("This can take up to a minute. Please keep this page open.");
     expect(block.textContent).not.toContain("Usually");
+    expect(block.textContent).not.toContain("writing and checking");
     await act(async () => {
       vi.advanceTimersByTime(40_000);
     });

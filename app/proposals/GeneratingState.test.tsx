@@ -83,15 +83,17 @@ describe("GeneratingState — estimated wait (R-24 D11)", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("shows the range, not 'up to a minute', and is still one polite status", () => {
+  it("says it writes AND checks each proposal, the usual range and the honest ceiling, and is still one polite status", () => {
     vi.useFakeTimers();
     render(<GeneratingState lang="en" estimate={ESTIMATE} />);
     const status = screen.getByRole("status");
     expect(status.getAttribute("aria-live")).toBe("polite");
     expect(status.textContent).toContain("Bee6 is writing a proposal");
-    expect(status.textContent).toContain("Usually 10–30 seconds");
-    expect(status.textContent).toContain("Bee6 reads the SOP and the evidence before it writes. Keep this page open.");
-    expect(status.textContent).not.toContain("up to a minute");
+    expect(status.textContent).toContain("Bee6 is writing and checking each proposal.");
+    expect(status.textContent).toContain("Usually 10–30 seconds, sometimes up to a minute.");
+    expect(status.textContent).toContain("Keep this page open.");
+    // The flag-off body line is not the one shown.
+    expect(status.textContent).not.toContain("This can take up to a minute. Please keep this page open.");
     expect(screen.getAllByRole("status")).toHaveLength(1);
   });
 
@@ -136,7 +138,8 @@ describe("GeneratingState — estimated wait (R-24 D11)", () => {
   it("ID copy", () => {
     vi.useFakeTimers();
     render(<GeneratingState lang="id" estimate={ESTIMATE} />);
-    expect(screen.getByRole("status").textContent).toContain("Biasanya 10–30 detik");
+    expect(screen.getByRole("status").textContent).toContain("Bee6 menulis dan memeriksa setiap usulan.");
+    expect(screen.getByRole("status").textContent).toContain("Biasanya 10–30 detik, kadang sampai satu menit.");
     act(() => {
       vi.advanceTimersByTime(30_000);
     });
@@ -174,5 +177,80 @@ describe("GeneratingState — estimated wait (R-24 D11)", () => {
       vi.advanceTimersByTime(30_000);
     });
     expect(screen.getByRole("status").style.minHeight).toBe("420px");
+  });
+});
+
+// CHK-1 follow-up: the overrun timer is per round. A chained Ask (item 18) keeps this block mounted across its rounds, so
+// each round must restart the estimate, or a two-round v4 Ask shows "Taking longer than usual" on most Asks.
+describe("GeneratingState: the overrun timer restarts with each round", () => {
+  const ESTIMATE = { min_s: 10, max_s: 30 } as const;
+  const text = () => screen.getByRole("status").textContent ?? "";
+
+  it("a round that starts at 12 s shows no overrun at 25 s (37 s in), and the overrun 30 s after the round began", () => {
+    vi.useFakeTimers();
+    const { rerender } = render(<GeneratingState lang="en" estimate={ESTIMATE} round={{ n: 1, total: 2 }} />);
+    act(() => {
+      vi.advanceTimersByTime(12_000);
+    });
+    rerender(<GeneratingState lang="en" estimate={ESTIMATE} round={{ n: 2, total: 2 }} />);
+    act(() => {
+      vi.advanceTimersByTime(25_000);
+    });
+    expect(text()).toContain("Usually 10–30 seconds");
+    expect(text()).not.toContain("Taking longer than usual");
+    act(() => {
+      vi.advanceTimersByTime(4_999);
+    });
+    expect(text()).not.toContain("Taking longer than usual");
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(text()).toContain("Taking longer than usual");
+    expect(text()).toContain("Writing proposal 2 of 2…");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("a new round after the overrun line was shown goes back to the usual range", () => {
+    vi.useFakeTimers();
+    const { rerender } = render(<GeneratingState lang="en" estimate={ESTIMATE} round={{ n: 1, total: 2 }} />);
+    act(() => {
+      vi.advanceTimersByTime(31_000);
+    });
+    expect(text()).toContain("Taking longer than usual");
+    rerender(<GeneratingState lang="en" estimate={ESTIMATE} round={{ n: 2, total: 2 }} />);
+    expect(text()).toContain("Usually 10–30 seconds");
+    expect(text()).not.toContain("Taking longer than usual");
+  });
+
+  it("a re-render with the same round keeps the running timer (no restart)", () => {
+    vi.useFakeTimers();
+    const { rerender } = render(<GeneratingState lang="en" estimate={ESTIMATE} round={{ n: 1, total: 2 }} />);
+    act(() => {
+      vi.advanceTimersByTime(20_000);
+    });
+    rerender(<GeneratingState lang="en" estimate={ESTIMATE} round={{ n: 1, total: 2 }} minHeight={300} />);
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(text()).toContain("Taking longer than usual");
+  });
+
+  it("the single live region survives the round change (same node), so the new round line is still announced", () => {
+    vi.useFakeTimers();
+    const { container, rerender } = render(<GeneratingState lang="en" estimate={ESTIMATE} round={{ n: 1, total: 3 }} />);
+    const region = screen.getByRole("status");
+    rerender(<GeneratingState lang="en" estimate={ESTIMATE} round={{ n: 2, total: 3 }} />);
+    expect(screen.getByRole("status")).toBe(region);
+    expect(container.querySelectorAll("[aria-live], [role='status'], [role='alert']")).toHaveLength(1);
+    expect(region.textContent).toContain("Writing proposal 2 of 3…");
+    expect(region.textContent).not.toContain("Writing proposal 1 of 3…");
+  });
+
+  it("has no axe violations on either side of a round change", async () => {
+    // Real timers: axe schedules its own work with setTimeout. The 30 s estimate timer is cleared when the test unmounts.
+    const { container, rerender } = render(<GeneratingState lang="en" estimate={ESTIMATE} round={{ n: 1, total: 2 }} />);
+    expect(await axeViolations(container)).toEqual([]);
+    rerender(<GeneratingState lang="id" estimate={ESTIMATE} round={{ n: 2, total: 2 }} />);
+    expect(await axeViolations(container)).toEqual([]);
   });
 });

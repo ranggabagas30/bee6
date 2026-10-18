@@ -102,10 +102,23 @@ describe("STAGES and GUIDE data", () => {
   // Demo feedback 2 item 18: one tap of Ask writes every proposal the evidence allows; the card no longer says "one at a time".
   it("the proposals_ready card says one tap writes a proposal for each problem with enough evidence; the generating card says proposals", () => {
     const ready = GUIDE.proposals_ready.body.map((b) => b.en).join(" ");
-    expect(ready).toMatch(/Tap Ask Bee6 once: it writes one proposal for each problem that has enough evidence/);
+    expect(ready).toMatch(/Tap Ask Bee6 once: it writes and checks one proposal for each problem that has enough evidence/);
     expect(ready).not.toMatch(/one at a time|Ask for another/);
     expect(GUIDE.proposals_ready.body.map((b) => b.id).join(" ")).not.toMatch(/sekali waktu|Minta lagi/);
-    expect(GUIDE.proposals_generating.body.map((b) => b.en).join(" ")).toBe("Keep this page open. The proposals appear in about half a minute.");
+    expect(GUIDE.proposals_generating.body.map((b) => b.en).join(" ")).toBe("Keep this page open. The proposals appear in about a minute.");
+  });
+
+  // The guide cannot know which Proposal agent the server runs (it is a static card table, outside the proposals page), so
+  // the wait it names has to be true for both: ~20 s on the single-call agent, up to a minute or so on the checking agent.
+  it("the Ask wait is worded for either agent: no '20 seconds' or 'half a minute' promise, in either language", () => {
+    for (const key of ["proposals_ready", "proposals_generating"] as const) {
+      const en = GUIDE[key].body.map((b) => b.en).join(" ");
+      const id = GUIDE[key].body.map((b) => b.id).join(" ");
+      expect(en, key).not.toMatch(/20 seconds|half a minute|30 seconds/);
+      expect(id, key).not.toMatch(/20 detik|setengah menit|30 detik/);
+      expect(en, key).toMatch(/a minute/);
+      expect(id, key).toMatch(/satu menit/);
+    }
   });
 
   it("never hard-codes which proposal comes first (focus order is ready, most facts, most dates, category order)", () => {

@@ -6,6 +6,7 @@ import type { ProposalView } from "@/lib/proposals/contract";
 import type { ProposalListItem } from "@/lib/proposals/review-contract";
 import type { SopChangeView } from "@/lib/sop/contract";
 import { Card, Chip, Kicker, Pill, Tile } from "@/app/ui";
+import { CheckedByBee6 } from "@/app/proposals/CheckedByBee6";
 import styles from "@/app/proposals/approvals.module.css";
 
 /**
@@ -144,6 +145,8 @@ export function ApprovalCard({ lang, item, shipped, position, othersWaiting = fa
           <Kicker>{t(lang, "C-propd-metric")}</Kicker> <span>{content.metric.description}</span>
         </p>
       </section>
+
+      <CheckedByBee6 lang={lang} checked={proposal.checked} variant="short" />
 
       <div className={blocked ? `${styles.pace} ${styles.paceBlocked}` : styles.pace}>
         <span className={styles.paceIcon} aria-hidden="true">

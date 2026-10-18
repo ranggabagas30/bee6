@@ -34,7 +34,7 @@ export const proposalsID = {
   // ── Generating state and ask results ────────────────────────────────────────────────────────────────────
   "C-propg-title": "Bee6 sedang menulis usulan", // PROVISIONAL
   "C-propg-body": "Ini bisa memakan waktu sampai satu menit. Mohon biarkan halaman ini terbuka.", // PROVISIONAL
-  "C-propg-est": "Biasanya {min}–{max} detik: Bee6 membaca SOP dan buktinya dulu sebelum menulis. Biarkan halaman ini terbuka.", // PROVISIONAL (R-24: shown only while the v4 flag is on)
+  "C-propg-est": "Bee6 menulis dan memeriksa setiap usulan. Biasanya {min}–{max} detik, kadang sampai satu menit. Biarkan halaman ini terbuka.", // PROVISIONAL (R-24: shown only while the v4 flag is on)
   "C-propg-over": "Lebih lama dari biasanya. Bee6 masih bekerja. Biarkan halaman ini terbuka.", // PROVISIONAL (R-24: after the range has passed)
   "C-propg-wrote": "Bee6 menulis sebuah usulan. Buka untuk membaca buktinya.", // PROVISIONAL
   "C-propg-none-other": "Belum ada masalah lain yang siap.", // PROVISIONAL
@@ -134,6 +134,11 @@ export const proposalsID = {
   "C-propg-wrote-partial": "Bee6 menulis {n} dari {total} usulan, tetapi sisanya belum bisa ditulis sekarang. Ketuk Minta usulan lain untuk mencoba lagi.", // PROVISIONAL
   "C-propg-cap": "Demo ini sudah mencapai batas usulan, jadi Bee6 tidak bisa menulis usulan lagi sekarang.", // PROVISIONAL
   "C-propg-wrote-cap": "Bee6 menulis {n} dari {total} usulan. Batas usulan demo tercapai, jadi berhenti di situ.", // PROVISIONAL
+  // ── CHK-1: "Checked by Bee6" on the proposal detail and the owner card. Counts only. Append-only. ──
+  "C-propd-checked": "DIPERIKSA BEE6 · {passed} DARI {total} PEMERIKSAAN", // PROVISIONAL
+  "C-propd-checked-code": "Setiap pemeriksaan adalah aturan tetap dalam kode, bukan pendapat model.", // PROVISIONAL
+  "C-propd-checked-v4": "Agen membaca {sections} bagian SOP dan {facts} fakta sebelum menulis.", // PROVISIONAL
+  "C-propd-checked-rev": "Direvisi {n} kali sampai semua pemeriksaan lolos.", // PROVISIONAL
 } as const satisfies Record<string, string>;
 
 export const proposalsEN: Record<keyof typeof proposalsID, string> = {
@@ -153,7 +158,7 @@ export const proposalsEN: Record<keyof typeof proposalsID, string> = {
   "C-propw-days": "Days seen",
   "C-propg-title": "Bee6 is writing a proposal",
   "C-propg-body": "This can take up to a minute. Please keep this page open.",
-  "C-propg-est": "Usually {min}–{max} seconds: Bee6 reads the SOP and the evidence before it writes. Keep this page open.",
+  "C-propg-est": "Bee6 is writing and checking each proposal. Usually {min}–{max} seconds, sometimes up to a minute. Keep this page open.",
   "C-propg-over": "Taking longer than usual. Bee6 is still working. Keep this page open.",
   "C-propg-wrote": "Bee6 wrote a proposal. Open it to read the evidence.",
   "C-propg-none-other": "No other problem is ready yet.",
@@ -247,4 +252,8 @@ export const proposalsEN: Record<keyof typeof proposalsID, string> = {
   "C-propg-wrote-partial": "Bee6 wrote {n} of {total} proposals, but the rest could not be written right now. Tap Ask for another proposal to try again.",
   "C-propg-cap": "This demo has reached its proposal limit, so Bee6 can't write more proposals now.",
   "C-propg-wrote-cap": "Bee6 wrote {n} of {total} proposals. The demo's proposal limit was reached, so it stopped there.",
+  "C-propd-checked": "CHECKED BY BEE6 · {passed} OF {total} CHECKS",
+  "C-propd-checked-code": "Every check is a fixed rule in code, not the model's opinion.",
+  "C-propd-checked-v4": "The agent read {sections} SOP section(s) and {facts} fact(s) before writing.",
+  "C-propd-checked-rev": "Revised {n} time(s) until every check passed.",
 };

@@ -178,7 +178,8 @@ describe("ProposalsApp — auth / role gate", () => {
     renderApp("en", { min_s: 10, max_s: 30 });
     fireEvent.click(await screen.findByRole("button", { name: "Ask Bee6 for a proposal" }));
     expect((await screen.findByText(/Usually 10–30 seconds/)).closest("[role='status']")).not.toBeNull();
-    expect(screen.queryByText(/up to a minute/)).toBeNull();
+    expect(screen.getByText(/Bee6 is writing and checking each proposal\./)).not.toBeNull();
+    expect(screen.queryByText("This can take up to a minute. Please keep this page open.")).toBeNull();
     cleanup();
 
     renderApp("en");

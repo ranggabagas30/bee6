@@ -139,6 +139,52 @@ describe("ProposalDetail — content (D2-03e)", () => {
   });
 });
 
+// CHK-1: the "Checked by Bee6" card sits right after the evidence block.
+describe("ProposalDetail — checked by Bee6 (CHK-1)", () => {
+  const V3 = { checks_total: 8, checks_passed: 8, rule_set: "pgate-v1", agent: "proposal-v3", revisions: 0, read_sections: null, read_facts: null } as const;
+  const V4 = { checks_total: 18, checks_passed: 18, rule_set: "pcheck-v4", agent: "proposal-v4", revisions: 1, read_sections: 1, read_facts: 2 } as const;
+  const withChecked = (checked: ProposalListItem["proposal"]["checked"]): ProposalListItem => {
+    const it = item();
+    return { ...it, proposal: { ...it.proposal, checked } };
+  };
+
+  it("v3: shows '8 OF 8 CHECKS' and the fixed-rules line, and hides the agent-reads line", () => {
+    renderDetail(withChecked(V3));
+    expect(screen.getByText("CHECKED BY BEE6 · 8 OF 8 CHECKS")).not.toBeNull();
+    expect(screen.getByText("Every check is a fixed rule in code, not the model's opinion.")).not.toBeNull();
+    expect(screen.queryByText(/The agent read/)).toBeNull();
+    expect(screen.queryByText(/Revised/)).toBeNull();
+  });
+
+  it("v4: shows the reads line with the counts, and the revision line", () => {
+    renderDetail(withChecked(V4));
+    expect(screen.getByText("CHECKED BY BEE6 · 18 OF 18 CHECKS")).not.toBeNull();
+    expect(screen.getByText("The agent read 1 SOP section(s) and 2 fact(s) before writing.")).not.toBeNull();
+    expect(screen.getByText("Revised 1 time(s) until every check passed.")).not.toBeNull();
+  });
+
+  it("sits directly after the evidence block", () => {
+    renderDetail(withChecked(V3));
+    const evidence = screen.getByText("THE EVIDENCE · 2 MOMENTS ON 2 DAYS").closest("section")!;
+    const checked = screen.getByText("CHECKED BY BEE6 · 8 OF 8 CHECKS").closest("section")!;
+    expect(evidence.nextElementSibling).toBe(checked);
+  });
+
+  it("nothing is rendered when `checked` is null or absent (the existing list still has exactly one list)", () => {
+    renderDetail(withChecked(null));
+    expect(screen.queryByText(/CHECKED BY BEE6/)).toBeNull();
+    cleanup();
+    renderDetail(item());
+    expect(screen.queryByText(/CHECKED BY BEE6/)).toBeNull();
+    expect(screen.getAllByRole("list")).toHaveLength(1);
+  });
+
+  it("shows on a feasible (hand-over) detail too, and in Bahasa", () => {
+    renderDetail(withChecked(V4), { feasible: true, lang: "id" });
+    expect(screen.getByText("DIPERIKSA BEE6 · 18 DARI 18 PEMERIKSAAN")).not.toBeNull();
+  });
+});
+
 describe("ProposalDetail — mark feasible", () => {
   it("posts { decision: 'feasible', acknowledged_constraint_ids: [] } once to the review route and calls onFeasible", async () => {
     let resolveFn: (v: unknown) => void = () => {};
