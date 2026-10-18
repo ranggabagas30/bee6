@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { readCaptureBridge } from "@/app/demo/guide-bridge";
 import { axeViolations } from "@/lib/testing/axe";
+import { waitForBridgePhase } from "@/lib/testing/capture-bridge";
 
 /**
  * R-25 T5 (docs/tasks/R-25-ui-fidelity.md section 9.4 proof b): the page-2 staff screen on a sandbox, asserted by
@@ -69,6 +70,18 @@ async function renderPage() {
   vi.setSystemTime(new Date(MON_1000_WIB));
   const { default: CapturePage } = await import("@/app/capture/page");
   return render(<CapturePage />);
+}
+
+/**
+ * What the judge guide's "Jump to closing time" does. The heading shows "Listening" one task before the page has
+ * published the bridge snapshot of the running session (a passive effect), and until then the bridge's action still
+ * runs the handler of the render without a session: a silent no-op. So wait for the published phase first.
+ */
+async function jumpToClosing() {
+  await waitForBridgePhase("listening");
+  await act(async () => {
+    readCaptureBridge()!.actions.jumpToClosing();
+  });
 }
 
 /** The screen's own polite headline status (not the language switch's, not the upload block's). */
@@ -166,9 +179,7 @@ describe("sandbox capture screen (R-25 T5): document order and landmarks", () =>
     await renderPage();
     fireEvent.click(await screen.findByRole("button", { name: "Start" }));
     await screen.findByRole("heading", { level: 1, name: "Listening" });
-    await act(async () => {
-      readCaptureBridge()!.actions.jumpToClosing();
-    });
+    await jumpToClosing();
     const end = (await screen.findByRole("button", { name: "End today" })) as HTMLButtonElement;
     expect(end.disabled).toBe(false);
     const sub = screen.getByText("Closing time has passed. Tap End when operations are done.");
@@ -182,9 +193,7 @@ describe("sandbox capture screen (R-25 T5): document order and landmarks", () =>
     await renderPage();
     fireEvent.click(await screen.findByRole("button", { name: "Start" }));
     await screen.findByRole("heading", { level: 1, name: "Listening" });
-    await act(async () => {
-      readCaptureBridge()!.actions.jumpToClosing();
-    });
+    await jumpToClosing();
     const end = await screen.findByRole("button", { name: "End today" });
     end.focus();
     fireEvent.click(end);
@@ -234,9 +243,7 @@ describe("sandbox capture screen (R-25 T5): document order and landmarks", () =>
     fireEvent.click(await screen.findByRole("button", { name: "Start" }));
     await screen.findByRole("heading", { level: 1, name: "Listening" });
     expect(screen.getAllByTestId("capture-notice")).toHaveLength(1);
-    await act(async () => {
-      readCaptureBridge()!.actions.jumpToClosing();
-    });
+    await jumpToClosing();
     fireEvent.click(await screen.findByRole("button", { name: "End today" }));
     fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
     await screen.findByText("Preparing your questions");

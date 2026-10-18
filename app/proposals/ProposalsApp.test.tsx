@@ -269,7 +269,9 @@ describe("ProposalsApp — the judge guide signal", () => {
     authedPostJson.mockResolvedValue({ kind: "ok", data: { result: "approved", status: "approved" } });
     renderApp();
     await screen.findByRole("heading", { level: 1, name: "Proposal 1" });
-    expect(readProposalsScreen()).toBe("review");
+    // The screen signal is published from a passive effect, which React flushes in a later task than the commit that
+    // put the heading on screen: wait for the signal, never read it in the same breath as the heading.
+    await waitFor(() => expect(readProposalsScreen()).toBe("review"));
     const before = readProposalsProgressVersion();
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     await waitFor(() => expect(readProposalsProgressVersion()).toBe(before + 1));

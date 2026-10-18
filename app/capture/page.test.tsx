@@ -2,6 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEBRIEF_DONE_FLAG_KEY, DEBRIEF_DONE_SUMMARY_KEY } from "@/lib/debrief/constants";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { waitForBridgePhase } from "@/lib/testing/capture-bridge";
+import { waitForCondition } from "@/lib/testing/wait-for-condition";
 
 /**
  * /capture (R-P1 rewrite): Mulai, Selesai and Batalkan replace the old
@@ -134,6 +136,9 @@ afterEach(() => {
   fakeDroppedCount = 0;
   fakeQueuedCount = 0;
   uuidCounter = 0;
+  // mockReset, not only mockImplementation: a `mockImplementationOnce` a failed test never consumed would otherwise
+  // leak into the next test (clearAllMocks keeps the once-queue) and turn one timeout into a cascade of failures.
+  postDemoClosing.mockReset();
   postDemoClosing.mockImplementation(async () => ({ ok: true, data: { closing_reached: true } }) as never);
 });
 
@@ -173,6 +178,17 @@ const DEMO_PROFILE = {
 
 // R-25 (ruling R10, board P2-05): on a sandbox the one red footer link replaces "Cancel session" and the header Sign out.
 const SIGN_OUT_RUNNING_LINK = "Sign out (cancels today's session)";
+
+/**
+ * Moves the faked clock and lets React land the re-renders it causes before the test looks at the screen. Without the
+ * act, a tick's state update is rendered by the scheduler a task after `advanceTimersByTimeAsync` resolves, so a
+ * synchronous assertion straight after it reads the previous frame whenever the machine is loaded.
+ */
+async function advance(ms: number) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+}
 
 function pinClock(iso: string) {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -328,13 +344,13 @@ describe("CapturePage running state: Selesai (UX-03 §5.5, technical spec §8.3 
 
   it("at start+4h: the End button appears", async () => {
     await renderRunning("2026-10-12T01:00:00Z");
-    await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+    await advance(4 * 60 * 60_000);
     expect(screen.getByRole("button", { name: "End" })).toBeTruthy();
   });
 
   it("tapping End opens the confirm panel; Belum, lanjut closes it with nothing changed", async () => {
     await renderRunning("2026-10-12T01:00:00Z");
-    await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+    await advance(4 * 60 * 60_000);
     fireEvent.click(screen.getByRole("button", { name: "End" }));
     expect(screen.getByText("End today's operations?")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Not yet, keep going" }));
@@ -344,7 +360,7 @@ describe("CapturePage running state: Selesai (UX-03 §5.5, technical spec §8.3 
 
   it("Ya, selesai posts the end, stops the engine and shows the Ended state", async () => {
     await renderRunning("2026-10-12T01:00:00Z");
-    await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+    await advance(4 * 60 * 60_000);
     fireEvent.click(screen.getByRole("button", { name: "End" }));
     fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
     await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
@@ -366,7 +382,7 @@ describe("CapturePage running state: Selesai (UX-03 §5.5, technical spec §8.3 
     await renderReady();
     fireEvent.click(await screen.findByRole("button", { name: "Start" }));
     await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
-    await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+    await advance(4 * 60 * 60_000);
     fireEvent.click(screen.getByRole("button", { name: "End" }));
     expect(
       screen.getByText("The 1-hour debrief starts now. This cannot be undone. You can tap Start again Wed 14 Oct at 01:00."),
@@ -393,7 +409,7 @@ describe("CapturePage running state: Batalkan (UX-03 §5.6, technical spec §8.9
       name: "Yes, delete session",
     }) as HTMLButtonElement;
     expect(deleteBtn.disabled).toBe(true);
-    await vi.advanceTimersByTimeAsync(1_000);
+    await advance(1_000);
     expect(deleteBtn.disabled).toBe(false);
   });
 
@@ -410,7 +426,7 @@ describe("CapturePage running state: Batalkan (UX-03 §5.6, technical spec §8.9
     vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
     await renderRunning();
     fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
-    await vi.advanceTimersByTimeAsync(1_000);
+    await advance(1_000);
     fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
     await waitFor(() => expect(postSessionDiscard).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
@@ -422,7 +438,7 @@ describe("CapturePage running state: Batalkan (UX-03 §5.6, technical spec §8.9
     vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
     await renderRunning();
     fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
-    await vi.advanceTimersByTimeAsync(15_000);
+    await advance(15_000);
     expect(screen.queryByText(/Cancel the session started at/)).toBeNull();
     expect(postSessionDiscard).not.toHaveBeenCalled();
     expect(screen.getByText("Listening")).toBeTruthy();
@@ -433,7 +449,7 @@ describe("CapturePage running state: Batalkan (UX-03 §5.6, technical spec §8.9
     vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
     await renderRunning();
     fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
-    await vi.advanceTimersByTimeAsync(1_000);
+    await advance(1_000);
     fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
     await waitFor(() => expect(screen.getByText("Session cancelled")).toBeTruthy());
   });
@@ -473,7 +489,7 @@ describe("CapturePage: auto-stop enforcement (technical spec §8.7)", () => {
     await renderRunning("2026-10-12T01:00:00Z"); // Mon 08:00 WIB
     // Mon 08:00 WIB -> auto-stop at Mon 23:00 WIB is 15h away; advance one
     // extra tick past it so a 30s-tick boundary lands strictly after it.
-    await vi.advanceTimersByTimeAsync(15 * 60 * 60_000 + 30_000);
+    await advance(15 * 60 * 60_000 + 30_000);
     await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
     const [, sessionId, body] = postSessionEnd.mock.calls[0]!;
     expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);
@@ -487,7 +503,7 @@ describe("CapturePage: auto-stop enforcement (technical spec §8.7)", () => {
   it("does not auto-stop well before close(D)+1h", async () => {
     await renderRunning("2026-10-12T01:00:00Z"); // Mon 08:00 WIB
     // Past the 4h Selesai cut-off, but 11h short of the 15h auto-stop mark.
-    await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+    await advance(4 * 60 * 60_000);
     expect(postSessionEnd).not.toHaveBeenCalled();
     expect(screen.getByText("Listening")).toBeTruthy();
   });
@@ -553,14 +569,14 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
   }
   /** Plan 5.4/5.5: "Jump to closing time" lives in the judge guide card (PR-5), which calls the page's action through the bridge. */
   async function reachClosing() {
-    await waitFor(() => expect(readCaptureBridge()?.state.phase).toBe("listening"));
+    await waitForBridgePhase("listening");
     act(() => readCaptureBridge()!.actions.jumpToClosing());
     await waitFor(() => expect(postDemoClosing).toHaveBeenCalledTimes(1));
     return (await screen.findByRole("button", { name: "End today" })) as HTMLButtonElement;
   }
   /** The guide's own 409 branch; the page's alert line shows the same copy under End. */
   async function jumpAndWaitForError() {
-    await waitFor(() => expect(readCaptureBridge()?.state.phase).toBe("listening"));
+    await waitForBridgePhase("listening");
     act(() => readCaptureBridge()!.actions.jumpToClosing());
     await waitFor(() => expect(postDemoClosing).toHaveBeenCalledTimes(1));
   }
@@ -614,13 +630,16 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
         "Bee6 has not heard enough yet (3 of 5). Wait a few seconds for the last card to upload, then try again.",
       ),
     );
-    expect(readCaptureBridge()?.state.closingError).toEqual({ key: "C-sess-closing-not-enough", vars: { have: 3, need: 5 } });
+    // the bridge snapshot is published by a passive effect, a task after the alert line it mirrors
+    await waitForCondition(() =>
+      expect(readCaptureBridge()?.state.closingError).toEqual({ key: "C-sess-closing-not-enough", vars: { have: 3, need: 5 } }),
+    );
     expect((screen.getByRole("button", { name: END_LOCKED }) as HTMLButtonElement).disabled).toBe(true);
     expect(postSessionEnd).not.toHaveBeenCalled();
     act(() => readCaptureBridge()!.actions.jumpToClosing());
     await screen.findByRole("button", { name: "End today" });
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(readCaptureBridge()?.state.closingError).toBeNull();
+    await waitForCondition(() => expect(readCaptureBridge()?.state.closingError).toBeNull());
   });
 
   it("closing failure without details (network, or another 409): the generic line, End stays locked", async () => {
@@ -671,9 +690,9 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
 
   it("hard-stops at start + 10:00 with end_reason auto_stop and no confirm dialog (not at the 30 s tick)", async () => {
     await renderDemoRunning();
-    await vi.advanceTimersByTimeAsync(9 * 60_000 + 58_000);
+    await advance(9 * 60_000 + 58_000);
     expect(postSessionEnd).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(3_000);
+    await advance(3_000);
     await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
     expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "auto_stop" });
     await waitFor(() => expect(fakeSessions[0]?.stop).toHaveBeenCalledTimes(1));
@@ -683,10 +702,10 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
 
   it("a start after close + 1 h (23:10 WIB, close 22:00) is not stopped at once: nothing before 9:58, exactly one auto_stop at 10:00", async () => {
     await renderDemoRunning("2026-10-12T16:10:00Z"); // Mon 23:10 WIB
-    await vi.advanceTimersByTimeAsync(9 * 60_000 + 58_000);
+    await advance(9 * 60_000 + 58_000);
     expect(postSessionEnd).not.toHaveBeenCalled();
     expect(screen.getByRole("heading", { name: "Listening" })).toBeTruthy();
-    await vi.advanceTimersByTimeAsync(3_000);
+    await advance(3_000);
     await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
     expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "auto_stop" });
   });
@@ -694,7 +713,7 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
   it("the auto-stop never needs closing: End stays locked and the stop still fires", async () => {
     await renderDemoRunning();
     expect((screen.getByRole("button", { name: END_LOCKED }) as HTMLButtonElement).disabled).toBe(true);
-    await vi.advanceTimersByTimeAsync(10 * 60_000 + 1_000);
+    await advance(10 * 60_000 + 1_000);
     await waitFor(() => expect(postSessionEnd).toHaveBeenCalledTimes(1));
     expect(postSessionEnd.mock.calls[0]![2]).toMatchObject({ end_reason: "auto_stop" });
     expect(postDemoClosing).not.toHaveBeenCalled();
@@ -827,14 +846,14 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
       lastCallbacks?.onEvent?.({ type: "segment_accepted", lines: 2 });
     });
     await waitFor(() => expect(screen.getByTestId("dev-readouts").textContent).toMatch(/Lines heard: 2/));
-    await vi.advanceTimersByTimeAsync(1_000);
+    await advance(1_000);
     fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
-    await vi.advanceTimersByTimeAsync(1_000);
+    await advance(1_000);
     fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
     await waitFor(() => expect(postSessionDiscard).toHaveBeenCalledTimes(1));
     // the pilot offers Start again from the next day's 01:00; move the clock there and let the page's 30 s tick see it
     vi.setSystemTime(new Date("2026-10-12T18:00:00Z"));
-    await vi.advanceTimersByTimeAsync(30_000);
+    await advance(30_000);
     await waitFor(() => expect(pilotMulai().getAttribute("aria-disabled")).toBeNull());
     fireEvent.click(pilotMulai());
     await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
@@ -866,7 +885,7 @@ describe("CapturePage with the R-18 demo profile (sandbox only)", () => {
     await renderReady();
     fireEvent.click(await screen.findByRole("button", { name: "Start" }));
     await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
-    await vi.advanceTimersByTimeAsync(11 * 60_000);
+    await advance(11 * 60_000);
     expect(postSessionEnd).not.toHaveBeenCalled();
     expect(screen.getByText("Listening")).toBeTruthy();
     expect(postDemoClosing).not.toHaveBeenCalled();
@@ -1222,7 +1241,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
   }
   /** "Jump to closing time" now lives in the judge guide (PR-5): the test calls the action the guide calls. */
   async function reachClosing() {
-    await waitFor(() => expect(readCaptureBridge()?.state.phase).toBe("listening"));
+    await waitForBridgePhase("listening");
     act(() => readCaptureBridge()!.actions.jumpToClosing());
     await screen.findByRole("button", { name: "End today" });
   }
@@ -1354,7 +1373,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       await settle();
       fireEvent.click(screen.getByRole("button", { name: "Start" }));
       await settle();
-      expect(readCaptureBridge()?.state.phase).toBe("listening");
+      await waitForBridgePhase("listening");
       act(() => readCaptureBridge()!.actions.jumpToClosing());
       await settle();
       expect(screen.getByRole("button", { name: "End today" })).toBeTruthy(); // closing reached
@@ -1804,7 +1823,7 @@ describe("CapturePage R-19 PR-4b (sandbox only)", () => {
       await renderReady();
       fireEvent.click(await screen.findByRole("button", { name: "Start" }));
       await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
-      await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+      await advance(4 * 60 * 60_000);
       fireEvent.click(screen.getByRole("button", { name: "End" }));
       fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
       await waitFor(() => expect(screen.getByText("Debrief running")).toBeTruthy());
@@ -1927,6 +1946,9 @@ describe("CapturePage dev panel (DEV-01, unaffected by the Mulai rewrite)", () =
     fetchCaptureConfig.mockResolvedValue(config({ sun: null }));
     await renderReady();
     const panel = await screen.findByTestId("dev-panel");
+    // The panel is mounted from the first render, before the config has loaded, and its Start does nothing without the
+    // config. "Not started" (the status banner) only shows once the page is ready.
+    await screen.findByText("Not started");
     fireEvent.click(within(panel).getByRole("button", { name: /^start$/i }));
     await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
     expect(postSessionStart).not.toHaveBeenCalled();
@@ -1937,6 +1959,9 @@ describe("CapturePage dev panel (DEV-01, unaffected by the Mulai rewrite)", () =
     fetchCaptureConfig.mockResolvedValue(config({ sun: null }));
     await renderReady();
     const panel = await screen.findByTestId("dev-panel");
+    // The panel is mounted from the first render, before the config has loaded, and its Start does nothing without the
+    // config. "Not started" (the status banner) only shows once the page is ready.
+    await screen.findByText("Not started");
     fireEvent.click(within(panel).getByRole("button", { name: /^start$/i }));
     await waitFor(() => expect(startCaptureSession).toHaveBeenCalledTimes(1));
     fireEvent.click(within(panel).getByRole("button", { name: /^pause$/i }));
@@ -1966,7 +1991,7 @@ describe("CapturePage: debrief entry card (R-07, technical spec §8.10)", () => 
     await renderReady();
     fireEvent.click(await screen.findByRole("button", { name: "Start" }));
     await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
-    await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+    await advance(4 * 60 * 60_000);
     fireEvent.click(screen.getByRole("button", { name: "End" }));
     fireEvent.click(screen.getByRole("button", { name: "Yes, end" }));
     await waitFor(() => expect(screen.getByText("Debrief running")).toBeTruthy());
@@ -1983,7 +2008,7 @@ describe("CapturePage: debrief entry card (R-07, technical spec §8.10)", () => 
     fireEvent.click(await screen.findByRole("button", { name: "Start" }));
     await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
     // Mon 08:00 WIB -> Tue 02:00 WIB is 18h away; one extra tick past it.
-    await vi.advanceTimersByTimeAsync(18 * 60 * 60_000 + 30_000);
+    await advance(18 * 60 * 60_000 + 30_000);
     await waitFor(() => expect(screen.getByText("Ended automatically at 02:00")).toBeTruthy());
     expect(screen.getByText("Debrief running")).toBeTruthy();
   });
@@ -2027,7 +2052,7 @@ describe("CapturePage: debrief entry card (R-07, technical spec §8.10)", () => 
     fireEvent.click(await screen.findByRole("button", { name: "Start" }));
     await waitFor(() => expect(screen.getByText("Listening")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Cancel session" }));
-    await vi.advanceTimersByTimeAsync(1_000);
+    await advance(1_000);
     fireEvent.click(screen.getByRole("button", { name: "Yes, delete session" }));
     await waitFor(() => expect(screen.getByText("Session cancelled")).toBeTruthy());
     expect(screen.queryByText("Debrief running")).toBeNull();
