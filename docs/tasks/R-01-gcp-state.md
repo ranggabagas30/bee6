@@ -532,7 +532,7 @@ those four.
   `http://localhost:3000/*`, `http://localhost:3001/*`, `http://127.0.0.1:3000/*`. Command used:
   `gcloud services api-keys update 0521292e-44ae-4525-be97-c385509af766 --project=bee6-playground
   --api-target=service=identitytoolkit.googleapis.com --api-target=service=securetoken.googleapis.com
-  --allowed-referrers=<7 above> --no-check-existing-usage`. Pilot key untouched.
+  --allowed-referrers=<7 above> --no-check-existing-usage`. Pilot project not touched.
   Verified: correct Referer -> identitytoolkit 400 INVALID_LOGIN_CREDENTIALS (passes the key gate); wrong or
   empty Referer -> 403 `API_KEY_HTTP_REFERRER_BLOCKED`; a previously allowed service (firebaseinstallations)
   -> 403 `API_KEY_SERVICE_BLOCKED`; sign-up still `ADMIN_ONLY_OPERATION`; securetoken reachable; `/api/health`
