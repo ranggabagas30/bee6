@@ -55,7 +55,7 @@ vi.mock("@/lib/capture/browser/client", () => ({
 }));
 
 import { CaptureEngine } from "@/lib/capture/browser/engine";
-import { abortAllCaptureUploads, startCaptureSession } from "@/lib/capture/browser/session";
+import { abortAllCaptureUploads, hasPendingCaptureUploads, startCaptureSession, waitForCaptureUploads } from "@/lib/capture/browser/session";
 import type { CaptureConfigResponse } from "@/lib/capture/contract";
 
 const AUTH = { deviceToken: "t", deviceId: "d" };
@@ -281,5 +281,87 @@ describe("startCaptureSession stop modes (18 Oct: retry after End)", () => {
     await vi.advanceTimersByTimeAsync(100_000);
     expect(hoisted.upload.mock.calls.length).toBe(at300);
     expect(() => abortAllCaptureUploads()).not.toThrow();
+  });
+});
+
+describe("waitForCaptureUploads() (Fb22: Jump to tomorrow waits for a finishing day-1 note)", () => {
+  const callbacks = {
+    onStatus: () => {},
+    onMicSource: () => {},
+    onUnsupported: () => {},
+    onSampleRateRejected: () => {},
+  };
+  async function finishingSession() {
+    const session = await startCaptureSession(AUTH, CONFIG, callbacks);
+    pushSpeech(5);
+    await vi.advanceTimersByTimeAsync(0);
+    void session!.stop();
+    await vi.advanceTimersByTimeAsync(6_000); // stop() has settled; the background drain is still retrying
+    return session!;
+  }
+
+  it("resolves at once with no engine, and arms no timer", async () => {
+    const setSpy = vi.spyOn(globalThis, "setTimeout");
+    expect(hasPendingCaptureUploads()).toBe(false);
+    let resolved = false;
+    void waitForCaptureUploads(25_000).then(() => {
+      resolved = true;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(resolved).toBe(true);
+    expect(setSpy.mock.calls.some(([, ms]) => ms === 25_000)).toBe(false);
+    setSpy.mockRestore();
+  });
+
+  it("resolves once the finishing engine goes idle (upload finally accepted)", async () => {
+    let ok = false;
+    hoisted.upload.mockImplementation(async () => (ok ? 200 : 503));
+    await finishingSession();
+    expect(hasPendingCaptureUploads()).toBe(true);
+
+    let resolved = false;
+    void waitForCaptureUploads(25_000).then(() => {
+      resolved = true;
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(resolved).toBe(false);
+
+    ok = true;
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(resolved).toBe(true);
+    expect(hasPendingCaptureUploads()).toBe(false);
+  });
+
+  it("resolves at the timeout while an engine is still retrying, and leaves the engine running", async () => {
+    hoisted.upload.mockResolvedValue(503);
+    await finishingSession();
+
+    let resolved = false;
+    void waitForCaptureUploads(25_000).then(() => {
+      resolved = true;
+    });
+    await vi.advanceTimersByTimeAsync(24_999);
+    expect(resolved).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(resolved).toBe(true);
+    expect(hasPendingCaptureUploads()).toBe(true); // the wait never aborts; abortAllCaptureUploads() does
+  });
+
+  it("clears its timer when the engines go idle first (no leaked timer)", async () => {
+    hoisted.upload.mockResolvedValue(503);
+    await finishingSession();
+    const setSpy = vi.spyOn(globalThis, "setTimeout");
+    const clearSpy = vi.spyOn(globalThis, "clearTimeout");
+
+    const waited = waitForCaptureUploads(25_000);
+    const idx = setSpy.mock.calls.findIndex(([, ms]) => ms === 25_000);
+    expect(idx).toBeGreaterThanOrEqual(0);
+    const timerId = setSpy.mock.results[idx]!.value;
+    abortAllCaptureUploads(); // engines leave the registry
+    await expect(waited).resolves.toBeUndefined();
+    expect(clearSpy).toHaveBeenCalledWith(timerId);
+    setSpy.mockRestore();
+    clearSpy.mockRestore();
   });
 });

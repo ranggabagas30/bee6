@@ -118,6 +118,47 @@ const liveEngines = new Set<CaptureEngine>();
 export function abortAllCaptureUploads(): void {
   for (const engine of liveEngines) void engine.abort();
   liveEngines.clear();
+  notifyIdleWaiters();
+}
+
+/** Callbacks of `waitForCaptureUploads()` calls that are still waiting; each re-checks the registry. */
+const idleWaiters = new Set<() => void>();
+
+function notifyIdleWaiters(): void {
+  for (const check of [...idleWaiters]) check();
+}
+
+/** Takes an engine out of the registry (idle, aborted or failed to start) and wakes anyone waiting for idle. */
+function leaveRegistry(engine: CaptureEngine): void {
+  liveEngines.delete(engine);
+  notifyIdleWaiters();
+}
+
+/** True while any capture engine on this page may still upload. */
+export function hasPendingCaptureUploads(): boolean {
+  return liveEngines.size > 0;
+}
+
+/**
+ * Resolves when every capture engine on this page has gone idle (finished its drain, or was aborted), or after
+ * `timeoutMs`, whichever comes first. Resolves at once when none is live. Never rejects, never aborts anything and
+ * clears its timer on every path. Callers that need a hard stop call `abortAllCaptureUploads()` afterwards.
+ */
+export function waitForCaptureUploads(timeoutMs: number): Promise<void> {
+  if (liveEngines.size === 0) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const done = () => {
+      clearTimeout(timer);
+      idleWaiters.delete(check);
+      resolve();
+    };
+    const check = () => {
+      if (liveEngines.size === 0) done();
+    };
+    idleWaiters.add(check);
+    timer = setTimeout(done, timeoutMs);
+  });
 }
 
 /**
@@ -320,7 +361,7 @@ export async function startCaptureSession(
     await spinUp();
     await wakeLock.acquire();
   } catch (err) {
-    liveEngines.delete(engine);
+    leaveRegistry(engine);
     throw err;
   }
   cb.onEvent?.({ type: "wake_lock_changed", held: wakeLock.held });
@@ -377,13 +418,13 @@ export async function startCaptureSession(
         // abort() stops the upload pump even mid-backoff. Its drain is bounded so
         // stop() settles even while a PUT is still pending (finding #3).
         drained = waitAtMost(engine.abort(), drainMs);
-        liveEngines.delete(engine);
+        leaveRegistry(engine);
       } else {
         engine.flush();
         const background = engine.finish();
         // Leave the registry once the background drain is idle, so sign-out has nothing stale to abort and the
         // engine can be collected.
-        void background.then(() => liveEngines.delete(engine));
+        void background.then(() => leaveRegistry(engine));
         drained = waitAtMost(background, drainMs);
       }
       const released = wakeLock
