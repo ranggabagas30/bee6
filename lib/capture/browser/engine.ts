@@ -18,8 +18,9 @@ import type { CaptureEvent } from "@/lib/capture/browser/event-log";
  * 10-minute queue *capacity* prunes segments, never an attempt count. A repeated
  * server error (5xx/429) gives up once the head has been refused for `headBudgetMs`
  * (default 4 min, R-23) so one poison segment can't block the queue forever. Retry waits are jittered so several
- * phones that fail together do not retry in lockstep (R-22). `abort()` interrupts any wait so `stop()` returns
- * promptly even while offline.
+ * phones that fail together do not retry in lockstep (R-22). `finish()` (End, auto-stop) keeps retrying
+ * server refusals in the background until the head budget or the finish deadline is spent. `abort()` (discard,
+ * sign-out, unmount) stops at once, even mid-backoff.
  */
 
 const DEFAULT_SAMPLE_RATE = 16_000;
@@ -166,9 +167,11 @@ export class CaptureEngine {
   private speechFrames = 0;
   /** Serialises segment handling so ordering holds and tests can `drain()`. */
   private pending: Promise<void> = Promise.resolve();
-  /** Set by `abort()`; makes the pump loop and its waits bail out promptly. */
-  private stopping = false;
-  /** Resolver used to interrupt the current backoff wait on abort. */
+  /** running → finishing (End/auto-stop: keep retrying server refusals) → aborted (no new upload). Never goes back. */
+  private mode: "running" | "finishing" | "aborted" = "running";
+  /** Set once by finish(): no server-refused head is retried past this clock reading. */
+  private finishDeadline: number | null = null;
+  /** Resolver used to interrupt the current backoff wait on abort (or on finish after a network failure). */
   private wake: (() => void) | null = null;
 
   constructor(options: CaptureEngineOptions) {
@@ -240,11 +243,28 @@ export class CaptureEngine {
     await this.pending;
   }
 
-  /** Stops the pump promptly (even mid-backoff while offline) and drains. */
-  async abort(): Promise<void> {
-    this.stopping = true;
+  /**
+   * Graceful end (Selesai, auto-stop). Capture is over; queued segments keep uploading in the background.
+   * A server-refused head (429/5xx) keeps its normal backoff until its head budget or the finish deadline
+   * (now + headBudgetMs) is spent, then drops. A network failure (null) after this exits the pump at once.
+   * Idempotent; a no-op after abort(). Resolves when the pump is idle (may take minutes: callers bound it).
+   */
+  finish(): Promise<void> {
+    if (this.mode === "running") {
+      this.mode = "finishing";
+      this.finishDeadline = this.now() + this.headBudgetMs;
+      // Keep today's prompt exit for a network outage: if the head is sleeping after a null, retry it now
+      // (the pump then breaks on the next null). A server-error backoff is NOT cut short.
+      if (this.headAttempt !== null && this.lastUploadHttpStatus === null) this.wake?.();
+    }
+    return this.drain();
+  }
+
+  /** Hard stop (discard, sign-out, unmount): no new upload starts; an in-flight PUT settles on its own. */
+  abort(): Promise<void> {
+    this.mode = "aborted";
     this.wake?.();
-    await this.drain();
+    return this.drain();
   }
 
   get status(): CaptureStatus {
@@ -347,6 +367,7 @@ export class CaptureEngine {
     this.pumping = true;
     try {
       for (;;) {
+        if (this.mode === "aborted") break;
         const item = this.queue.peek();
         if (!item) break;
 
@@ -398,7 +419,9 @@ export class CaptureEngine {
           if (this.headAttempt.firstServerErrorAt === null) {
             this.headAttempt.firstServerErrorAt = at;
           }
-          if (at - this.headAttempt.firstServerErrorAt >= this.headBudgetMs) {
+          const headSpent = at - this.headAttempt.firstServerErrorAt >= this.headBudgetMs;
+          const finishSpent = this.finishDeadline !== null && at >= this.finishDeadline;
+          if (headSpent || finishSpent) {
             this.dropHead(item.id);
             continue;
           }
@@ -406,10 +429,10 @@ export class CaptureEngine {
         this.headAttempt.failed += 1;
         this.connectionOk = false;
         this.emitStatus();
-        // On a graceful stop, don't wait/retry a failed upload — leave remaining
-        // items in the in-memory queue (finding #3). Successful uploads above
-        // still drain first, so the final flushed segment ships while online.
-        if (this.stopping) break;
+        // Hard stop: never wait or retry. Finishing: a network failure (null) exits at once and leaves the
+        // queue in memory (finding #3, unchanged); a server refusal keeps its backoff (18 Oct fix).
+        if (this.mode === "aborted") break;
+        if (this.mode === "finishing" && status === null) break;
         await this.sleepOrAbort(
           backoffDelayMs(this.headAttempt.count, {
             jitter: true,
@@ -437,7 +460,7 @@ export class CaptureEngine {
 
   /** Waits `ms`, but resolves immediately if `abort()` is called meanwhile. */
   private sleepOrAbort(ms: number): Promise<void> {
-    if (this.stopping) return Promise.resolve();
+    if (this.mode === "aborted") return Promise.resolve();
     return new Promise<void>((resolve) => {
       let done = false;
       const finish = () => {
