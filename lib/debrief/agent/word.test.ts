@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { wordGateQuestions, type WordGateInput } from "@/lib/debrief/agent/word";
+import { CHECK_RULES } from "@/lib/debrief/agent/check";
 import {
   DEBRIEF_AGENT_BACKSTOP_MARGIN_MS,
   DEBRIEF_AGENT_MAX_PER_UNIT,
@@ -579,6 +580,7 @@ describe("wordGateQuestions", () => {
         unit_id: "u1",
         outcome: "accepted",
         rounds: 1,
+        reject_reasons: [],
         model_calls: 1,
         ms: 1234,
         input_tokens: 700,
@@ -589,6 +591,31 @@ describe("wordGateQuestions", () => {
       expect(all).not.toContain("egg tarts");
       expect(all).not.toContain("phone order");
       expect(all).not.toContain("Sari");
+    });
+
+    it("reject_reasons: the first-round codes are logged on accepted, rejected and error; codes only, never text", async () => {
+      const acc = setup(["t1"], async () => ({ ...accepted(GOOD, 2), reject_reasons: ["negation"] }));
+      await wordGateQuestions(acc.input);
+      const rej = setup(["t2"], async () => ({
+        kind: "rejected", reasons: ["too_long", "time_missing"], reject_reasons: ["word_not_in_input", "compound"], rounds: 2, usage: USAGE, model_calls: 2, ms: 5,
+      }));
+      await wordGateQuestions(rej.input);
+      const err = setup(["t3"], async () => ({ kind: "error", error_class: "timeout", reject_reasons: ["not_yes_no"], usage: USAGE, model_calls: 1, ms: 8000 }));
+      await wordGateQuestions(err.input);
+      // the tick's own re-check fails on a draft the runner accepted: the runner's first-round codes still ride along
+      const recheck = setup(["t4"], async () => ({ ...accepted("Around 14:05, was there a prompt injection about theft?", 2), reject_reasons: ["too_long"] }));
+      await wordGateQuestions(recheck.input);
+      const raw = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).filter((l: string) => l.includes("debrief_agent.call"));
+      const entries = raw.map((l: string) => JSON.parse(l) as Record<string, unknown>);
+      expect(entries[0]).toMatchObject({ outcome: "accepted", reject_reasons: ["negation"] });
+      expect(entries[1]).toMatchObject({ outcome: "rejected", reasons: ["too_long", "time_missing"], reject_reasons: ["word_not_in_input", "compound"] });
+      expect(entries[2]).toMatchObject({ outcome: "error", reject_reasons: ["not_yes_no"] });
+      expect(entries[3]).toMatchObject({ outcome: "rejected", reject_reasons: ["too_long"] });
+      expect(entries[3]!.reasons).toContain("word_not_in_input");
+      // every logged reject code is a known fixed rule code, and no shop text or wording is in any line
+      for (const e of entries) for (const code of (e.reject_reasons as string[])) expect(CHECK_RULES).toContain(code);
+      const all = raw.join("\n");
+      for (const text of ["egg tarts", "phone order", "prompt injection", "theft", "Sari", "Around 14:05"]) expect(all).not.toContain(text);
     });
 
     it("rejected: carries the rule codes; error: carries the error class; skipped: carries the reason", async () => {

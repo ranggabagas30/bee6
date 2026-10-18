@@ -321,6 +321,47 @@ describe("adkDebriefAgent: the run", () => {
     expect(holder.probe).toEqual({ consumed: 2, returned: true });
   });
 
+  it("R1. reject_reasons: [] when round 1 passes", async () => {
+    const { adkDebriefAgent } = await load();
+    runEphemeralImpl.mockImplementation(() => trackedEvents([toolStep({ question_en: GOOD }, "c1")]).gen);
+    expect(await adkDebriefAgent(input(), CTX)).toMatchObject({ kind: "accepted", reject_reasons: [] });
+  });
+
+  it("R2. reject_reasons carries the FIRST round's codes even when round 2 is accepted", async () => {
+    const { adkDebriefAgent } = await load();
+    runEphemeralImpl.mockImplementation(
+      () => trackedEvents([toolStep({ question_en: BAD_LONG }, "c1"), toolStep({ question_en: GOOD }, "c2")]).gen,
+    );
+    expect(await adkDebriefAgent(input(), CTX)).toMatchObject({ kind: "accepted", rounds: 2, reject_reasons: ["too_long"] });
+  });
+
+  it("R3. rejected: reject_reasons is round 1, reasons is the LAST round; codes only, never the draft text", async () => {
+    const { adkDebriefAgent } = await load();
+    runEphemeralImpl.mockImplementation(
+      () =>
+        trackedEvents([
+          toolStep({ question_en: BAD_LONG }, "c1"),
+          toolStep({ question_en: "Around 14:05, what was ordered on the phone?" }, "c2"),
+        ]).gen,
+    );
+    const r = await adkDebriefAgent(input(), CTX);
+    expect(r).toMatchObject({ kind: "rejected", reject_reasons: ["too_long"] });
+    expect(JSON.stringify(r)).not.toContain("ordered on the phone");
+    expect(JSON.stringify(r)).not.toContain("LINE-SENTINEL-7");
+  });
+
+  it("R4. an error after a failed round 1 still reports the round-1 codes", async () => {
+    const { adkDebriefAgent } = await load();
+    runEphemeralImpl.mockImplementation(
+      () =>
+        trackedEvents([
+          toolStep({ question_en: BAD_LONG }, "c1"),
+          { errorCode: "UNKNOWN_ERROR", errorMessage: "Max number of llm calls limit of 4 exceeded" },
+        ]).gen,
+    );
+    expect(await adkDebriefAgent(input(), CTX)).toMatchObject({ kind: "error", error_class: "limit", reject_reasons: ["too_long"] });
+  });
+
   it("4a. an ADK limit error event -> error / limit", async () => {
     const { adkDebriefAgent } = await load();
     runEphemeralImpl.mockReturnValue(

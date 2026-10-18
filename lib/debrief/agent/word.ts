@@ -81,6 +81,8 @@ function logCall(entry: Record<string, unknown>): void {
 
 function usageFields(result: Extract<DebriefAgentResult, { usage: unknown }>) {
   return {
+    // Rule CODES of the first failed checker round (fixed literals, never text); [] when round 1 passed.
+    reject_reasons: result.reject_reasons ?? [],
     model_calls: result.model_calls,
     ms: result.ms,
     input_tokens: result.usage.input_tokens,
