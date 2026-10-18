@@ -70,15 +70,17 @@ deliberately not printed here). Follow it. The steps, in order:
 
 ## What to expect
 
-- **Debrief wait.** After **End today** the pipeline needs about 1 to 2.5 minutes (it runs every minute) while the
-  screen says "Preparing your questions". The in-app guide allows 2 to 4 minutes, so keep the page open. You get 0 to
+- **Debrief wait.** Usually about 1 to 2.5 minutes after **End today** (QA measured 61 to 160 s; the pipeline runs
+  every minute) while the screen says "Preparing your questions". The in-app guide allows 2 to 4 minutes, so keep the
+  page open. You get 0 to
   5 questions.
 - **Ask Bee6.** About 20 to 40 seconds for proposals. Each shows how many of Bee6's checks it passed.
 - **Fast-forward.** About 2 to 15 seconds.
 - **Agent wording can be missing.** If an agent's note fails its checker or takes too long, you get the plain card with
   a short notice instead. The suggestion and counts are unaffected.
 - **Scripted problem cards keep a plain debrief wording.** Free speech may get an agent-worded question.
-- **The Debrief and Review agents run in the demo sandbox only.**
+- **All three agent flags are ON in the live judging deployment.** The Debrief and Review agents still act only in demo
+  sandboxes.
 
 ## How it works
 
@@ -222,9 +224,10 @@ npm run probe:label-schema   # confirms Vertex accepts the label response schema
 
 - **Transcription is a preview model and Vertex capacity is shared.** Many phones starting in the same second can get
   429 or "Server busy". The phone keeps retrying for up to about 4 minutes after End.
-- **The Review agent does not always match the plain-code verdict.** Its agreement with the rule was 5 of 8 core eval
-  cases; where it disagrees or fails its checker, the plain card is shown instead (about 12% of core cases). The
-  suggestion is always the rule's.
+- **The Review agent does not always produce an accepted note.** In our eval (demo project, real Gemini Flash-Lite,
+  18 Oct) the agent's verdict matched the plain-code verdict on every run in 5 of the 8 core cases; across the 40 core
+  runs, 5 fell back to the plain card (12.5%). There were zero rule violations in 50 accepted notes against 10
+  prompt-injection cases. The suggestion is always the rule's.
 - **Demo caps exist** per network, per sandbox and per day, so a very busy day can refuse a new sandbox.
 - **Capture needs the page open, the screen on and the phone plugged in.** There is no native app. A forgotten Start
   looks like a day off.
