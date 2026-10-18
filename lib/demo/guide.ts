@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DEMO_DAYS_TOTAL } from "@/lib/demo/constants";
+import type { DemoNextDayStatus } from "@/lib/demo/contract";
 import { t } from "@/lib/i18n/dict";
 import type { Lang } from "@/lib/i18n/lang";
 
@@ -324,8 +325,8 @@ export const GUIDE: Readonly<Record<GuideKey, GuideCard>> = z
           "Bukti sudah siap. Ketuk Minta usulan dari Bee6 sekali: ia menulis dan memeriksa satu usulan untuk setiap masalah yang buktinya cukup (bisa memakan waktu sampai satu menit).",
         ),
         bi(
-          "Once a proposal exists, the demo days can't be run again.",
-          "Setelah ada usulan, hari demo tidak bisa dijalankan ulang.",
+          "If day 3 is not done yet, run it first: after you ask, Jump to tomorrow stays locked, and days 4 and 5 open only once day 3 is done and the Owner approves a change.",
+          "Jika hari 3 belum selesai, jalankan dulu: setelah Anda meminta, Lompat ke besok terkunci, dan hari 4 dan 5 baru terbuka setelah hari 3 selesai dan Pemilik menyetujui satu perubahan.",
         ),
       ],
     }),
@@ -365,7 +366,7 @@ export const GUIDE: Readonly<Record<GuideKey, GuideCard>> = z
       title: bi("Reviews", "Tinjauan"),
       body: [
         bi(
-          "An approved change gets a review date. For a real before-and-after, run days 4 and 5 as Staff first; then come back here and fast-forward to the review date. Fast-forwarding earlier compares against empty days and fixes that review.",
+          "An approved change gets a review date. For a real before-and-after, run days 4 and 5 as Staff first; then come back here and fast-forward to the review date. Fast-forwarding earlier compares against empty days and locks that review in.",
           "Perubahan yang disetujui mendapat tanggal tinjauan. Untuk perbandingan sebelum dan sesudah yang nyata, jalankan hari 4 dan 5 sebagai Staf dulu; lalu kembali ke sini dan percepat ke tanggal tinjauan. Mempercepat lebih awal membandingkan dengan hari kosong dan mengunci tinjauan itu.",
         ),
       ],
@@ -380,8 +381,8 @@ export const GUIDE: Readonly<Record<GuideKey, GuideCard>> = z
       ],
       body: [
         bi(
-          "Days 4 and 5 are captured. Fast-forward to the review date: Bee6 compares the days before and after the change and suggests a verdict (about 20 seconds).",
-          "Hari 4 dan 5 sudah tertangkap. Percepat ke tanggal tinjauan: Bee6 membandingkan hari sebelum dan sesudah perubahan lalu menyarankan putusan (sekitar 20 detik).",
+          "Days 4 and 5 are captured. Fast-forward to the review date: Bee6 compares the days before and after the change and suggests a verdict.",
+          "Hari 4 dan 5 sudah tertangkap. Percepat ke tanggal tinjauan: Bee6 membandingkan hari sebelum dan sesudah perubahan lalu menyarankan putusan.",
         ),
       ],
     }),
@@ -399,8 +400,8 @@ export const GUIDE: Readonly<Record<GuideKey, GuideCard>> = z
       title: bi("The loop is closed", "Siklus selesai"),
       body: [
         bi(
-          "The loop is closed: the change shipped, was measured on real days, and the verdict is remembered. That is one full cycle of Bee6. Reset the demo from the Owner home to run it again.",
-          "Siklus selesai: perubahan terbit, diukur pada hari nyata, dan putusannya diingat. Itu satu siklus penuh Bee6. Atur ulang demo dari Beranda Pemilik untuk menjalankannya lagi.",
+          "The loop is closed: the change shipped, was reviewed, and the verdict is remembered. That is one full cycle of Bee6. Reset the demo from the Owner home to run it again.",
+          "Siklus selesai: perubahan terbit, ditinjau, dan putusannya diingat. Itu satu siklus penuh Bee6. Atur ulang demo dari Beranda Pemilik untuk menjalankannya lagi.",
         ),
       ],
     }),
@@ -435,8 +436,8 @@ export const GUIDE: Readonly<Record<GuideKey, GuideCard>> = z
       title: bi("All decided", "Semua sudah diputuskan"),
       body: [
         bi(
-          "Each approved change is now its own SOP version. Open SOP to see the improved steps. To see whether a change worked, sign out, pick Staff, and run days 4 and 5 with the new SOP; then open Reviews.",
-          "Setiap perubahan yang disetujui kini menjadi versi SOP-nya sendiri. Buka SOP untuk melihat langkah yang diperbaiki. Untuk melihat apakah perubahan berhasil, keluar, pilih Staf, dan jalankan hari 4 dan 5 dengan SOP baru; lalu buka Tinjauan.",
+          "Each approved change is now its own SOP version. Open SOP to see the improved steps. If you approved a change, you can see whether it worked: sign out, pick Staff, and run days 4 and 5 with the new SOP; then open Reviews.",
+          "Setiap perubahan yang disetujui kini menjadi versi SOP-nya sendiri. Buka SOP untuk melihat langkah yang diperbaiki. Jika Anda menyetujui satu perubahan, Anda bisa melihat apakah perubahan itu berhasil: keluar, pilih Staf, dan jalankan hari 4 dan 5 dengan SOP baru; lalu buka Tinjauan.",
         ),
       ],
     }),
@@ -446,6 +447,8 @@ export const GUIDE: Readonly<Record<GuideKey, GuideCard>> = z
 export interface GuideCardContext {
   /** Set only for `capture_open_session`: true when the open session is past closing time (the page offers End today), false otherwise (Cancel today). */
   openClosingReached?: boolean;
+  /** The phone's `demo_session.next_day.allowed`; read only by the day-3 `debrief_done` card (true means the Owner approved a change). */
+  nextDayAllowed?: boolean;
 }
 
 /**
@@ -497,13 +500,29 @@ export function guideCard(key: GuideKey, day: number | null, ctx: GuideCardConte
       ],
     });
   }
-  if ((day === 3 || day === 5) && key === "debrief_question") {
+  if (day === 3 && key === "debrief_question") {
     return GuideCardSchema.parse({
       ...base,
       body: [
         base.body[0]!,
         base.body[1]!,
         bi("When your questions are answered, sign out and continue as Supervisor.", "Setelah pertanyaan terjawab, keluar dan lanjut sebagai Supervisor."),
+      ],
+    });
+  }
+  if (day === 5 && key === "debrief_question") {
+    return GuideCardSchema.parse({
+      ...base,
+      body: [
+        bi(
+          "Answer what really happened in today's script. Where a question asks why, type a few words.",
+          "Jawab apa yang sebenarnya terjadi dalam naskah hari ini. Jika pertanyaan menanyakan alasan, ketik beberapa kata.",
+        ),
+        base.body[1]!,
+        bi(
+          "When your questions are answered, sign out, continue as Supervisor, and open Reviews.",
+          "Setelah pertanyaan terjawab, keluar, lanjut sebagai Supervisor, dan buka Tinjauan.",
+        ),
       ],
     });
   }
@@ -538,6 +557,17 @@ export function guideCard(key: GuideKey, day: number | null, ctx: GuideCardConte
         bi(
           "Day 2 of 5 is done. Jump to tomorrow to run day 3. After day 3, sign out and continue as Supervisor.",
           "Hari 2 dari 5 selesai. Lompat ke besok untuk menjalankan hari 3. Setelah hari 3, keluar dan lanjut sebagai Supervisor.",
+        ),
+      ],
+    });
+  }
+  if (day === 3 && key === "debrief_done" && ctx.nextDayAllowed === true) {
+    return GuideCardSchema.parse({
+      ...base,
+      body: [
+        bi(
+          "The Owner approved a change. Jump to tomorrow to run day 4 with the new SOP.",
+          "Pemilik sudah menyetujui satu perubahan. Lompat ke besok untuk menjalankan hari 4 dengan SOP baru.",
         ),
       ],
     });
@@ -594,8 +624,6 @@ export function todoDoneCount(key: GuideKey, p: JourneyProgress | null): number 
       return p !== null && p.feasible >= 2 ? 1 : 0;
     case "approvals":
       return p === null ? 0 : Math.min(2, p.owner_decided);
-    case "reviews_ready":
-      return p !== null && p.reviews_open + p.reviews_confirmed > 0 ? 1 : 0;
     default:
       return 0;
   }
@@ -634,26 +662,33 @@ export function currentStage(p: JourneyProgress, ctx: StageContext = { onSupervi
   if (p.owner_decided < p.proposals_with_content) return "owner_approve";
   // Review-agent plan 3.6: every proposal decided. An approved change with no review yet and the after days to run
   // is stage 6 (the 3-day path may stop here: it is optional); otherwise the loop is being closed (or nothing shipped).
+  if (p.approved === 0) return "owner_approve";
   if (p.approved > 0 && p.days_done < DEMO_DAYS_TOTAL && p.reviews_open + p.reviews_confirmed === 0) return "staff_after";
   return "close_loop";
 }
 
 /**
- * The staff phone reports `JourneyProgress` without the web counters (it reads only its own session profile). From
- * day 4 on it can still tell the change was approved: the `approve_first` guard only lets the jump through once a
- * change shipped, so days 4 and 5 imply one approved, decided, feasible proposal. Before day 4 the counters stay 0
- * (stage 4 after day 3, as before the after days existed). Pure; display only.
+ * The staff phone reports `JourneyProgress` without the web counters (it reads only its own session profile), so it
+ * infers them from the day and its `next_day` status. The `approve_first` guard only lets the jump through once a change
+ * shipped, so days 4 and 5, or day 3 with the jump allowed, imply one approved, decided, feasible proposal. A
+ * `review_exists` refusal means a review is waiting (the loop is being closed). Otherwise the counters stay 0 (stage 4
+ * after day 3, as before the after days existed). Pure; display only.
  */
-export function phoneJourney(profile: { day: JourneyProgress["day"]; days_done: number }, visited: boolean): JourneyProgress {
-  const afterDays = profile.day >= 4;
+export function phoneJourney(
+  profile: { day: JourneyProgress["day"]; days_done: number; next_day: Pick<DemoNextDayStatus, "allowed" | "reason"> },
+  visited: boolean,
+): JourneyProgress {
+  const approved = profile.day >= 4 || (profile.day === 3 && profile.next_day.allowed);
+  const reviewed = profile.next_day.reason === "review_exists";
+  const n = approved || reviewed ? 1 : 0;
   return {
     day: profile.day,
     days_done: profile.days_done,
-    proposals_with_content: afterDays ? 1 : 0,
-    feasible: afterDays ? 1 : 0,
-    owner_decided: afterDays ? 1 : 0,
-    approved: afterDays ? 1 : 0,
-    reviews_open: 0,
+    proposals_with_content: n,
+    feasible: n,
+    owner_decided: n,
+    approved: n,
+    reviews_open: reviewed ? 1 : 0,
     reviews_confirmed: 0,
     supervisor_visited: visited,
   };

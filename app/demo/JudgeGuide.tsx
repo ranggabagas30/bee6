@@ -274,7 +274,7 @@ export function JudgeGuide({ config }: JudgeGuideProps) {
   const key = guideKeyFor(pathname, state);
   const day = bridge ? bridge.state.profile.day : null;
   const openClosingReached = bridge?.state.profile.open_session?.closing_reached;
-  const card = guideCard(key, day, { openClosingReached });
+  const card = guideCard(key, day, { openClosingReached, nextDayAllowed: bridge?.state.profile.next_day.allowed });
 
   const journey: JourneyProgress = useMemo(() => {
     // The phone knows only its own day; from day 4 on the approve_first guard implies an approved change (phoneJourney).
@@ -446,7 +446,7 @@ interface GuideCardViewProps {
 }
 
 function GuideCardView({ guideKey, day, openClosingReached, lang, bridge, open, journey, onAllSpoken, onPosition, onFilled }: GuideCardViewProps) {
-  const card = guideCard(guideKey, day, { openClosingReached });
+  const card = guideCard(guideKey, day, { openClosingReached, nextDayAllowed: bridge?.state.profile.next_day.allowed });
   const action = card.action;
   // The sign-in cards print the role's demo email and password; the literals come from lib/demo/credentials, never from copy.
   const creds =

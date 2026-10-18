@@ -237,10 +237,38 @@ describe("STAGES and GUIDE data", () => {
     // the rest of the card is the base card, so day 4 still says when Jump to tomorrow appears
     expect(day4.body.slice(1)).toEqual(GUIDE.debrief_question.body.slice(1));
     const day5 = guideCard("debrief_question", 5);
-    expect(day5.body[0]).toEqual(GUIDE.debrief_question.body[0]);
+    // day 5 has no phone-order question, so the first line is the neutral day-1 line, never the base phone-order line
+    expect(day5.body[0]).toEqual(guideCard("debrief_question", 1).body[0]);
+    expect(day5.body[0]!.en).not.toMatch(/phone/i);
     expect(day5.body[1]).toEqual(GUIDE.debrief_question.body[1]);
-    expect(day5.body[2]).toEqual(guideCard("debrief_question", 3).body[2]);
-    expect(day5.body[2]!.en).toBe("When your questions are answered, sign out and continue as Supervisor.");
+    expect(day5.body[2]!.en).toBe("When your questions are answered, sign out, continue as Supervisor, and open Reviews.");
+    expect(day5.body[2]!.id).not.toBe(day5.body[2]!.en);
+    // day 3 keeps the plain hand-over line
+    expect(guideCard("debrief_question", 3).body[2]!.en).toBe("When your questions are answered, sign out and continue as Supervisor.");
+  });
+
+  it("the day-3 done card reads the phone's next_day.allowed: once the Owner approved, it says Jump to tomorrow for day 4 and keeps the handle and action; false or unset keeps the hand-over copy", () => {
+    const approved = guideCard("debrief_done", 3, { nextDayAllowed: true });
+    expect(approved.body.map((b) => b.en)).toEqual(["The Owner approved a change. Jump to tomorrow to run day 4 with the new SOP."]);
+    expect(approved.body[0]!.id).toBe("Pemilik sudah menyetujui satu perubahan. Lompat ke besok untuk menjalankan hari 4 dengan SOP baru.");
+    expect(approved.handle).toEqual(GUIDE.debrief_done.handle);
+    expect(approved.action).toEqual({ kind: "jump_tomorrow" });
+    for (const ctx of [{ nextDayAllowed: false }, {}] as const) {
+      const waiting = guideCard("debrief_done", 3, ctx);
+      expect(waiting.body[0]!.en).toBe("That was day 3 of 5. Next, sign out and continue as Supervisor. Days 4 and 5 unlock after the Owner approves a change.");
+      expect(waiting.handle?.en).toBe("Sign out and continue as Supervisor");
+    }
+    // the flag is read only by the day-3 done card
+    expect(guideCard("debrief_done", 2, { nextDayAllowed: true })).toEqual(guideCard("debrief_done", 2));
+  });
+
+  it("proposals_ready says the days 4 and 5 unlock only after day 3 is done and the Owner approves a change", () => {
+    expect(GUIDE.proposals_ready.body[1]!.en).toBe(
+      "If day 3 is not done yet, run it first: after you ask, Jump to tomorrow stays locked, and days 4 and 5 open only once day 3 is done and the Owner approves a change.",
+    );
+    expect(GUIDE.proposals_ready.body[1]!.id).toBe(
+      "Jika hari 3 belum selesai, jalankan dulu: setelah Anda meminta, Lompat ke besok terkunci, dan hari 4 dan 5 baru terbuka setelah hari 3 selesai dan Pemilik menyetujui satu perubahan.",
+    );
   });
 
   it("the open-session card matches the page: End today when closing is reached, Cancel today otherwise (never both)", () => {
@@ -369,10 +397,10 @@ describe("STAGES and GUIDE data", () => {
 
   it("approvals_done offers the after days, and the Reviews base card explains the fast-forward order (plan 3.6)", () => {
     expect(GUIDE.approvals_done.body[0]!.en).toBe(
-      "Each approved change is now its own SOP version. Open SOP to see the improved steps. To see whether a change worked, sign out, pick Staff, and run days 4 and 5 with the new SOP; then open Reviews.",
+      "Each approved change is now its own SOP version. Open SOP to see the improved steps. If you approved a change, you can see whether it worked: sign out, pick Staff, and run days 4 and 5 with the new SOP; then open Reviews.",
     );
     expect(GUIDE.reviews.body[0]!.en).toBe(
-      "An approved change gets a review date. For a real before-and-after, run days 4 and 5 as Staff first; then come back here and fast-forward to the review date. Fast-forwarding earlier compares against empty days and fixes that review.",
+      "An approved change gets a review date. For a real before-and-after, run days 4 and 5 as Staff first; then come back here and fast-forward to the review date. Fast-forwarding earlier compares against empty days and locks that review in.",
     );
   });
 
@@ -384,14 +412,14 @@ describe("STAGES and GUIDE data", () => {
       "Give the Supervisor verdict, then confirm as Owner",
     ]);
     expect(ready.body.map((b) => b.en)).toEqual([
-      "Days 4 and 5 are captured. Fast-forward to the review date: Bee6 compares the days before and after the change and suggests a verdict (about 20 seconds).",
+      "Days 4 and 5 are captured. Fast-forward to the review date: Bee6 compares the days before and after the change and suggests a verdict.",
     ]);
     expect(GUIDE.reviews_verdict.body.map((b) => b.en)).toEqual([
       "Read the before and after counts and Bee6's suggestion, then give your verdict. The Supervisor decides first; the Owner confirms, and the result is remembered.",
     ]);
     expect(GUIDE.reviews_verdict.footnote?.en).toBe("A second change? Fast-forward again.");
     expect(GUIDE.reviews_done.body.map((b) => b.en)).toEqual([
-      "The loop is closed: the change shipped, was measured on real days, and the verdict is remembered. That is one full cycle of Bee6. Reset the demo from the Owner home to run it again.",
+      "The loop is closed: the change shipped, was reviewed, and the verdict is remembered. That is one full cycle of Bee6. Reset the demo from the Owner home to run it again.",
     ]);
     for (const k of ["reviews_ready", "reviews_verdict", "reviews_done"] as const) expect(GUIDE[k].action, k).toBeNull();
   });
@@ -422,27 +450,49 @@ describe("todoDoneCount (R-25 T6: which Do this now rows are ticked)", () => {
     expect(todoDoneCount("day", progress())).toBe(0);
   });
 
-  it("reviews_ready: the first row is ticked once a review exists (a second change still to review), none before", () => {
+  it("reviews_ready: no row is ticked, even when a review exists (the second change starts again at the first row)", () => {
     expect(todoDoneCount("reviews_ready", null)).toBe(0);
     expect(todoDoneCount("reviews_ready", progress({ approved: 2, days_done: 5 }))).toBe(0);
-    expect(todoDoneCount("reviews_ready", progress({ approved: 2, days_done: 5, reviews_confirmed: 1 }))).toBe(1);
-    expect(todoDoneCount("reviews_ready", progress({ approved: 2, days_done: 5, reviews_open: 1 }))).toBe(1);
+    expect(todoDoneCount("reviews_ready", progress({ approved: 2, days_done: 5, reviews_confirmed: 1 }))).toBe(0);
+    expect(todoDoneCount("reviews_ready", progress({ approved: 2, days_done: 5, reviews_open: 1 }))).toBe(0);
   });
 });
 
-describe("phoneJourney (the phone knows only the day it is on)", () => {
+describe("phoneJourney (the phone knows only the day it is on and its next_day status)", () => {
+  const no = { allowed: false, reason: "day_not_ended" } as const;
+  const approveFirst = { allowed: false, reason: "approve_first" } as const;
+  const yes = { allowed: true, reason: null } as const;
+  const reviewExists = { allowed: false, reason: "review_exists" } as const;
+
   it("before day 4 the phone reports no web counters: stages are the same as before the after days existed", () => {
-    expect(phoneJourney({ day: 1, days_done: 0 }, false)).toEqual(progress({ day: 1, days_done: 0 }));
-    expect(currentStage(phoneJourney({ day: 3, days_done: 3 }, true))).toBe("supervisor_decide");
+    expect(phoneJourney({ day: 1, days_done: 0, next_day: no }, false)).toEqual(progress({ day: 1, days_done: 0 }));
+    expect(currentStage(phoneJourney({ day: 3, days_done: 3, next_day: approveFirst }, true))).toBe("supervisor_decide");
   });
 
   it("on day 4 or 5 the judge has passed the approve_first guard, so the phone reports the change as approved: stage 6, then 7 after day 5", () => {
-    expect(phoneJourney({ day: 4, days_done: 3 }, true)).toEqual(
+    expect(phoneJourney({ day: 4, days_done: 3, next_day: no }, true)).toEqual(
       progress({ day: 4, days_done: 3, proposals_with_content: 1, feasible: 1, owner_decided: 1, approved: 1, supervisor_visited: true }),
     );
-    expect(currentStage(phoneJourney({ day: 4, days_done: 3 }, true))).toBe("staff_after");
-    expect(currentStage(phoneJourney({ day: 5, days_done: 4 }, true))).toBe("staff_after");
-    expect(currentStage(phoneJourney({ day: 5, days_done: 5 }, true))).toBe("close_loop");
+    expect(currentStage(phoneJourney({ day: 4, days_done: 3, next_day: no }, true))).toBe("staff_after");
+    expect(currentStage(phoneJourney({ day: 5, days_done: 4, next_day: no }, true))).toBe("staff_after");
+    expect(currentStage(phoneJourney({ day: 5, days_done: 5, next_day: { allowed: false, reason: "max_days" } }, true))).toBe("close_loop");
+  });
+
+  it("day 3 with the jump allowed means the Owner approved a change: stage 6 (staff_after); approve_first keeps stage 4", () => {
+    expect(currentStage(phoneJourney({ day: 3, days_done: 3, next_day: yes }, true))).toBe("staff_after");
+    expect(phoneJourney({ day: 3, days_done: 3, next_day: yes }, true)).toEqual(
+      progress({ day: 3, days_done: 3, proposals_with_content: 1, feasible: 1, owner_decided: 1, approved: 1, supervisor_visited: true }),
+    );
+    expect(currentStage(phoneJourney({ day: 3, days_done: 3, next_day: approveFirst }, true))).toBe("supervisor_decide");
+  });
+
+  it("a review that exists closes the loop (stage 7) on day 3 or day 4", () => {
+    for (const day of [3, 4] as const) {
+      const p = phoneJourney({ day, days_done: day, next_day: reviewExists }, true);
+      expect(p.reviews_open, `day ${day}`).toBe(1);
+      expect(p.approved, `day ${day}`).toBe(1);
+      expect(currentStage(p), `day ${day}`).toBe("close_loop");
+    }
   });
 });
 
@@ -461,11 +511,11 @@ describe("currentStage (exact rule of plan 7.1)", () => {
     // review-agent plan 3.6: the after stages. Everything decided and one change approved opens the after days...
     [{ days_done: 3, proposals_with_content: 2, feasible: 2, owner_decided: 2, approved: 1 }, "staff_after"],
     [{ days_done: 4, proposals_with_content: 2, feasible: 2, owner_decided: 2, approved: 2 }, "staff_after"],
-    // ...day 5 done, a review waiting or confirmed, or nothing approved (the owner rejected all) closes the loop.
+    // ...day 5 done, or a review waiting or confirmed, closes the loop. Nothing approved yet (the Owner has not approved a change, e.g. rejected all) stays at Owner · approve.
     [{ days_done: 5, proposals_with_content: 2, feasible: 2, owner_decided: 2, approved: 2 }, "close_loop"],
     [{ days_done: 3, proposals_with_content: 2, feasible: 2, owner_decided: 2, approved: 2, reviews_open: 1 }, "close_loop"],
     [{ days_done: 3, proposals_with_content: 2, feasible: 2, owner_decided: 2, approved: 2, reviews_confirmed: 1 }, "close_loop"],
-    [{ days_done: 3, proposals_with_content: 1, feasible: 1, owner_decided: 1, approved: 0 }, "close_loop"],
+    [{ days_done: 3, proposals_with_content: 1, feasible: 1, owner_decided: 1, approved: 0 }, "owner_approve"],
   ])("%j -> %s", (over, stage) => {
     expect(currentStage(progress(over))).toBe(stage);
   });

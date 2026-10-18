@@ -1609,6 +1609,19 @@ describe("after days: stages 6-7, the phone cards and the Reviews cards", () => 
     expect(postDemoNextDay).not.toHaveBeenCalled();
   });
 
+  it("day 3 after End once the Owner approved (next_day allowed): STAGE 6 OF 7, the approved line, a Jump to tomorrow button that posts expected_day 3", async () => {
+    pathname = "/capture";
+    act(() => publishCaptureBridge(debriefAt(3, 3, { allowed: true, reason: null })));
+    renderGuide();
+    expect(pill().textContent).toContain("STAGE 6 OF 7");
+    openGuide();
+    expect(screen.getByText("The Owner approved a change. Jump to tomorrow to run day 4 with the new SOP.")).toBeTruthy();
+    expect(screen.queryByText(/Days 4 and 5 unlock after the Owner approves/)).toBeNull();
+    postDemoNextDay.mockResolvedValueOnce({ ok: true, data: { day: 4 } });
+    fireEvent.click(screen.getByRole("button", { name: "Jump to tomorrow" }));
+    await waitFor(() => expect(postDemoNextDay).toHaveBeenCalledWith(expect.anything(), { expected_day: 3, confirm_unanswered: false }));
+  });
+
   it("a refused jump from the route shows its own line for approve_first and review_exists (never server text)", async () => {
     pathname = "/capture";
     for (const [code, line] of [
@@ -1652,15 +1665,17 @@ describe("after days: stages 6-7, the phone cards and the Reviews cards", () => 
     expect(postDemoNextDay).not.toHaveBeenCalled();
   });
 
-  it("the debrief questions card on day 4 names the read-back; on day 5 it hands over like day 3", () => {
+  it("the debrief questions card on day 4 names the read-back; on day 5 it is neutral and sends the judge to Reviews", () => {
     pathname = "/capture";
     act(() => publishCaptureBridge(debriefAt(4, 3, { allowed: true, reason: null }, "debrief_question")));
     renderGuide();
     openGuide();
     expect(screen.getByText(/The phone order did happen and was read back, so answer Yes/)).toBeTruthy();
     act(() => publishCaptureBridge(debriefAt(5, 4, { allowed: true, reason: null }, "debrief_question")));
-    expect(screen.getByText("When your questions are answered, sign out and continue as Supervisor.")).toBeTruthy();
+    expect(screen.getByText("When your questions are answered, sign out, continue as Supervisor, and open Reviews.")).toBeTruthy();
+    expect(screen.getByText("Answer what really happened in today's script. Where a question asks why, type a few words.")).toBeTruthy();
     expect(screen.queryByText(/read back, so answer Yes/)).toBeNull();
+    expect(screen.queryByText(/phone order/)).toBeNull();
   });
 
   it("the phone shows STAGE 6 OF 7 (Staff · days 4-5) while days 4 and 5 run, and STAGE 7 OF 7 once day 5 is done", () => {
@@ -1715,7 +1730,7 @@ describe("after days: stages 6-7, the phone cards and the Reviews cards", () => 
     }
   });
 
-  it("reviews_ready: three do-now rows (the first is current), the second change keeps the first row ticked; the verdict card carries the second-change footnote", async () => {
+  it("reviews_ready: three do-now rows (the first is current), the second change starts again at the first row; the verdict card carries the second-change footnote", async () => {
     pathname = "/reviews";
     seedWeb("owner");
     vi.mocked(fetch).mockImplementation(async () => progressOf({ days_done: 5 }));
@@ -1735,8 +1750,8 @@ describe("after days: stages 6-7, the phone cards and the Reviews cards", () => 
     await waitFor(() => expect(pill().textContent).toContain("Fast-forward to the review date"));
     openGuide();
     const again = within(screen.getByRole("list", { name: "Do this now" })).getAllByRole("listitem");
-    expect(again[0]!.textContent).toContain("done");
-    expect(again[1]!.getAttribute("aria-current")).toBe("step");
+    expect(again[0]!.getAttribute("aria-current")).toBe("step");
+    expect(again[0]!.textContent).not.toContain("done");
   });
 
   it("Bahasa: the stage names, the Reviews cards and the day-5 handle render in Indonesian", async () => {
