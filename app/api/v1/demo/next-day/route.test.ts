@@ -112,7 +112,7 @@ describe("POST /api/v1/demo/next-day on demo", () => {
     expect((await POST(req({ expected_day: 1, confirm_unanswered: true }, { authorization: "Bearer t", "x-device-id": JDG, "content-type": "text/plain" }))).status).toBe(415);
     expect((await POST(req("{nope", undefined, true))).status).toBe(400);
     expect((await POST(req(JSON.stringify({ expected_day: 1, confirm_unanswered: true, pad: "x".repeat(1100) }), undefined, true))).status).toBe(413);
-    for (const bad of [{}, { expected_day: 3, confirm_unanswered: true }, { expected_day: 1 }, { expected_day: 1, confirm_unanswered: true, extra: 1 }, { expected_day: "1", confirm_unanswered: true }]) {
+    for (const bad of [{}, { expected_day: 5, confirm_unanswered: true }, { expected_day: 1 }, { expected_day: 1, confirm_unanswered: true, extra: 1 }, { expected_day: "1", confirm_unanswered: true }]) {
       const res = await POST(req(bad));
       expect(res.status, JSON.stringify(bad)).toBe(422);
       expect(((await res.json()) as { error: { code: string } }).error.code).toBe("VALIDATION_ERROR");
@@ -130,6 +130,9 @@ describe("POST /api/v1/demo/next-day on demo", () => {
       ["proposal_exists", fakeNextDayStore({ outlet: outlet(), last_ended: endedToday, docs: { [COLLECTIONS.proposals]: { p: { outlet_id: SBX, content: {} } } } }), { expected_day: 1, confirm_unanswered: true }],
       ["shift_incomplete", fakeNextDayStore({ outlet: outlet({ sandbox: { ...outlet().sandbox!, shift_started_at_ms: T0 - 600_000 } }), last_ended: endedToday }), { expected_day: 1, confirm_unanswered: true }],
       ["busy", fakeNextDayStore({ outlet: outlet(), last_ended: endedToday, proposal_lock_expires_at_ms: T0 + 1 }), { expected_day: 1, confirm_unanswered: true }],
+      // The after days (review-agent plan D3/D4): day 3 -> 4 needs an approved change and no review yet.
+      ["approve_first", fakeNextDayStore({ outlet: outlet({ sandbox: { ...outlet().sandbox!, next_day_count: 2 } }), last_ended: endedToday, docs: { [COLLECTIONS.proposals]: { p: { outlet_id: SBX, status: "awaiting_owner", content: {} } } } }), { expected_day: 3, confirm_unanswered: true }],
+      ["review_exists", fakeNextDayStore({ outlet: outlet({ sandbox: { ...outlet().sandbox!, next_day_count: 2 } }), last_ended: endedToday, docs: { [COLLECTIONS.sopVersions]: { v2: { outlet_id: SBX, source: "proposal" } }, [COLLECTIONS.reviews]: { r: { outlet_id: SBX, status: "awaiting_supervisor" } } } }), { expected_day: 3, confirm_unanswered: true }],
     ];
     for (const [code, f, body] of cases) {
       wire(f);
@@ -144,16 +147,26 @@ describe("POST /api/v1/demo/next-day on demo", () => {
       expect(JSON.stringify(json)).not.toContain(JDG);
       seen.add(code);
     }
-    // max_days is unreachable through the 1 | 2 contract (day 3 taps are stale 200s, tested below); the copy key stays as a defence.
+    // max_days is unreachable through the 1..4 contract (day 5 taps are stale 200s, tested below); the copy key stays as a defence.
     expect([...seen].sort()).toEqual(NEXT_DAY_REFUSALS.filter((c) => c !== "max_days").sort());
   });
 
-  it("on day 3 a tap (expected_day 2, e.g. a retry after a lost 200) is 200 {day: 3}, not max_days, and writes nothing", async () => {
+  it("on day 3 a tap (expected_day 2, e.g. a retry after a lost 200) is 200 {day: 3}, not a refusal, and writes nothing", async () => {
     const f = fakeNextDayStore({ outlet: outlet({ sandbox: { ...outlet().sandbox!, next_day_count: 2 } }), last_ended: endedToday });
     wire(f);
     const res = await POST(req({ expected_day: 2, confirm_unanswered: true }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ data: { day: 3 } });
+    expect(f.state.written).toEqual([]);
+    expect(f.calls).not.toContain("takeShiftMarker");
+  });
+
+  it("on day 5 a tap (expected_day 4, a retry after a lost 200) is 200 {day: 5}, not max_days, and writes nothing", async () => {
+    const f = fakeNextDayStore({ outlet: outlet({ sandbox: { ...outlet().sandbox!, next_day_count: 4 } }), last_ended: endedToday });
+    wire(f);
+    const res = await POST(req({ expected_day: 4, confirm_unanswered: true }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: { day: 5 } });
     expect(f.state.written).toEqual([]);
     expect(f.calls).not.toContain("takeShiftMarker");
   });
@@ -207,7 +220,7 @@ describe("POST /api/v1/demo/next-day on demo", () => {
   it("the cap is checked after auth and body validation: a bad body at the cap is still 422 and spends nothing", async () => {
     const f = fakeNextDayStore({ outlet: outlet(), last_ended: endedToday, counters: { [`next_day_sandbox:${SBX}`]: NEXT_DAY_PER_SANDBOX } });
     wire(f);
-    expect((await POST(req({ expected_day: 3, confirm_unanswered: true }))).status).toBe(422);
+    expect((await POST(req({ expected_day: 5, confirm_unanswered: true }))).status).toBe(422);
     expect(f.calls).toEqual([]);
   });
 });

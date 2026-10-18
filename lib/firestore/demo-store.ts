@@ -26,7 +26,7 @@ import {
   WRITE_BATCH_MAX,
 } from "@/lib/demo/constants";
 import { TemplateTooLargeError, type DemoStore } from "@/lib/demo/store-types";
-import { NEXT_DAY_SHIFT_COLLECTIONS, type NextDayGuardState, type NextDayStore, type ShiftDoc } from "@/lib/demo/next-day";
+import { NEXT_DAY_SHIFT_COLLECTIONS, type JumpBlockers, type NextDayGuardState, type NextDayStore, type ShiftDoc } from "@/lib/demo/next-day";
 import { computePreparing } from "@/lib/debrief/preparing";
 import { firestoreDebriefStore } from "@/lib/firestore/debrief-store";
 import { firestoreTickStore } from "@/lib/firestore/tick-store";
@@ -376,10 +376,26 @@ export function firestoreNextDayStore(db: Firestore = adminDb()): NextDayStore {
     });
   }
 
-  /** G6: any proposal of the outlet with content, whatever its status (also re-checked by `runNextDay` after the marker). */
-  async function hasProposalWithContent(outletId: string): Promise<boolean> {
-    const snap = await db.collection(COLLECTIONS.proposals).where("outlet_id", "==", outletId).get();
-    return snap.docs.some((d) => (d.data() as { content?: unknown } | undefined)?.content != null);
+  /**
+   * The four facts of `proposalGuard` (also re-read by `runNextDay` after the marker). Three field-masked reads of
+   * this outlet only: proposals (`content`, `status`), sop_versions (`source`), reviews (one doc is enough).
+   */
+  async function readJumpBlockers(outletId: string): Promise<JumpBlockers> {
+    const [proposals, versions, reviews] = await Promise.all([
+      db.collection(COLLECTIONS.proposals).where("outlet_id", "==", outletId).select("content", "status").get(),
+      db.collection(COLLECTIONS.sopVersions).where("outlet_id", "==", outletId).select("source").get(),
+      db.collection(COLLECTIONS.reviews).where("outlet_id", "==", outletId).select("status").limit(1).get(),
+    ]);
+    let proposal_with_content = false;
+    let open_proposal_with_content = false;
+    for (const d of proposals.docs) {
+      const p = (d.data() ?? {}) as { content?: unknown; status?: unknown };
+      if (p.content == null) continue;
+      proposal_with_content = true;
+      if (p.status === "awaiting_supervisor" || p.status === "awaiting_owner") open_proposal_with_content = true;
+    }
+    const shipped_change_count = versions.docs.filter((d) => (d.data() as { source?: unknown } | undefined)?.source === "proposal").length;
+    return { proposal_with_content, open_proposal_with_content, shipped_change_count, review_count: reviews.size };
   }
 
   const counters = firestoreDemoStore(db);
@@ -400,14 +416,14 @@ export function firestoreNextDayStore(db: Firestore = adminDb()): NextDayStore {
     bumpCounter: (...args) => counters.bumpCounter(...args),
     readCounter: (counterId) => counters.readCounter(counterId),
 
-    proposalWithContent: hasProposalWithContent,
+    readJumpBlockers,
 
     async readGuardState(outletId, deviceId, nowMs): Promise<NextDayGuardState> {
-      const [deviceSnap, sessionSnap, questionSnap, proposal_with_content, lockSnap] = await Promise.all([
+      const [deviceSnap, sessionSnap, questionSnap, jumpBlockers, lockSnap] = await Promise.all([
         db.collection(COLLECTIONS.devices).doc(deviceDocId(outletId, deviceId)).get(),
         forDevice(COLLECTIONS.captureSessions, outletId, deviceId).get(),
         forDevice(COLLECTIONS.questions, outletId, deviceId).where("status", "==", "open").get(),
-        hasProposalWithContent(outletId),
+        readJumpBlockers(outletId),
         db.collection(COLLECTIONS.proposalLocks).doc(outletId).get(),
       ]);
 
@@ -457,7 +473,7 @@ export function firestoreNextDayStore(db: Firestore = adminDb()): NextDayStore {
         open_session,
         last_ended,
         pending_unlabelled_lines,
-        proposal_with_content,
+        ...jumpBlockers,
         proposal_lock_live,
         open_questions: questionSnap.size,
       };
