@@ -134,6 +134,11 @@ export const proposalsID = {
   "C-propg-wrote-partial": "Bee6 menulis {n} dari {total} usulan, tetapi sisanya belum bisa ditulis sekarang. Ketuk Minta usulan lain untuk mencoba lagi.", // PROVISIONAL
   "C-propg-cap": "Demo ini sudah mencapai batas usulan, jadi Bee6 tidak bisa menulis usulan lagi sekarang.", // PROVISIONAL
   "C-propg-wrote-cap": "Bee6 menulis {n} dari {total} usulan. Batas usulan demo tercapai, jadi berhenti di situ.", // PROVISIONAL
+  // ── CHK-1: "Checked by Bee6" on the proposal detail and the owner card. Counts only. Append-only. ──
+  "C-propd-checked": "DIPERIKSA BEE6 · {passed} DARI {total} PEMERIKSAAN", // PROVISIONAL
+  "C-propd-checked-code": "Setiap pemeriksaan adalah aturan tetap dalam kode, bukan pendapat model.", // PROVISIONAL
+  "C-propd-checked-v4": "Agen membaca {sections} bagian SOP dan {facts} fakta sebelum menulis.", // PROVISIONAL
+  "C-propd-checked-rev": "Direvisi {n} kali sampai semua pemeriksaan lolos.", // PROVISIONAL
 } as const satisfies Record<string, string>;
 
 export const proposalsEN: Record<keyof typeof proposalsID, string> = {
@@ -247,4 +252,8 @@ export const proposalsEN: Record<keyof typeof proposalsID, string> = {
   "C-propg-wrote-partial": "Bee6 wrote {n} of {total} proposals, but the rest could not be written right now. Tap Ask for another proposal to try again.",
   "C-propg-cap": "This demo has reached its proposal limit, so Bee6 can't write more proposals now.",
   "C-propg-wrote-cap": "Bee6 wrote {n} of {total} proposals. The demo's proposal limit was reached, so it stopped there.",
+  "C-propd-checked": "CHECKED BY BEE6 · {passed} OF {total} CHECKS",
+  "C-propd-checked-code": "Every check is a fixed rule in code, not the model's opinion.",
+  "C-propd-checked-v4": "The agent read {sections} SOP section(s) and {facts} fact(s) before writing.",
+  "C-propd-checked-rev": "Revised {n} time(s) until every check passed.",
 };
