@@ -60,6 +60,7 @@ const REVIEW_KEYS = [
   "C-rev-ff-busy",
   "C-rev-ff-estimate",
   "C-rev-ff-longer",
+  "C-rev-agent-missing",
   "C-rev-agent-kick",
   "C-rev-agent-note",
   "C-rev-agent-cv-short_window",
@@ -86,6 +87,17 @@ describe("R-11 review copy keys", () => {
     expect(ID["C-rev-window-after-none" as DictKey]).toBe("Sesudah ({from} s.d. {to}): tidak ada hari terekam");
     expect("C-rev-rate-none" in EN).toBe(false);
     expect("C-rev-rate-none" in ID).toBe(false);
+  });
+
+  it("tells the judge about the cap and about a missing explanation, with the cap taken from {max}", () => {
+    expect(EN["C-rev-ff-longer" as DictKey]).toBe(
+      "Taking longer than usual. If it takes more than about {max} seconds, the result appears without the explanation.",
+    );
+    expect(ID["C-rev-ff-longer" as DictKey]).toContain("{max}");
+    expect(EN["C-rev-agent-missing" as DictKey]).toBe(
+      "Bee6 could not write an explanation this time (it took too long). The verdict and the numbers above are not affected.",
+    );
+    expect(ID["C-rev-agent-missing" as DictKey]).not.toBe(EN["C-rev-agent-missing" as DictKey]);
   });
 
   it("uses the generic overlap notice, with no claim about which days", () => {

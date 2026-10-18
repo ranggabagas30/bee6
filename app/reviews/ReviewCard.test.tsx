@@ -458,3 +458,44 @@ describe("ReviewCard: Bee6 explains panel (ReviewAgent, plan 5.12)", () => {
     }
   });
 });
+
+describe("ReviewCard: explanation-missing notice (ReviewAgent, UI must inform the judge)", () => {
+  const EN_COPY =
+    "Bee6 could not write an explanation this time (it took too long). The verdict and the numbers above are not affected.";
+
+  it("shows nothing by default (today's card)", () => {
+    render(<ReviewCard review={reviewView()} lang="en" />);
+    expect(screen.queryByText(/could not write an explanation/)).toBeNull();
+  });
+
+  it("shows the fixed notice as a status, after the suggestion, when asked and the review has no agent block", () => {
+    render(<ReviewCard review={reviewView()} lang="en" agentMissing />);
+    const notice = screen.getByText(EN_COPY);
+    expect(notice.getAttribute("role")).toBe("status");
+    expect(document.getElementById(suggestionDomId(2))!.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("never shows it next to a real explanation", () => {
+    render(<ReviewCard review={reviewView({ agent: { narrative_en: NARRATIVE, caveats: [] } })} lang="en" agentMissing />);
+    expect(screen.queryByText(/could not write an explanation/)).toBeNull();
+    screen.getByText("Bee6 explains");
+  });
+
+  it("is fixed Bahasa copy on a Bahasa card", () => {
+    render(<ReviewCard review={reviewView()} lang="id" agentMissing />);
+    screen.getByText(t("id", "C-rev-agent-missing"));
+    expect(t("id", "C-rev-agent-missing")).not.toBe(EN_COPY);
+  });
+
+  it("has no axe violations with the notice, in English and Bahasa", async () => {
+    for (const lang of ["en", "id"] as const) {
+      const { container } = render(
+        <main>
+          <ReviewCard review={reviewView()} lang={lang} agentMissing />
+        </main>,
+      );
+      expect(await axeViolations(container)).toEqual([]);
+      cleanup();
+    }
+  });
+});
