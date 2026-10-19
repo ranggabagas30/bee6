@@ -300,7 +300,7 @@ sequenceDiagram
     API->>LBL: indexed redacted lines
     LBL-->>API: threads, category, confidence, evidence refs
     API->>API: evidence gate (plain code) → fact or question
-    API->>DB: threads (facts) + questions; non-work lines deleted
+    API->>DB: threads (facts) + questions and non-work lines deleted
     Staff->>API: debrief answers: yes / no + reason, reason scrubbed + redacted (device id, no name)
     API->>API: Proposal agent, checked by plain code (pgate-v1, check_proposal)
     API-->>Sup: proposal with dated evidence
@@ -599,7 +599,7 @@ flowchart TD
     B3 -->|no| B2
     B3 -->|yes| B4["Segment of 15 s or less, compressed"]
     B4 --> B5{"Queue below its cap?"}
-    B5 -->|no| B7["Cap: oldest dropped (P1/P2) or new refused (P3). Headline stays green; the lost line shows on the upload line"]
+    B5 -->|no| B7["Cap: oldest dropped (P1/P2) or new refused (P3). Headline stays green. The lost line shows on the upload line"]
     B7 --> B8
     B5 -->|yes| B6["Kept in the on-device queue"]
     B6 --> B8["Headline green: Listening"]
@@ -656,7 +656,7 @@ flowchart TD
     D3 -->|"Back, or 15 s with no tap"| D4["Nothing changes, capture continues"]
     D3 -->|"Ya, hapus sesi"| D5["Phone: mic off, current segment dropped, not flushed"]
     D5 --> D6["Phone: purge this session's queued audio, abort its upload"]
-    D6 --> D7["Headline: Session cancelled. No Mulai again for this business day; next business day from 01:00"]
+    D6 --> D7["Headline: Session cancelled. No Mulai again for this business day, next business day from 01:00"]
     D6 --> D8["Discard request to the server, retried until confirmed"]
     D8 --> D9{"Session already ended?"}
     D9 -->|yes| D10["Refused, nothing deleted"]
@@ -735,23 +735,23 @@ flowchart TD
     G4 -->|no| G5["Nothing to answer"]
     G4 -->|yes| G6["One question per screen, about the step, never the person"]
     G6 --> G7{"Around HH:MM there was this step. Right? Yes, No or Skip"}
-    G7 -->|Skip| G7d["Nothing sent or stored; question stays open"]
+    G7 -->|Skip| G7d["Nothing sent or stored. Question stays open"]
     G7 -->|"Yes or No"| G7e["Type the required reason (after Yes: done per the SOP? if not, why?)"]
     G7e --> G7a{"Reason empty, or longer than 500 characters?"}
     G7a -->|yes| G7b["Not an answer: nothing stored, question stays open"]
-    G7a -->|no| G7c["Scrub staff names, then redact personal details; if redaction fails, nothing stored and the phone retries"]
+    G7a -->|no| G7c["Scrub staff names, then redact personal details. If redaction fails, nothing stored and the phone retries"]
     G7c --> G8["Stored: yes or no, the redacted reason, device id and time only, no role, never a name"]
     G8 --> G9{"More questions, up to five?"}
     G9 -->|yes| G6
-    G9 -->|no| G10["Debrief done; the 1-hour clock still runs and Mulai waits for it"]
+    G9 -->|no| G10["Debrief done. The 1-hour clock still runs and Mulai waits for it"]
     G7d --> G9
     G8 --> G18{"Yes or No?"}
-    G18 -->|No| G19["Gate rule staff_rejected: thread not confirmed, never used as evidence; question closed as rejected; reason shown to the supervisor as context only"]
+    G18 -->|No| G19["Gate rule staff_rejected: thread not confirmed, never used as evidence. Question closed as rejected. Reason shown to the supervisor as context only"]
     G18 -->|Yes| G11{"About a complaint or incident?"}
     G11 -->|yes| G12["Counts only after a supervisor confirms"]
     G11 -->|no| G13["Gate rule staff_confirmed may confirm the thread's existing label (reason never read)"]
     G14["Question left unanswered or refused"] --> G15["Expires as unverified at this device's debrief end, never becomes a fact"]
-    G16["Insight run"] --> G17["Merges every device's facts and answers; one episode heard by two devices counts once"]
+    G16["Insight run"] --> G17["Merges every device's facts and answers. One episode heard by two devices counts once"]
 ```
 
 ### 7.9 Insight run
