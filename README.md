@@ -22,22 +22,23 @@ It is built for a real shop, Proofed in Indonesia. The demo uses a made-up baker
 
 ## Try it in about 20 minutes
 
-Each visitor gets a private copy of the demo bakery. It lasts about 2 hours. A guide panel opens by itself and shows
-the next step, the demo code and the demo sign-in details. English is the default; switch to Bahasa Indonesia with the
-EN / ID button. Use a phone or laptop with a microphone.
+### **IMPORTANT: Open the demo in an Incognito (private) window.**
 
-**Before you start:** Open the demo in a new Incognito or private window (each visitor's demo lives in that browser session). When the browser asks, allow the microphone. Keep the page and browser tab open the whole time. To start over, close the window and open a new private one, or clear the site's cookies and data.
+**A normal window can show an old demo. To start over, close the window and open a new private one.**
 
-1. Open the live link and choose **Staff**. Enter the demo code the guide shows. You are now a shop worker.
-2. Tap **Start**. The guide shows 5 cards. Read each card aloud, then tap **I have spoken this**.
-3. Tap **Jump to closing time**, then **End today**. Wait for the questions, then answer them (Yes, No or Skip).
-4. Back as Staff, tap **Jump to tomorrow** and play day 2 and day 3 the same way. (You may sign out and look around as
-   **Supervisor** first.) Do not ask for suggestions before day 3 is done.
-5. As Supervisor, open **Proposals** and tap **Ask Bee6 for proposals**. Read the evidence and mark one **Feasible**.
-6. Sign out and choose **Owner**. Open Approvals and tap **Approve**. Open **SOP** to see the new version.
-7. Optional, about 10 more minutes: as Staff, play day 4 and day 5 with the new SOP.
-8. As Supervisor, open **Reviews** and tap **Fast-forward to the review date (simulated)**. Read whether the change
-   worked, then give your verdict. Confirm it as Owner.
+Also: allow the microphone, and keep the tab open the whole time.
+
+Each visitor gets a private demo bakery (made-up data) that lasts about 2 hours. A guide panel shows the next step, the demo code and the sign-in details. Use the EN / ID button for Bahasa.
+
+1. Open the live link. Choose **Staff**. Type the demo code from the guide.
+2. Tap **Start**. Read each card out loud. Tap **I have spoken this**.
+3. Tap **Jump to closing time**. Then tap **End today**.
+4. Wait 1 to 3 minutes. Answer the questions: Yes, No or Skip.
+5. Tap **Jump to tomorrow**. Do steps 2 to 4 again for day 2 and day 3.
+6. Sign out. Choose **Supervisor**. Open **Proposals**. Tap **Ask Bee6 for proposals**. Mark one **Feasible**.
+7. Sign out. Choose **Owner**. Open **Approvals**. Tap **Approve**. Open **SOP** to see the new version.
+8. Optional (about 10 more minutes): as Staff, play day 4 and day 5.
+9. As Supervisor, open **Reviews**. Tap **Fast-forward to the review date (simulated)**. Read the result and give your verdict. Confirm it as Owner.
 
 ## What to expect
 
