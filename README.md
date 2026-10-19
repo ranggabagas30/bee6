@@ -26,6 +26,8 @@ Each visitor gets a private copy of the demo bakery. It lasts about 2 hours. A g
 the next step, the demo code and the demo sign-in details. English is the default; switch to Bahasa Indonesia with the
 EN / ID button. Use a phone or laptop with a microphone.
 
+**Before you start:** Open the demo in a new Incognito or private window (each visitor's demo lives in that browser session). When the browser asks, allow the microphone. Keep the page and browser tab open the whole time. To start over, close the window and open a new private one, or clear the site's cookies and data.
+
 1. Open the live link and choose **Staff**. Enter the demo code the guide shows. You are now a shop worker.
 2. Tap **Start**. The guide shows 5 cards. Read each card aloud, then tap **I have spoken this**.
 3. Tap **Jump to closing time**, then **End today**. Wait for the questions, then answer them (Yes, No or Skip).
